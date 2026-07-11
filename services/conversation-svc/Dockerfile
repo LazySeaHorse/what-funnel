@@ -7,9 +7,14 @@ COPY go.work go.work.sum* ./
 
 # Copy module files
 COPY packages/go-common/go.mod packages/go-common/go.sum* packages/go-common/
+COPY services/api-gateway/go.mod services/api-gateway/go.sum* services/api-gateway/
+COPY services/identity-svc/go.mod services/identity-svc/go.sum* services/identity-svc/
+COPY services/workspace-svc/go.mod services/workspace-svc/go.sum* services/workspace-svc/
+COPY services/conversation-svc/go.mod services/conversation-svc/go.sum* services/conversation-svc/
+COPY services/notification-svc/go.mod services/notification-svc/go.sum* services/notification-svc/
 COPY adapters/fake/go.mod adapters/fake/
 COPY adapters/matrix-mautrix/go.mod adapters/matrix-mautrix/
-COPY services/conversation-svc/go.mod services/conversation-svc/
+COPY tests/integration/go.mod tests/integration/go.sum* tests/integration/
 
 # Download dependencies
 RUN cd services/conversation-svc && go mod download
