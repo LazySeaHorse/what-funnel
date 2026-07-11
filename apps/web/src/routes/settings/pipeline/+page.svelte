@@ -122,8 +122,10 @@
 			<a href="/settings/channels" class="nav-item">Channels</a>
 			<a href="/settings/users" class="nav-item">Workspace Users</a>
 			<a href="/settings/pipeline" class="nav-item active">Lead Pipeline</a>
+			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
 		</nav>
 	</div>
+
 
 	<div class="settings-content glass-panel">
 		<div class="content-header">
