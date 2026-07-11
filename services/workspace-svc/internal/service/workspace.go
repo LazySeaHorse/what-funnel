@@ -306,6 +306,16 @@ type UpdatePipelineRequest struct {
 	States []types.PipelineState
 }
 
+// ErrPipelineInUse is returned when attempting to delete pipeline states that are still referenced by active leads.
+type ErrPipelineInUse struct {
+	StateKeys []string
+	LeadIDs   []uuid.UUID
+}
+
+func (e *ErrPipelineInUse) Error() string {
+	return fmt.Sprintf("%d leads are currently in state(s) %v, move them first", len(e.LeadIDs), e.StateKeys)
+}
+
 // UpdatePipeline updates a pipeline's name and states.
 func (svc *Service) UpdatePipeline(ctx context.Context, accountID, actorID, pipelineID uuid.UUID, req UpdatePipelineRequest) error {
 	statesJSON, err := json.Marshal(req.States)
@@ -319,13 +329,58 @@ func (svc *Service) UpdatePipeline(ctx context.Context, accountID, actorID, pipe
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Verify pipeline belongs to this account
-	var count int
+	// Verify pipeline belongs to this account and get its current states
+	var currentStatesRaw []byte
 	err = tx.QueryRow(ctx,
-		`SELECT COUNT(*) FROM lead_pipelines WHERE id = $1 AND account_id = $2`,
-		pipelineID, accountID).Scan(&count)
-	if err != nil || count == 0 {
-		return fmt.Errorf("pipeline not found in account")
+		`SELECT states FROM lead_pipelines WHERE id = $1 AND account_id = $2`,
+		pipelineID, accountID).Scan(&currentStatesRaw)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("pipeline not found in account")
+		}
+		return fmt.Errorf("query pipeline: %w", err)
+	}
+
+	var currentStates []types.PipelineState
+	if len(currentStatesRaw) > 0 {
+		if err := json.Unmarshal(currentStatesRaw, &currentStates); err != nil {
+			return fmt.Errorf("unmarshal current states: %w", err)
+		}
+	}
+
+	// Diff states to find removed keys
+	newKeys := make(map[string]bool)
+	for _, s := range req.States {
+		newKeys[s.Key] = true
+	}
+
+	var removedKeys []string
+	for _, oldState := range currentStates {
+		if !newKeys[oldState.Key] {
+			removedKeys = append(removedKeys, oldState.Key)
+		}
+	}
+
+	if len(removedKeys) > 0 {
+		rows, err := tx.Query(ctx, `SELECT id FROM leads WHERE account_id = $1 AND current_state_key = ANY($2)`, accountID, removedKeys)
+		if err != nil {
+			return fmt.Errorf("check active leads: %w", err)
+		}
+		defer rows.Close()
+		var leadIDs []uuid.UUID
+		for rows.Next() {
+			var lid uuid.UUID
+			if err := rows.Scan(&lid); err != nil {
+				return err
+			}
+			leadIDs = append(leadIDs, lid)
+		}
+		if len(leadIDs) > 0 {
+			return &ErrPipelineInUse{
+				StateKeys: removedKeys,
+				LeadIDs:   leadIDs,
+			}
+		}
 	}
 
 	_, err = tx.Exec(ctx,

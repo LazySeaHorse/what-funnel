@@ -293,3 +293,108 @@ func TestChangeUserRole_InvalidRole(t *testing.T) {
 	err = svc.ChangeUserRole(ctx, accountID, adminID, memberID, "superuser")
 	assert.Error(t, err, "invalid role must be rejected")
 }
+
+func createTestLead(t *testing.T, pool *pgxpool.Pool, accountID uuid.UUID, pipelineID uuid.UUID, stateKey string) (uuid.UUID, uuid.UUID) {
+	ctx := context.Background()
+	// 1. Create a channel
+	var channelID uuid.UUID
+	err := pool.QueryRow(ctx,
+		`INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`,
+		accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	// 2. Create a contact
+	var contactID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO contacts (account_id, channel_id, external_identity) VALUES ($1, $2, $3) RETURNING id`,
+		accountID, channelID, uuid.NewString()).Scan(&contactID)
+	require.NoError(t, err)
+
+	// 3. Create a conversation
+	var conversationID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO conversations (account_id, contact_id, channel_id, status) VALUES ($1, $2, $3, 'open') RETURNING id`,
+		accountID, contactID, channelID).Scan(&conversationID)
+	require.NoError(t, err)
+
+	// 4. Create a lead
+	var leadID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key) VALUES ($1, $2, $3, $4) RETURNING id`,
+		accountID, conversationID, pipelineID, stateKey).Scan(&leadID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM leads WHERE id = $1`, leadID)
+		pool.Exec(context.Background(), `DELETE FROM conversations WHERE id = $1`, conversationID)
+		pool.Exec(context.Background(), `DELETE FROM contacts WHERE id = $1`, contactID)
+		pool.Exec(context.Background(), `DELETE FROM channels WHERE id = $1`, channelID)
+	})
+
+	return leadID, conversationID
+}
+
+func TestUpdatePipeline_StateDeletionGuard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "Pipeline Guard Account", "admin_guard@example.com")
+
+	// Get the default pipeline
+	pipelines, err := svc.ListPipelines(ctx, accountID)
+	require.NoError(t, err)
+	require.Len(t, pipelines, 1)
+	pipelineID := pipelines[0].ID
+
+	// 1. Safe rename/reorder succeeds
+	err = svc.UpdatePipeline(ctx, accountID, adminID, pipelineID, service.UpdatePipelineRequest{
+		Name: "Default Pipeline",
+		States: []types.PipelineState{
+			{Key: "new", Label: "Newly Created", Color: "#6366f1"}, // rename label
+			{Key: "contacted", Label: "Contacted", Color: "#3b82f6"},
+			{Key: "follow_up", Label: "Follow-up", Color: "#f59e0b"},
+			{Key: "won", Label: "Won", Color: "#22c55e"},
+			{Key: "lost", Label: "Lost", Color: "#ef4444"},
+		},
+	})
+	require.NoError(t, err, "Safe rename/reorder must succeed")
+
+	// 2. Removing an unused state succeeds
+	err = svc.UpdatePipeline(ctx, accountID, adminID, pipelineID, service.UpdatePipelineRequest{
+		Name: "Default Pipeline",
+		States: []types.PipelineState{
+			{Key: "new", Label: "Newly Created", Color: "#6366f1"},
+			{Key: "contacted", Label: "Contacted", Color: "#3b82f6"},
+			{Key: "follow_up", Label: "Follow-up", Color: "#f59e0b"},
+			{Key: "won", Label: "Won", Color: "#22c55e"},
+			// remove 'lost' state
+		},
+	})
+	require.NoError(t, err, "Removing an unused state must succeed")
+
+	// 3. Removing an in-use state is rejected
+	// Create a lead in state 'won'
+	leadID, _ := createTestLead(t, pool, accountID, pipelineID, "won")
+
+	// Attempt to remove 'won' state
+	err = svc.UpdatePipeline(ctx, accountID, adminID, pipelineID, service.UpdatePipelineRequest{
+		Name: "Default Pipeline",
+		States: []types.PipelineState{
+			{Key: "new", Label: "Newly Created", Color: "#6366f1"},
+			{Key: "contacted", Label: "Contacted", Color: "#3b82f6"},
+			{Key: "follow_up", Label: "Follow-up", Color: "#f59e0b"},
+			// remove 'won' state
+		},
+	})
+	assert.Error(t, err, "Removing an in-use state must be rejected")
+
+	inUseErr, ok := err.(*service.ErrPipelineInUse)
+	if assert.True(t, ok, "Error must be of type *ErrPipelineInUse") {
+		assert.Contains(t, inUseErr.StateKeys, "won")
+		assert.Contains(t, inUseErr.LeadIDs, leadID)
+	}
+}
+

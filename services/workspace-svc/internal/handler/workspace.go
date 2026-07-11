@@ -220,6 +220,14 @@ func (h *Handler) UpdatePipeline(w http.ResponseWriter, r *http.Request) {
 		Name:   body.Name,
 		States: body.States,
 	}); err != nil {
+		if inUseErr, ok := err.(*service.ErrPipelineInUse); ok {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":    "in_use",
+				"message":  inUseErr.Error(),
+				"lead_ids": inUseErr.LeadIDs,
+			})
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
