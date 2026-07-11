@@ -184,9 +184,27 @@ services:
   # ---------------------------------------------------------------------------
   # Stubs — built in later prompts
   # ---------------------------------------------------------------------------
-  # notification-svc  — Build Prompt 4+
-  # ai-answer-svc     — Build Prompt 4+
-  # ai-kb-compiler    — Build Prompt 4+
+  # AI Knowledge Base Compiler — paste compiler, conversation mining, scheduler
+  # ---------------------------------------------------------------------------
+  ai-kb-compiler:
+    build:
+      context: .
+      dockerfile: services/ai-kb-compiler/Dockerfile
+    container_name: whatfunnel-ai-kb-compiler
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8085"
+      LOG_LEVEL: info
+      MINING_INTERVAL_HOURS: "6"
+    ports:
+      - "8085:8085"
+    volumes:
+      - ./services/ai-kb-compiler:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
