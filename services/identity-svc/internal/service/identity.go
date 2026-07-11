@@ -27,11 +27,13 @@ type Service struct {
 	ab       *ab.Authboss
 }
 
-// SignupRequest carries the fields needed to create an account + admin user.
+// SignupRequest carries the fields needed to create an account + admin user,
+// or to redeem an invite token.
 type SignupRequest struct {
 	AccountName string `json:"account_name"`
 	Email       string `json:"email"`
 	Password    string `json:"password"`
+	InviteToken string `json:"invite_token"`
 }
 
 // LoginRequest carries credentials for login.
@@ -59,7 +61,8 @@ func New(pool *pgxpool.Pool, sessions *session.Store) (*Service, error) {
 }
 
 // Signup creates an account, admin user, and default pipeline in one atomic
-// transaction. The first user on an account is always admin (§6 of build prompt).
+// transaction. If an invite token is provided, it associates the new user
+// with the existing account and role instead.
 func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User, error) {
 	// Hash password via authboss (bcrypt)
 	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(req.Password)
@@ -73,64 +76,109 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// 1. Create account
-	var accountID uuid.UUID
-	err = tx.QueryRow(ctx,
-		`INSERT INTO accounts (name, plan) VALUES ($1, $2) RETURNING id`,
-		req.AccountName, types.PlanSelfHosted).Scan(&accountID)
-	if err != nil {
-		return nil, fmt.Errorf("service: create account: %w", err)
-	}
-
-	// 2. Check email uniqueness within account (also enforced by unique constraint)
-	var count int
-	_ = tx.QueryRow(ctx,
-		`SELECT COUNT(*) FROM users WHERE account_id = $1 AND email = $2`,
-		accountID, req.Email).Scan(&count)
-	if count > 0 {
-		return nil, fmt.Errorf("service: email already registered")
-	}
-
-	// 3. Create admin user (first user = always admin)
-	var userID uuid.UUID
-	err = tx.QueryRow(ctx,
-		`INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`,
-		accountID, req.Email, hash, types.RoleAdmin).Scan(&userID)
-	if err != nil {
-		return nil, fmt.Errorf("service: create user: %w", err)
-	}
-
-	// 4. Seed default pipeline
-	statesJSON, err := json.Marshal(types.DefaultPipelineStates)
-	if err != nil {
-		return nil, fmt.Errorf("service: marshal default states: %w", err)
-	}
-	_, err = tx.Exec(ctx,
-		`INSERT INTO lead_pipelines (account_id, name, states) VALUES ($1, $2, $3)`,
-		accountID, "Default Pipeline", statesJSON)
-	if err != nil {
-		return nil, fmt.Errorf("service: seed default pipeline: %w", err)
-	}
-
-	// 5. Write audit log
 	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
-		ActorUserID: &userID,
-		Action:     audit.ActionAccountCreated,
-		TargetType: audit.TargetAccount,
-		TargetID:   &accountID,
-		Metadata:   map[string]any{"account_name": req.AccountName},
-	}); err != nil {
-		return nil, fmt.Errorf("service: audit account: %w", err)
+
+	var accountID uuid.UUID
+	var userID uuid.UUID
+	var userRole string
+	isInvite := req.InviteToken != ""
+
+	if isInvite {
+		var invitedEmail string
+		// 1. Look up and validate invite token
+		err = tx.QueryRow(ctx,
+			`SELECT account_id, email, role FROM invite_tokens WHERE token = $1`,
+			req.InviteToken).Scan(&accountID, &invitedEmail, &userRole)
+		if err != nil {
+			return nil, fmt.Errorf("service: invalid or expired invite token")
+		}
+
+		if req.Email != invitedEmail {
+			return nil, fmt.Errorf("service: email does not match the invitation")
+		}
+
+		// 2. Check email uniqueness within account
+		var count int
+		_ = tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM users WHERE account_id = $1 AND email = $2`,
+			accountID, req.Email).Scan(&count)
+		if count > 0 {
+			return nil, fmt.Errorf("service: email already registered")
+		}
+
+		// 3. Create user with role from invite
+		err = tx.QueryRow(ctx,
+			`INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`,
+			accountID, req.Email, hash, userRole).Scan(&userID)
+		if err != nil {
+			return nil, fmt.Errorf("service: create user from invite: %w", err)
+		}
+
+		// 4. Delete the redeemed token
+		_, err = tx.Exec(ctx, `DELETE FROM invite_tokens WHERE token = $1`, req.InviteToken)
+		if err != nil {
+			return nil, fmt.Errorf("service: consume invite token: %w", err)
+		}
+	} else {
+		userRole = types.RoleAdmin
+		// 1. Create account
+		err = tx.QueryRow(ctx,
+			`INSERT INTO accounts (name, plan) VALUES ($1, $2) RETURNING id`,
+			req.AccountName, types.PlanSelfHosted).Scan(&accountID)
+		if err != nil {
+			return nil, fmt.Errorf("service: create account: %w", err)
+		}
+
+		// 2. Check email uniqueness within account
+		var count int
+		_ = tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM users WHERE account_id = $1 AND email = $2`,
+			accountID, req.Email).Scan(&count)
+		if count > 0 {
+			return nil, fmt.Errorf("service: email already registered")
+		}
+
+		// 3. Create admin user
+		err = tx.QueryRow(ctx,
+			`INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`,
+			accountID, req.Email, hash, userRole).Scan(&userID)
+		if err != nil {
+			return nil, fmt.Errorf("service: create user: %w", err)
+		}
+
+		// 4. Seed default pipeline
+		statesJSON, err := json.Marshal(types.DefaultPipelineStates)
+		if err != nil {
+			return nil, fmt.Errorf("service: marshal default states: %w", err)
+		}
+		_, err = tx.Exec(ctx,
+			`INSERT INTO lead_pipelines (account_id, name, states) VALUES ($1, $2, $3)`,
+			accountID, "Default Pipeline", statesJSON)
+		if err != nil {
+			return nil, fmt.Errorf("service: seed default pipeline: %w", err)
+		}
+
+		// 5. Write account audit log
+		if err := aw.Write(ctx, audit.Entry{
+			AccountID:  accountID,
+			ActorUserID: &userID,
+			Action:     audit.ActionAccountCreated,
+			TargetType: audit.TargetAccount,
+			TargetID:   &accountID,
+			Metadata:   map[string]any{"account_name": req.AccountName},
+		}); err != nil {
+			return nil, fmt.Errorf("service: audit account: %w", err)
+		}
 	}
+
+	// Common User Creation Audit Log
 	if err := aw.Write(ctx, audit.Entry{
 		AccountID:  accountID,
 		ActorUserID: &userID,
 		Action:     audit.ActionUserCreated,
 		TargetType: audit.TargetUser,
 		TargetID:   &userID,
-		Metadata:   map[string]any{"email": req.Email, "role": types.RoleAdmin},
+		Metadata:   map[string]any{"email": req.Email, "role": userRole},
 	}); err != nil {
 		return nil, fmt.Errorf("service: audit user: %w", err)
 	}
@@ -143,7 +191,7 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		ID:        userID,
 		AccountID: accountID,
 		Email:     req.Email,
-		Role:      types.RoleAdmin,
+		Role:      userRole,
 		CreatedAt: time.Now(),
 	}, nil
 }
