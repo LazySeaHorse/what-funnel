@@ -12,6 +12,7 @@ type Config struct {
 	// EncryptionKey is a 32-byte hex-encoded AES-256 key for ai_provider_config.
 	// In production, source this from a secrets manager.
 	EncryptionKey string
+	RedisURL      string
 	Port          string
 	LogLevel      string
 }
@@ -23,6 +24,7 @@ func Load() (*Config, error) {
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		SessionSecret: os.Getenv("SESSION_SECRET"),
 		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
+		RedisURL:      os.Getenv("REDIS_URL"),
 		Port:          os.Getenv("PORT"),
 		LogLevel:      os.Getenv("LOG_LEVEL"),
 	}
@@ -35,6 +37,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.EncryptionKey == "" {
 		return nil, fmt.Errorf("ENCRYPTION_KEY is required")
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "localhost:6379"
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"

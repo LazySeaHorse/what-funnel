@@ -91,3 +91,54 @@ var DefaultPipelineStates = []PipelineState{
 	{Key: "won", Label: "Won", Color: "#22c55e"},
 	{Key: "lost", Label: "Lost", Color: "#ef4444"},
 }
+
+// Channel represents a connected messaging surface.
+type Channel struct {
+	ID                uuid.UUID  `json:"id" db:"id"`
+	AccountID         uuid.UUID  `json:"account_id" db:"account_id"`
+	Type              string     `json:"type" db:"type"`
+	BridgeIdentity    *string    `json:"bridge_identity" db:"bridge_identity"`
+	BridgeCredentials []byte     `json:"-" db:"bridge_credentials"` // encrypted bytes
+	Status            string     `json:"status" db:"status"`
+	StatusDetail      *string    `json:"status_detail" db:"status_detail"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+}
+
+// Contact represents a remote identity on a channel.
+type Contact struct {
+	ID                  uuid.UUID  `json:"id" db:"id"`
+	AccountID           uuid.UUID  `json:"account_id" db:"account_id"`
+	ChannelID           uuid.UUID  `json:"channel_id" db:"channel_id"`
+	ExternalIdentity    string     `json:"external_identity" db:"external_identity"`
+	DisplayName         *string    `json:"display_name" db:"display_name"`
+	AvatarURL           *string    `json:"avatar_url" db:"avatar_url"`
+	MergedIntoContactID *uuid.UUID `json:"merged_into_contact_id" db:"merged_into_contact_id"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+}
+
+// Conversation is a thread with one contact on one channel.
+type Conversation struct {
+	ID              uuid.UUID   `json:"id" db:"id"`
+	AccountID       uuid.UUID   `json:"account_id" db:"account_id"`
+	ContactID       uuid.UUID   `json:"contact_id" db:"contact_id"`
+	ChannelID       uuid.UUID   `json:"channel_id" db:"channel_id"`
+	Status          string      `json:"status" db:"status"`
+	AssignedUserIDs []uuid.UUID `json:"assigned_user_ids" db:"assigned_user_ids"`
+	LastMessageAt   *time.Time  `json:"last_message_at" db:"last_message_at"`
+	AIModeActive    bool        `json:"ai_mode_active" db:"ai_mode_active"`
+	CreatedAt       time.Time   `json:"created_at" db:"created_at"`
+}
+
+// Message is an individual message in a conversation.
+type Message struct {
+	ID                uuid.UUID  `json:"id" db:"id"`
+	AccountID         uuid.UUID  `json:"account_id" db:"account_id"`
+	ConversationID    uuid.UUID  `json:"conversation_id" db:"conversation_id"`
+	Direction         string     `json:"direction" db:"direction"`
+	SenderType        string     `json:"sender_type" db:"sender_type"`
+	SenderUserID      *uuid.UUID `json:"sender_user_id" db:"sender_user_id"`
+	ContentType       string     `json:"content_type" db:"content_type"`
+	Content           []byte     `json:"content" db:"content"` // JSONB payload
+	ExternalMessageID *string    `json:"external_message_id" db:"external_message_id"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+}
