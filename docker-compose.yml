@@ -110,13 +110,58 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # Conversation Service — ingestion consumer, outbound API
+  # ---------------------------------------------------------------------------
+  conversation-svc:
+    build:
+      context: .
+      dockerfile: services/conversation-svc/Dockerfile
+    container_name: whatfunnel-conversation-svc
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
+      SESSION_SECRET: change-me-in-production-at-least-32-chars
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8083"
+      LOG_LEVEL: info
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Synapse (Matrix Homeserver) & mautrix-whatsapp bridge
+  # ---------------------------------------------------------------------------
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: whatfunnel-synapse
+    ports:
+      - "8008:8008"
+    volumes:
+      - synapse_data:/data
+    restart: unless-stopped
+
+  mautrix-whatsapp:
+    image: dock.mau.dev/mautrix/whatsapp:latest
+    container_name: whatfunnel-mautrix-whatsapp
+    volumes:
+      - mautrix_whatsapp_data:/data
+    depends_on:
+      - synapse
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
   # Stubs — built in later prompts
   # ---------------------------------------------------------------------------
-  # conversation-svc  — Build Prompt 2+
   # notification-svc  — Build Prompt 4+
   # ai-answer-svc     — Build Prompt 4+
   # ai-kb-compiler    — Build Prompt 4+
-  # matrix-adapter    — Build Prompt 2+
 
 volumes:
   postgres_data:
+  synapse_data:
+  mautrix_whatsapp_data:
