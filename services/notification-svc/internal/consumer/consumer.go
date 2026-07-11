@@ -53,10 +53,22 @@ func (c *Consumer) Start(ctx context.Context, consumerName string) {
 			c.logger.Error("channel.status_changed consumer failed", "error", err)
 		}
 	}()
+
+	go func() {
+		c.logger.Info("starting lead.state_changed stream consumer")
+		err := c.ps.Consume(ctx, "lead.state_changed", "notification-svc", consumerName, c.handleLeadStateChanged)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("lead.state_changed consumer failed", "error", err)
+		}
+	}()
 }
 
 func (c *Consumer) HandleConversationUpdatedForTest(ctx context.Context, id string, payload []byte) error {
 	return c.handleConversationUpdated(ctx, id, payload)
+}
+
+func (c *Consumer) HandleLeadStateChangedForTest(ctx context.Context, id string, payload []byte) error {
+	return c.handleLeadStateChanged(ctx, id, payload)
 }
 
 func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, payload []byte) error {
@@ -193,6 +205,56 @@ func (c *Consumer) handleChannelStatusChanged(ctx context.Context, id string, pa
 
 	// Broadcast to anyone in the same account
 	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, nil)
+
+	return nil
+}
+
+func (c *Consumer) handleLeadStateChanged(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		Type           string    `json:"type"`
+		ConversationID uuid.UUID `json:"conversation_id"`
+		LeadID         uuid.UUID `json:"lead_id"`
+		FromState      *string   `json:"from_state"`
+		ToState        string    `json:"to_state"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal lead.state_changed event", "error", err)
+		return nil
+	}
+
+	// 1. Resolve account_id and assigned_user_ids from the conversation
+	var accountID uuid.UUID
+	var assignedUserIDs []uuid.UUID
+	err := c.pool.QueryRow(ctx, `SELECT account_id, assigned_user_ids FROM conversations WHERE id = $1`, ev.ConversationID).Scan(&accountID, &assignedUserIDs)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.logger.Warn("conversation not found for lead state change event", "convo_id", ev.ConversationID)
+			return nil
+		}
+		return err
+	}
+
+	// 2. Fetch account settings
+	var settingsBytes []byte
+	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes)
+	if err != nil {
+		return err
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	// 3. WS Event Payload
+	wsEvent := map[string]any{
+		"type":            "lead.state_changed",
+		"conversation_id": ev.ConversationID.String(),
+		"lead_id":         ev.LeadID.String(),
+		"from_state":      ev.FromState,
+		"to_state":        ev.ToState,
+	}
+
+	// 4. Broadcast to users in the same account with visibility filtering
+	c.hub.BroadcastToAccount(accountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
+	})
 
 	return nil
 }
