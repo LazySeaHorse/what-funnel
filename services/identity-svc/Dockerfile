@@ -7,7 +7,10 @@ COPY go.work go.work.sum* ./
 
 # Copy module files
 COPY packages/go-common/go.mod packages/go-common/go.sum* packages/go-common/
+COPY services/api-gateway/go.mod services/api-gateway/go.sum* services/api-gateway/
 COPY services/identity-svc/go.mod services/identity-svc/go.sum* services/identity-svc/
+COPY services/workspace-svc/go.mod services/workspace-svc/go.sum* services/workspace-svc/
+COPY tests/integration/go.mod tests/integration/go.sum* tests/integration/
 
 # Download dependencies
 RUN cd services/identity-svc && go mod download
