@@ -1,0 +1,5 @@
+__pycache__/
+tests/__pycache__/
+tests/go_encrypted.json
+tests/python_encrypted.json
+.pytest_cache/
