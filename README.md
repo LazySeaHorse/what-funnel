@@ -1,107 +1,92 @@
 # WhatFunnel
 
-A chatbot automation layer + lead management workspace that connects to existing messaging channels via mautrix bridges. See [docs/WHATFUNNEL_SPEC.md](docs/WHATFUNNEL_SPEC.md) for the full product spec.
+A chatbot automation layer + lead management workspace that connects to existing messaging channels via mautrix bridges. See [docs/WHATFUNNEL_SPEC.md](docs/WHATFUNNEL_SPEC.md) for the full product specification.
 
 ---
 
-## Architecture overview
+## Architecture Overview
 
 ```
-api-gateway (Go)  →  identity-svc (Go)   — auth, RBAC, audit
-                  →  workspace-svc (Go)  — accounts, users, pipeline config
-                  →  conversation-svc    — contacts, conversations, messages, leads (Build Prompt 2+)
-                  →  notification-svc    — WebSocket push (Build Prompt 4+)
-ai-answer-svc (Python) — AI cascade (Build Prompt 4+)
-ai-kb-compiler (Python) — KB compilation (Build Prompt 4+)
-adapters/matrix-mautrix — channel bridge (Build Prompt 2+)
+api-gateway (Go)  →  identity-svc (Go)      — auth, RBAC, audit
+                  →  workspace-svc (Go)     — accounts, users, pipeline config
+                  →  conversation-svc (Go)  — contacts, conversations, messages, channels
+                  →  notification-svc (Go)  — WebSocket push gateway (/ws proxying)
+
+redis (Streams)   — inbound message ingestion stream & live event broadcast bus
+postgres (pg)     — shared tenant database
+apps/web (Svelte) — premium SvelteKit SPA desktop dashboard
 ```
 
-Frontend: SvelteKit (`apps/web/`, Build Prompt 5+).
+---
+
+## Features Implemented
+
+* **Multi-Tenant Workspace & RBAC:** Complete tenant partitioning at the database level. Admin/Member roles enforced via RBAC middleware on secure server-side sessions.
+* **Inbound Ingestion Pipeline:** Redis Stream consumer ingests raw inbound events from Matrix bridges, Normalizes metadata, creates Contacts & Conversations, and stores Messages.
+* **WebSocket Gateway Proxying:** Gateway TCP-hijacking reverse proxy routes `/ws` WebSocket requests to `notification-svc` for secure real-time push.
+* **Real-time Event Broadcasting:** WebSocket events are dispatched dynamically based on tenant identity and private unassigned conversation settings (`unassigned_conversations_visible_to_members`).
+* **Invited User Signup:** Dynamic invite token creation by Admins and full token-redemption member registration during signup.
+* **Dynamic Adapters & Mocking:** Dynamic channel creation and decryption of credentials. Integrated mock homeserver bypass for robust testing.
+* **SvelteKit Desktop Web App:** Bento-style inbox UI featuring list search, cursor-pagination, 7 inline message types, reaction bubble parsing, QR code WhatsApp setup, and user roles administration.
 
 ---
 
-## Tech decisions (Build Prompt 1)
+## Tech Decisions
 
-### Go workspace vs per-service modules
+### Go Workspace vs Per-Service Modules
+We use a **single `go.work` workspace** across `services/*` and `packages/go-common`. This allows running `go build ./...` and `go test ./...` from the workspace root. Shared code in `packages/go-common` is referenced as a local module with no publish step needed during development.
 
-We use a **single `go.work` workspace** across `services/*` and `packages/go-common`. This means:
+### Shared Database Migrations
+Migrations live in `packages/go-common/migrations/`. Goose runs against the shared Postgres DB, ensuring that all services access a single canonical database schema.
 
-- `go build ./...` and `go test ./...` work from the repo root.
-- Shared code in `packages/go-common` is referenced as a local module — no publish step needed during development.
-- Each service still has its own `go.mod` (with its own module path) so it can be built/containerised independently.
-
-### Migrations: goose (pressly/goose)
-
-Migration files live in `packages/go-common/migrations/`. Rationale: all four foundation tables (`accounts`, `users`, `audit_logs`, `lead_pipelines`) are used across `identity-svc` and `workspace-svc`, so a single canonical location avoids the chicken-and-egg problem of "which service owns the shared schema?". Each service reads the same shared migration dir via a `MIGRATIONS_DIR` env var that docker-compose injects. The `make migrate` target runs goose against all migrations.
-
-### Auth: sessions (not JWT)
-
-We use `authboss` (volatiletech/authboss) with server-side sessions and signed cookies. Reasons for sessions over JWT:
-
-1. **Revocation is trivial** — destroying a session row logs the user out immediately. JWTs require a deny-list to revoke before expiry.
-2. **Desktop-first app** — no cross-domain credential sharing needed; cookies work cleanly.
-3. **authboss is session-native** — fighting its design to emit JWTs would add complexity with no gain at this stage.
-
-JWT is a documented fast-follow if mobile clients or cross-domain integrations are added.
-
-### Multi-tenancy isolation: application layer (not Postgres RLS)
-
-**v1 tradeoff:** Tenant isolation is enforced by `ScopedDB` (see `packages/go-common/db/scoped.go`), which requires an `account_id` on every query against tenant-scoped tables. This is explicit, auditable, and fast to build. Postgres RLS would add a second enforcement layer that makes misconfiguration harder — **it is a documented fast-follow**, prioritised for any public cloud deployment.
-
-To enable RLS later: add `ALTER TABLE <table> ENABLE ROW LEVEL SECURITY;` and a policy per table. The `account_id` column and indexes are already in place.
+### Server-Side Sessions
+We use `authboss` with server-side sessions and signed cookies. This provides instant revocation via database session deletes and fits the desktop-first nature of the app.
 
 ---
 
-## Running locally
+## Running Locally
 
 ### Prerequisites
 
-- Docker + Docker Compose v2
-- Go 1.22+
-- `goose` CLI: `go install github.com/pressly/goose/v3/cmd/goose@latest`
+* Docker + Docker Compose v2
+* Go 1.25
+* Node.js v20+ & npm
 
-### Start services
+### 1. Start Services & Database
 
+Spin up Postgres, Redis, and all Go microservices:
 ```bash
-make up          # docker-compose up -d (postgres, redis, all Go services)
+make up          # docker compose up -d
 make migrate     # run goose migrations against local postgres
 ```
 
-### Run tests
+### 2. Run the SvelteKit Frontend
 
+Install dependencies and start the Vite dev server:
 ```bash
-make test        # runs go test ./... across the whole go.work workspace
+cd apps/web
+npm install
+npm run dev
+```
+Open [http://localhost:5173/](http://localhost:5173/) in your browser. Development API calls are proxied automatically to `http://localhost:18080` (API Gateway).
+
+### 3. Run Tests
+
+Run the full Go test suite, including database, service, and E2E integration tests:
+```bash
+make test        # runs go test ./... across the whole workspace
 ```
 
-Tests that hit Postgres require the docker-compose stack to be running (`make up` first). The `make test` target waits for Postgres to be healthy before running.
-
-### Stop services
-
+To stop all background docker services:
 ```bash
 make down
 ```
 
 ---
 
-## Commit history (Build Prompt 1 stages)
+## Backlog / Fast-Follows
 
-| Commit | Stage |
-|---|---|
-| `chore: repo skeleton and local dev environment` | Stage 0 |
-| `feat(db): foundation schema — accounts, users, audit_logs, lead_pipelines` | Stage 1 |
-| `feat(common): application-layer tenant isolation` | Stage 2 |
-| `feat(identity): signup, login, logout via authboss` | Stage 3 |
-| `feat(common): RBAC middleware, admin/member enforcement` | Stage 4 |
-| `feat(workspace): user management and pipeline config` | Stage 5 |
-| `feat(workspace): encrypted storage primitive for AI provider config` | Stage 6 |
-| `test: foundation end-to-end integration pass` | Stage 7 |
-
----
-
-## Backlog / fast-follows
-
-- Postgres RLS (row-level security) as a second isolation layer
-- JWT auth for mobile/cross-domain clients
-- Real email delivery (invite flow currently logs token and stubs SMTP — search for `// TODO: wire to email provider`)
-- Redis Streams wiring (redis container is running but nothing publishes/consumes yet)
-- SvelteKit frontend (`apps/web/`)
+- Postgres RLS (row-level security) as a secondary database-level isolation layer.
+- JWT auth support for mobile clients or external webhooks.
+- AI Cascade Engine (Build Prompt 4): Suggested replies, auto-answers, and knowledge base compilation.
+- Production build compilation and static asset serving.
