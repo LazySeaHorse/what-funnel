@@ -149,8 +149,10 @@
 		<h2 class="sidebar-title">Settings</h2>
 		<nav class="sidebar-nav">
 			<a href="/inbox" class="nav-item">← Back to Inbox</a>
+			<a href="/settings/account" class="nav-item">Account Settings</a>
 			<a href="/settings/channels" class="nav-item active">Channels</a>
 			<a href="/settings/users" class="nav-item">Workspace Users</a>
+			<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
 		</nav>
 	</div>
 
