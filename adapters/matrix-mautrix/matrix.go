@@ -104,6 +104,10 @@ func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID s
 		return fmt.Errorf("channel %s credentials not configured in matrix adapter", channelID)
 	}
 
+	if creds.HomeserverURL == "mock" || creds.HomeserverURL == "" {
+		return nil
+	}
+
 	txid := fmt.Sprintf("tx-%d", time.Now().UnixNano())
 	sendURL := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
 		creds.HomeserverURL, url.PathEscape(externalThreadID), url.PathEscape(txid))
@@ -165,6 +169,13 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publish func(t
 	creds, exists := a.creds[channelID]
 	a.mu.RUnlock()
 	if !exists {
+		return
+	}
+
+	if creds.HomeserverURL == "mock" || creds.HomeserverURL == "" {
+		a.SetStatus(channelID, "connected", "Mock active connection")
+		<-ctx.Done()
+		a.SetStatus(channelID, "disconnected", "Context cancelled")
 		return
 	}
 
