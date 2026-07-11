@@ -101,6 +101,7 @@ services:
       WORKSPACE_SVC_URL: http://workspace-svc:8082
       CONVERSATION_SVC_URL: http://conversation-svc:8083
       NOTIFICATION_SVC_URL: http://notification-svc:8084
+      AI_KB_COMPILER_URL: http://ai-kb-compiler:8085
       SESSION_SECRET: change-me-in-production-at-least-32-chars
       PORT: "8080"
       LOG_LEVEL: info
@@ -110,7 +111,9 @@ services:
       - identity-svc
       - workspace-svc
       - notification-svc
+      - ai-kb-compiler
     restart: unless-stopped
+
 
   # ---------------------------------------------------------------------------
   # Conversation Service — ingestion consumer, outbound API
