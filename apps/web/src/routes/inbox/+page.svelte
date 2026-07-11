@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
-	import { InboxState } from '$lib/store';
+	import { InboxState } from '$lib/store.svelte';
 
 	const inbox = new InboxState();
 	let composeText = $state('');
@@ -44,8 +44,8 @@
 
 		// 2. Map messages and attach reactions
 		return msgs
-			.filter((m) => m.content_type !== 'reaction')
-			.map((m) => {
+			.filter((m: any) => m.content_type !== 'reaction')
+			.map((m: any) => {
 				const contentObj = typeof m.content === 'string' ? JSON.parse(m.content) : m.content;
 				return {
 					...m,
@@ -129,8 +129,8 @@
 	function getAssignedNames(assignedIDs?: string[]) {
 		if (!assignedIDs || assignedIDs.length === 0) return 'Unassigned';
 		return inbox.users
-			.filter((u) => assignedIDs.includes(u.id))
-			.map((u) => u.email.split('@')[0])
+			.filter((u: any) => assignedIDs.includes(u.id))
+			.map((u: any) => u.email.split('@')[0])
 			.join(', ');
 	}
 </script>
