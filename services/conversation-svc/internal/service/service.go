@@ -1416,6 +1416,12 @@ func (s *Service) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUI
 		return nil, fmt.Errorf("write audit log: %w", err)
 	}
 
+	var authorEmail string
+	err = tx.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, userID).Scan(&authorEmail)
+	if err != nil {
+		return nil, fmt.Errorf("resolve author email: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit create lead note tx: %w", err)
 	}
@@ -1425,6 +1431,7 @@ func (s *Service) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUI
 		AccountID:    accountID,
 		LeadID:       leadID,
 		AuthorUserID: &userID,
+		AuthorEmail:  authorEmail,
 		Body:         body,
 		CreatedAt:    createdAt,
 	}, nil
@@ -1437,10 +1444,11 @@ func (s *Service) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, account_id, lead_id, author_user_id, body, created_at
-		FROM lead_notes
-		WHERE lead_id = $1 AND account_id = $2
-		ORDER BY created_at ASC
+		SELECT ln.id, ln.account_id, ln.lead_id, ln.author_user_id, ln.body, ln.created_at, COALESCE(u.email, '')
+		FROM lead_notes ln
+		LEFT JOIN users u ON ln.author_user_id = u.id
+		WHERE ln.lead_id = $1 AND ln.account_id = $2
+		ORDER BY ln.created_at ASC
 	`, leadID, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query lead notes: %w", err)
@@ -1451,7 +1459,7 @@ func (s *Service) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID
 	for rows.Next() {
 		var n types.LeadNote
 		var authorUserID *uuid.UUID
-		if err := rows.Scan(&n.ID, &n.AccountID, &n.LeadID, &authorUserID, &n.Body, &n.CreatedAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.AccountID, &n.LeadID, &authorUserID, &n.Body, &n.CreatedAt, &n.AuthorEmail); err != nil {
 			return nil, err
 		}
 		n.AuthorUserID = authorUserID
@@ -1470,10 +1478,11 @@ func (s *Service) ListLeadHistory(ctx context.Context, accountID, userID uuid.UU
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, account_id, lead_id, from_state, to_state, changed_by, changed_at
-		FROM lead_state_history
-		WHERE lead_id = $1 AND account_id = $2
-		ORDER BY changed_at ASC
+		SELECT lsh.id, lsh.account_id, lsh.lead_id, lsh.from_state, lsh.to_state, lsh.changed_by, lsh.changed_at, COALESCE(u.email, '')
+		FROM lead_state_history lsh
+		LEFT JOIN users u ON lsh.changed_by = u.id
+		WHERE lsh.lead_id = $1 AND lsh.account_id = $2
+		ORDER BY lsh.changed_at ASC
 	`, leadID, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query lead history: %w", err)
@@ -1485,7 +1494,7 @@ func (s *Service) ListLeadHistory(ctx context.Context, accountID, userID uuid.UU
 		var h types.LeadStateHistory
 		var fromState *string
 		var changedBy *uuid.UUID
-		if err := rows.Scan(&h.ID, &h.AccountID, &h.LeadID, &fromState, &h.ToState, &changedBy, &h.ChangedAt); err != nil {
+		if err := rows.Scan(&h.ID, &h.AccountID, &h.LeadID, &fromState, &h.ToState, &changedBy, &h.ChangedAt, &h.ActorEmail); err != nil {
 			return nil, err
 		}
 		h.FromState = fromState

@@ -73,6 +73,7 @@ type LeadNote struct {
 	AccountID    uuid.UUID  `json:"account_id" db:"account_id"`
 	LeadID       uuid.UUID  `json:"lead_id" db:"lead_id"`
 	AuthorUserID *uuid.UUID `json:"author_user_id" db:"author_user_id"`
+	AuthorEmail  string     `json:"author_email,omitempty"`
 	Body         string     `json:"body" db:"body"`
 	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
 }
@@ -85,6 +86,7 @@ type LeadStateHistory struct {
 	FromState *string    `json:"from_state" db:"from_state"`
 	ToState   string     `json:"to_state" db:"to_state"`
 	ChangedBy *uuid.UUID `json:"changed_by" db:"changed_by"`
+	ActorEmail string     `json:"actor_email,omitempty"`
 	ChangedAt time.Time  `json:"changed_at" db:"changed_at"`
 }
 
