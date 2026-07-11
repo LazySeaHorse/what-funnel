@@ -12,6 +12,10 @@ from pydantic import BaseModel, Field
 from config import config
 from db import ScopedDB, create_db_pool
 from llm import get_ai_config, embed, complete
+from mining import run_mining
+from scheduler import start_scheduler
+
+
 
 # Set up logging
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
@@ -23,8 +27,12 @@ async def lifespan(app: FastAPI):
     logger.info("Connecting to database...")
     app.state.db = await create_db_pool(config.DATABASE_URL)
     logger.info("Database connection pool initialized.")
+    # Start periodic mining scheduler
+    app.state.scheduler = start_scheduler(app.state.db)
     yield
     # Shutdown
+    logger.info("Stopping scheduler...")
+    app.state.scheduler.shutdown()
     logger.info("Closing database pool...")
     await app.state.db.close()
     logger.info("Database pool closed.")
@@ -260,7 +268,16 @@ async def delete_concept(
 
     return {"success": True}
 
+# Stage 6 — Dormant Mining
+@app.post("/internal/kb/mine/trigger")
+async def trigger_mine(
+    db: ScopedDB = Depends(get_db)
+):
+    result = await run_mining(db)
+    return result
+
 # Stage 7 — Suggestion Review
+
 class ApproveSuggestionRequest(BaseModel):
     reviewed_by: str
     edited_payload: Optional[dict] = None
