@@ -6,4 +6,8 @@ use (
 	./services/identity-svc
 	./services/workspace-svc
 	./tests/integration
+	./services/conversation-svc
+	./adapters/matrix-mautrix
+	./adapters/fake
+	./services/notification-svc
 )

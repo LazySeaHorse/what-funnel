@@ -99,6 +99,8 @@ services:
     environment:
       IDENTITY_SVC_URL: http://identity-svc:8081
       WORKSPACE_SVC_URL: http://workspace-svc:8082
+      CONVERSATION_SVC_URL: http://conversation-svc:8083
+      NOTIFICATION_SVC_URL: http://notification-svc:8084
       SESSION_SECRET: change-me-in-production-at-least-32-chars
       PORT: "8080"
       LOG_LEVEL: info
@@ -107,6 +109,7 @@ services:
     depends_on:
       - identity-svc
       - workspace-svc
+      - notification-svc
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -126,6 +129,30 @@ services:
       LOG_LEVEL: info
     ports:
       - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Notification Service — WebSocket push service
+  # ---------------------------------------------------------------------------
+  notification-svc:
+    build:
+      context: .
+      dockerfile: services/notification-svc/Dockerfile
+    container_name: whatfunnel-notification-svc
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
+      SESSION_SECRET: change-me-in-production-at-least-32-chars
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8084"
+      LOG_LEVEL: info
+    ports:
+      - "8084:8084"
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,0 +1,198 @@
+package consumer
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
+)
+
+type Consumer struct {
+	pool   *pgxpool.Pool
+	ps     *pubsub.Client
+	hub    *server.Hub
+	logger *slog.Logger
+}
+
+func NewConsumer(pool *pgxpool.Pool, ps *pubsub.Client, hub *server.Hub, logger *slog.Logger) *Consumer {
+	return &Consumer{
+		pool:   pool,
+		ps:     ps,
+		hub:    hub,
+		logger: logger,
+	}
+}
+
+func (c *Consumer) Start(ctx context.Context, consumerName string) {
+	go func() {
+		c.logger.Info("starting conversation.updated stream consumer")
+		err := c.ps.Consume(ctx, "conversation.updated", "notification-svc", consumerName, c.handleConversationUpdated)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("conversation.updated consumer failed", "error", err)
+		}
+	}()
+
+	go func() {
+		c.logger.Info("starting conversation.assigned stream consumer")
+		err := c.ps.Consume(ctx, "conversation.assigned", "notification-svc", consumerName, c.handleConversationAssigned)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("conversation.assigned consumer failed", "error", err)
+		}
+	}()
+
+	go func() {
+		c.logger.Info("starting channel.status_changed stream consumer")
+		err := c.ps.Consume(ctx, "channel.status_changed", "notification-svc", consumerName, c.handleChannelStatusChanged)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("channel.status_changed consumer failed", "error", err)
+		}
+	}()
+}
+
+func (c *Consumer) HandleConversationUpdatedForTest(ctx context.Context, id string, payload []byte) error {
+	return c.handleConversationUpdated(ctx, id, payload)
+}
+
+func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID      uuid.UUID `json:"account_id"`
+		ConversationID uuid.UUID `json:"conversation_id"`
+		MessageID      uuid.UUID `json:"message_id"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal conversation.updated event", "error", err)
+		return nil
+	}
+
+	// 1. Fetch conversation details (specifically assigned_user_ids)
+	var assignedUserIDs []uuid.UUID
+	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.logger.Warn("conversation not found for update event", "convo_id", ev.ConversationID)
+			return nil
+		}
+		return err
+	}
+
+	// 2. Fetch account settings
+	var settingsBytes []byte
+	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	if err != nil {
+		return err
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	// 3. Fetch full message details
+	msg := &types.Message{}
+	err = c.pool.QueryRow(ctx, `
+		SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+		FROM messages WHERE id = $1 AND account_id = $2
+	`, ev.MessageID, ev.AccountID).Scan(
+		&msg.ID,
+		&msg.AccountID,
+		&msg.ConversationID,
+		&msg.Direction,
+		&msg.SenderType,
+		&msg.SenderUserID,
+		&msg.ContentType,
+		&msg.Content,
+		&msg.ExternalMessageID,
+		&msg.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.logger.Warn("message not found for update event", "msg_id", ev.MessageID)
+			return nil
+		}
+		return err
+	}
+
+	// Determine payload type
+	eventType := "message.received"
+	if msg.Direction == "outbound" {
+		eventType = "message.sent"
+	}
+
+	wsEvent := server.WSMessageEvent{
+		Type:           eventType,
+		ConversationID: ev.ConversationID.String(),
+		Message:        msg,
+	}
+
+	// 4. Broadcast to users in the same account with visibility filtering
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
+	})
+
+	return nil
+}
+
+func (c *Consumer) handleConversationAssigned(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID       uuid.UUID   `json:"account_id"`
+		ConversationID  uuid.UUID   `json:"conversation_id"`
+		AssignedUserIDs []uuid.UUID `json:"assigned_user_ids"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal conversation.assigned event", "error", err)
+		return nil
+	}
+
+	// Fetch account settings
+	var settingsBytes []byte
+	err := c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	if err != nil {
+		return err
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	assignedStrings := make([]string, len(ev.AssignedUserIDs))
+	for i, uid := range ev.AssignedUserIDs {
+		assignedStrings[i] = uid.String()
+	}
+
+	wsEvent := server.WSConversationAssignedEvent{
+		Type:            "conversation.assigned",
+		ConversationID:  ev.ConversationID.String(),
+		AssignedUserIDs: assignedStrings,
+	}
+
+	// Broadcast with visibility filtering (check if they can see after assignment change)
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, ev.AssignedUserIDs, unassignedVisible)
+	})
+
+	return nil
+}
+
+func (c *Consumer) handleChannelStatusChanged(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID uuid.UUID `json:"account_id"`
+		ChannelID uuid.UUID `json:"channel_id"`
+		Status    string    `json:"status"`
+		Detail    string    `json:"detail"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal channel.status_changed event", "error", err)
+		return nil
+	}
+
+	wsEvent := server.WSChannelStatusChangedEvent{
+		Type:      "channel.status_changed",
+		ChannelID: ev.ChannelID.String(),
+		Status:    ev.Status,
+		Detail:    ev.Detail,
+	}
+
+	// Broadcast to anyone in the same account
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, nil)
+
+	return nil
+}
