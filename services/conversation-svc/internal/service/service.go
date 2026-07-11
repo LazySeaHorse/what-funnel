@@ -184,20 +184,95 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 
 	// 4. Upsert conversation
 	var conversationID uuid.UUID
+	var isNew bool
 	timestamp := event.Timestamp
 	if timestamp.IsZero() {
 		timestamp = time.Now()
 	}
-	err = tx.QueryRow(ctx, `
-		INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (contact_id, channel_id)
-		DO UPDATE SET
-			last_message_at = EXCLUDED.last_message_at
-		RETURNING id
-	`, accountID, contactID, channelID, timestamp).Scan(&conversationID)
+
+	err = tx.QueryRow(ctx, `SELECT id FROM conversations WHERE contact_id = $1 AND channel_id = $2`, contactID, channelID).Scan(&conversationID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			isNew = true
+		} else {
+			return fmt.Errorf("check existing conversation: %w", err)
+		}
+	}
+
+	if isNew {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id
+		`, accountID, contactID, channelID, timestamp).Scan(&conversationID)
+	} else {
+		_, err = tx.Exec(ctx, `
+			UPDATE conversations SET last_message_at = $1 WHERE id = $2
+		`, timestamp, conversationID)
+	}
 	if err != nil {
 		return fmt.Errorf("upsert conversation: %w", err)
+	}
+
+	// 4.1 Auto-create Lead if enabled and is new conversation
+	if isNew {
+		var settingsRaw []byte
+		err = tx.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsRaw)
+		if err != nil {
+			return fmt.Errorf("get account settings for auto-lead: %w", err)
+		}
+		if types.IsLeadTrackingEnabled(settingsRaw) {
+			var pipelineID uuid.UUID
+			var statesJSON []byte
+			err = tx.QueryRow(ctx, `SELECT id, states FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`, accountID).Scan(&pipelineID, &statesJSON)
+			if err != nil {
+				if err != pgx.ErrNoRows {
+					return fmt.Errorf("get lead pipeline for auto-lead: %w", err)
+				}
+			} else {
+				var states []types.PipelineState
+				if err := json.Unmarshal(statesJSON, &states); err != nil {
+					return fmt.Errorf("unmarshal pipeline states: %w", err)
+				}
+				if len(states) > 0 {
+					firstStateKey := states[0].Key
+					var leadID uuid.UUID
+					err = tx.QueryRow(ctx, `
+						INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key)
+						VALUES ($1, $2, $3, $4)
+						RETURNING id
+					`, accountID, conversationID, pipelineID, firstStateKey).Scan(&leadID)
+					if err != nil {
+						return fmt.Errorf("auto-create lead: %w", err)
+					}
+
+					_, err = tx.Exec(ctx, `
+						INSERT INTO lead_state_history (account_id, lead_id, from_state, to_state)
+						VALUES ($1, $2, NULL, $3)
+					`, accountID, leadID, firstStateKey)
+					if err != nil {
+						return fmt.Errorf("insert lead state history for auto-lead: %w", err)
+					}
+
+					aw := audit.NewWriterFromTx(tx)
+					err = aw.Write(ctx, audit.Entry{
+						AccountID:   accountID,
+						ActorUserID: nil,
+						Action:      "lead.created",
+						TargetType:  "lead",
+						TargetID:    &leadID,
+						Metadata: map[string]any{
+							"conversation_id":   conversationID,
+							"current_state_key": firstStateKey,
+							"auto":              true,
+						},
+					})
+					if err != nil {
+						return fmt.Errorf("write auto-lead audit log: %w", err)
+					}
+				}
+			}
+		}
 	}
 
 	// Serialize message content
@@ -582,7 +657,7 @@ type ConversationAssignedEvent struct {
 	AssignedUserIDs []uuid.UUID `json:"assigned_user_ids"`
 }
 
-func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string) ([]*types.ConversationListItem, error) {
+func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string) ([]*types.ConversationListItem, error) {
 	var settingsBytes []byte
 	err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes)
 	if err != nil {
@@ -590,16 +665,18 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 	}
 	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
 
-	// Base SQL query selecting conversations with contact info, unread flag and lateral last message.
+	// Base SQL query selecting conversations with contact info, unread flag, lateral last message, and lead details.
 	sqlQuery := `
 		SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
 		       co.display_name, co.avatar_url,
 		       cr.last_read_at,
 		       m.id as msg_id, m.direction as msg_direction, m.sender_type as msg_sender_type, m.sender_user_id as msg_sender_user_id,
-		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at
+		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at,
+		       l.id as lead_id, l.pipeline_id as lead_pipeline_id, l.current_state_key as lead_current_state_key, l.tags as lead_tags, l.created_by as lead_created_by, l.created_at as lead_created_at, l.updated_at as lead_updated_at
 		FROM conversations c
 		JOIN contacts co ON c.contact_id = co.id
 		LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
+		LEFT JOIN leads l ON c.id = l.conversation_id
 		LEFT JOIN LATERAL (
 		    SELECT id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
 		    FROM messages
@@ -613,15 +690,22 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 		    (cardinality(c.assigned_user_ids) = 0 AND $4 = true)
 		)
 	`
+	args := []any{userID, accountID, userRole, unassignedVisible}
+
 	if filter == "mine" {
 		sqlQuery += ` AND $1 = ANY(c.assigned_user_ids)`
 	} else if filter == "unassigned" {
 		sqlQuery += ` AND (c.assigned_user_ids IS NULL OR cardinality(c.assigned_user_ids) = 0)`
 	}
 
+	if leadState != "" {
+		args = append(args, leadState)
+		sqlQuery += fmt.Sprintf(` AND l.current_state_key = $%d`, len(args))
+	}
+
 	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`
 
-	rows, err := s.pool.Query(ctx, sqlQuery, userID, accountID, userRole, unassignedVisible)
+	rows, err := s.pool.Query(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query conversations: %w", err)
 	}
@@ -641,6 +725,15 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 		var msgContent []byte
 		var msgExternalID *string
 		var msgCreatedAt *time.Time
+
+		// Lead fields (nullable)
+		var leadID *uuid.UUID
+		var leadPipelineID *uuid.UUID
+		var leadStateKey *string
+		var leadTags []string
+		var leadCreatedBy *uuid.UUID
+		var leadCreatedAt *time.Time
+		var leadUpdatedAt *time.Time
 
 		err := rows.Scan(
 			&item.Conversation.ID,
@@ -663,6 +756,13 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 			&msgContent,
 			&msgExternalID,
 			&msgCreatedAt,
+			&leadID,
+			&leadPipelineID,
+			&leadStateKey,
+			&leadTags,
+			&leadCreatedBy,
+			&leadCreatedAt,
+			&leadUpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan conversation row: %w", err)
@@ -695,6 +795,21 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 			}
 		}
 
+		// Build lead summary if present
+		if leadID != nil {
+			item.Lead = &types.Lead{
+				ID:              *leadID,
+				AccountID:       item.Conversation.AccountID,
+				ConversationID:  item.Conversation.ID,
+				PipelineID:      *leadPipelineID,
+				CurrentStateKey: *leadStateKey,
+				Tags:            leadTags,
+				CreatedBy:       leadCreatedBy,
+				CreatedAt:       *leadCreatedAt,
+				UpdatedAt:       *leadUpdatedAt,
+			}
+		}
+
 		list = append(list, item)
 	}
 
@@ -709,7 +824,7 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 	}
 	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
 
-	// Fetch single conversation.
+	// Fetch single conversation with lead details.
 	item := &types.ConversationListItem{}
 	var lastReadAt *time.Time
 
@@ -722,15 +837,25 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 	var msgExternalID *string
 	var msgCreatedAt *time.Time
 
+	var leadID *uuid.UUID
+	var leadPipelineID *uuid.UUID
+	var leadStateKey *string
+	var leadTags []string
+	var leadCreatedBy *uuid.UUID
+	var leadCreatedAt *time.Time
+	var leadUpdatedAt *time.Time
+
 	err = s.pool.QueryRow(ctx, `
 		SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
 		       co.display_name, co.avatar_url,
 		       cr.last_read_at,
 		       m.id as msg_id, m.direction as msg_direction, m.sender_type as msg_sender_type, m.sender_user_id as msg_sender_user_id,
-		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at
+		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at,
+		       l.id as lead_id, l.pipeline_id as lead_pipeline_id, l.current_state_key as lead_current_state_key, l.tags as lead_tags, l.created_by as lead_created_by, l.created_at as lead_created_at, l.updated_at as lead_updated_at
 		FROM conversations c
 		JOIN contacts co ON c.contact_id = co.id
 		LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
+		LEFT JOIN leads l ON c.id = l.conversation_id
 		LEFT JOIN LATERAL (
 		    SELECT id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
 		    FROM messages
@@ -760,6 +885,13 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 		&msgContent,
 		&msgExternalID,
 		&msgCreatedAt,
+		&leadID,
+		&leadPipelineID,
+		&leadStateKey,
+		&leadTags,
+		&leadCreatedBy,
+		&leadCreatedAt,
+		&leadUpdatedAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -797,6 +929,21 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 			Content:           msgContent,
 			ExternalMessageID: msgExternalID,
 			CreatedAt:         *msgCreatedAt,
+		}
+	}
+
+	// Build lead summary if present
+	if leadID != nil {
+		item.Lead = &types.Lead{
+			ID:              *leadID,
+			AccountID:       item.Conversation.AccountID,
+			ConversationID:  item.Conversation.ID,
+			PipelineID:      *leadPipelineID,
+			CurrentStateKey: *leadStateKey,
+			Tags:            leadTags,
+			CreatedBy:       leadCreatedBy,
+			CreatedAt:       *leadCreatedAt,
+			UpdatedAt:       *leadUpdatedAt,
 		}
 	}
 
@@ -921,6 +1068,434 @@ func (s *Service) AssignConversation(ctx context.Context, accountID uuid.UUID, c
 	}
 
 	return nil
+}
+
+func (s *Service) checkConversationVisibility(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, userRole string) error {
+	_, err := s.GetConversation(ctx, accountID, userID, convoID, userRole)
+	return err
+}
+
+func (s *Service) CreateLead(ctx context.Context, accountID, userID, convoID uuid.UUID, userRole string) (*types.Lead, error) {
+	// 1. Verify conversation visibility
+	_, err := s.GetConversation(ctx, accountID, userID, convoID, userRole)
+	if err != nil {
+		return nil, err
+	}
+
+	// Start transaction
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Check if lead already exists for this conversation
+	var existing types.Lead
+	var leadCreatedBy *uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at
+		FROM leads WHERE conversation_id = $1 AND account_id = $2
+	`, convoID, accountID).Scan(
+		&existing.ID, &existing.AccountID, &existing.ConversationID, &existing.PipelineID,
+		&existing.CurrentStateKey, &existing.Tags, &leadCreatedBy, &existing.CreatedAt, &existing.UpdatedAt,
+	)
+	if err == nil {
+		existing.CreatedBy = leadCreatedBy
+		// Already exists! Return the existing lead
+		return &existing, nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, fmt.Errorf("check existing lead: %w", err)
+	}
+
+	// Fetch first state key of the lead pipeline
+	var pipelineID uuid.UUID
+	var statesJSON []byte
+	err = tx.QueryRow(ctx, `SELECT id, states FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`, accountID).Scan(&pipelineID, &statesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("get lead pipeline: %w", err)
+	}
+	var states []types.PipelineState
+	if err := json.Unmarshal(statesJSON, &states); err != nil {
+		return nil, fmt.Errorf("unmarshal pipeline states: %w", err)
+	}
+	if len(states) == 0 {
+		return nil, fmt.Errorf("pipeline has no states configured")
+	}
+	firstStateKey := states[0].Key
+
+	// Insert lead
+	var leadID uuid.UUID
+	var createdAt, updatedAt time.Time
+	err = tx.QueryRow(ctx, `
+		INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key, created_by)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, created_at, updated_at
+	`, accountID, convoID, pipelineID, firstStateKey, userID).Scan(&leadID, &createdAt, &updatedAt)
+	if err != nil {
+		// Handle database unique constraint conflict gracefully just in case of concurrent insert
+		var existing types.Lead
+		err2 := tx.QueryRow(ctx, `
+			SELECT id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at
+			FROM leads WHERE conversation_id = $1 AND account_id = $2
+		`, convoID, accountID).Scan(
+			&existing.ID, &existing.AccountID, &existing.ConversationID, &existing.PipelineID,
+			&existing.CurrentStateKey, &existing.Tags, &leadCreatedBy, &existing.CreatedAt, &existing.UpdatedAt,
+		)
+		if err2 == nil {
+			existing.CreatedBy = leadCreatedBy
+			return &existing, nil
+		}
+		return nil, fmt.Errorf("create lead: %w", err)
+	}
+
+	// Insert lead_state_history
+	_, err = tx.Exec(ctx, `
+		INSERT INTO lead_state_history (account_id, lead_id, from_state, to_state, changed_by)
+		VALUES ($1, $2, NULL, $3, $4)
+	`, accountID, leadID, firstStateKey, userID)
+	if err != nil {
+		return nil, fmt.Errorf("insert lead state history: %w", err)
+	}
+
+	// Write audit log entry
+	aw := audit.NewWriterFromTx(tx)
+	err = aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &userID,
+		Action:      "lead.created",
+		TargetType:  "lead",
+		TargetID:    &leadID,
+		Metadata: map[string]any{
+			"conversation_id":   convoID,
+			"current_state_key": firstStateKey,
+			"auto":              false,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create lead tx: %w", err)
+	}
+
+	return &types.Lead{
+		ID:              leadID,
+		AccountID:       accountID,
+		ConversationID:  convoID,
+		PipelineID:      pipelineID,
+		CurrentStateKey: firstStateKey,
+		Tags:            []string{},
+		CreatedBy:       &userID,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+	}, nil
+}
+
+func (s *Service) getLeadAndCheckVisibility(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) (*types.Lead, error) {
+	var lead types.Lead
+	var leadCreatedBy *uuid.UUID
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at
+		FROM leads WHERE id = $1 AND account_id = $2
+	`, leadID, accountID).Scan(
+		&lead.ID, &lead.AccountID, &lead.ConversationID, &lead.PipelineID,
+		&lead.CurrentStateKey, &lead.Tags, &leadCreatedBy, &lead.CreatedAt, &lead.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("lead not found")
+		}
+		return nil, err
+	}
+	lead.CreatedBy = leadCreatedBy
+
+	// Check conversation visibility
+	if err := s.checkConversationVisibility(ctx, accountID, userID, lead.ConversationID, userRole); err != nil {
+		// Return "lead not found" to avoid leaking existence
+		return nil, fmt.Errorf("lead not found")
+	}
+
+	return &lead, nil
+}
+
+func (s *Service) UpdateLeadState(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, targetStateKey string) (*types.Lead, error) {
+	lead, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Validate targetStateKey exists in the lead pipeline definition
+	var statesJSON []byte
+	err = tx.QueryRow(ctx, `SELECT states FROM lead_pipelines WHERE id = $1 AND account_id = $2`, lead.PipelineID, accountID).Scan(&statesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("get pipeline: %w", err)
+	}
+	var states []types.PipelineState
+	if err := json.Unmarshal(statesJSON, &states); err != nil {
+		return nil, fmt.Errorf("unmarshal pipeline states: %w", err)
+	}
+	validState := false
+	for _, st := range states {
+		if st.Key == targetStateKey {
+			validState = true
+			break
+		}
+	}
+	if !validState {
+		return nil, fmt.Errorf("invalid state key: %q", targetStateKey)
+	}
+
+	// Update current_state_key and updated_at
+	var updatedAt time.Time
+	fromState := lead.CurrentStateKey
+	err = tx.QueryRow(ctx, `
+		UPDATE leads
+		SET current_state_key = $1, updated_at = NOW()
+		WHERE id = $2 AND account_id = $3
+		RETURNING updated_at
+	`, targetStateKey, leadID, accountID).Scan(&updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("update lead state: %w", err)
+	}
+	lead.CurrentStateKey = targetStateKey
+	lead.UpdatedAt = updatedAt
+
+	// Insert lead_state_history
+	_, err = tx.Exec(ctx, `
+		INSERT INTO lead_state_history (account_id, lead_id, from_state, to_state, changed_by)
+		VALUES ($1, $2, $3, $4, $5)
+	`, accountID, leadID, fromState, targetStateKey, userID)
+	if err != nil {
+		return nil, fmt.Errorf("insert lead state history: %w", err)
+	}
+
+	// Write audit log entry
+	aw := audit.NewWriterFromTx(tx)
+	err = aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &userID,
+		Action:      "lead.state_changed",
+		TargetType:  "lead",
+		TargetID:    &leadID,
+		Metadata: map[string]any{
+			"from_state": fromState,
+			"to_state":   targetStateKey,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit update lead state tx: %w", err)
+	}
+
+	// Publish lead.state_changed event
+	type LeadStateChangedPayload struct {
+		Type           string  `json:"type"`
+		ConversationID string  `json:"conversation_id"`
+		LeadID         string  `json:"lead_id"`
+		FromState      *string `json:"from_state"`
+		ToState        string  `json:"to_state"`
+	}
+	_, err = s.pubsub.Publish(ctx, "lead.state_changed", LeadStateChangedPayload{
+		Type:           "lead.state_changed",
+		ConversationID: lead.ConversationID.String(),
+		LeadID:         lead.ID.String(),
+		FromState:      &fromState,
+		ToState:        targetStateKey,
+	})
+	if err != nil {
+		// Log error but don't fail (tx is committed)
+		fmt.Printf("failed to publish lead.state_changed: %v\n", err)
+	}
+
+	return lead, nil
+}
+
+func (s *Service) UpdateLeadTags(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, tags []string) (*types.Lead, error) {
+	lead, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
+	if err != nil {
+		return nil, err
+	}
+
+	if tags == nil {
+		tags = []string{}
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var updatedAt time.Time
+	err = tx.QueryRow(ctx, `
+		UPDATE leads
+		SET tags = $1, updated_at = NOW()
+		WHERE id = $2 AND account_id = $3
+		RETURNING updated_at
+	`, tags, leadID, accountID).Scan(&updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("update lead tags: %w", err)
+	}
+	lead.Tags = tags
+	lead.UpdatedAt = updatedAt
+
+	// Write audit log entry
+	aw := audit.NewWriterFromTx(tx)
+	err = aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &userID,
+		Action:      "lead.tags_updated",
+		TargetType:  "lead",
+		TargetID:    &leadID,
+		Metadata: map[string]any{
+			"tags": tags,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit update lead tags tx: %w", err)
+	}
+
+	return lead, nil
+}
+
+func (s *Service) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, body string) (*types.LeadNote, error) {
+	_, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
+	if err != nil {
+		return nil, err
+	}
+
+	if body == "" {
+		return nil, fmt.Errorf("note body cannot be empty")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var noteID uuid.UUID
+	var createdAt time.Time
+	err = tx.QueryRow(ctx, `
+		INSERT INTO lead_notes (account_id, lead_id, author_user_id, body)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at
+	`, accountID, leadID, userID, body).Scan(&noteID, &createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert lead note: %w", err)
+	}
+
+	// Write audit log entry
+	aw := audit.NewWriterFromTx(tx)
+	err = aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &userID,
+		Action:      "lead.note_added",
+		TargetType:  "lead",
+		TargetID:    &leadID,
+		Metadata: map[string]any{
+			"note_id": noteID,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create lead note tx: %w", err)
+	}
+
+	return &types.LeadNote{
+		ID:           noteID,
+		AccountID:    accountID,
+		LeadID:       leadID,
+		AuthorUserID: &userID,
+		Body:         body,
+		CreatedAt:    createdAt,
+	}, nil
+}
+
+func (s *Service) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) ([]*types.LeadNote, error) {
+	_, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, account_id, lead_id, author_user_id, body, created_at
+		FROM lead_notes
+		WHERE lead_id = $1 AND account_id = $2
+		ORDER BY created_at ASC
+	`, leadID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("query lead notes: %w", err)
+	}
+	defer rows.Close()
+
+	var notes []*types.LeadNote
+	for rows.Next() {
+		var n types.LeadNote
+		var authorUserID *uuid.UUID
+		if err := rows.Scan(&n.ID, &n.AccountID, &n.LeadID, &authorUserID, &n.Body, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		n.AuthorUserID = authorUserID
+		notes = append(notes, &n)
+	}
+	if notes == nil {
+		notes = []*types.LeadNote{}
+	}
+	return notes, rows.Err()
+}
+
+func (s *Service) ListLeadHistory(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) ([]*types.LeadStateHistory, error) {
+	_, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, account_id, lead_id, from_state, to_state, changed_by, changed_at
+		FROM lead_state_history
+		WHERE lead_id = $1 AND account_id = $2
+		ORDER BY changed_at ASC
+	`, leadID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("query lead history: %w", err)
+	}
+	defer rows.Close()
+
+	var history []*types.LeadStateHistory
+	for rows.Next() {
+		var h types.LeadStateHistory
+		var fromState *string
+		var changedBy *uuid.UUID
+		if err := rows.Scan(&h.ID, &h.AccountID, &h.LeadID, &fromState, &h.ToState, &changedBy, &h.ChangedAt); err != nil {
+			return nil, err
+		}
+		h.FromState = fromState
+		h.ChangedBy = changedBy
+		history = append(history, &h)
+	}
+	if history == nil {
+		history = []*types.LeadStateHistory{}
+	}
+	return history, rows.Err()
 }
 
 func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID) error {

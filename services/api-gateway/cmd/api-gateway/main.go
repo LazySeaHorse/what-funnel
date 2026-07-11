@@ -77,6 +77,9 @@ func main() {
 	// Proxy /conversations/* → conversation-svc
 	r.PathPrefix("/conversations").Handler(proxy(conversationBase, logger))
 
+	// Proxy /leads/* → conversation-svc
+	r.PathPrefix("/leads").Handler(proxy(conversationBase, logger))
+
 	// Proxy /internal/conversations/* → conversation-svc
 	r.PathPrefix("/internal/conversations").Handler(proxy(conversationBase, logger))
 

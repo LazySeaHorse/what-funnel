@@ -60,7 +60,7 @@ func TestService_InboxVisibility(t *testing.T) {
 
 	// Test case 1: Member when settings.unassigned_conversations_visible_to_members is true (default)
 	// Member should see: convo1 (unassigned) and convo2 (assigned to member). Not convo3.
-	list, err := svc.ListConversations(ctx, accountID, memberID, types.RoleMember, "all")
+	list, err := svc.ListConversations(ctx, accountID, memberID, types.RoleMember, "all", "")
 	require.NoError(t, err)
 	assert.Len(t, list, 2)
 	ids := map[uuid.UUID]bool{list[0].Conversation.ID: true, list[1].Conversation.ID: true}
@@ -69,7 +69,7 @@ func TestService_InboxVisibility(t *testing.T) {
 	assert.False(t, ids[convo3])
 
 	// Test case 2: Admin should see all 3 conversations
-	listAdmin, err := svc.ListConversations(ctx, accountID, adminID, types.RoleAdmin, "all")
+	listAdmin, err := svc.ListConversations(ctx, accountID, adminID, types.RoleAdmin, "all", "")
 	require.NoError(t, err)
 	assert.Len(t, listAdmin, 3)
 
@@ -78,7 +78,7 @@ func TestService_InboxVisibility(t *testing.T) {
 	require.NoError(t, err)
 
 	// Member should now only see convo2 (assigned to member)
-	list2, err := svc.ListConversations(ctx, accountID, memberID, types.RoleMember, "all")
+	list2, err := svc.ListConversations(ctx, accountID, memberID, types.RoleMember, "all", "")
 	require.NoError(t, err)
 	require.Len(t, list2, 1)
 	assert.Equal(t, convo2, list2[0].Conversation.ID)

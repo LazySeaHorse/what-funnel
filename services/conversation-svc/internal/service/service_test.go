@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -66,11 +67,19 @@ func setupTestTenant(t *testing.T, pool *pgxpool.Pool, name string) (uuid.UUID, 
 	err := pool.QueryRow(ctx, `INSERT INTO accounts (name) VALUES ($1) RETURNING id`, name).Scan(&accountID)
 	require.NoError(t, err)
 
+	statesJSON, _ := json.Marshal(types.DefaultPipelineStates)
+	_, err = pool.Exec(ctx, `INSERT INTO lead_pipelines (account_id, name, states) VALUES ($1, 'Default', $2)`, accountID, statesJSON)
+	require.NoError(t, err)
+
 	var userID uuid.UUID
 	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'admin') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM lead_state_history WHERE account_id = $1`, accountID)
+		pool.Exec(context.Background(), `DELETE FROM lead_notes WHERE account_id = $1`, accountID)
+		pool.Exec(context.Background(), `DELETE FROM leads WHERE account_id = $1`, accountID)
+		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, accountID)
 		pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE account_id = $1`, accountID)
 		pool.Exec(context.Background(), `DELETE FROM messages WHERE account_id = $1`, accountID)
 		pool.Exec(context.Background(), `DELETE FROM conversations WHERE account_id = $1`, accountID)
@@ -278,4 +287,170 @@ func TestSendMessage(t *testing.T) {
 	assert.Equal(t, channelID.String(), sent[0].ChannelID)
 	assert.Equal(t, "98765@s.whatsapp.net", sent[0].ExternalThreadID)
 	assert.Equal(t, "Hello Alice from agent", sent[0].Message.Text)
+}
+
+func TestLeadManagement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "lead-mgmt-test")
+
+	// Create member user who is NOT assigned
+	var memberID uuid.UUID
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member@example.com', 'hash', 'member') RETURNING id`, accountID).Scan(&memberID)
+	require.NoError(t, err)
+
+	// Create a channel
+	var channelID uuid.UUID
+	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	// 1. Ingest a message with lead_tracking_enabled = true (default)
+	event1 := types.InboundEvent{
+		ChannelID:        channelID.String(),
+		ExternalThreadID: "thread-lead-1",
+		Contact: types.ContactRef{
+			ExternalIdentity: "leadcontact1@s.whatsapp.net",
+			DisplayName:      "Lead Contact 1",
+		},
+		Message: types.NormalizedMessage{
+			ContentType:       "text",
+			Text:              "Hi, I want to buy something",
+			ExternalMessageID: "lead-msg-1",
+		},
+		Timestamp: time.Now(),
+	}
+
+	err = svc.IngestInbound(ctx, event1)
+	require.NoError(t, err)
+
+	// Verify conversation & auto-created lead
+	var convoID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM conversations WHERE account_id = $1 AND last_message_at IS NOT NULL LIMIT 1`, accountID).Scan(&convoID)
+	require.NoError(t, err)
+
+	var leadID uuid.UUID
+	var currentState string
+	err = pool.QueryRow(ctx, `SELECT id, current_state_key FROM leads WHERE conversation_id = $1`, convoID).Scan(&leadID, &currentState)
+	require.NoError(t, err)
+	assert.Equal(t, "new", currentState, "Auto-created lead must be in the first state ('new')")
+
+	// 2. Ingest message with lead_tracking_enabled = false
+	// Update settings
+	settingsRaw, _ := json.Marshal(types.AccountSettings{
+		LeadTrackingEnabled: newBool(false),
+	})
+	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = $1 WHERE id = $2`, settingsRaw, accountID)
+	require.NoError(t, err)
+
+	event2 := types.InboundEvent{
+		ChannelID:        channelID.String(),
+		ExternalThreadID: "thread-lead-2",
+		Contact: types.ContactRef{
+			ExternalIdentity: "leadcontact2@s.whatsapp.net",
+			DisplayName:      "Lead Contact 2",
+		},
+		Message: types.NormalizedMessage{
+			ContentType:       "text",
+			Text:              "Hi, is anyone there?",
+			ExternalMessageID: "lead-msg-2",
+		},
+		Timestamp: time.Now(),
+	}
+
+	err = svc.IngestInbound(ctx, event2)
+	require.NoError(t, err)
+
+	var convo2ID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		SELECT c.id FROM conversations c
+		JOIN contacts co ON c.contact_id = co.id
+		WHERE c.account_id = $1 AND co.external_identity = 'leadcontact2@s.whatsapp.net'
+	`, accountID).Scan(&convo2ID)
+	require.NoError(t, err)
+
+	// Verify NO lead was created
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM leads WHERE conversation_id = $1`, convo2ID).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "No lead should be created when lead_tracking_enabled is false")
+
+	// 3. Manual lead creation (POST /conversations/{id}/lead)
+	// Create lead manually for convo2
+	lead2, err := svc.CreateLead(ctx, accountID, adminID, convo2ID, "admin")
+	require.NoError(t, err)
+	require.NotNil(t, lead2)
+	assert.Equal(t, "new", lead2.CurrentStateKey)
+
+	// Idempotency: call it again
+	lead2Dup, err := svc.CreateLead(ctx, accountID, adminID, convo2ID, "admin")
+	require.NoError(t, err)
+	assert.Equal(t, lead2.ID, lead2Dup.ID, "Manual lead creation must be idempotent")
+
+	// 4. State Transitions (PATCH /leads/{id}/state)
+	// Update state to 'won'
+	lead2, err = svc.UpdateLeadState(ctx, accountID, adminID, lead2.ID, "admin", "won")
+	require.NoError(t, err)
+	assert.Equal(t, "won", lead2.CurrentStateKey)
+
+	// Reject invalid state
+	_, err = svc.UpdateLeadState(ctx, accountID, adminID, lead2.ID, "admin", "invalid-state-key")
+	assert.Error(t, err, "Invalid state key must be rejected")
+
+	// 5. Visibility check
+	// Configure settings to unassigned visible = false
+	settingsRaw, _ = json.Marshal(types.AccountSettings{
+		UnassignedConversationsVisibleToMembers: newBool(false),
+	})
+	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = $1 WHERE id = $2`, settingsRaw, accountID)
+	require.NoError(t, err)
+
+	// Member tries to access lead2 — should fail with "lead not found"
+	_, err = svc.UpdateLeadState(ctx, accountID, memberID, lead2.ID, "member", "lost")
+	assert.Error(t, err, "Member should be denied lead access due to visibility")
+	assert.Contains(t, err.Error(), "lead not found")
+
+	// Assign member to convo2
+	_, err = pool.Exec(ctx, `UPDATE conversations SET assigned_user_ids = $1 WHERE id = $2`, []uuid.UUID{memberID}, convo2ID)
+	require.NoError(t, err)
+
+	// Member tries again — should succeed
+	lead2, err = svc.UpdateLeadState(ctx, accountID, memberID, lead2.ID, "member", "lost")
+	require.NoError(t, err)
+	assert.Equal(t, "lost", lead2.CurrentStateKey)
+
+	// 6. Tags and Notes (PATCH /leads/{id}/tags, POST /leads/{id}/notes)
+	// Update tags
+	lead2, err = svc.UpdateLeadTags(ctx, accountID, memberID, lead2.ID, "member", []string{"tag1", "tag2"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tag1", "tag2"}, lead2.Tags)
+
+	// Create notes
+	note1, err := svc.CreateLeadNote(ctx, accountID, memberID, lead2.ID, "member", "This is first note")
+	require.NoError(t, err)
+	assert.Equal(t, "This is first note", note1.Body)
+
+	// List notes
+	notes, err := svc.ListLeadNotes(ctx, accountID, memberID, lead2.ID, "member")
+	require.NoError(t, err)
+	require.Len(t, notes, 1)
+	assert.Equal(t, "This is first note", notes[0].Body)
+
+	// List history
+	history, err := svc.ListLeadHistory(ctx, accountID, memberID, lead2.ID, "member")
+	require.NoError(t, err)
+	// Historied transitions: null -> new (creation), new -> won, won -> lost
+	require.Len(t, history, 3)
+	assert.Nil(t, history[0].FromState)
+	assert.Equal(t, "new", history[0].ToState)
+	assert.Equal(t, "new", *history[1].FromState)
+	assert.Equal(t, "won", history[1].ToState)
+}
+
+func newBool(v bool) *bool {
+	return &v
 }

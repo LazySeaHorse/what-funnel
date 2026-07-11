@@ -54,6 +54,40 @@ type LeadPipeline struct {
 	CreatedAt time.Time       `json:"created_at" db:"created_at"`
 }
 
+// Lead represents a lead associated with a conversation.
+type Lead struct {
+	ID              uuid.UUID  `json:"id" db:"id"`
+	AccountID       uuid.UUID  `json:"account_id" db:"account_id"`
+	ConversationID  uuid.UUID  `json:"conversation_id" db:"conversation_id"`
+	PipelineID      uuid.UUID  `json:"pipeline_id" db:"pipeline_id"`
+	CurrentStateKey string     `json:"current_state_key" db:"current_state_key"`
+	Tags            []string   `json:"tags" db:"tags"`
+	CreatedBy       *uuid.UUID `json:"created_by" db:"created_by"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// LeadNote is a note left on a lead.
+type LeadNote struct {
+	ID           uuid.UUID  `json:"id" db:"id"`
+	AccountID    uuid.UUID  `json:"account_id" db:"account_id"`
+	LeadID       uuid.UUID  `json:"lead_id" db:"lead_id"`
+	AuthorUserID *uuid.UUID `json:"author_user_id" db:"author_user_id"`
+	Body         string     `json:"body" db:"body"`
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+}
+
+// LeadStateHistory is the history of state changes for a lead.
+type LeadStateHistory struct {
+	ID        uuid.UUID  `json:"id" db:"id"`
+	AccountID uuid.UUID  `json:"account_id" db:"account_id"`
+	LeadID    uuid.UUID  `json:"lead_id" db:"lead_id"`
+	FromState *string    `json:"from_state" db:"from_state"`
+	ToState   string     `json:"to_state" db:"to_state"`
+	ChangedBy *uuid.UUID `json:"changed_by" db:"changed_by"`
+	ChangedAt time.Time  `json:"changed_at" db:"changed_at"`
+}
+
 // InviteToken holds a pending user invite.
 type InviteToken struct {
 	Token     string    `json:"token"`
@@ -136,6 +170,7 @@ type ConversationListItem struct {
 	LastMessagePreview *Message  `json:"last_message_preview"` // Nullable
 	ContactName        *string   `json:"contact_name"`
 	ContactAvatarURL   *string   `json:"contact_avatar_url"`
+	Lead               *Lead     `json:"lead"` // Nullable
 }
 
 // Message is an individual message in a conversation.
