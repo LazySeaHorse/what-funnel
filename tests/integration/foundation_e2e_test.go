@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	gatewayURL  = "http://localhost:8080"
+	gatewayURL  = "http://localhost:18080"
 	identityURL = "http://localhost:8081"
 	workspaceURL = "http://localhost:8082"
 )

@@ -103,7 +103,7 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
     ports:
-      - "8080:8080"
+      - "18080:8080"
     depends_on:
       - identity-svc
       - workspace-svc
