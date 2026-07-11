@@ -9,12 +9,52 @@
 	let messageContainer: HTMLDivElement | null = $state(null);
 	let isAssignDropdownOpen = $state(false);
 
+	// Lead Management frontend states
+	let leadTrackingEnabled = $state(true);
+	let pipelineStates = $state<any[]>([]);
+	let activePanelTab = $state<'notes' | 'history'>('notes');
+	let notes = $state<any[]>([]);
+	let history = $state<any[]>([]);
+	let loadingNotes = $state(false);
+	let newNoteText = $state('');
+	let tagInput = $state('');
+
 	onMount(async () => {
 		try {
 			await inbox.init();
 			if (!inbox.currentUser) {
 				goto('/login');
+				return;
 			}
+			
+			// Fetch account details to check lead_tracking_enabled
+			const account = await apiRequest('/workspace/account');
+			if (account && account.settings) {
+				try {
+					const decoded = atob(account.settings);
+					const parsed = JSON.parse(decoded);
+					leadTrackingEnabled = parsed.lead_tracking_enabled !== false;
+				} catch (e) {
+					console.error('Failed to parse account settings', e);
+				}
+			}
+			
+			// Fetch pipeline states
+			const pipelines = await apiRequest('/workspace/pipelines');
+			if (pipelines && pipelines.length > 0) {
+				pipelineStates = pipelines[0].states || [];
+			}
+			
+			// Listen to live lead state changes from WebSocket
+			const handleLeadStateChange = (e: CustomEvent) => {
+				if (inbox.activeConvo?.lead && e.detail.lead_id === inbox.activeConvo.lead.id) {
+					loadLeadDetails(inbox.activeConvo.lead.id);
+				}
+			};
+			window.addEventListener('lead-state-changed', handleLeadStateChange as EventListener);
+			return () => {
+				window.removeEventListener('lead-state-changed', handleLeadStateChange as EventListener);
+			};
 		} catch (err) {
 			goto('/login');
 		}
@@ -133,9 +173,129 @@
 			.map((u: any) => u.email.split('@')[0])
 			.join(', ');
 	}
+
+	async function loadLeadDetails(leadId: string) {
+		loadingNotes = true;
+		try {
+			notes = await apiRequest(`/leads/${leadId}/notes`);
+			history = await apiRequest(`/leads/${leadId}/history`);
+		} catch (err) {
+			console.error('Failed to load lead details', err);
+		} finally {
+			loadingNotes = false;
+		}
+	}
+
+	$effect(() => {
+		const lead = inbox.activeConvo?.lead;
+		if (lead && lead.id) {
+			loadLeadDetails(lead.id);
+		} else {
+			notes = [];
+			history = [];
+		}
+	});
+
+	async function createLead() {
+		if (!inbox.activeConvoID) return;
+		try {
+			const lead = await apiRequest(`/conversations/${inbox.activeConvoID}/lead`, {
+				method: 'POST'
+			});
+			if (inbox.activeConvo) {
+				inbox.activeConvo.lead = lead;
+			}
+			await inbox.loadConversations();
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function updateLeadState(stateKey: string) {
+		if (!inbox.activeConvo?.lead) return;
+		try {
+			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/state`, {
+				method: 'PATCH',
+				body: { state_key: stateKey }
+			});
+			inbox.activeConvo.lead.current_state_key = lead.current_state_key;
+			await inbox.loadConversations();
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function addTag(e: Event) {
+		e.preventDefault();
+		if (!tagInput.trim() || !inbox.activeConvo?.lead) return;
+		const tag = tagInput.trim();
+		const currentTags = inbox.activeConvo.lead.tags || [];
+		if (currentTags.includes(tag)) {
+			tagInput = '';
+			return;
+		}
+		const newTags = [...currentTags, tag];
+		try {
+			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/tags`, {
+				method: 'PATCH',
+				body: { tags: newTags }
+			});
+			inbox.activeConvo.lead.tags = lead.tags;
+			tagInput = '';
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function removeTag(tag: string) {
+		if (!inbox.activeConvo?.lead) return;
+		const currentTags = inbox.activeConvo.lead.tags || [];
+		const newTags = currentTags.filter((t: string) => t !== tag);
+		try {
+			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/tags`, {
+				method: 'PATCH',
+				body: { tags: newTags }
+			});
+			inbox.activeConvo.lead.tags = lead.tags;
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function addNote(e: Event) {
+		e.preventDefault();
+		if (!newNoteText.trim() || !inbox.activeConvo?.lead) return;
+		const body = newNoteText.trim();
+		try {
+			await apiRequest(`/leads/${inbox.activeConvo.lead.id}/notes`, {
+				method: 'POST',
+				body: { body }
+			});
+			newNoteText = '';
+			await loadLeadDetails(inbox.activeConvo.lead.id);
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	function getStateColor(stateKey: string) {
+		const st = pipelineStates.find(s => s.key === stateKey);
+		return st ? st.color : '#6366f1';
+	}
+
+	function getStateLabel(stateKey: string) {
+		const st = pipelineStates.find(s => s.key === stateKey);
+		return st ? st.label : stateKey;
+	}
+
+	function formatDate(dateStr?: string) {
+		if (!dateStr) return '';
+		const d = new Date(dateStr);
+		return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+	}
 </script>
 
-<div class="inbox-layout">
+<div class="inbox-layout" class:has-lead-panel={leadTrackingEnabled && inbox.activeConvo}>
 	<!-- Left Navigation & Conversations Pane -->
 	<div class="sidebar glass-panel">
 		<!-- Header / Profile Section -->
@@ -153,8 +313,7 @@
 			
 			<div class="nav-links">
 				{#if inbox.currentUser?.role === 'admin'}
-					<a href="/settings/channels" class="nav-btn">Channels</a>
-					<a href="/settings/users" class="nav-btn">Users</a>
+					<a href="/settings/account" class="nav-btn">Settings</a>
 				{/if}
 				<button onclick={handleLogout} class="nav-btn logout-btn">Logout</button>
 			</div>
@@ -196,6 +355,21 @@
 			</button>
 		</div>
 
+		{#if leadTrackingEnabled && pipelineStates.length > 0}
+			<div class="state-filter-container">
+				<select 
+					class="input-field state-filter-select"
+					bind:value={inbox.stateFilter}
+					onchange={() => inbox.loadConversations()}
+				>
+					<option value="">All Lead Stages</option>
+					{#each pipelineStates as st}
+						<option value={st.key}>{st.label}</option>
+					{/each}
+				</select>
+			</div>
+		{/if}
+
 		<!-- Conversation List -->
 		<div class="conversation-list">
 			{#each inbox.conversations as convo}
@@ -213,6 +387,14 @@
 					<div class="convo-info">
 						<div class="convo-top">
 							<span class="convo-name">{convo.contact_name || 'Unknown Contact'}</span>
+							{#if leadTrackingEnabled && convo.lead}
+								<span 
+									class="lead-state-badge" 
+									style="border: 1px solid {getStateColor(convo.lead.current_state_key)}; color: {getStateColor(convo.lead.current_state_key)}"
+								>
+									{getStateLabel(convo.lead.current_state_key)}
+								</span>
+							{/if}
 							<span class="convo-time">{formatTime(convo.last_message_at)}</span>
 						</div>
 						<div class="convo-preview">
@@ -364,6 +546,129 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if leadTrackingEnabled && inbox.activeConvo}
+		<div class="lead-panel glass-panel">
+			<h3 class="lead-panel-title">Lead Profile</h3>
+			
+			{#if inbox.activeConvo.lead}
+				<!-- State Selector -->
+				<div class="panel-section">
+					<label class="section-label">Pipeline Stage</label>
+					<select 
+						class="input-field state-select" 
+						value={inbox.activeConvo.lead.current_state_key}
+						onchange={(e) => updateLeadState((e.target as HTMLSelectElement).value)}
+					>
+						{#each pipelineStates as st}
+							<option value={st.key}>{st.label}</option>
+						{/each}
+					</select>
+				</div>
+				
+				<!-- Tag Editor -->
+				<div class="panel-section">
+					<label class="section-label">Tags</label>
+					<div class="tags-container">
+						{#each inbox.activeConvo.lead.tags || [] as tag}
+							<span class="lead-tag">
+								{tag}
+								<button class="remove-tag-btn" onclick={() => removeTag(tag)}>&times;</button>
+							</span>
+						{:else}
+							<span class="no-tags-placeholder">No tags assigned</span>
+						{/each}
+					</div>
+					<form onsubmit={addTag} class="tag-input-form">
+						<input 
+							type="text" 
+							class="input-field tag-input" 
+							placeholder="Add tag..."
+							bind:value={tagInput}
+						/>
+						<button type="submit" class="btn-secondary add-tag-btn">+</button>
+					</form>
+				</div>
+
+				<!-- Tabs for Notes & History -->
+				<div class="panel-tabs">
+					<button 
+						class="panel-tab-btn" 
+						class:active={activePanelTab === 'notes'} 
+						onclick={() => activePanelTab = 'notes'}
+					>
+						Notes ({notes.length})
+					</button>
+					<button 
+						class="panel-tab-btn" 
+						class:active={activePanelTab === 'history'} 
+						onclick={() => activePanelTab = 'history'}
+					>
+						History
+					</button>
+				</div>
+
+				<div class="tab-content-container">
+					{#if activePanelTab === 'notes'}
+						<!-- Notes timeline -->
+						<div class="notes-timeline">
+							{#each notes as note}
+								<div class="note-card glass-panel">
+									<div class="note-header">
+										<span class="note-author">{note.author_email.split('@')[0]}</span>
+										<span class="note-time">{formatDate(note.created_at)}</span>
+									</div>
+									<p class="note-body">{note.body}</p>
+								</div>
+							{:else}
+								<div class="empty-timeline-state">No notes yet. Add one below.</div>
+							{/each}
+						</div>
+						<form onsubmit={addNote} class="add-note-form">
+							<textarea 
+								class="input-field note-textarea" 
+								placeholder="Write a note..." 
+								bind:value={newNoteText}
+								required
+							></textarea>
+							<button type="submit" class="btn-primary add-note-btn">Save Note</button>
+						</form>
+					{:else}
+						<!-- History timeline -->
+						<div class="history-timeline">
+							{#each history as hist}
+								<div class="history-card">
+									<div class="history-circle" style="background-color: {getStateColor(hist.to_state)}"></div>
+									<div class="history-content">
+										<div class="history-transition">
+											{#if hist.from_state}
+												<span class="history-state">{getStateLabel(hist.from_state)}</span> 
+												➔ 
+											{/if}
+											<span class="history-state active-state">{getStateLabel(hist.to_state)}</span>
+										</div>
+										<div class="history-meta">
+											By {hist.actor_email.split('@')[0]} • {formatDate(hist.created_at)}
+										</div>
+									</div>
+								</div>
+							{:else}
+								<div class="empty-timeline-state">No history recorded yet.</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+			{:else}
+				<div class="no-lead-state">
+					<p class="no-lead-text">This conversation is not currently being tracked as a sales lead.</p>
+					<button class="btn-primary start-lead-btn" onclick={createLead}>
+						Start Tracking Lead
+					</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -804,5 +1109,348 @@
 		height: 100%;
 		color: var(--text-muted);
 		gap: 8px;
+	}
+
+	.inbox-layout.has-lead-panel {
+		grid-template-columns: 320px 1fr 340px;
+	}
+
+	/* State Filter Styling */
+	.state-filter-container {
+		padding: 8px 16px;
+		border-bottom: 1px solid var(--border-color);
+	}
+	
+	.state-filter-select {
+		height: 34px;
+		font-size: 13px;
+		padding: 4px 10px;
+		background: rgba(255, 255, 255, 0.02);
+		border-radius: 6px;
+	}
+
+	/* Lead State Badge in Conversation List */
+	.lead-state-badge {
+		font-size: 10px;
+		font-weight: 600;
+		padding: 2px 6px;
+		border-radius: 4px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		margin-left: 8px;
+		display: inline-block;
+		white-space: nowrap;
+	}
+
+	/* Lead Panel Sidebar Styling */
+	.lead-panel {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+		padding: 20px;
+		animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	@keyframes slideInRight {
+		from { transform: translateX(20px); opacity: 0; }
+		to { transform: translateX(0); opacity: 1; }
+	}
+
+	.lead-panel-title {
+		font-size: 16px;
+		font-weight: 700;
+		margin-bottom: 20px;
+		background: var(--accent-gradient);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		letter-spacing: 0.5px;
+	}
+
+	.panel-section {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-bottom: 20px;
+	}
+
+	.section-label {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.state-select {
+		background: rgba(255, 255, 255, 0.03);
+	}
+
+	/* Tags Editor */
+	.tags-container {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		min-height: 32px;
+		padding: 6px;
+		background: rgba(0, 0, 0, 0.15);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		align-items: center;
+	}
+
+	.no-tags-placeholder {
+		font-size: 12px;
+		color: var(--text-muted);
+		padding-left: 4px;
+	}
+
+	.lead-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: rgba(var(--primary-rgb), 0.12);
+		border: 1px solid rgba(var(--primary-rgb), 0.25);
+		color: var(--text-primary);
+		padding: 2px 8px;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	.remove-tag-btn {
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 14px;
+		font-weight: 700;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		transition: background-color 0.2s, color 0.2s;
+	}
+
+	.remove-tag-btn:hover {
+		background: rgba(255, 255, 255, 0.1);
+		color: var(--danger);
+	}
+
+	.tag-input-form {
+		display: flex;
+		gap: 8px;
+		margin-top: 8px;
+	}
+
+	.tag-input {
+		height: 34px;
+		font-size: 13px;
+	}
+
+	.add-tag-btn {
+		height: 34px;
+		width: 34px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		padding: 0;
+		font-size: 16px;
+	}
+
+	/* Panel Tabs */
+	.panel-tabs {
+		display: flex;
+		border-bottom: 1px solid var(--border-color);
+		margin-bottom: 16px;
+		gap: 4px;
+	}
+
+	.panel-tab-btn {
+		flex: 1;
+		background: transparent;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--text-secondary);
+		font-size: 13px;
+		font-weight: 600;
+		padding: 8px 0;
+		cursor: pointer;
+		transition: color 0.2s, border-color 0.2s;
+	}
+
+	.panel-tab-btn:hover {
+		color: var(--text-primary);
+	}
+
+	.panel-tab-btn.active {
+		color: #fff;
+		border-bottom-color: rgb(var(--primary-rgb));
+	}
+
+	/* Tab Content Layout */
+	.tab-content-container {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	/* Notes Timeline */
+	.notes-timeline {
+		flex: 1;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding-right: 4px;
+		margin-bottom: 14px;
+	}
+
+	.note-card {
+		padding: 12px 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.note-header {
+		display: flex;
+		justify-content: space-between;
+		font-size: 11px;
+	}
+
+	.note-author {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.note-time {
+		color: var(--text-muted);
+	}
+
+	.note-body {
+		font-size: 13px;
+		color: var(--text-secondary);
+		line-height: 1.4;
+		white-space: pre-wrap;
+	}
+
+	.add-note-form {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.note-textarea {
+		height: 60px;
+		font-size: 13px;
+		resize: none;
+		padding: 8px 12px;
+	}
+
+	.add-note-btn {
+		align-self: flex-end;
+		padding: 6px 12px;
+		font-size: 12px;
+		height: 32px;
+	}
+
+	/* History Timeline */
+	.history-timeline {
+		flex: 1;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		padding: 4px 4px 4px 8px;
+	}
+
+	.history-card {
+		display: flex;
+		gap: 12px;
+		position: relative;
+	}
+
+	.history-card:not(:last-child)::after {
+		content: "";
+		position: absolute;
+		left: 5px;
+		top: 14px;
+		bottom: -22px;
+		width: 1px;
+		background: var(--border-color);
+	}
+
+	.history-circle {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		margin-top: 3px;
+		flex-shrink: 0;
+		box-shadow: 0 0 8px currentColor;
+		z-index: 1;
+	}
+
+	.history-content {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.history-transition {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text-secondary);
+	}
+
+	.history-state {
+		font-weight: 600;
+	}
+
+	.history-state.active-state {
+		color: var(--text-primary);
+	}
+
+	.history-meta {
+		font-size: 11px;
+		color: var(--text-muted);
+	}
+
+	.empty-timeline-state {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100px;
+		font-size: 13px;
+		color: var(--text-muted);
+		text-align: center;
+	}
+
+	/* No Lead State */
+	.no-lead-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		flex: 1;
+		gap: 14px;
+		text-align: center;
+		padding: 24px;
+	}
+
+	.no-lead-text {
+		font-size: 13px;
+		color: var(--text-muted);
+		line-height: 1.5;
+	}
+
+	.start-lead-btn {
+		width: 100%;
+		max-width: 200px;
 	}
 </style>

@@ -7,6 +7,7 @@ export class InboxState {
 	messages = $state<any[]>([]);
 	nextCursor = $state<string | null>(null);
 	filter = $state<'all' | 'mine' | 'unassigned'>('mine');
+	stateFilter = $state<string>('');
 	currentUser = $state<any | null>(null);
 	users = $state<any[]>([]);
 	
@@ -32,7 +33,11 @@ export class InboxState {
 	
 	async loadConversations() {
 		try {
-			this.conversations = await apiRequest(`/conversations?filter=${this.filter}`);
+			let url = `/conversations?filter=${this.filter}`;
+			if (this.stateFilter) {
+				url += `&state=${this.stateFilter}`;
+			}
+			this.conversations = await apiRequest(url);
 		} catch (err) {
 			console.error(err);
 		}
@@ -149,6 +154,20 @@ export class InboxState {
 							}
 						}
 						await this.loadConversations();
+						break;
+						
+					case 'lead.state_changed':
+						if (event.conversation_id === this.activeConvoID) {
+							if (this.activeConvo) {
+								if (!this.activeConvo.lead) {
+									this.activeConvo.lead = { current_state_key: event.to_state };
+								} else {
+									this.activeConvo.lead.current_state_key = event.to_state;
+								}
+							}
+						}
+						await this.loadConversations();
+						window.dispatchEvent(new CustomEvent('lead-state-changed', { detail: event }));
 						break;
 						
 					case 'channel.status_changed':
