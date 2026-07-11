@@ -11,6 +11,7 @@ type NormalizedMessage struct {
 	Text              string
 	MediaURL          string
 	ReplyToExternalID string
+	ExternalMessageID string
 }
 
 // ContactRef represents information about the contact.
