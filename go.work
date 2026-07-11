@@ -1,0 +1,9 @@
+go 1.25.0
+
+use (
+	./packages/go-common
+	./services/api-gateway
+	./services/identity-svc
+	./services/workspace-svc
+	./tests/integration
+)

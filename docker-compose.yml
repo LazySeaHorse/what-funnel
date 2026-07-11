@@ -1,0 +1,122 @@
+
+# ===========================================================================
+# WhatFunnel — local development stack
+# ===========================================================================
+# Usage:
+#   make up      — start all services
+#   make down    — stop all services
+#   make migrate — run goose migrations
+#   make test    — run full test suite (requires stack to be running)
+# ===========================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Database — Postgres with pgvector extension
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: whatfunnel-postgres
+    environment:
+      POSTGRES_USER: whatfunnel
+      POSTGRES_PASSWORD: whatfunnel
+      POSTGRES_DB: whatfunnel
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatfunnel -d whatfunnel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis — event bus placeholder (Redis Streams wired in Build Prompt 2)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: whatfunnel-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Identity Service — auth, RBAC, audit log
+  # ---------------------------------------------------------------------------
+  identity-svc:
+    build:
+      context: .
+      dockerfile: services/identity-svc/Dockerfile
+    container_name: whatfunnel-identity-svc
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      SESSION_SECRET: change-me-in-production-at-least-32-chars
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8081"
+      LOG_LEVEL: info
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Workspace Service — account, users, pipeline config
+  # ---------------------------------------------------------------------------
+  workspace-svc:
+    build:
+      context: .
+      dockerfile: services/workspace-svc/Dockerfile
+    container_name: whatfunnel-workspace-svc
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      SESSION_SECRET: change-me-in-production-at-least-32-chars
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8082"
+      LOG_LEVEL: info
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API Gateway — reverse proxy and auth enforcement
+  # ---------------------------------------------------------------------------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: whatfunnel-api-gateway
+    environment:
+      IDENTITY_SVC_URL: http://identity-svc:8081
+      WORKSPACE_SVC_URL: http://workspace-svc:8082
+      SESSION_SECRET: change-me-in-production-at-least-32-chars
+      PORT: "8080"
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    depends_on:
+      - identity-svc
+      - workspace-svc
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Stubs — built in later prompts
+  # ---------------------------------------------------------------------------
+  # conversation-svc  — Build Prompt 2+
+  # notification-svc  — Build Prompt 4+
+  # ai-answer-svc     — Build Prompt 4+
+  # ai-kb-compiler    — Build Prompt 4+
+  # matrix-adapter    — Build Prompt 2+
+
+volumes:
+  postgres_data:
