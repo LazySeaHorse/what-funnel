@@ -49,22 +49,24 @@ migrate-reset: ## Roll back ALL migrations (destructive!)
 # Tests
 # ---------------------------------------------------------------------------
 
+TEST_PACKAGES ?= ./packages/go-common/... ./services/identity-svc/... ./services/workspace-svc/... ./services/conversation-svc/... ./adapters/fake/... ./adapters/matrix-mautrix/... ./tests/integration/...
+
 test: ## Run full test suite (unit + integration; requires `make up` first)
 	@echo "Waiting for postgres..."
 	@until docker compose exec postgres pg_isready -U whatfunnel -d whatfunnel > /dev/null 2>&1; do sleep 1; done
 	@echo "Running migrations against test DB..."
 	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up
 	@echo "Running tests..."
-	go test ./packages/go-common/... ./services/identity-svc/... ./services/workspace-svc/... ./tests/integration/... -count=1 -timeout 120s
+	go test $(TEST_PACKAGES) -count=1 -timeout 120s
 
 test-short: ## Run unit tests only (no postgres required)
-	go test ./packages/go-common/... ./services/identity-svc/... ./services/workspace-svc/... -short -count=1 -timeout 30s
+	go test $(TEST_PACKAGES) -short -count=1 -timeout 30s
 
 test-verbose: ## Run full test suite with verbose output
 	@echo "Waiting for postgres..."
 	@until docker compose exec postgres pg_isready -U whatfunnel -d whatfunnel > /dev/null 2>&1; do sleep 1; done
 	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up
-	go test ./packages/go-common/... ./services/identity-svc/... ./services/workspace-svc/... ./tests/integration/... -v -count=1 -timeout 120s
+	go test $(TEST_PACKAGES) -v -count=1 -timeout 120s
 
 # ---------------------------------------------------------------------------
 # Build

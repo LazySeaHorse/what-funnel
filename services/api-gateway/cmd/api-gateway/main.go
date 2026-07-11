@@ -27,6 +27,7 @@ import (
 func main() {
 	identitySvcURL := mustEnv("IDENTITY_SVC_URL")
 	workspaceSvcURL := mustEnv("WORKSPACE_SVC_URL")
+	conversationSvcURL := mustEnv("CONVERSATION_SVC_URL")
 	port := envOrDefault("PORT", "8080")
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -43,6 +44,11 @@ func main() {
 		logger.Error("invalid WORKSPACE_SVC_URL", "error", err)
 		os.Exit(1)
 	}
+	conversationBase, err := url.Parse(conversationSvcURL)
+	if err != nil {
+		logger.Error("invalid CONVERSATION_SVC_URL", "error", err)
+		os.Exit(1)
+	}
 
 	r := mux.NewRouter()
 
@@ -57,6 +63,12 @@ func main() {
 
 	// Proxy /workspace/* → workspace-svc
 	r.PathPrefix("/workspace/").Handler(proxy(workspaceBase, logger))
+
+	// Proxy /channels/* → conversation-svc
+	r.PathPrefix("/channels").Handler(proxy(conversationBase, logger))
+
+	// Proxy /internal/conversations/* → conversation-svc
+	r.PathPrefix("/internal/conversations").Handler(proxy(conversationBase, logger))
 
 	// Catch-all 404
 	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
