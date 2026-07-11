@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	matrixadapter "github.com/whatfunnel/whatfunnel/adapters/matrix-mautrix"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
@@ -59,6 +60,43 @@ func (s *Service) GetAdapter(channelType string) (types.ChannelAdapter, error) {
 		return nil, fmt.Errorf("no adapter registered for channel type: %s", channelType)
 	}
 	return adapter, nil
+}
+
+// InitAdapters loads all channels from DB, decrypts credentials, and configures adapters.
+func (s *Service) InitAdapters(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT id, type, bridge_credentials FROM channels`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var channelType string
+		var dbCreds []byte
+		if err := rows.Scan(&id, &channelType, &dbCreds); err != nil {
+			return err
+		}
+
+		if len(dbCreds) > 0 {
+			decrypted, err := s.DecryptCredentials(dbCreds)
+			if err != nil {
+				continue
+			}
+
+			if adapter, err := s.GetAdapter(channelType); err == nil {
+				if configurable, ok := adapter.(interface {
+					Configure(channelID string, creds matrixadapter.Credentials)
+				}); ok {
+					var mc matrixadapter.Credentials
+					if err := json.Unmarshal(decrypted, &mc); err == nil {
+						configurable.Configure(id.String(), mc)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // EncryptCredentials encrypts raw credentials for storing in Postgres JSONB.
@@ -243,6 +281,23 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 		return nil, err
 	}
 
+	// Try to configure the adapter dynamically before sending to ensure credentials are fresh/loaded
+	var dbCreds []byte
+	err = tx.QueryRow(ctx, `SELECT bridge_credentials FROM channels WHERE id = $1`, channelID).Scan(&dbCreds)
+	if err == nil && len(dbCreds) > 0 {
+		decrypted, err := s.DecryptCredentials(dbCreds)
+		if err == nil {
+			if configurable, ok := adapter.(interface {
+				Configure(channelID string, creds matrixadapter.Credentials)
+			}); ok {
+				var mc matrixadapter.Credentials
+				if err := json.Unmarshal(decrypted, &mc); err == nil {
+					configurable.Configure(channelID.String(), mc)
+				}
+			}
+		}
+	}
+
 	// Call adapter SendMessage
 	msgPayload := types.NormalizedMessage{
 		ContentType: contentType,
@@ -380,6 +435,20 @@ func (s *Service) CreateChannel(ctx context.Context, accountID uuid.UUID, channe
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
+	}
+
+	// Configure the adapter if applicable
+	if len(rawCredentials) > 0 {
+		if adapter, err := s.GetAdapter(channelType); err == nil {
+			if configurable, ok := adapter.(interface {
+				Configure(channelID string, creds matrixadapter.Credentials)
+			}); ok {
+				var mc matrixadapter.Credentials
+				if err := json.Unmarshal(rawCredentials, &mc); err == nil {
+					configurable.Configure(ch.ID.String(), mc)
+				}
+			}
+		}
 	}
 
 	return ch, nil

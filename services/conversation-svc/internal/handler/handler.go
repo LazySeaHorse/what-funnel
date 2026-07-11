@@ -37,6 +37,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/internal/conversations/{id}/send", auth(http.HandlerFunc(h.SendMessage))).Methods(http.MethodPost)
 
 	// Channel lifecycle
+	r.Handle("/channels", auth(admin(http.HandlerFunc(h.ListChannels)))).Methods(http.MethodGet)
 	r.Handle("/channels", auth(admin(http.HandlerFunc(h.CreateChannel)))).Methods(http.MethodPost)
 	r.Handle("/channels/{id}", auth(admin(http.HandlerFunc(h.GetChannel)))).Methods(http.MethodGet)
 	r.Handle("/channels/{id}/disconnect", auth(admin(http.HandlerFunc(h.DisconnectChannel)))).Methods(http.MethodPost)
@@ -97,6 +98,26 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, msg)
+}
+
+func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+
+	channels, err := h.svc.ListChannels(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if channels == nil {
+		channels = []*types.Channel{}
+	}
+
+	writeJSON(w, http.StatusOK, channels)
 }
 
 func (h *Handler) CreateChannel(w http.ResponseWriter, r *http.Request) {
