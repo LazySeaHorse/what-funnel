@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -504,3 +506,389 @@ func (s *Service) GetChannelStatus(ctx context.Context, accountID, channelID uui
 
 	return status, nil
 }
+
+type ConversationAssignedEvent struct {
+	AccountID       uuid.UUID   `json:"account_id"`
+	ConversationID  uuid.UUID   `json:"conversation_id"`
+	AssignedUserIDs []uuid.UUID `json:"assigned_user_ids"`
+}
+
+func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string) ([]*types.ConversationListItem, error) {
+	var settingsBytes []byte
+	err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes)
+	if err != nil {
+		return nil, fmt.Errorf("get account settings: %w", err)
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	// Base SQL query selecting conversations with contact info, unread flag and lateral last message.
+	sqlQuery := `
+		SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
+		       co.display_name, co.avatar_url,
+		       cr.last_read_at,
+		       m.id as msg_id, m.direction as msg_direction, m.sender_type as msg_sender_type, m.sender_user_id as msg_sender_user_id,
+		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at
+		FROM conversations c
+		JOIN contacts co ON c.contact_id = co.id
+		LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
+		LEFT JOIN LATERAL (
+		    SELECT id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+		    FROM messages
+		    WHERE conversation_id = c.id
+		    ORDER BY created_at DESC, id DESC
+		    LIMIT 1
+		) m ON TRUE
+		WHERE c.account_id = $2 AND (
+		    $3 = 'admin' OR
+		    $1 = ANY(c.assigned_user_ids) OR
+		    (cardinality(c.assigned_user_ids) = 0 AND $4 = true)
+		)
+	`
+	if filter == "mine" {
+		sqlQuery += ` AND $1 = ANY(c.assigned_user_ids)`
+	} else if filter == "unassigned" {
+		sqlQuery += ` AND (c.assigned_user_ids IS NULL OR cardinality(c.assigned_user_ids) = 0)`
+	}
+
+	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`
+
+	rows, err := s.pool.Query(ctx, sqlQuery, userID, accountID, userRole, unassignedVisible)
+	if err != nil {
+		return nil, fmt.Errorf("query conversations: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*types.ConversationListItem
+	for rows.Next() {
+		item := &types.ConversationListItem{}
+		var lastReadAt *time.Time
+		
+		// Message fields (nullable fields parsed manually)
+		var msgID *uuid.UUID
+		var msgDirection *string
+		var msgSenderType *string
+		var msgSenderUserID *uuid.UUID
+		var msgContentType *string
+		var msgContent []byte
+		var msgExternalID *string
+		var msgCreatedAt *time.Time
+
+		err := rows.Scan(
+			&item.Conversation.ID,
+			&item.Conversation.AccountID,
+			&item.Conversation.ContactID,
+			&item.Conversation.ChannelID,
+			&item.Conversation.Status,
+			&item.Conversation.AssignedUserIDs,
+			&item.Conversation.LastMessageAt,
+			&item.Conversation.AIModeActive,
+			&item.Conversation.CreatedAt,
+			&item.ContactName,
+			&item.ContactAvatarURL,
+			&lastReadAt,
+			&msgID,
+			&msgDirection,
+			&msgSenderType,
+			&msgSenderUserID,
+			&msgContentType,
+			&msgContent,
+			&msgExternalID,
+			&msgCreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan conversation row: %w", err)
+		}
+
+		// Compute unread flag
+		if item.Conversation.LastMessageAt != nil {
+			if lastReadAt == nil {
+				item.Unread = true
+			} else {
+				item.Unread = item.Conversation.LastMessageAt.After(*lastReadAt)
+			}
+		} else {
+			item.Unread = false
+		}
+
+		// Build last message preview if present
+		if msgID != nil {
+			item.LastMessagePreview = &types.Message{
+				ID:                *msgID,
+				AccountID:         item.Conversation.AccountID,
+				ConversationID:    item.Conversation.ID,
+				Direction:         *msgDirection,
+				SenderType:        *msgSenderType,
+				SenderUserID:      msgSenderUserID,
+				ContentType:       *msgContentType,
+				Content:           msgContent,
+				ExternalMessageID: msgExternalID,
+				CreatedAt:         *msgCreatedAt,
+			}
+		}
+
+		list = append(list, item)
+	}
+
+	return list, rows.Err()
+}
+
+func (s *Service) GetConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string) (*types.ConversationListItem, error) {
+	var settingsBytes []byte
+	err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes)
+	if err != nil {
+		return nil, fmt.Errorf("get account settings: %w", err)
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	// Fetch single conversation.
+	item := &types.ConversationListItem{}
+	var lastReadAt *time.Time
+
+	var msgID *uuid.UUID
+	var msgDirection *string
+	var msgSenderType *string
+	var msgSenderUserID *uuid.UUID
+	var msgContentType *string
+	var msgContent []byte
+	var msgExternalID *string
+	var msgCreatedAt *time.Time
+
+	err = s.pool.QueryRow(ctx, `
+		SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
+		       co.display_name, co.avatar_url,
+		       cr.last_read_at,
+		       m.id as msg_id, m.direction as msg_direction, m.sender_type as msg_sender_type, m.sender_user_id as msg_sender_user_id,
+		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at
+		FROM conversations c
+		JOIN contacts co ON c.contact_id = co.id
+		LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
+		LEFT JOIN LATERAL (
+		    SELECT id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+		    FROM messages
+		    WHERE conversation_id = c.id
+		    ORDER BY created_at DESC, id DESC
+		    LIMIT 1
+		) m ON TRUE
+		WHERE c.id = $2 AND c.account_id = $3
+	`, userID, conversationID, accountID).Scan(
+		&item.Conversation.ID,
+		&item.Conversation.AccountID,
+		&item.Conversation.ContactID,
+		&item.Conversation.ChannelID,
+		&item.Conversation.Status,
+		&item.Conversation.AssignedUserIDs,
+		&item.Conversation.LastMessageAt,
+		&item.Conversation.AIModeActive,
+		&item.Conversation.CreatedAt,
+		&item.ContactName,
+		&item.ContactAvatarURL,
+		&lastReadAt,
+		&msgID,
+		&msgDirection,
+		&msgSenderType,
+		&msgSenderUserID,
+		&msgContentType,
+		&msgContent,
+		&msgExternalID,
+		&msgCreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.New("conversation not found")
+		}
+		return nil, err
+	}
+
+	// Apply visibility check
+	if !types.CanSeeConversation(userRole, userID, item.Conversation.AssignedUserIDs, unassignedVisible) {
+		return nil, errors.New("conversation not found")
+	}
+
+	// Compute unread flag
+	if item.Conversation.LastMessageAt != nil {
+		if lastReadAt == nil {
+			item.Unread = true
+		} else {
+			item.Unread = item.Conversation.LastMessageAt.After(*lastReadAt)
+		}
+	} else {
+		item.Unread = false
+	}
+
+	// Build last message preview if present
+	if msgID != nil {
+		item.LastMessagePreview = &types.Message{
+			ID:                *msgID,
+			AccountID:         item.Conversation.AccountID,
+			ConversationID:    item.Conversation.ID,
+			Direction:         *msgDirection,
+			SenderType:        *msgSenderType,
+			SenderUserID:      msgSenderUserID,
+			ContentType:       *msgContentType,
+			Content:           msgContent,
+			ExternalMessageID: msgExternalID,
+			CreatedAt:         *msgCreatedAt,
+		}
+	}
+
+	return item, nil
+}
+
+func (s *Service) GetConversationMessages(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string, beforeCursor string, limit int) ([]*types.Message, string, error) {
+	// First check visibility using GetConversation
+	_, err := s.GetConversation(ctx, accountID, userID, conversationID, userRole)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Build query
+	var sqlQuery string
+	var args []any
+	args = append(args, conversationID, accountID)
+
+	sqlQuery = `
+		SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+		FROM messages
+		WHERE conversation_id = $1 AND account_id = $2
+	`
+
+	if beforeCursor != "" {
+		cursorTime, cursorID, err := decodeCursor(beforeCursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid cursor: %w", err)
+		}
+		args = append(args, cursorTime, cursorID)
+		sqlQuery += fmt.Sprintf(" AND (created_at < $%d OR (created_at = $%d AND id < $%d))", len(args)-1, len(args)-1, len(args))
+	}
+
+	args = append(args, limit)
+	sqlQuery += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+
+	rows, err := s.pool.Query(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("query messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*types.Message
+	for rows.Next() {
+		msg := &types.Message{}
+		err := rows.Scan(
+			&msg.ID,
+			&msg.AccountID,
+			&msg.ConversationID,
+			&msg.Direction,
+			&msg.SenderType,
+			&msg.SenderUserID,
+			&msg.ContentType,
+			&msg.Content,
+			&msg.ExternalMessageID,
+			&msg.CreatedAt,
+		)
+		if err != nil {
+			return nil, "", fmt.Errorf("scan message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	nextCursor := ""
+	if len(messages) > 0 && len(messages) == limit {
+		lastMsg := messages[len(messages)-1]
+		nextCursor = encodeCursor(lastMsg.CreatedAt, lastMsg.ID)
+	}
+
+	return messages, nextCursor, nil
+}
+
+func (s *Service) AssignConversation(ctx context.Context, accountID uuid.UUID, conversationID uuid.UUID, assignedUserIDs []uuid.UUID, actorUserID uuid.UUID) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update conversation assigned_user_ids
+	_, err = tx.Exec(ctx, `
+		UPDATE conversations
+		SET assigned_user_ids = $1
+		WHERE id = $2 AND account_id = $3
+	`, assignedUserIDs, conversationID, accountID)
+	if err != nil {
+		return fmt.Errorf("update assignment: %w", err)
+	}
+
+	// Write audit log entry
+	aw := audit.NewWriterFromTx(tx)
+	err = aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorUserID,
+		Action:      "conversation.assigned",
+		TargetType:  "conversation",
+		TargetID:    &conversationID,
+		Metadata: map[string]any{
+			"assigned_user_ids": assignedUserIDs,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Publish to conversation.assigned stream
+	_, err = s.pubsub.Publish(ctx, "conversation.assigned", ConversationAssignedEvent{
+		AccountID:       accountID,
+		ConversationID:  conversationID,
+		AssignedUserIDs: assignedUserIDs,
+	})
+	if err != nil {
+		fmt.Printf("failed to publish conversation.assigned: %v\n", err)
+	}
+
+	return nil
+}
+
+func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO conversation_reads (account_id, conversation_id, user_id, last_read_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (conversation_id, user_id)
+		DO UPDATE SET last_read_at = NOW()
+	`, accountID, conversationID, userID)
+	if err != nil {
+		return fmt.Errorf("upsert conversation read: %w", err)
+	}
+	return nil
+}
+
+func encodeCursor(t time.Time, id uuid.UUID) string {
+	str := fmt.Sprintf("%s,%s", t.Format(time.RFC3339Nano), id.String())
+	return base64.URLEncoding.EncodeToString([]byte(str))
+}
+
+func decodeCursor(cursorStr string) (time.Time, uuid.UUID, error) {
+	b, err := base64.URLEncoding.DecodeString(cursorStr)
+	if err != nil {
+		return time.Time{}, uuid.Nil, err
+	}
+	parts := strings.SplitN(string(b), ",", 2)
+	if len(parts) != 2 {
+		return time.Time{}, uuid.Nil, fmt.Errorf("invalid cursor format")
+	}
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, uuid.Nil, err
+	}
+	id, err := uuid.Parse(parts[1])
+	if err != nil {
+		return time.Time{}, uuid.Nil, err
+	}
+	return t, id, nil
+}
+

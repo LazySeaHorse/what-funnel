@@ -3,10 +3,12 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
@@ -38,6 +40,13 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/channels", auth(admin(http.HandlerFunc(h.CreateChannel)))).Methods(http.MethodPost)
 	r.Handle("/channels/{id}", auth(admin(http.HandlerFunc(h.GetChannel)))).Methods(http.MethodGet)
 	r.Handle("/channels/{id}/disconnect", auth(admin(http.HandlerFunc(h.DisconnectChannel)))).Methods(http.MethodPost)
+
+	// Conversations listing & details
+	r.Handle("/conversations", auth(http.HandlerFunc(h.ListConversations))).Methods(http.MethodGet)
+	r.Handle("/conversations/{id}", auth(http.HandlerFunc(h.GetConversation))).Methods(http.MethodGet)
+	r.Handle("/conversations/{id}/messages", auth(http.HandlerFunc(h.GetConversationMessages))).Methods(http.MethodGet)
+	r.Handle("/conversations/{id}/assign", auth(admin(http.HandlerFunc(h.AssignConversation)))).Methods(http.MethodPatch)
+	r.Handle("/conversations/{id}/read", auth(http.HandlerFunc(h.ReadConversation))).Methods(http.MethodPost)
 }
 
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
@@ -181,4 +190,221 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+	userRole, ok := middleware.RoleFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing role")
+		return
+	}
+
+	filter := r.URL.Query().Get("filter")
+	if filter == "" {
+		filter = "all"
+	}
+	if filter != "all" && filter != "mine" && filter != "unassigned" {
+		writeError(w, http.StatusBadRequest, "invalid filter")
+		return
+	}
+
+	conversations, err := h.svc.ListConversations(r.Context(), accountID, userID, userRole, filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if conversations == nil {
+		conversations = []*types.ConversationListItem{}
+	}
+
+	writeJSON(w, http.StatusOK, conversations)
+}
+
+func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+	userRole, ok := middleware.RoleFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing role")
+		return
+	}
+
+	vars := mux.Vars(r)
+	convoID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+
+	convo, err := h.svc.GetConversation(r.Context(), accountID, userID, convoID, userRole)
+	if err != nil {
+		if err.Error() == "conversation not found" {
+			writeError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, convo)
+}
+
+func (h *Handler) GetConversationMessages(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+	userRole, ok := middleware.RoleFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing role")
+		return
+	}
+
+	vars := mux.Vars(r)
+	convoID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+
+	beforeCursor := r.URL.Query().Get("before")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	messages, nextCursor, err := h.svc.GetConversationMessages(r.Context(), accountID, userID, convoID, userRole, beforeCursor, limit)
+	if err != nil {
+		if err.Error() == "conversation not found" {
+			writeError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if messages == nil {
+		messages = []*types.Message{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"messages":    messages,
+		"next_cursor": nextCursor,
+	})
+}
+
+func (h *Handler) AssignConversation(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+
+	vars := mux.Vars(r)
+	convoID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+
+	var body struct {
+		UserIDs []string `json:"user_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	assignedUserIDs := []uuid.UUID{}
+	for _, idStr := range body.UserIDs {
+		u, err := uuid.Parse(idStr)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid user ID: "+idStr)
+			return
+		}
+		assignedUserIDs = append(assignedUserIDs, u)
+	}
+
+	if err := h.svc.AssignConversation(r.Context(), accountID, convoID, assignedUserIDs, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "assigned"})
+}
+
+func (h *Handler) ReadConversation(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+	userRole, ok := middleware.RoleFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing role")
+		return
+	}
+
+	vars := mux.Vars(r)
+	convoID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+
+	// Verify visibility first
+	_, err = h.svc.GetConversation(r.Context(), accountID, userID, convoID, userRole)
+	if err != nil {
+		if err.Error() == "conversation not found" {
+			writeError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := h.svc.ReadConversation(r.Context(), accountID, userID, convoID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "read"})
 }

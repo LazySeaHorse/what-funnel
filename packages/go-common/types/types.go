@@ -129,6 +129,15 @@ type Conversation struct {
 	CreatedAt       time.Time   `json:"created_at" db:"created_at"`
 }
 
+// ConversationListItem is a list item representing a conversation with unread status and last message preview.
+type ConversationListItem struct {
+	Conversation
+	Unread             bool      `json:"unread"`
+	LastMessagePreview *Message  `json:"last_message_preview"` // Nullable
+	ContactName        *string   `json:"contact_name"`
+	ContactAvatarURL   *string   `json:"contact_avatar_url"`
+}
+
 // Message is an individual message in a conversation.
 type Message struct {
 	ID                uuid.UUID  `json:"id" db:"id"`
