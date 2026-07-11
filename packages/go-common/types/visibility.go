@@ -9,6 +9,7 @@ import (
 // AccountSettings represents the settings payload stored in accounts.settings jsonb.
 type AccountSettings struct {
 	UnassignedConversationsVisibleToMembers *bool `json:"unassigned_conversations_visible_to_members,omitempty"`
+	LeadTrackingEnabled                     *bool `json:"lead_tracking_enabled,omitempty"`
 }
 
 // IsUnassignedVisible returns the value of unassigned_conversations_visible_to_members setting,
@@ -25,6 +26,22 @@ func IsUnassignedVisible(settingsBytes []byte) bool {
 		return true
 	}
 	return *settings.UnassignedConversationsVisibleToMembers
+}
+
+// IsLeadTrackingEnabled returns the value of lead_tracking_enabled setting,
+// defaulting to true if absent or invalid.
+func IsLeadTrackingEnabled(settingsBytes []byte) bool {
+	if len(settingsBytes) == 0 {
+		return true
+	}
+	var settings AccountSettings
+	if err := json.Unmarshal(settingsBytes, &settings); err != nil {
+		return true
+	}
+	if settings.LeadTrackingEnabled == nil {
+		return true
+	}
+	return *settings.LeadTrackingEnabled
 }
 
 // CanSeeConversation checks if a user is allowed to see a conversation based on the rules in §2:
