@@ -485,5 +485,232 @@ func TestUpdateProductMode(t *testing.T) {
 	assert.Equal(t, true, settings["lead_tracking_enabled"])
 }
 
+// ---------------------------------------------------------------------------
+// Onboarding tests — Stage 8
+// ---------------------------------------------------------------------------
 
+func TestOnboardingStatus_DefaultEmpty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
 
+	accountID, _ := setupTestTenant(t, pool, "OnboardingEmpty", "ob_empty@example.com")
+
+	state, err := svc.GetOnboardingStatus(ctx, accountID)
+	require.NoError(t, err, "GetOnboardingStatus must not fail for a new account")
+	require.NotNil(t, state)
+	assert.Empty(t, state.CompletedSteps, "new account must have no completed steps")
+	assert.Empty(t, state.SkippedSteps, "new account must have no skipped steps")
+	assert.Nil(t, state.CompletedAt, "new account must have no completed_at")
+	assert.Nil(t, state.BusinessType, "new account must have no business_type")
+}
+
+func TestOnboardingStatus_CompleteStep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, _ := setupTestTenant(t, pool, "OnboardingComplete", "ob_complete@example.com")
+
+	err := svc.PatchOnboardingStatus(ctx, accountID, "signup", "complete")
+	require.NoError(t, err)
+
+	state, err := svc.GetOnboardingStatus(ctx, accountID)
+	require.NoError(t, err)
+	assert.Contains(t, state.CompletedSteps, "signup")
+	assert.NotContains(t, state.SkippedSteps, "signup")
+
+	// Verify audit log
+	var auditCount int
+	err = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'onboarding.step_updated'`,
+		accountID).Scan(&auditCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, auditCount)
+}
+
+func TestOnboardingStatus_SkipStep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, _ := setupTestTenant(t, pool, "OnboardingSkip", "ob_skip@example.com")
+
+	err := svc.PatchOnboardingStatus(ctx, accountID, "channel_connect", "skip")
+	require.NoError(t, err)
+
+	state, err := svc.GetOnboardingStatus(ctx, accountID)
+	require.NoError(t, err)
+	assert.Contains(t, state.SkippedSteps, "channel_connect")
+	assert.NotContains(t, state.CompletedSteps, "channel_connect")
+}
+
+func TestOnboardingStatus_CompleteAfterSkip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, _ := setupTestTenant(t, pool, "OnboardingCompleteAfterSkip", "ob_cas@example.com")
+
+	// Skip first
+	err := svc.PatchOnboardingStatus(ctx, accountID, "channel_connect", "skip")
+	require.NoError(t, err)
+
+	// Then complete
+	err = svc.PatchOnboardingStatus(ctx, accountID, "channel_connect", "complete")
+	require.NoError(t, err)
+
+	state, err := svc.GetOnboardingStatus(ctx, accountID)
+	require.NoError(t, err)
+	assert.Contains(t, state.CompletedSteps, "channel_connect", "step must be in completed_steps after complete action")
+	assert.NotContains(t, state.SkippedSteps, "channel_connect", "step must be removed from skipped_steps after complete action")
+}
+
+func TestOnboardingStatus_DoneSetCompletedAt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, _ := setupTestTenant(t, pool, "OnboardingDone", "ob_done@example.com")
+
+	err := svc.PatchOnboardingStatus(ctx, accountID, "done", "complete")
+	require.NoError(t, err)
+
+	state, err := svc.GetOnboardingStatus(ctx, accountID)
+	require.NoError(t, err)
+	require.NotNil(t, state.CompletedAt, "completed_at must be set when step='done'")
+	assert.NotEmpty(t, *state.CompletedAt, "completed_at must not be empty")
+
+	// Verify it's a parseable timestamp
+	_, parseErr := time.Parse(time.RFC3339, *state.CompletedAt)
+	assert.NoError(t, parseErr, "completed_at must be a valid RFC3339 timestamp")
+}
+
+func TestOnboardingTemplates_StaticData(t *testing.T) {
+	// Pure in-memory — no DB needed
+	svc, _ := service.New(nil, testEncryptionKey)
+	// New with nil pool is valid for template-only operations
+
+	templates := svc.GetOnboardingTemplates()
+	assert.Len(t, templates, 5, "must return exactly 5 business-type templates")
+
+	// Verify all expected types are present
+	typeSet := make(map[string]bool)
+	for _, tmpl := range templates {
+		typeSet[tmpl.Type] = true
+		assert.NotEmpty(t, tmpl.Label, "template Label must not be empty")
+		assert.NotEmpty(t, tmpl.PipelineStates, "template PipelineStates must not be empty")
+		assert.NotEmpty(t, tmpl.KBPrompts, "template KBPrompts must not be empty")
+		assert.NotEmpty(t, tmpl.SummarySchema, "template SummarySchema must not be empty")
+	}
+	assert.True(t, typeSet["salon"])
+	assert.True(t, typeSet["photography"])
+	assert.True(t, typeSet["tutoring"])
+	assert.True(t, typeSet["home_services"])
+	assert.True(t, typeSet["other"])
+}
+
+func TestApplyTemplate_ChatbotOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "TemplateChatbotOnly", "tco@example.com")
+
+	// Apply salon template in chatbot_only mode
+	err := svc.ApplyOnboardingTemplate(ctx, accountID, adminID, "salon", "chatbot_only")
+	require.NoError(t, err)
+
+	// Settings must contain summary_schema and onboarding.business_type
+	var settingsRaw []byte
+	err = pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsRaw)
+	require.NoError(t, err)
+
+	var settings map[string]any
+	err = json.Unmarshal(settingsRaw, &settings)
+	require.NoError(t, err)
+	assert.NotNil(t, settings["summary_schema"], "summary_schema must be set in settings")
+
+	onboarding, ok := settings["onboarding"].(map[string]any)
+	require.True(t, ok, "onboarding must be a map")
+	assert.Equal(t, "salon", onboarding["business_type"])
+
+	// Pipeline must NOT be changed (chatbot_only does not touch pipelines)
+	pipelines, err := svc.ListPipelines(ctx, accountID)
+	require.NoError(t, err)
+	require.Len(t, pipelines, 1)
+	assert.Equal(t, "Default", pipelines[0].Name, "pipeline name must remain 'Default' in chatbot_only mode")
+
+	// Audit log for template applied
+	var auditCount int
+	err = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'onboarding.template_applied'`,
+		accountID).Scan(&auditCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, auditCount)
+}
+
+func TestApplyTemplate_FullWorkspace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "TemplateFullWorkspace", "tfw@example.com")
+
+	// Apply photography template in full_workspace mode
+	err := svc.ApplyOnboardingTemplate(ctx, accountID, adminID, "photography", "full_workspace")
+	require.NoError(t, err)
+
+	// Settings must contain summary_schema and onboarding.business_type
+	var settingsRaw []byte
+	err = pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsRaw)
+	require.NoError(t, err)
+
+	var settings map[string]any
+	err = json.Unmarshal(settingsRaw, &settings)
+	require.NoError(t, err)
+	assert.NotNil(t, settings["summary_schema"])
+
+	onboarding, ok := settings["onboarding"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "photography", onboarding["business_type"])
+
+	// Pipeline MUST be updated with photography template states
+	pipelines, err := svc.ListPipelines(ctx, accountID)
+	require.NoError(t, err)
+	require.Len(t, pipelines, 1)
+	assert.Equal(t, "Photography", pipelines[0].Name, "pipeline name must match template Label")
+	assert.Len(t, pipelines[0].States, 5, "photography template has 5 pipeline states")
+
+	// Verify first state key
+	assert.Equal(t, "new_lead", pipelines[0].States[0].Key)
+
+	// Audit logs: one for pipeline.updated, one for onboarding.template_applied
+	var pipelineAudit int
+	err = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'pipeline.updated'`,
+		accountID).Scan(&pipelineAudit)
+	require.NoError(t, err)
+	assert.Equal(t, 1, pipelineAudit, "must have one pipeline.updated audit entry")
+
+	var templateAudit int
+	err = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'onboarding.template_applied'`,
+		accountID).Scan(&templateAudit)
+	require.NoError(t, err)
+	assert.Equal(t, 1, templateAudit, "must have one onboarding.template_applied audit entry")
+}

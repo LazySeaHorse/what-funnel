@@ -2,16 +2,21 @@
 //
 // Routes (all protected by RequireAuthenticated; admin routes additionally by RequireAdmin):
 //
-//   GET    /workspace/account              — get account details
-//   PUT    /workspace/account/settings     — update account settings (admin)
-//   PUT    /workspace/account/ai-config    — update AI provider config (admin)
+//	GET    /workspace/account              — get account details
+//	PUT    /workspace/account/settings     — update account settings (admin)
+//	PUT    /workspace/account/ai-config    — update AI provider config (admin)
 //
-//   GET    /workspace/users                — list users (admin)
-//   POST   /workspace/users/invite         — invite a user (admin)
-//   PUT    /workspace/users/{id}/role      — change user role (admin)
+//	GET    /workspace/users                — list users (admin)
+//	POST   /workspace/users/invite         — invite a user (admin)
+//	PUT    /workspace/users/{id}/role      — change user role (admin)
 //
-//   GET    /workspace/pipelines            — list pipelines (admin + member)
-//   PUT    /workspace/pipelines/{id}       — update pipeline (admin)
+//	GET    /workspace/pipelines            — list pipelines (admin + member)
+//	PUT    /workspace/pipelines/{id}       — update pipeline (admin)
+//
+//	GET    /onboarding/status              — get onboarding progress (auth)
+//	PATCH  /onboarding/status              — patch onboarding step (auth)
+//	GET    /onboarding/templates           — list business-type templates (auth)
+//	POST   /onboarding/apply-template      — apply a template (admin)
 package handler
 
 import (
@@ -61,6 +66,12 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	// Pipelines
 	r.Handle("/workspace/pipelines", auth(fullWorkspace(http.HandlerFunc(h.ListPipelines)))).Methods(http.MethodGet)
 	r.Handle("/workspace/pipelines/{id}", auth(admin(fullWorkspace(http.HandlerFunc(h.UpdatePipeline))))).Methods(http.MethodPut)
+
+	// Onboarding
+	r.Handle("/onboarding/status", auth(http.HandlerFunc(h.GetOnboardingStatus))).Methods(http.MethodGet)
+	r.Handle("/onboarding/status", auth(http.HandlerFunc(h.PatchOnboardingStatus))).Methods(http.MethodPatch)
+	r.Handle("/onboarding/templates", auth(http.HandlerFunc(h.GetOnboardingTemplates))).Methods(http.MethodGet)
+	r.Handle("/onboarding/apply-template", auth(admin(http.HandlerFunc(h.ApplyOnboardingTemplate)))).Methods(http.MethodPost)
 }
 
 // -------------------------------------------------------------------------
@@ -295,6 +306,94 @@ func (h *Handler) UpdateMyReplyMode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// -------------------------------------------------------------------------
+// Onboarding handlers
+// -------------------------------------------------------------------------
+
+func (h *Handler) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "no account in session")
+		return
+	}
+	state, err := h.svc.GetOnboardingStatus(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (h *Handler) PatchOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "no account in session")
+		return
+	}
+
+	var body struct {
+		Step   string `json:"step"`
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.Action != "complete" && body.Action != "skip" {
+		writeError(w, http.StatusBadRequest, `action must be "complete" or "skip"`)
+		return
+	}
+	if body.Step == "" {
+		writeError(w, http.StatusBadRequest, "step is required")
+		return
+	}
+
+	if err := h.svc.PatchOnboardingStatus(r.Context(), accountID, body.Step, body.Action); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) GetOnboardingTemplates(w http.ResponseWriter, r *http.Request) {
+	templates := h.svc.GetOnboardingTemplates()
+	writeJSON(w, http.StatusOK, templates)
+}
+
+func (h *Handler) ApplyOnboardingTemplate(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "no account in session")
+		return
+	}
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	var body struct {
+		BusinessType string `json:"business_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.BusinessType == "" {
+		writeError(w, http.StatusBadRequest, "business_type is required")
+		return
+	}
+
+	// Fetch account to read product_mode
+	account, err := h.svc.GetAccount(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := h.svc.ApplyOnboardingTemplate(r.Context(), accountID, actorID, body.BusinessType, account.ProductMode); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "applied"})
 }
 
 // -------------------------------------------------------------------------
