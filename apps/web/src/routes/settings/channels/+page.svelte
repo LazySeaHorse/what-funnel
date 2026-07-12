@@ -7,6 +7,7 @@
 	let loading = $state(true);
 	let error = $state('');
 	let currentUser = $state<any | null>(null);
+	let productMode = $state('full_workspace');
 
 	// Modal & connect wizard state
 	let isModalOpen = $state(false);
@@ -23,6 +24,10 @@
 			if (currentUser.role !== 'admin') {
 				goto('/inbox');
 				return;
+			}
+			const account = await apiRequest('/workspace/account');
+			if (account) {
+				productMode = account.product_mode || 'full_workspace';
 			}
 			await loadChannels();
 			
@@ -152,7 +157,9 @@
 			<a href="/settings/account" class="nav-item">Account Settings</a>
 			<a href="/settings/channels" class="nav-item active">Channels</a>
 			<a href="/settings/users" class="nav-item">Workspace Users</a>
-			<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+			{#if productMode !== 'chatbot_only'}
+				<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+			{/if}
 			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
 		</nav>
 

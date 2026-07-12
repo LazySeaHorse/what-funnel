@@ -11,6 +11,7 @@
 
 	let pipeline = $state<any>(null);
 	let states = $state<any[]>([]);
+	let productMode = $state('full_workspace');
 
 	// Form state for adding new state
 	let newStateKey = $state('');
@@ -23,6 +24,14 @@
 			if (currentUser.role !== 'admin') {
 				goto('/inbox');
 				return;
+			}
+			const account = await apiRequest('/workspace/account');
+			if (account) {
+				productMode = account.product_mode || 'full_workspace';
+				if (productMode === 'chatbot_only') {
+					goto('/settings/account');
+					return;
+				}
 			}
 			await loadPipeline();
 		} catch (err) {
@@ -121,7 +130,9 @@
 			<a href="/settings/account" class="nav-item">Account Settings</a>
 			<a href="/settings/channels" class="nav-item">Channels</a>
 			<a href="/settings/users" class="nav-item">Workspace Users</a>
-			<a href="/settings/pipeline" class="nav-item active">Lead Pipeline</a>
+			{#if productMode !== 'chatbot_only'}
+				<a href="/settings/pipeline" class="nav-item active">Lead Pipeline</a>
+			{/if}
 			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
 		</nav>
 	</div>

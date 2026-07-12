@@ -5,6 +5,7 @@
 	let accountName = $state('');
 	let email = $state('');
 	let password = $state('');
+	let productMode = $state('full_workspace');
 	let error = $state('');
 	let loading = $state(false);
 
@@ -15,7 +16,7 @@
 		try {
 			await apiRequest('/auth/signup', {
 				method: 'POST',
-				body: { account_name: accountName, email, password }
+				body: { account_name: accountName, email, password, product_mode: productMode }
 			});
 			// Log in automatically after signup
 			await apiRequest('/auth/login', {
@@ -58,6 +59,20 @@
 			<div style="display: flex; flex-direction: column; gap: 6px;">
 				<label for="password" style="font-size: 12px; font-weight: 500; color: var(--text-secondary);">Password</label>
 				<input type="password" id="password" class="input-field" bind:value={password} placeholder="••••••••" required disabled={loading} />
+			</div>
+
+			<div style="display: flex; flex-direction: column; gap: 6px;">
+				<label style="font-size: 12px; font-weight: 500; color: var(--text-secondary);">Workspace Type</label>
+				<div style="display: flex; gap: 16px; margin-top: 4px;">
+					<label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+						<input type="radio" name="product_mode" value="chatbot_only" checked={productMode === 'chatbot_only'} onchange={() => productMode = 'chatbot_only'} disabled={loading} />
+						<span>Automated replies only</span>
+					</label>
+					<label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+						<input type="radio" name="product_mode" value="full_workspace" checked={productMode === 'full_workspace'} onchange={() => productMode = 'full_workspace'} disabled={loading} />
+						<span>Full lead workspace</span>
+					</label>
+				</div>
 			</div>
 
 			<button type="submit" class="btn-primary" style="margin-top: 8px; height: 42px;" disabled={loading}>

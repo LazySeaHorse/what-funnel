@@ -11,6 +11,7 @@
 
 	// Lead Management frontend states
 	let leadTrackingEnabled = $state(true);
+	let productMode = $state('full_workspace');
 	let pipelineStates = $state<any[]>([]);
 	let activePanelTab = $state<'notes' | 'history'>('notes');
 	let notes = $state<any[]>([]);
@@ -29,13 +30,19 @@
 			
 			// Fetch account details to check lead_tracking_enabled
 			const account = await apiRequest('/workspace/account');
-			if (account && account.settings) {
-				try {
-					const decoded = atob(account.settings);
-					const parsed = JSON.parse(decoded);
-					leadTrackingEnabled = parsed.lead_tracking_enabled !== false;
-				} catch (e) {
-					console.error('Failed to parse account settings', e);
+			if (account) {
+				productMode = account.product_mode || 'full_workspace';
+				if (account.settings) {
+					try {
+						const decoded = atob(account.settings);
+						const parsed = JSON.parse(decoded);
+						leadTrackingEnabled = parsed.lead_tracking_enabled !== false;
+					} catch (e) {
+						console.error('Failed to parse account settings', e);
+					}
+				}
+				if (productMode === 'chatbot_only') {
+					leadTrackingEnabled = false;
 				}
 			}
 			

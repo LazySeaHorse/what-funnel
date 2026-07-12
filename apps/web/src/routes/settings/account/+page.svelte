@@ -13,6 +13,7 @@
 		lead_tracking_enabled: true,
 		unassigned_conversations_visible_to_members: true
 	});
+	let productMode = $state('full_workspace');
 
 	onMount(async () => {
 		try {
@@ -32,16 +33,19 @@
 	async function loadAccountSettings() {
 		try {
 			const account = await apiRequest('/workspace/account');
-			if (account && account.settings) {
-				try {
-					const decoded = atob(account.settings);
-					const parsed = JSON.parse(decoded);
-					
-					// Set defaults if null
-					settings.lead_tracking_enabled = parsed.lead_tracking_enabled !== false;
-					settings.unassigned_conversations_visible_to_members = parsed.unassigned_conversations_visible_to_members !== false;
-				} catch (e) {
-					console.error('Failed to parse settings JSON', e);
+			if (account) {
+				productMode = account.product_mode || 'full_workspace';
+				if (account.settings) {
+					try {
+						const decoded = atob(account.settings);
+						const parsed = JSON.parse(decoded);
+						
+						// Set defaults if null
+						settings.lead_tracking_enabled = parsed.lead_tracking_enabled !== false;
+						settings.unassigned_conversations_visible_to_members = parsed.unassigned_conversations_visible_to_members !== false;
+					} catch (e) {
+						console.error('Failed to parse settings JSON', e);
+					}
 				}
 			}
 		} catch (err: any) {
@@ -66,6 +70,26 @@
 			saving = false;
 		}
 	}
+
+	async function handleSwitchMode(newMode: string) {
+		error = '';
+		successMsg = '';
+		saving = true;
+
+		try {
+			await apiRequest('/workspace/account/product-mode', {
+				method: 'PATCH',
+				body: { product_mode: newMode }
+			});
+			productMode = newMode;
+			await loadAccountSettings();
+			successMsg = 'Product mode updated successfully.';
+		} catch (err: any) {
+			error = 'Failed to switch product mode: ' + err.message;
+		} finally {
+			saving = false;
+		}
+	}
 </script>
 
 <div class="settings-container">
@@ -76,7 +100,9 @@
 			<a href="/settings/account" class="nav-item active">Account Settings</a>
 			<a href="/settings/channels" class="nav-item">Channels</a>
 			<a href="/settings/users" class="nav-item">Workspace Users</a>
-			<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+			{#if productMode !== 'chatbot_only'}
+				<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+			{/if}
 			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
 		</nav>
 	</div>
@@ -103,23 +129,55 @@
 		{:else}
 			<div class="settings-form-container">
 				<div class="settings-card glass-panel">
-					<h3>Lead Tracking</h3>
-					<p class="card-desc">Enable lead stages, tagging, and notes in conversation threads to manage your sales funnel.</p>
+					<h3>Product Mode</h3>
+					<p class="card-desc">Choose between automating customer replies or managing your full sales pipeline.</p>
 					
-					<div class="toggle-container">
-						<label class="switch">
+					<div class="radio-group" style="display: flex; gap: 1.5rem; margin-top: 1rem;">
+						<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
 							<input 
-								type="checkbox" 
-								bind:checked={settings.lead_tracking_enabled}
+								type="radio" 
+								name="product_mode" 
+								value="chatbot_only" 
+								checked={productMode === 'chatbot_only'} 
+								onchange={() => handleSwitchMode('chatbot_only')}
 								disabled={saving}
 							/>
-							<span class="slider round"></span>
+							<span>Automated replies only (Chatbot-only)</span>
 						</label>
-						<span class="toggle-label">
-							{settings.lead_tracking_enabled ? 'Enabled' : 'Disabled'}
-						</span>
+						<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+							<input 
+								type="radio" 
+								name="product_mode" 
+								value="full_workspace" 
+								checked={productMode === 'full_workspace'} 
+								onchange={() => handleSwitchMode('full_workspace')}
+								disabled={saving}
+							/>
+							<span>Full lead workspace</span>
+						</label>
 					</div>
 				</div>
+
+				{#if productMode === 'full_workspace'}
+					<div class="settings-card glass-panel">
+						<h3>Lead Tracking</h3>
+						<p class="card-desc">Enable lead stages, tagging, and notes in conversation threads to manage your sales funnel.</p>
+						
+						<div class="toggle-container">
+							<label class="switch">
+								<input 
+									type="checkbox" 
+									bind:checked={settings.lead_tracking_enabled}
+									disabled={saving}
+								/>
+								<span class="slider round"></span>
+							</label>
+							<span class="toggle-label">
+								{settings.lead_tracking_enabled ? 'Enabled' : 'Disabled'}
+							</span>
+						</div>
+					</div>
+				{/if}
 
 				<div class="settings-card glass-panel">
 					<h3>Member Visibility</h3>
