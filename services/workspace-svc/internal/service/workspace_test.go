@@ -398,3 +398,40 @@ func TestUpdatePipeline_StateDeletionGuard(t *testing.T) {
 	}
 }
 
+func TestUpdateUserReplyMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "TestTenant", "t@example.com")
+
+	// 1. Initially, update is allowed because allow_member_reply_mode_override defaults to true
+	mode := "auto_send"
+	err := svc.UpdateUserReplyMode(ctx, accountID, adminID, &mode)
+	require.NoError(t, err)
+
+	// Verify update in DB
+	var dbMode *string
+	err = pool.QueryRow(ctx, "SELECT reply_mode_override FROM users WHERE id = $1", adminID).Scan(&dbMode)
+	require.NoError(t, err)
+	require.NotNil(t, dbMode)
+	assert.Equal(t, "auto_send", *dbMode)
+
+	// 2. Disable member override in settings
+	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = '{"allow_member_reply_mode_override": false}' WHERE id = $1`, accountID)
+	require.NoError(t, err)
+
+	// Update should now be rejected
+	mode2 := "draft_only"
+	err = svc.UpdateUserReplyMode(ctx, accountID, adminID, &mode2)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "member reply mode overrides are not allowed")
+
+	// 3. Reset override to nil should also be rejected when disabled
+	err = svc.UpdateUserReplyMode(ctx, accountID, adminID, nil)
+	assert.Error(t, err)
+}
+
+

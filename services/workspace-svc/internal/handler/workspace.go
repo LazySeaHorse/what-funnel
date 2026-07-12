@@ -49,10 +49,11 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
 
-	// Users (admin only)
 	r.Handle("/workspace/users", auth(admin(http.HandlerFunc(h.ListUsers)))).Methods(http.MethodGet)
 	r.Handle("/workspace/users/invite", auth(admin(http.HandlerFunc(h.InviteUser)))).Methods(http.MethodPost)
 	r.Handle("/workspace/users/{id}/role", auth(admin(http.HandlerFunc(h.ChangeUserRole)))).Methods(http.MethodPut)
+	r.Handle("/workspace/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
+	r.Handle("/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
 
 	// Pipelines
 	r.Handle("/workspace/pipelines", auth(http.HandlerFunc(h.ListPipelines))).Methods(http.MethodGet)
@@ -231,6 +232,42 @@ func (h *Handler) UpdatePipeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) UpdateMyReplyMode(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+
+	var body struct {
+		ReplyMode *string `json:"reply_mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	if body.ReplyMode != nil {
+		mode := *body.ReplyMode
+		if mode != "" && mode != "auto_send" && mode != "draft_only" {
+			writeError(w, http.StatusBadRequest, "invalid reply_mode")
+			return
+		}
+	}
+
+	if err := h.svc.UpdateUserReplyMode(r.Context(), accountID, userID, body.ReplyMode); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 

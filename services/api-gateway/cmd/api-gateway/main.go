@@ -80,6 +80,7 @@ func main() {
 
 	// Proxy /workspace/* → workspace-svc
 	r.PathPrefix("/workspace/").Handler(proxy(workspaceBase, logger))
+	r.PathPrefix("/users").Handler(proxy(workspaceBase, logger))
 
 	// Proxy /channels/* → conversation-svc
 	r.PathPrefix("/channels").Handler(proxy(conversationBase, logger))

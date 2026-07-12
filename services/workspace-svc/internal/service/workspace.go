@@ -457,3 +457,36 @@ func (svc *Service) GetUserByID(ctx context.Context, accountID, userID uuid.UUID
 
 	return u, nil
 }
+
+func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID uuid.UUID, replyMode *string) error {
+	// 1. Fetch account settings to check if override is allowed
+	var settingsBytes []byte
+	err := svc.pool.QueryRow(ctx, "SELECT settings FROM accounts WHERE id = $1", accountID).Scan(&settingsBytes)
+	if err != nil {
+		return fmt.Errorf("lookup account settings: %w", err)
+	}
+
+	var settings struct {
+		AllowMemberReplyModeOverride bool `json:"allow_member_reply_mode_override"`
+	}
+	// default is true if key is missing/null
+	settings.AllowMemberReplyModeOverride = true
+	if len(settingsBytes) > 0 {
+		_ = json.Unmarshal(settingsBytes, &settings)
+	}
+
+	if !settings.AllowMemberReplyModeOverride {
+		return fmt.Errorf("member reply mode overrides are not allowed by the administrator")
+	}
+
+	// 2. Update user override in DB
+	_, err = svc.pool.Exec(ctx,
+		"UPDATE users SET reply_mode_override = $1 WHERE id = $2 AND account_id = $3",
+		replyMode, userID, accountID)
+	if err != nil {
+		return fmt.Errorf("update user reply mode: %w", err)
+	}
+
+	return nil
+}
+
