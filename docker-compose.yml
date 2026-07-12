@@ -164,6 +164,27 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # AI Answer Service — cascade answer agent
+  # ---------------------------------------------------------------------------
+  ai-answer-svc:
+    build:
+      context: .
+      dockerfile: services/ai-answer-svc/Dockerfile
+    container_name: whatfunnel-ai-answer-svc
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
+      APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      SESSION_SECRET: change-me-in-production-at-least-32-chars
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
   # Synapse (Matrix Homeserver) & mautrix-whatsapp bridge
   # ---------------------------------------------------------------------------
   synapse:
@@ -196,6 +217,7 @@ services:
     container_name: whatfunnel-ai-kb-compiler
     environment:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
       APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       PORT: "8085"
       LOG_LEVEL: info
