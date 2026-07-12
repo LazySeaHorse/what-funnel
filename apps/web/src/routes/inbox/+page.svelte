@@ -526,8 +526,12 @@
 									{/each}
 								</div>
 							{/if}
-							
-							<span class="message-time">{formatTime(msg.created_at)}</span>
+							<span class="message-time">
+								{#if msg.parsedContent.external_origin}
+									<span class="external-origin-indicator">Sent from phone • </span>
+								{/if}
+								{formatTime(msg.created_at)}
+							</span>
 						</div>
 					</div>
 				{/each}
@@ -1088,6 +1092,13 @@
 		color: var(--text-muted);
 		margin-top: 6px;
 		text-align: right;
+	}
+
+	.external-origin-indicator {
+		font-style: italic;
+		font-weight: 500;
+		color: var(--primary-color, #6366f1);
+		opacity: 0.95;
 	}
 
 	.compose-area {
