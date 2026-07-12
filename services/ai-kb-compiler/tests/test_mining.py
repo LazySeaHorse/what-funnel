@@ -72,12 +72,20 @@ async def test_mining_scanned_count_cutoff():
             )
             # Insert 3 messages
             for i in range(3):
-                await conn.execute(
+                msg_id = await conn.fetchval(
                     """
                     INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content)
                     VALUES ($1, $2, 'inbound', 'contact', 'text', $3::jsonb)
+                    RETURNING id
                     """,
                     account_id, convo_id, json.dumps({"text": f"Msg {i}"})
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action)
+                    VALUES ($1, $2, $3, 'none', NULL, 'flagged_human')
+                    """,
+                    account_id, convo_id, msg_id
                 )
 
         result = await run_mining(db)
@@ -139,12 +147,20 @@ async def test_mining_clustering_and_cutoff():
                 "do you have parking?"
             ]
             for txt in texts:
-                await conn.execute(
+                msg_id = await conn.fetchval(
                     """
                     INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content)
                     VALUES ($1, $2, 'inbound', 'contact', 'text', $3::jsonb)
+                    RETURNING id
                     """,
                     account_id, convo_id, json.dumps({"text": txt})
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action)
+                    VALUES ($1, $2, $3, 'none', NULL, 'flagged_human')
+                    """,
+                    account_id, convo_id, msg_id
                 )
 
         # Mock embeddings

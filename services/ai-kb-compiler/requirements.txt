@@ -7,3 +7,4 @@ cryptography==42.0.8
 apscheduler==3.10.4
 pytest==8.2.2
 pytest-asyncio==0.23.7
+redis==5.0.4

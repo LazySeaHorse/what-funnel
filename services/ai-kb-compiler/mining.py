@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from db import ScopedDB
 from llm import get_ai_config, embed, complete
+from redis_client import publish_suggestion_created
 
 logger = logging.getLogger("ai-kb-compiler")
 
@@ -109,18 +110,19 @@ async def run_mining(db: ScopedDB) -> dict:
 
     window_end = run_at
 
-    # 2. Pull inbound contact text messages in the window
-    # Content structure: content->>'text' extracts the text payload
+    # 2. Pull inbound contact text messages in the window that were flagged/unmatched
     message_rows = await db.fetch(
         """
-        SELECT id, content->>'text' as text
-        FROM messages
-        WHERE account_id = $1
-          AND direction = 'inbound'
-          AND sender_type = 'contact'
-          AND content_type = 'text'
-          AND created_at >= $2
-          AND created_at <= $3
+        SELECT m.id, m.content->>'text' as text
+        FROM messages m
+        JOIN ai_answer_events a ON m.id = a.message_id AND m.account_id = a.account_id
+        WHERE m.account_id = $1
+          AND m.direction = 'inbound'
+          AND m.sender_type = 'contact'
+          AND m.content_type = 'text'
+          AND m.created_at >= $2
+          AND m.created_at <= $3
+          AND (a.action = 'flagged_human' OR a.stage_matched = 'none')
         """,
         db.account_id,
         window_start,
@@ -273,6 +275,7 @@ async def run_mining(db: ScopedDB) -> dict:
             json.dumps(proposed_payload),
             confidence
         )
+        await publish_suggestion_created(db.account_id, sugg_id, 'new_pattern', proposed_payload)
         suggestions_created += 1
 
         # Audit log suggestion creation

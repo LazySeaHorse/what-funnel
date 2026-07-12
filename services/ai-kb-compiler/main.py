@@ -14,6 +14,7 @@ from db import ScopedDB, create_db_pool
 from llm import get_ai_config, embed, complete
 from mining import run_mining
 from scheduler import start_scheduler
+from redis_client import publish_suggestion_created
 
 
 
@@ -198,6 +199,7 @@ async def compile_paste(
                 json.dumps(c)
             )
             suggestion_ids.append(str(sugg_id))
+            await publish_suggestion_created(db.account_id, sugg_id, 'new_kb_concept', c)
 
             # Audit log
             await write_audit_log(
