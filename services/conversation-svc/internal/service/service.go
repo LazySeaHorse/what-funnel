@@ -417,13 +417,21 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 	}
 
 	// 3. Update conversation last_message_at
-	_, err = tx.Exec(ctx, `
-		UPDATE conversations
-		SET last_message_at = $1
-		WHERE id = $2 AND account_id = $3
-	`, msg.CreatedAt, conversationID, accountID)
+	if senderType == "human" {
+		_, err = tx.Exec(ctx, `
+			UPDATE conversations
+			SET last_message_at = $1, ai_mode_active = false
+			WHERE id = $2 AND account_id = $3
+		`, msg.CreatedAt, conversationID, accountID)
+	} else {
+		_, err = tx.Exec(ctx, `
+			UPDATE conversations
+			SET last_message_at = $1
+			WHERE id = $2 AND account_id = $3
+		`, msg.CreatedAt, conversationID, accountID)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("update conversation last_message_at: %w", err)
+		return nil, fmt.Errorf("update conversation details: %w", err)
 	}
 
 	// 4. Audit logging (reusing standard writer)
@@ -1544,4 +1552,9 @@ func decodeCursor(cursorStr string) (time.Time, uuid.UUID, error) {
 	}
 	return t, id, nil
 }
+
+func (s *Service) PubSub() *pubsub.Client {
+	return s.pubsub
+}
+
 

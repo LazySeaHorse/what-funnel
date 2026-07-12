@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -48,6 +49,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/conversations/{id}/messages", auth(http.HandlerFunc(h.GetConversationMessages))).Methods(http.MethodGet)
 	r.Handle("/conversations/{id}/assign", auth(admin(http.HandlerFunc(h.AssignConversation)))).Methods(http.MethodPatch)
 	r.Handle("/conversations/{id}/read", auth(http.HandlerFunc(h.ReadConversation))).Methods(http.MethodPost)
+	r.Handle("/conversations/{id}/close", auth(http.HandlerFunc(h.CloseConversation))).Methods(http.MethodPost)
 
 	// Lead management
 	r.Handle("/conversations/{id}/lead", auth(http.HandlerFunc(h.CreateLead))).Methods(http.MethodPost)
@@ -106,6 +108,35 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, msg)
+}
+
+func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+
+	vars := mux.Vars(r)
+	convoID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+
+	// Publish conversation.closed event to Redis
+	event := map[string]any{
+		"account_id":      accountID.String(),
+		"conversation_id": convoID.String(),
+		"closed_at":       time.Now().Format(time.RFC3339),
+	}
+	_, err = h.svc.PubSub().Publish(r.Context(), "conversation.closed", event)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to publish close event: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "closed"})
 }
 
 func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
