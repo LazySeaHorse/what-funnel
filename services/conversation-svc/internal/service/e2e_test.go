@@ -115,6 +115,8 @@ func TestChannelIngestionE2E(t *testing.T) {
 	go func() {
 		_ = fakeAdapter.Start(ctx, func(event types.InboundEvent) {
 			_, _ = ps.Publish(ctx, "messages.inbound", event)
+		}, func(event types.ExternalOutboundEvent) {
+			_, _ = ps.Publish(ctx, "messages.external_outbound", event)
 		})
 	}()
 

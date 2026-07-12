@@ -83,6 +83,11 @@ func main() {
 			if _, err := psClient.Publish(ctx, "messages.inbound", event); err != nil {
 				logger.Error("failed to publish inbound event to Redis", "error", err)
 			}
+		}, func(event types.ExternalOutboundEvent) {
+			logger.Info("received external outbound event from matrix adapter, publishing to redis", "channel_id", event.ChannelID, "event_id", event.ExternalMessageID)
+			if _, err := psClient.Publish(ctx, "messages.external_outbound", event); err != nil {
+				logger.Error("failed to publish external outbound event to Redis", "error", err)
+			}
 		})
 		if err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("matrix adapter error", "error", err)
@@ -108,6 +113,28 @@ func main() {
 		})
 		if err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("redis stream consumer error", "error", err)
+		}
+	}()
+
+	// Start Redis Streams External Outbound Ingestion Consumer
+	go func() {
+		logger.Info("starting Redis stream consumer for messages.external_outbound")
+		err := psClient.Consume(ctx, "messages.external_outbound", "conversation-svc-group", "conversation-svc-external-outbound-consumer", func(ctx context.Context, id string, payload []byte) error {
+			var event types.ExternalOutboundEvent
+			if err := json.Unmarshal(payload, &event); err != nil {
+				logger.Error("failed to unmarshal external outbound event", "error", err)
+				return nil
+			}
+
+			logger.Info("processing external outbound message from Redis stream", "event_id", event.ExternalMessageID)
+			if err := svc.IngestExternalOutbound(ctx, event); err != nil {
+				logger.Error("failed to ingest external outbound message", "error", err)
+				return err
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("redis stream external outbound consumer error", "error", err)
 		}
 	}()
 
