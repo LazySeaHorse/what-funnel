@@ -95,7 +95,8 @@
 	// ──────────────────────────────────────────────
 	// Step 6 – Reply Mode
 	// ──────────────────────────────────────────────
-	let s6ReplyMode = $state<'draft' | 'auto'>('draft');
+	// API values: 'draft_only' | 'auto_send'
+	let s6ReplyMode = $state<'draft_only' | 'auto_send'>('draft_only');
 
 	// ──────────────────────────────────────────────
 	// Step 8 – Team Invite
@@ -258,7 +259,7 @@
 		submitting = true;
 		error = '';
 		try {
-			await apiRequest('/workspace/account', {
+			await apiRequest('/account/product-mode', {
 				method: 'PATCH',
 				body: { product_mode: mode }
 			});
@@ -297,9 +298,18 @@
 		submitting = true;
 		error = '';
 		try {
+			const defaultCreds = JSON.stringify({
+				homeserver_url: 'http://localhost:8008',
+				user_id: `@whatsapp_bridge:localhost`,
+				access_token: 'onboarding-token'
+			});
 			const channel = await apiRequest('/channels', {
 				method: 'POST',
-				body: { type: 'matrix_whatsapp', name: 'WhatsApp' }
+				body: {
+					type: 'matrix_whatsapp',
+					bridge_identity: `whatsapp-${Date.now()}`,
+					bridge_credentials: defaultCreds
+				}
 			});
 			s4ChannelID = channel?.id ?? '';
 			s4Phase = 'waiting-qr';
@@ -373,9 +383,11 @@
 		submitting = true;
 		error = '';
 		try {
+			// Map UI labels to API values: draft_only | auto_send
+			const apiMode = s6ReplyMode === 'draft_only' ? 'draft_only' : 'auto_send';
 			await apiRequest('/users/me/reply-mode', {
 				method: 'PATCH',
-				body: { reply_mode: s6ReplyMode }
+				body: { reply_mode: apiMode }
 			});
 			await completeStep('reply_mode');
 		} catch (err: any) {
@@ -730,11 +742,11 @@
 		<div class="reply-mode-cards">
 			<button
 				class="mode-card glass-panel"
-				class:selected={s6ReplyMode === 'draft'}
-				onclick={() => s6ReplyMode = 'draft'}
+				class:selected={s6ReplyMode === 'draft_only'}
+				onclick={() => s6ReplyMode = 'draft_only'}
 				disabled={submitting}
 			>
-				<div class="radio-circle" class:checked={s6ReplyMode === 'draft'}></div>
+				<div class="radio-circle" class:checked={s6ReplyMode === 'draft_only'}></div>
 				<div class="mode-body">
 					<div class="mode-label">Review before it sends</div>
 					<div class="mode-desc">Your bot drafts a reply for you to approve first. You're always in control.</div>
@@ -744,11 +756,11 @@
 
 			<button
 				class="mode-card glass-panel"
-				class:selected={s6ReplyMode === 'auto'}
-				onclick={() => s6ReplyMode = 'auto'}
+				class:selected={s6ReplyMode === 'auto_send'}
+				onclick={() => s6ReplyMode = 'auto_send'}
 				disabled={submitting}
 			>
-				<div class="radio-circle" class:checked={s6ReplyMode === 'auto'}></div>
+				<div class="radio-circle" class:checked={s6ReplyMode === 'auto_send'}></div>
 				<div class="mode-body">
 					<div class="mode-label">Send automatically once confident</div>
 					<div class="mode-desc">The bot sends replies instantly when it's confident. You review the log afterwards.</div>
