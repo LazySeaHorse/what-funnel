@@ -121,10 +121,25 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		}
 	} else {
 		userRole = types.RoleAdmin
-		// 1. Create account
+		// 1. Create account with default settings
+		defaultSettings, err := json.Marshal(map[string]any{
+			"ai_reply_mode_default":                  "draft_only",
+			"allow_member_reply_mode_override":       true,
+			"ai_may_auto_answer_mixed_conversations": false,
+			"summary_schema": []map[string]string{
+				{"key": "customer_wants", "label": "Customer Wants", "description": "What the customer is looking for"},
+				{"key": "preferred_timeframe", "label": "Preferred Timeframe", "description": "When the customer wants it"},
+				{"key": "objections", "label": "Objections", "description": "Customer doubts or objections"},
+				{"key": "next_action", "label": "Next Action", "description": "What needs to be done next"},
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("service: marshal default settings: %w", err)
+		}
+
 		err = tx.QueryRow(ctx,
-			`INSERT INTO accounts (name, plan) VALUES ($1, $2) RETURNING id`,
-			req.AccountName, types.PlanSelfHosted).Scan(&accountID)
+			`INSERT INTO accounts (name, plan, settings) VALUES ($1, $2, $3) RETURNING id`,
+			req.AccountName, types.PlanSelfHosted, defaultSettings).Scan(&accountID)
 		if err != nil {
 			return nil, fmt.Errorf("service: create account: %w", err)
 		}

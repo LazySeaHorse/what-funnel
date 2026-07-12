@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -93,6 +94,12 @@ func (c *Client) Consume(ctx context.Context, stream, group, consumer string, ha
 			}
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			// Log the error to stdout so it is visible in docker compose logs
+			fmt.Printf("pubsub: XReadGroup error on stream %s group %s: %v\n", stream, group, err)
+			if strings.Contains(err.Error(), "NOGROUP") {
+				fmt.Printf("pubsub: attempting to recreate group %s for stream %s\n", group, stream)
+				_ = c.EnsureGroup(ctx, stream, group)
 			}
 			// Sleep on other errors to avoid a tight error loop
 			time.Sleep(1 * time.Second)
