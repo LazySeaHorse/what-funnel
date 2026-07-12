@@ -90,6 +90,69 @@ func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorI
 	return tx.Commit(ctx)
 }
 
+// UpdateProductMode switches the product mode of the account, toggles lead_tracking_enabled, and audit logs it.
+func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uuid.UUID, newMode string) error {
+	if newMode != "full_workspace" && newMode != "chatbot_only" {
+		return fmt.Errorf("invalid product mode: %s", newMode)
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var oldMode string
+	var settingsBytes []byte
+	err = tx.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&oldMode, &settingsBytes)
+	if err != nil {
+		return fmt.Errorf("query account details: %w", err)
+	}
+
+	var settings map[string]any
+	if len(settingsBytes) > 0 {
+		if err := json.Unmarshal(settingsBytes, &settings); err != nil {
+			settings = make(map[string]any)
+		}
+	} else {
+		settings = make(map[string]any)
+	}
+
+	if newMode == "chatbot_only" {
+		settings["lead_tracking_enabled"] = false
+	} else if newMode == "full_workspace" {
+		settings["lead_tracking_enabled"] = true
+	}
+
+	rawSettings, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE accounts SET product_mode = $1, settings = $2 WHERE id = $3`, newMode, rawSettings, accountID)
+	if err != nil {
+		return fmt.Errorf("update product mode: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      "account.product_mode_updated",
+		TargetType:  audit.TargetAccount,
+		TargetID:    &accountID,
+		Metadata: map[string]any{
+			"old_mode": oldMode,
+			"new_mode": newMode,
+		},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+
 // UpdateAIProviderConfig encrypts and stores the AI provider config.
 // The plaintext is never stored; only the AES-256-GCM ciphertext reaches Postgres.
 func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actorID uuid.UUID, plaintext string) error {

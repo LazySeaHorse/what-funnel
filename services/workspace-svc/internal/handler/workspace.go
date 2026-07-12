@@ -49,6 +49,8 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account", auth(http.HandlerFunc(h.GetAccount))).Methods(http.MethodGet)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
+	r.Handle("/workspace/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
+	r.Handle("/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 
 	r.Handle("/workspace/users", auth(admin(http.HandlerFunc(h.ListUsers)))).Methods(http.MethodGet)
 	r.Handle("/workspace/users/invite", auth(admin(http.HandlerFunc(h.InviteUser)))).Methods(http.MethodPost)
@@ -112,6 +114,29 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
+
+func (h *Handler) UpdateProductMode(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	var body struct {
+		ProductMode string `json:"product_mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.ProductMode != "full_workspace" && body.ProductMode != "chatbot_only" {
+		writeError(w, http.StatusBadRequest, "invalid product mode")
+		return
+	}
+	if err := h.svc.UpdateProductMode(r.Context(), accountID, actorID, body.ProductMode); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 
 // -------------------------------------------------------------------------
 // User handlers

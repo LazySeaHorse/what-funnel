@@ -434,4 +434,56 @@ func TestUpdateUserReplyMode(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestUpdateProductMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "ProductModeTenant", "pm@example.com")
+
+	// 1. Initial product_mode is full_workspace (default)
+	var initialPm string
+	var initialSettingsBytes []byte
+	err := pool.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&initialPm, &initialSettingsBytes)
+	require.NoError(t, err)
+	assert.Equal(t, "full_workspace", initialPm)
+
+	// 2. Switch to chatbot_only
+	err = svc.UpdateProductMode(ctx, accountID, adminID, "chatbot_only")
+	require.NoError(t, err)
+
+	// Verify update in DB
+	var pm string
+	var settingsBytes []byte
+	err = pool.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&pm, &settingsBytes)
+	require.NoError(t, err)
+	assert.Equal(t, "chatbot_only", pm)
+
+	var settings map[string]any
+	err = json.Unmarshal(settingsBytes, &settings)
+	require.NoError(t, err)
+	assert.Equal(t, false, settings["lead_tracking_enabled"])
+
+	// Verify audit log
+	var auditCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'account.product_mode_updated'`, accountID).Scan(&auditCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, auditCount)
+
+	// 3. Switch back to full_workspace
+	err = svc.UpdateProductMode(ctx, accountID, adminID, "full_workspace")
+	require.NoError(t, err)
+
+	err = pool.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&pm, &settingsBytes)
+	require.NoError(t, err)
+	assert.Equal(t, "full_workspace", pm)
+
+	err = json.Unmarshal(settingsBytes, &settings)
+	require.NoError(t, err)
+	assert.Equal(t, true, settings["lead_tracking_enabled"])
+}
+
+
 
