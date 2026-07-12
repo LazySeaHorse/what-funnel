@@ -3,9 +3,16 @@
 // In v1, service-to-service calls are plain HTTP (no service mesh).
 //
 // Routing table:
-//   /auth/*        → identity-svc
-//   /workspace/*   → workspace-svc
-//   /healthz       → local health check
+//   /auth/*           → identity-svc
+//   /workspace/*      → workspace-svc
+//   /onboarding/*     → workspace-svc
+//   /users/*          → workspace-svc
+//   /channels/*       → conversation-svc
+//   /conversations/*  → conversation-svc
+//   /leads/*          → conversation-svc
+//   /ws               → notification-svc (WebSocket)
+//   /api/kb/*         → ai-kb-compiler (admin-only)
+//   /healthz          → local health check
 package main
 
 import (
@@ -81,6 +88,9 @@ func main() {
 	// Proxy /workspace/* → workspace-svc
 	r.PathPrefix("/workspace/").Handler(proxy(workspaceBase, logger))
 	r.PathPrefix("/users").Handler(proxy(workspaceBase, logger))
+
+	// Proxy /onboarding/* → workspace-svc
+	r.PathPrefix("/onboarding").Handler(proxy(workspaceBase, logger))
 
 	// Proxy /channels/* → conversation-svc
 	r.PathPrefix("/channels").Handler(proxy(conversationBase, logger))
