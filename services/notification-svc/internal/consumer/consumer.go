@@ -61,6 +61,30 @@ func (c *Consumer) Start(ctx context.Context, consumerName string) {
 			c.logger.Error("lead.state_changed consumer failed", "error", err)
 		}
 	}()
+
+	go func() {
+		c.logger.Info("starting ai.reply_ready stream consumer")
+		err := c.ps.Consume(ctx, "ai.reply_ready", "notification-svc", consumerName, c.handleAIReplyReady)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("ai.reply_ready consumer failed", "error", err)
+		}
+	}()
+
+	go func() {
+		c.logger.Info("starting automation_suggestion.created stream consumer")
+		err := c.ps.Consume(ctx, "automation_suggestion.created", "notification-svc", consumerName, c.handleAutomationSuggestionCreated)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("automation_suggestion.created consumer failed", "error", err)
+		}
+	}()
+
+	go func() {
+		c.logger.Info("starting conversation.summary_updated stream consumer")
+		err := c.ps.Consume(ctx, "conversation.summary_updated", "notification-svc", consumerName, c.handleConversationSummaryUpdated)
+		if err != nil && ctx.Err() == nil {
+			c.logger.Error("conversation.summary_updated consumer failed", "error", err)
+		}
+	}()
 }
 
 func (c *Consumer) HandleConversationUpdatedForTest(ctx context.Context, id string, payload []byte) error {
@@ -253,6 +277,116 @@ func (c *Consumer) handleLeadStateChanged(ctx context.Context, id string, payloa
 
 	// 4. Broadcast to users in the same account with visibility filtering
 	c.hub.BroadcastToAccount(accountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
+	})
+
+	return nil
+}
+
+func (c *Consumer) handleAIReplyReady(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID      uuid.UUID `json:"account_id"`
+		ConversationID uuid.UUID `json:"conversation_id"`
+		Action         string    `json:"action"`
+		DraftText      string    `json:"draft_text"`
+		MessageID      uuid.UUID `json:"message_id"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal ai.reply_ready event", "error", err)
+		return nil
+	}
+
+	var assignedUserIDs []uuid.UUID
+	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+
+	var settingsBytes []byte
+	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	if err != nil {
+		return err
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	wsEvent := map[string]any{
+		"type":            "ai.reply_ready",
+		"conversation_id": ev.ConversationID.String(),
+		"action":          ev.Action,
+		"draft_text":      ev.DraftText,
+		"message_id":      ev.MessageID.String(),
+	}
+
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
+	})
+
+	return nil
+}
+
+func (c *Consumer) handleAutomationSuggestionCreated(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID    uuid.UUID       `json:"account_id"`
+		SuggestionID uuid.UUID       `json:"suggestion_id"`
+		Type         string          `json:"type"`
+		Payload      json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal automation_suggestion.created event", "error", err)
+		return nil
+	}
+
+	wsEvent := map[string]any{
+		"type":          "automation_suggestion.created",
+		"suggestion_id": ev.SuggestionID.String(),
+		"type_payload":  ev.Type,
+		"payload":       ev.Payload,
+	}
+
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return role == types.RoleAdmin
+	})
+
+	return nil
+}
+
+func (c *Consumer) handleConversationSummaryUpdated(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID      uuid.UUID       `json:"account_id"`
+		ConversationID uuid.UUID       `json:"conversation_id"`
+		SummaryFields  json.RawMessage `json:"summary_fields"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal conversation.summary_updated event", "error", err)
+		return nil
+	}
+
+	var assignedUserIDs []uuid.UUID
+	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+
+	var settingsBytes []byte
+	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	if err != nil {
+		return err
+	}
+	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	wsEvent := map[string]any{
+		"type":            "conversation.summary_updated",
+		"conversation_id": ev.ConversationID.String(),
+		"summary_fields":  ev.SummaryFields,
+	}
+
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
 		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
 	})
 
