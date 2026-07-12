@@ -34,6 +34,7 @@ type SignupRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	InviteToken string `json:"invite_token"`
+	ProductMode string `json:"product_mode"`
 }
 
 // LoginRequest carries credentials for login.
@@ -137,9 +138,16 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 			return nil, fmt.Errorf("service: marshal default settings: %w", err)
 		}
 
+		if req.ProductMode == "" {
+			req.ProductMode = "full_workspace"
+		}
+		if req.ProductMode != "full_workspace" && req.ProductMode != "chatbot_only" {
+			return nil, fmt.Errorf("invalid product mode: %s", req.ProductMode)
+		}
+
 		err = tx.QueryRow(ctx,
-			`INSERT INTO accounts (name, plan, settings) VALUES ($1, $2, $3) RETURNING id`,
-			req.AccountName, types.PlanSelfHosted, defaultSettings).Scan(&accountID)
+			`INSERT INTO accounts (name, plan, settings, product_mode) VALUES ($1, $2, $3, $4) RETURNING id`,
+			req.AccountName, types.PlanSelfHosted, defaultSettings, req.ProductMode).Scan(&accountID)
 		if err != nil {
 			return nil, fmt.Errorf("service: create account: %w", err)
 		}

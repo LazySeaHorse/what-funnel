@@ -95,6 +95,37 @@ func TestSignup_Success(t *testing.T) {
 	})
 }
 
+func TestSignup_ProductMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	email := uniqueEmail(t)
+	user, err := svc.Signup(ctx, service.SignupRequest{
+		AccountName: "Chatbot Only Account",
+		Email:       email,
+		Password:    "securepassword123",
+		ProductMode: "chatbot_only",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, email, user.Email)
+
+	// Verify product mode is chatbot_only in DB
+	var pm string
+	err = pool.QueryRow(ctx, `SELECT product_mode FROM accounts WHERE id = $1`, user.AccountID).Scan(&pm)
+	require.NoError(t, err)
+	assert.Equal(t, "chatbot_only", pm)
+
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, user.AccountID)
+		pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE account_id = $1`, user.AccountID)
+		pool.Exec(context.Background(), `DELETE FROM users WHERE account_id = $1`, user.AccountID)
+		pool.Exec(context.Background(), `DELETE FROM accounts WHERE id = $1`, user.AccountID)
+	})
+}
+
 func TestSignup_DuplicateEmailSameAccount(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
