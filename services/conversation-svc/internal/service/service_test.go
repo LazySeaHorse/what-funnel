@@ -454,3 +454,80 @@ func TestLeadManagement(t *testing.T) {
 func newBool(v bool) *bool {
 	return &v
 }
+
+func TestIngestExternalOutbound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+
+	accountID, _ := setupTestTenant(t, pool, "external-outbound-test")
+
+	// Create channel
+	var channelID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO channels (account_id, type, status)
+		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+	`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	// Create contact and conversation first (so that the conversation exists)
+	var contactID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO contacts (account_id, channel_id, external_identity, display_name)
+		VALUES ($1, $2, 'bob-whatsapp', 'Bob') RETURNING id
+	`, accountID, channelID).Scan(&contactID)
+	require.NoError(t, err)
+
+	var convoID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at, ai_mode_active)
+		VALUES ($1, $2, $3, NOW(), true) RETURNING id
+	`, accountID, contactID, channelID).Scan(&convoID)
+	require.NoError(t, err)
+
+	// Ingest external outbound message
+	event := types.ExternalOutboundEvent{
+		ChannelID:        channelID.String(),
+		ExternalThreadID: "bob-whatsapp", // matches co.external_identity
+		Message: types.NormalizedMessage{
+			ContentType: "text",
+			Text:        "Reply from business phone",
+		},
+		ExternalMessageID: "msg-ext-1",
+		Timestamp:         time.Now(),
+	}
+
+	err = svc.IngestExternalOutbound(ctx, event)
+	require.NoError(t, err)
+
+	// Verify message in DB
+	var direction, senderType string
+	var externalMsgID *string
+	var contentRaw []byte
+	err = pool.QueryRow(ctx, `
+		SELECT direction, sender_type, external_message_id, content
+		FROM messages
+		WHERE conversation_id = $1 AND external_message_id = 'msg-ext-1'
+	`, convoID).Scan(&direction, &senderType, &externalMsgID, &contentRaw)
+	require.NoError(t, err)
+
+	assert.Equal(t, "outbound", direction)
+	assert.Equal(t, "human", senderType)
+	require.NotNil(t, externalMsgID)
+	assert.Equal(t, "msg-ext-1", *externalMsgID)
+
+	var content map[string]any
+	err = json.Unmarshal(contentRaw, &content)
+	require.NoError(t, err)
+	assert.Equal(t, "Reply from business phone", content["text"])
+	assert.Equal(t, true, content["external_origin"])
+
+	// Verify conversation updated: ai_mode_active = false
+	var aiModeActive bool
+	err = pool.QueryRow(ctx, `SELECT ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&aiModeActive)
+	require.NoError(t, err)
+	assert.False(t, aiModeActive)
+}

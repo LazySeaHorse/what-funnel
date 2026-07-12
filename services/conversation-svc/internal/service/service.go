@@ -319,6 +319,121 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 	return nil
 }
 
+// IngestExternalOutbound handles persisting an outbound message sent externally (e.g. from phone).
+func (s *Service) IngestExternalOutbound(ctx context.Context, event types.ExternalOutboundEvent) error {
+	channelID, err := uuid.Parse(event.ChannelID)
+	if err != nil {
+		return fmt.Errorf("invalid channel ID: %w", err)
+	}
+
+	// 1. Resolve account ID from the channel
+	var accountID uuid.UUID
+	err = s.pool.QueryRow(ctx, `SELECT account_id FROM channels WHERE id = $1`, channelID).Scan(&accountID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("channel not found: %s", event.ChannelID)
+		}
+		return fmt.Errorf("lookup channel account: %w", err)
+	}
+
+	// Start single transaction for atomicity
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin ingestion tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 2. Check for duplicate if external message ID is present (Idempotency)
+	if event.ExternalMessageID != "" {
+		var existingMsgID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT m.id
+			FROM messages m
+			JOIN conversations c ON m.conversation_id = c.id
+			WHERE c.channel_id = $1 AND m.external_message_id = $2 AND m.account_id = $3
+		`, channelID, event.ExternalMessageID, accountID).Scan(&existingMsgID)
+		if err == nil {
+			// Message already persisted, return success (skip)
+			return nil
+		}
+		if err != pgx.ErrNoRows {
+			return fmt.Errorf("check message duplicate: %w", err)
+		}
+	}
+
+	// 3. Find the conversation by channel and contact's external identity (which is the ThreadID)
+	var conversationID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT c.id
+		FROM conversations c
+		JOIN contacts co ON c.contact_id = co.id
+		WHERE c.channel_id = $1 AND co.external_identity = $2 AND c.account_id = $3
+	`, channelID, event.ExternalThreadID, accountID).Scan(&conversationID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("conversation not found for channel %s and thread %s", event.ChannelID, event.ExternalThreadID)
+		}
+		return fmt.Errorf("lookup conversation: %w", err)
+	}
+
+	// Serialize message content
+	contentRaw, err := json.Marshal(map[string]any{
+		"text":            event.Message.Text,
+		"media_url":       event.Message.MediaURL,
+		"external_origin": true,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal message content: %w", err)
+	}
+
+	// 4. Insert message (direction='outbound', sender_type='human', sender_user_id=null)
+	var messageID uuid.UUID
+	var externalMsgID *string
+	if event.ExternalMessageID != "" {
+		externalMsgID = &event.ExternalMessageID
+	}
+	timestamp := event.Timestamp
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	err = tx.QueryRow(ctx, `
+		INSERT INTO messages (account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at)
+		VALUES ($1, $2, 'outbound', 'human', NULL, $3, $4, $5, $6)
+		RETURNING id
+	`, accountID, conversationID, event.Message.ContentType, contentRaw, externalMsgID, timestamp).Scan(&messageID)
+	if err != nil {
+		return fmt.Errorf("insert message: %w", err)
+	}
+
+	// 5. Update conversation (ai_mode_active = false, last_message_at = timestamp)
+	_, err = tx.Exec(ctx, `
+		UPDATE conversations
+		SET last_message_at = $1, ai_mode_active = false
+		WHERE id = $2 AND account_id = $3
+	`, timestamp, conversationID, accountID)
+	if err != nil {
+		return fmt.Errorf("update conversation: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit ingestion tx: %w", err)
+	}
+
+	// 6. Publish to conversation.updated stream
+	_, err = s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
+		AccountID:      accountID,
+		ConversationID: conversationID,
+		MessageID:      messageID,
+	})
+	if err != nil {
+		fmt.Printf("failed to publish conversation.updated: %v\n", err)
+	}
+
+	return nil
+}
+
 // SendMessage sends an outbound message via the adapter and records it in the database.
 func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uuid.UUID, senderType string, senderUserID *uuid.UUID, contentType, text, mediaURL string) (*types.Message, error) {
 	if senderType != "human" && senderType != "ai" {
