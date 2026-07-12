@@ -23,7 +23,7 @@
 				method: 'POST',
 				body: { email, password }
 			});
-			goto('/inbox');
+			goto('/onboarding');
 		} catch (err: any) {
 			error = err.message;
 		} finally {

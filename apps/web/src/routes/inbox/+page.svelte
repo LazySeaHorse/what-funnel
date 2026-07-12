@@ -20,6 +20,17 @@
 	let newNoteText = $state('');
 	let tagInput = $state('');
 
+	// Finish-setup banner
+	const SKIPPED_STEP_NAMES: Record<string, { label: string; step: number }> = {
+		channel_connect: { label: 'Connect a channel', step: 4 },
+		kb_setup:        { label: 'Set up your knowledge base', step: 5 },
+		reply_mode:      { label: 'Configure reply mode', step: 6 },
+		pipeline_setup:  { label: 'Review your pipeline', step: 7 },
+		team_invite:     { label: 'Invite your team', step: 8 }
+	};
+	let showSetupBanner = $state(false);
+	let bannerSkippedSteps = $state<Array<{ label: string; step: number }>>([]);
+
 	onMount(async () => {
 		try {
 			await inbox.init();
@@ -51,6 +62,23 @@
 			if (pipelines && pipelines.length > 0) {
 				pipelineStates = pipelines[0].states || [];
 			}
+
+			// Finish-setup banner: check onboarding status
+			try {
+				const dismissed = sessionStorage.getItem('setup-banner-dismissed');
+				if (!dismissed) {
+					const onboarding = await apiRequest('/onboarding/status');
+					if (onboarding?.completed_at && onboarding?.skipped_steps?.length > 0) {
+						const skipped = (onboarding.skipped_steps as string[])
+							.filter((k: string) => k in SKIPPED_STEP_NAMES)
+							.map((k: string) => SKIPPED_STEP_NAMES[k]);
+						if (skipped.length > 0) {
+							bannerSkippedSteps = skipped;
+							showSetupBanner = true;
+						}
+					}
+				}
+			} catch (_) {}
 			
 			// Listen to live lead state changes from WebSocket
 			const handleLeadStateChange = (e: CustomEvent) => {
@@ -301,6 +329,28 @@
 		return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
 </script>
+
+{#if showSetupBanner}
+	<div class="setup-banner" role="alert">
+		<div class="setup-banner-inner">
+			<span class="setup-banner-icon">⚡</span>
+			<div class="setup-banner-content">
+				<strong>Finish setting up your workspace</strong>
+				<div class="setup-banner-links">
+					{#each bannerSkippedSteps as item, i}
+						<a href="/onboarding/{item.step}" class="setup-banner-link">{item.label}</a>
+						{#if i < bannerSkippedSteps.length - 1}<span class="sep">·</span>{/if}
+					{/each}
+				</div>
+			</div>
+		</div>
+		<button
+			class="setup-banner-dismiss"
+			onclick={() => { showSetupBanner = false; sessionStorage.setItem('setup-banner-dismissed', '1'); }}
+			aria-label="Dismiss banner"
+		>✕</button>
+	</div>
+{/if}
 
 <div class="inbox-layout" class:has-lead-panel={leadTrackingEnabled && inbox.activeConvo}>
 	<!-- Left Navigation & Conversations Pane -->
@@ -683,6 +733,82 @@
 </div>
 
 <style>
+	/* ─── Setup Banner ─── */
+	.setup-banner {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 200;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 20px;
+		background: rgba(245, 158, 11, 0.12);
+		border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		animation: slide-down 0.3s ease both;
+	}
+	@keyframes slide-down {
+		from { transform: translateY(-100%); opacity: 0; }
+		to   { transform: translateY(0); opacity: 1; }
+	}
+	.setup-banner-inner {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex: 1;
+		min-width: 0;
+	}
+	.setup-banner-icon {
+		font-size: 16px;
+		flex-shrink: 0;
+	}
+	.setup-banner-content {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.setup-banner-content strong {
+		font-size: 13px;
+		font-weight: 600;
+		color: #fde68a;
+	}
+	.setup-banner-links {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	.setup-banner-link {
+		font-size: 12px;
+		color: var(--warning);
+		text-decoration: underline;
+		transition: opacity 0.15s;
+	}
+	.setup-banner-link:hover { opacity: 0.75; }
+	.sep {
+		color: var(--text-muted);
+		font-size: 12px;
+	}
+	.setup-banner-dismiss {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		font-size: 16px;
+		cursor: pointer;
+		padding: 4px 8px;
+		border-radius: 4px;
+		transition: color 0.15s, background 0.15s;
+		flex-shrink: 0;
+	}
+	.setup-banner-dismiss:hover {
+		color: var(--text-primary);
+		background: rgba(255,255,255,0.06);
+	}
+
 	.inbox-layout {
 		display: grid;
 		grid-template-columns: 320px 1fr;
