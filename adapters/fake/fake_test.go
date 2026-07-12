@@ -32,7 +32,7 @@ func TestFakeAdapter(t *testing.T) {
 	go func() {
 		_ = adapter.Start(ctx, func(ev types.InboundEvent) {
 			receivedChan <- ev
-		})
+		}, func(ev types.ExternalOutboundEvent) {})
 	}()
 
 	// Give a tiny moment to start the goroutine
@@ -67,7 +67,7 @@ func TestFakeAdapter(t *testing.T) {
 		ContentType: "text",
 		Text:        "reply",
 	}
-	err := adapter.SendMessage(ctx, "chan-1", "thread-1", msg)
+	_, err := adapter.SendMessage(ctx, "chan-1", "thread-1", msg)
 	assert.NoError(t, err)
 
 	sent := adapter.GetSentMessages()

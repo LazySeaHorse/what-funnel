@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
@@ -16,10 +17,11 @@ type SentMessage struct {
 
 // Adapter is a test-only implementation of types.ChannelAdapter.
 type Adapter struct {
-	mu           sync.RWMutex
-	publishFn    func(types.InboundEvent)
-	sentMessages []SentMessage
-	statuses     map[string]types.ChannelStatus
+	mu                        sync.RWMutex
+	publishInboundFn          func(types.InboundEvent)
+	publishExternalOutboundFn func(types.ExternalOutboundEvent)
+	sentMessages              []SentMessage
+	statuses                  map[string]types.ChannelStatus
 }
 
 // New creates a new fake adapter instance.
@@ -29,25 +31,30 @@ func New() *Adapter {
 	}
 }
 
-// Start registers the publish callback and blocks until context cancellation.
-func (a *Adapter) Start(ctx context.Context, publish func(types.InboundEvent)) error {
+// Start registers the publish callbacks and blocks until context cancellation.
+func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) error {
 	a.mu.Lock()
-	a.publishFn = publish
+	a.publishInboundFn = publishInbound
+	a.publishExternalOutboundFn = publishExternalOutbound
 	a.mu.Unlock()
 	<-ctx.Done()
 	return nil
 }
 
-// SendMessage records the outbound send attempt.
-func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID string, msg types.NormalizedMessage) error {
+// SendMessage records the outbound send attempt and returns a fake external message ID.
+func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID string, msg types.NormalizedMessage) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	extMsgID := "$fake-event-" + uuid.New().String()
+	msg.ExternalMessageID = extMsgID
+
 	a.sentMessages = append(a.sentMessages, SentMessage{
 		ChannelID:        channelID,
 		ExternalThreadID: externalThreadID,
 		Message:          msg,
 	})
-	return nil
+	return extMsgID, nil
 }
 
 // Status returns the configured status for the given channel, defaulting to connected.
@@ -73,7 +80,17 @@ func (a *Adapter) SetStatus(channelID string, status types.ChannelStatus) {
 // SimulateInbound invokes the registered publish callback with a mock event.
 func (a *Adapter) SimulateInbound(event types.InboundEvent) {
 	a.mu.RLock()
-	publish := a.publishFn
+	publish := a.publishInboundFn
+	a.mu.RUnlock()
+	if publish != nil {
+		publish(event)
+	}
+}
+
+// SimulateExternalOutbound invokes the registered publish callback with a mock event.
+func (a *Adapter) SimulateExternalOutbound(event types.ExternalOutboundEvent) {
+	a.mu.RLock()
+	publish := a.publishExternalOutboundFn
 	a.mu.RUnlock()
 	if publish != nil {
 		publish(event)

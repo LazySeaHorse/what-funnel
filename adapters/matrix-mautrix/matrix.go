@@ -23,18 +23,20 @@ type Credentials struct {
 
 // Adapter implements types.ChannelAdapter for Matrix client-server API.
 type Adapter struct {
-	mu     sync.RWMutex
-	creds  map[string]Credentials
-	status map[string]types.ChannelStatus
-	client *http.Client
+	mu           sync.RWMutex
+	creds        map[string]Credentials
+	status       map[string]types.ChannelStatus
+	sentEventIDs map[string]bool
+	client       *http.Client
 }
 
 // New creates a new Matrix Adapter instance.
 func New() *Adapter {
 	return &Adapter{
-		creds:  make(map[string]Credentials),
-		status: make(map[string]types.ChannelStatus),
-		client: &http.Client{Timeout: 45 * time.Second},
+		creds:        make(map[string]Credentials),
+		status:       make(map[string]types.ChannelStatus),
+		sentEventIDs: make(map[string]bool),
+		client:       &http.Client{Timeout: 45 * time.Second},
 	}
 }
 
@@ -73,7 +75,7 @@ func (a *Adapter) SetStatus(channelID string, status, detail string) {
 }
 
 // Start spawns a background sync loop for each configured channel and blocks.
-func (a *Adapter) Start(ctx context.Context, publish func(types.InboundEvent)) error {
+func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) error {
 	a.mu.RLock()
 	channelIDs := make([]string, 0, len(a.creds))
 	for cid := range a.creds {
@@ -86,7 +88,7 @@ func (a *Adapter) Start(ctx context.Context, publish func(types.InboundEvent)) e
 		wg.Add(1)
 		go func(channelID string) {
 			defer wg.Done()
-			a.syncLoop(ctx, channelID, publish)
+			a.syncLoop(ctx, channelID, publishInbound, publishExternalOutbound)
 		}(cid)
 	}
 
@@ -96,16 +98,16 @@ func (a *Adapter) Start(ctx context.Context, publish func(types.InboundEvent)) e
 }
 
 // SendMessage delivers a normalized message to a Matrix room.
-func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID string, msg types.NormalizedMessage) error {
+func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID string, msg types.NormalizedMessage) (string, error) {
 	a.mu.RLock()
 	creds, exists := a.creds[channelID]
 	a.mu.RUnlock()
 	if !exists {
-		return fmt.Errorf("channel %s credentials not configured in matrix adapter", channelID)
+		return "", fmt.Errorf("channel %s credentials not configured in matrix adapter", channelID)
 	}
 
 	if creds.HomeserverURL == "mock" || creds.HomeserverURL == "" {
-		return nil
+		return "mock-event-id", nil
 	}
 
 	txid := fmt.Sprintf("tx-%d", time.Now().UnixNano())
@@ -140,31 +142,42 @@ func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID s
 
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, sendURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+creds.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to send message, Matrix response code %d: %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("failed to send message, Matrix response code %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return nil
+	var result struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode matrix send response: %w", err)
+	}
+
+	a.mu.Lock()
+	a.sentEventIDs[result.EventID] = true
+	a.mu.Unlock()
+
+	return result.EventID, nil
 }
 
-func (a *Adapter) syncLoop(ctx context.Context, channelID string, publish func(types.InboundEvent)) {
+func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) {
 	a.mu.RLock()
 	creds, exists := a.creds[channelID]
 	a.mu.RUnlock()
@@ -255,6 +268,26 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publish func(t
 		for roomID, roomData := range syncResp.Rooms.Join {
 			for _, ev := range roomData.Timeline.Events {
 				if ev.Sender == creds.UserID {
+					a.mu.RLock()
+					isEcho := a.sentEventIDs[ev.EventID]
+					a.mu.RUnlock()
+					if isEcho {
+						a.mu.Lock()
+						delete(a.sentEventIDs, ev.EventID)
+						a.mu.Unlock()
+						continue
+					}
+
+					if ev.Type == "m.room.message" {
+						inboundEv := a.NormalizeEvent(channelID, roomID, ev.EventID, ev.Sender, ev.Type, ev.OriginServerTs, ev.Content)
+						publishExternalOutbound(types.ExternalOutboundEvent{
+							ChannelID:         inboundEv.ChannelID,
+							ExternalThreadID:  inboundEv.ExternalThreadID,
+							Message:           inboundEv.Message,
+							ExternalMessageID: inboundEv.Message.ExternalMessageID,
+							Timestamp:         inboundEv.Timestamp,
+						})
+					}
 					continue
 				}
 
@@ -263,7 +296,7 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publish func(t
 				}
 
 				inboundEv := a.NormalizeEvent(channelID, roomID, ev.EventID, ev.Sender, ev.Type, ev.OriginServerTs, ev.Content)
-				publish(inboundEv)
+				publishInbound(inboundEv)
 			}
 		}
 	}

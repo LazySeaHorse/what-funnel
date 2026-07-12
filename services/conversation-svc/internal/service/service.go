@@ -381,7 +381,7 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 	}
 
 	// Call adapter
-	err = adapter.SendMessage(ctx, channelID.String(), externalIdentity, msgPayload)
+	externalMsgID, err := adapter.SendMessage(ctx, channelID.String(), externalIdentity, msgPayload)
 	if err != nil {
 		return nil, fmt.Errorf("adapter send failed: %w", err)
 	}
@@ -395,22 +395,28 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 		return nil, fmt.Errorf("marshal outbound message: %w", err)
 	}
 
+	var extMsgPtr *string
+	if externalMsgID != "" {
+		extMsgPtr = &externalMsgID
+	}
+
 	// 2. Persist outbound message in DB
 	msg := &types.Message{
-		AccountID:      accountID,
-		ConversationID: conversationID,
-		Direction:      "outbound",
-		SenderType:     senderType,
-		SenderUserID:   senderUserID,
-		ContentType:    contentType,
-		Content:        contentRaw,
+		AccountID:         accountID,
+		ConversationID:    conversationID,
+		Direction:         "outbound",
+		SenderType:        senderType,
+		SenderUserID:      senderUserID,
+		ContentType:       contentType,
+		Content:           contentRaw,
+		ExternalMessageID: extMsgPtr,
 	}
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO messages (account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO messages (account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
 		RETURNING id, created_at
-	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content).
+	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content, msg.ExternalMessageID).
 		Scan(&msg.ID, &msg.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert outbound message: %w", err)

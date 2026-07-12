@@ -30,6 +30,15 @@ type InboundEvent struct {
 	Timestamp        time.Time
 }
 
+// ExternalOutboundEvent is published by adapters when a message sent by the business account externally is echoed.
+type ExternalOutboundEvent struct {
+	ChannelID         string
+	ExternalThreadID  string
+	Message           NormalizedMessage
+	ExternalMessageID string
+	Timestamp         time.Time
+}
+
 // ChannelStatus represents the live status of a channel connection.
 type ChannelStatus struct {
 	Status string // connected|disconnected|error
@@ -38,7 +47,7 @@ type ChannelStatus struct {
 
 // ChannelAdapter defines the contract for messaging adapters.
 type ChannelAdapter interface {
-	Start(ctx context.Context, publish func(InboundEvent)) error
-	SendMessage(ctx context.Context, channelID, externalThreadID string, msg NormalizedMessage) error
+	Start(ctx context.Context, publishInbound func(InboundEvent), publishExternalOutbound func(ExternalOutboundEvent)) error
+	SendMessage(ctx context.Context, channelID, externalThreadID string, msg NormalizedMessage) (string, error)
 	Status(channelID string) ChannelStatus
 }
