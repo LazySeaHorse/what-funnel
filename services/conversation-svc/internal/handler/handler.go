@@ -26,13 +26,14 @@ type Handler struct {
 }
 
 func New(svc *service.Service, sess SessionStore) *Handler {
-	mw := middleware.NewSessionMiddleware(sess)
+	mw := middleware.NewSessionMiddlewareWithDB(sess, svc.Pool())
 	return &Handler{svc: svc, sess: sess, mw: mw}
 }
 
 func (h *Handler) RegisterRoutes(r *mux.Router) {
 	auth := h.mw.RequireAuthenticated
 	admin := middleware.RequireAdmin
+	fullWorkspace := h.mw.RequireProductMode("full_workspace")
 
 	// Outbound Send
 	r.Handle("/internal/conversations/{id}/send", auth(http.HandlerFunc(h.SendMessage))).Methods(http.MethodPost)
@@ -52,12 +53,12 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/conversations/{id}/close", auth(http.HandlerFunc(h.CloseConversation))).Methods(http.MethodPost)
 
 	// Lead management
-	r.Handle("/conversations/{id}/lead", auth(http.HandlerFunc(h.CreateLead))).Methods(http.MethodPost)
-	r.Handle("/leads/{id}/state", auth(http.HandlerFunc(h.UpdateLeadState))).Methods(http.MethodPatch)
-	r.Handle("/leads/{id}/tags", auth(http.HandlerFunc(h.UpdateLeadTags))).Methods(http.MethodPatch)
-	r.Handle("/leads/{id}/notes", auth(http.HandlerFunc(h.CreateLeadNote))).Methods(http.MethodPost)
-	r.Handle("/leads/{id}/notes", auth(http.HandlerFunc(h.ListLeadNotes))).Methods(http.MethodGet)
-	r.Handle("/leads/{id}/history", auth(http.HandlerFunc(h.ListLeadHistory))).Methods(http.MethodGet)
+	r.Handle("/conversations/{id}/lead", auth(fullWorkspace(http.HandlerFunc(h.CreateLead)))).Methods(http.MethodPost)
+	r.Handle("/leads/{id}/state", auth(fullWorkspace(http.HandlerFunc(h.UpdateLeadState)))).Methods(http.MethodPatch)
+	r.Handle("/leads/{id}/tags", auth(fullWorkspace(http.HandlerFunc(h.UpdateLeadTags)))).Methods(http.MethodPatch)
+	r.Handle("/leads/{id}/notes", auth(fullWorkspace(http.HandlerFunc(h.CreateLeadNote)))).Methods(http.MethodPost)
+	r.Handle("/leads/{id}/notes", auth(fullWorkspace(http.HandlerFunc(h.ListLeadNotes)))).Methods(http.MethodGet)
+	r.Handle("/leads/{id}/history", auth(fullWorkspace(http.HandlerFunc(h.ListLeadHistory)))).Methods(http.MethodGet)
 }
 
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {

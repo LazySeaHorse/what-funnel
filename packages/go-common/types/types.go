@@ -11,6 +11,7 @@ type Account struct {
 	ID                uuid.UUID  `json:"id" db:"id"`
 	Name              string     `json:"name" db:"name"`
 	Plan              string     `json:"plan" db:"plan"`
+	ProductMode       string     `json:"product_mode" db:"product_mode"`
 	AIProviderConfig  []byte     `json:"-" db:"ai_provider_config"` // encrypted; never serialised to JSON directly
 	Settings          []byte     `json:"settings" db:"settings"`
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`

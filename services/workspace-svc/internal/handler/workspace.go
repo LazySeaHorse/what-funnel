@@ -35,7 +35,7 @@ type Handler struct {
 
 // New creates a Handler.
 func New(svc *service.Service, sess *wsession.Store) *Handler {
-	mw := middleware.NewSessionMiddleware(sess)
+	mw := middleware.NewSessionMiddlewareWithDB(sess, svc.Pool())
 	return &Handler{svc: svc, sess: sess, mw: mw}
 }
 
@@ -43,6 +43,7 @@ func New(svc *service.Service, sess *wsession.Store) *Handler {
 func (h *Handler) RegisterRoutes(r *mux.Router) {
 	auth := h.mw.RequireAuthenticated
 	admin := middleware.RequireAdmin
+	fullWorkspace := h.mw.RequireProductMode("full_workspace")
 
 	// Account
 	r.Handle("/workspace/account", auth(http.HandlerFunc(h.GetAccount))).Methods(http.MethodGet)
@@ -56,8 +57,8 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
 
 	// Pipelines
-	r.Handle("/workspace/pipelines", auth(http.HandlerFunc(h.ListPipelines))).Methods(http.MethodGet)
-	r.Handle("/workspace/pipelines/{id}", auth(admin(http.HandlerFunc(h.UpdatePipeline)))).Methods(http.MethodPut)
+	r.Handle("/workspace/pipelines", auth(fullWorkspace(http.HandlerFunc(h.ListPipelines)))).Methods(http.MethodGet)
+	r.Handle("/workspace/pipelines/{id}", auth(admin(fullWorkspace(http.HandlerFunc(h.UpdatePipeline))))).Methods(http.MethodPut)
 }
 
 // -------------------------------------------------------------------------

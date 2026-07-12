@@ -45,8 +45,8 @@ func (svc *Service) GetAccount(ctx context.Context, accountID uuid.UUID) (*types
 	a := &types.Account{}
 	var settingsRaw []byte
 	err := svc.pool.QueryRow(ctx,
-		`SELECT id, name, plan, settings, created_at FROM accounts WHERE id = $1`,
-		accountID).Scan(&a.ID, &a.Name, &a.Plan, &settingsRaw, &a.CreatedAt)
+		`SELECT id, name, plan, product_mode, settings, created_at FROM accounts WHERE id = $1`,
+		accountID).Scan(&a.ID, &a.Name, &a.Plan, &a.ProductMode, &settingsRaw, &a.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("account not found")
@@ -489,4 +489,9 @@ func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID u
 
 	return nil
 }
+
+func (svc *Service) Pool() *pgxpool.Pool {
+	return svc.pool
+}
+
 

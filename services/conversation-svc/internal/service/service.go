@@ -1557,4 +1557,8 @@ func (s *Service) PubSub() *pubsub.Client {
 	return s.pubsub
 }
 
+func (s *Service) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
 

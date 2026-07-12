@@ -1,11 +1,13 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
@@ -162,3 +164,59 @@ func TestRequireRole_UnauthenticatedDeniedOnRoleRoute(t *testing.T) {
 	// RequireAuthenticated fires first, returns 401
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
+
+type fakeRow struct {
+	val string
+	err error
+}
+
+func (f *fakeRow) Scan(dest ...any) error {
+	if f.err != nil {
+		return f.err
+	}
+	*(dest[0].(*string)) = f.val
+	return nil
+}
+
+type fakeQueryer struct {
+	row *fakeRow
+}
+
+func (f *fakeQueryer) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return f.row
+}
+
+func TestRequireProductMode_Allowed(t *testing.T) {
+	store := &fakeStore{
+		loggedIn:  true,
+		userID:    uuid.New(),
+		accountID: uuid.New(),
+		role:      types.RoleMember,
+	}
+	q := &fakeQueryer{row: &fakeRow{val: "full_workspace"}}
+	m := middleware.NewSessionMiddlewareWithDB(store, q)
+
+	rr := httptest.NewRecorder()
+	handler := m.RequireAuthenticated(m.RequireProductMode("full_workspace")(okHandler))
+	handler.ServeHTTP(rr, newRequest())
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestRequireProductMode_Denied(t *testing.T) {
+	store := &fakeStore{
+		loggedIn:  true,
+		userID:    uuid.New(),
+		accountID: uuid.New(),
+		role:      types.RoleMember,
+	}
+	q := &fakeQueryer{row: &fakeRow{val: "chatbot_only"}}
+	m := middleware.NewSessionMiddlewareWithDB(store, q)
+
+	rr := httptest.NewRecorder()
+	handler := m.RequireAuthenticated(m.RequireProductMode("full_workspace")(okHandler))
+	handler.ServeHTTP(rr, newRequest())
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
