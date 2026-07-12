@@ -3,10 +3,15 @@
 # WhatFunnel — local development stack
 # ===========================================================================
 # Usage:
-#   make up      — start all services
-#   make down    — stop all services
-#   make migrate — run goose migrations
-#   make test    — run full test suite (requires stack to be running)
+#   docker compose up -d   — start everything; migrations run automatically
+#   make up                — same as above, via Makefile convenience target
+#   make down              — stop all services
+#   make test              — run full test suite (requires stack to be running)
+# ===========================================================================
+#
+# Migrations are handled by the 'migrate' service which runs goose up before
+# any application service starts.  No manual migration step is needed after
+# cloning.  To run additional migrations manually: make migrate
 # ===========================================================================
 
 services:
@@ -47,6 +52,26 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # Migrations — runs goose up before any app service starts
+  # Uses the official goose Docker image; exits 0 on success so that
+  # dependent services can use condition: service_completed_successfully.
+  # ---------------------------------------------------------------------------
+  migrate:
+    image: ghcr.io/pressly/goose:latest
+    container_name: whatfunnel-migrate
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      GOOSE_MIGRATION_DIR: /migrations
+    volumes:
+      - ./packages/go-common/migrations:/migrations:ro
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
   # Identity Service — auth, RBAC, audit log
   # ---------------------------------------------------------------------------
   identity-svc:
@@ -65,6 +90,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -86,6 +113,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -137,6 +166,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -161,6 +192,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -182,11 +215,34 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
   # Synapse (Matrix Homeserver) & mautrix-whatsapp bridge
   # ---------------------------------------------------------------------------
+  matrix-init:
+    image: alpine:latest
+    container_name: whatfunnel-matrix-init
+    volumes:
+      - synapse_data:/synapse
+      - mautrix_whatsapp_data:/whatsapp
+      - ./adapters/matrix-mautrix/config:/config:ro
+    command: >
+      sh -c "
+      echo 'Initializing Matrix and WhatsApp bridge configurations...';
+      mkdir -p /synapse /whatsapp;
+      cp /config/homeserver.yaml /synapse/homeserver.yaml;
+      cp /config/whatsapp-registration.yaml /synapse/whatsapp-registration.yaml;
+      cp /config/localhost.log.config /synapse/localhost.log.config;
+      chown -R 991:991 /synapse;
+      cp /config/config.yaml /whatsapp/config.yaml;
+      cp /config/whatsapp-registration.yaml /whatsapp/registration.yaml;
+      chown -R 1337:1337 /whatsapp;
+      echo 'Configurations initialized successfully.';
+      "
+
   synapse:
     image: matrixdotorg/synapse:latest
     container_name: whatfunnel-synapse
@@ -194,6 +250,9 @@ services:
       - "8008:8008"
     volumes:
       - synapse_data:/data
+    depends_on:
+      matrix-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   mautrix-whatsapp:
@@ -202,7 +261,10 @@ services:
     volumes:
       - mautrix_whatsapp_data:/data
     depends_on:
-      - synapse
+      synapse:
+        condition: service_started
+      matrix-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -229,6 +291,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

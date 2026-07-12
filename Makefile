@@ -17,11 +17,13 @@ help: ## Show this help message
 # Dev stack
 # ---------------------------------------------------------------------------
 
-up: ## Start local dev stack (postgres, redis, all services)
+up: ## Start local dev stack (postgres, redis, all services). Migrations run automatically.
 	docker compose up -d
-	@echo "Waiting for postgres to be healthy..."
-	@until docker compose exec postgres pg_isready -U whatfunnel -d whatfunnel > /dev/null 2>&1; do sleep 1; done
-	@echo "Postgres is ready."
+	@echo "Waiting for migrate service to finish..."
+	@until docker compose ps migrate | grep -q 'Exited (0)'; do \
+		sleep 2; \
+	done
+	@echo "Migrations applied. Stack is ready."
 
 down: ## Stop local dev stack
 	docker compose down
@@ -33,7 +35,7 @@ logs: ## Tail logs from all services
 # Migrations
 # ---------------------------------------------------------------------------
 
-migrate: ## Run all pending goose migrations (up)
+migrate: ## (Re-)run all pending goose migrations — normally automatic on `make up`
 	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up
 
 migrate-down: ## Roll back the last migration
@@ -90,3 +92,9 @@ lint: ## Run golangci-lint
 
 tools: ## Install required Go tools
 	go install github.com/pressly/goose/v3/cmd/goose@latest
+
+pw: ## Run the Playwright E2E test suite (requires `make up` and `cd apps/web && npm install` first)
+	cd apps/web && npx playwright test --reporter=list
+
+pw-ui: ## Open Playwright interactive test runner
+	cd apps/web && npx playwright test --ui
