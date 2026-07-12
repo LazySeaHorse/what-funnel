@@ -1,4 +1,3 @@
-
 # What Funnel — Master Spec
 
 Version 0.1 — living document. This is the shared reference for every component build prompt. If a build prompt contradicts this doc, this doc wins unless explicitly noted as superseded.
@@ -105,7 +104,7 @@ The two share: accounts, channel adapters, the conversation data model, and the 
 1. Bridge → Matrix homeserver → Matrix adapter normalizes into `MessageEvent`.
 2. Adapter publishes to Redis Streams (`messages.inbound`).
 3. Conversation Service consumer persists message, upserts contact/conversation, publishes `conversation.updated`.
-4. `ai-answer-svc` consumer picks up `messages.inbound`, runs the cascade, either publishes a suggested reply, an auto-sent reply (via adapter), or a `needs_human` flag.
+4. `ai-answer-svc` consumer picks up `conversation.updated` (not `messages.inbound` directly — it needs the message already persisted so it has a real `message_id` to log against), runs the cascade, either publishes a suggested reply, an auto-sent reply (via adapter), or a `needs_human` flag.
 5. Notification Service pushes relevant updates over WebSocket to connected clients.
 6. Idle-conversation summarizer (debounced, see §7) runs on conversation close/return.
 
@@ -145,14 +144,23 @@ lead_pipelines
   id, account_id, name, states jsonb  -- ordered list of {key, label, color}
 
 leads
-  id, account_id, conversation_id, pipeline_id, current_state_key, notes text,
+  id, account_id, conversation_id, pipeline_id, current_state_key,
   tags text[], created_by, updated_at
+  -- notes are NOT a single field (revised from earlier draft) — see lead_notes below.
+  -- A single overwritable text field loses history; a small biz owner needs to see
+  -- "called Tuesday, said X" alongside "followed up Thursday", not just the latest note.
+
+lead_notes
+  id, account_id, lead_id, author_user_id, body text, created_at
+  -- append-only, chronological. This is the notes UI surface, not a single textarea.
 
 lead_state_history
-  id, lead_id, from_state, to_state, changed_by, changed_at
+  id, account_id, lead_id, from_state, to_state, changed_by, changed_at
+  -- account_id added for consistency with the tenant-isolation indexing convention
+  -- established in Build Prompt 1 (every tenant-scoped table is indexed on account_id).
 
 conversation_summaries
-  id, conversation_id, summary_fields jsonb (account-configurable extraction schema),
+  id, account_id, conversation_id, summary_fields jsonb (account-configurable extraction schema),
   generated_at, message_count_at_generation
 
 kb_concepts   -- OKF bundle, one row per concept file
@@ -168,6 +176,10 @@ automation_suggestions
   source_message_ids uuid[], proposed_payload jsonb, confidence numeric,
   status (pending|approved|rejected|edited), reviewed_by, reviewed_at, created_at
 
+kb_mining_runs   -- tracks the dormant-conversation-mining watermark per account
+  id, account_id, run_at, window_start, window_end,
+  messages_scanned, clusters_found, suggestions_created
+
 connector_registrations   -- v1 stub only, unused until v2
   id, account_id, tool_name, config jsonb, enabled bool
 ```
@@ -175,6 +187,18 @@ connector_registrations   -- v1 stub only, unused until v2
 ---
 
 ## 5. Service contracts
+
+### 5.0 Crypto interop (Go ↔ Python)
+
+`accounts.ai_provider_config` and `channels.bridge_credentials` are encrypted by Go services (Build Prompt 1/2) but must be decryptable by Python AI services (Build Prompt 5 onward). Exact format, non-negotiable:
+
+- Algorithm: AES-256-GCM.
+- Key: 32 raw bytes, provided to every service (Go and Python) via the same `APP_ENCRYPTION_KEY` environment variable, base64-encoded in the env var.
+- Nonce: 12 random bytes, generated fresh per encryption, **prepended** to the ciphertext.
+- Storage format: `base64(nonce || ciphertext_with_gcm_tag)`, stored as a single string in the jsonb/text column.
+- Any service in any language decrypts by: base64-decode, split first 12 bytes as nonce, AES-256-GCM-open the rest with the shared key.
+
+Build Prompt 5 must include a cross-language test: encrypt a known value with the Go helper, decrypt it with the Python implementation, assert equality (and vice versa). Don't assume compatibility — prove it.
 
 ### 5.1 Channel Adapter contract (Go interface, implemented per channel type)
 ```go
@@ -340,3 +364,4 @@ Cloud adds: managed Postgres, managed Redis, managed bridge fleet, backups, moni
 - Multi-business accounts
 - Custom roles beyond admin/member
 - PDF ingestion for KB
+
