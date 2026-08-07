@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	// ─── State ───────────────────────────────────────────────────────────────
 	let isOpen = $state(false);
@@ -31,21 +32,21 @@
 			id: 'c1',
 			name: 'Alice Test',
 			externalID: 'test-alice-001',
-			avatar: '👩',
+			avatar: 'A',
 			platform: 'whatsapp',
 		},
 		{
 			id: 'c2',
 			name: 'Bob Demo',
 			externalID: 'test-bob-002',
-			avatar: '👨',
+			avatar: 'B',
 			platform: 'instagram',
 		},
 		{
 			id: 'c3',
 			name: 'Charlie Mock',
 			externalID: 'test-charlie-003',
-			avatar: '🧑',
+			avatar: 'C',
 			platform: 'twitter',
 		},
 	];
@@ -57,11 +58,11 @@
 
 	// ─── Platforms ───────────────────────────────────────────────────────────
 	const PLATFORMS = [
-		{ key: 'whatsapp', label: 'WhatsApp', color: '#25D366', icon: '💬' },
-		{ key: 'instagram', label: 'Instagram', color: '#E1306C', icon: '📸' },
-		{ key: 'twitter', label: 'Twitter DM', color: '#1DA1F2', icon: '🐦' },
-		{ key: 'messenger', label: 'Messenger', color: '#0084FF', icon: '💙' },
-		{ key: 'telegram', label: 'Telegram', color: '#26A5E4', icon: '✈️' },
+		{ key: 'whatsapp', label: 'WhatsApp', color: '#0B6E99', icon: 'whatsapp' },
+		{ key: 'instagram', label: 'Instagram', color: '#E03E65', icon: 'camera' },
+		{ key: 'twitter', label: 'Twitter DM', color: '#0B6E99', icon: 'chat' },
+		{ key: 'messenger', label: 'Messenger', color: '#0B6E99', icon: 'message' },
+		{ key: 'telegram', label: 'Telegram', color: '#0B6E99', icon: 'channels' },
 	];
 
 	let selectedPlatform = $state('whatsapp');
@@ -75,7 +76,7 @@
 			"Is this still available?",
 		],
 		instagram: [
-			"Saw your post! 🔥 Can I DM you?",
+			"Saw your post! Can I DM you?",
 			"What's the price for this?",
 			"Do you ship internationally?",
 		],
@@ -206,7 +207,7 @@
 			id: `c-${Date.now()}`,
 			name: newContactName.trim(),
 			externalID: `test-${newContactName.trim().toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
-			avatar: '🧑',
+			avatar: newContactName.trim().charAt(0).toUpperCase() || 'C',
 			platform: selectedPlatform,
 		};
 		testContacts = [...testContacts, contact];
@@ -249,7 +250,7 @@
 		title="Open Dev Test Widget"
 		aria-label="Open Dev Test Widget"
 	>
-		<span class="dev-launcher-icon">🧪</span>
+		<Icon name="bot" size={14} color="var(--blue-text)" />
 		<span class="dev-launcher-label">Dev</span>
 	</button>
 {/if}
@@ -260,9 +261,9 @@
 		<!-- Header -->
 		<div class="dev-header">
 			<div class="dev-header-left">
-				<span class="dev-header-icon">🧪</span>
+				<Icon name="bot" size={16} color="var(--blue-text)" />
 				<span class="dev-header-title">Message Simulator</span>
-				<span class="dev-badge">DEV</span>
+				<span class="badge-blue">DEV</span>
 			</div>
 			<div class="dev-header-actions">
 				<button
@@ -271,7 +272,7 @@
 					title={isMinimized ? 'Expand' : 'Minimize'}
 					aria-label={isMinimized ? 'Expand' : 'Minimize'}
 				>
-					{isMinimized ? '⬆' : '⬇'}
+					<Icon name={isMinimized ? 'arrow-right' : 'x'} size={12} />
 				</button>
 				<button
 					class="dev-icon-btn dev-close-btn"
@@ -353,7 +354,7 @@
 										tabindex="0"
 										onclick={(e) => { e.stopPropagation(); removeContact(contact.id); }}
 										onkeydown={(e) => e.key === 'Enter' && removeContact(contact.id)}
-									>✕</span>
+									><Icon name="x" size={10} /></span>
 								{/if}
 							</button>
 						{/each}
@@ -377,7 +378,7 @@
 				<div class="dev-section">
 					<div class="dev-label">Message Type</div>
 					<div class="type-tabs">
-						{#each [{ k: 'text', l: '💬 Text' }, { k: 'image', l: '🖼 Image' }, { k: 'audio', l: '🎙 Audio' }] as t}
+						{#each [{ k: 'text', l: 'Text' }, { k: 'image', l: 'Image' }, { k: 'audio', l: 'Audio' }] as t}
 							<button
 								class="type-tab"
 								class:active={contentType === t.k}
@@ -429,15 +430,15 @@
 
 				<!-- Status Feedback -->
 				{#if lastStatus === 'success'}
-					<div class="dev-feedback dev-feedback--success">
-						✓ Message injected via {activePlatform.icon} {activePlatform.label}
+					<div class="dev-feedback dev-feedback--success" style="display: flex; align-items: center; gap: 6px;">
+						<Icon name="check" size={13} color="var(--success)" strokeWidth={3} /> Message injected via {activePlatform.label}
 					</div>
 					<div class="dev-tip">
-						💡 <strong>Note:</strong> Simulated messages land in <em>Unassigned</em>. Switch the inbox filter to <strong>All</strong> or <strong>Unassigned</strong> to see it!
+						Note: Simulated messages land in Unassigned. Switch the inbox filter to All or Unassigned to see it!
 					</div>
 				{:else if lastStatus === 'error'}
-					<div class="dev-feedback dev-feedback--error">
-						✗ {lastError}
+					<div class="dev-feedback dev-feedback--error" style="display: flex; align-items: center; gap: 6px;">
+						<Icon name="x" size={13} color="var(--danger)" /> {lastError}
 					</div>
 				{/if}
 
@@ -451,7 +452,7 @@
 					{#if isSending}
 						<span class="dev-spinner"></span> Sending…
 					{:else}
-						{activePlatform.icon} Send as {activePlatform.label}
+						Send as {activePlatform.label}
 					{/if}
 				</button>
 			</div>

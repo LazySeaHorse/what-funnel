@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	let loading = $state(true);
 	let saving = $state(false);
@@ -16,7 +17,7 @@
 	// Form state for adding new state
 	let newStateKey = $state('');
 	let newStateLabel = $state('');
-	let newStateColor = $state('#6366f1');
+	let newStateColor = $state('#0B6E99');
 
 	onMount(async () => {
 		try {
@@ -75,7 +76,6 @@
 			return;
 		}
 		
-		// Check for duplicate keys
 		if (states.some(s => s.key === key)) {
 			error = `State with key "${key}" already exists.`;
 			return;
@@ -87,10 +87,9 @@
 			color: newStateColor
 		});
 
-		// Clear form
 		newStateKey = '';
 		newStateLabel = '';
-		newStateColor = '#6366f1';
+		newStateColor = '#0B6E99';
 	}
 
 	function removeState(index: number) {
@@ -100,6 +99,7 @@
 	}
 
 	async function handleSavePipeline() {
+		if (!pipeline) return;
 		error = '';
 		successMsg = '';
 		saving = true;
@@ -109,13 +109,13 @@
 				method: 'PUT',
 				body: {
 					name: pipeline.name,
-					states: states
+					states
 				}
 			});
-			successMsg = 'Pipeline states saved successfully.';
+			successMsg = 'Pipeline stages saved successfully.';
 			await loadPipeline();
 		} catch (err: any) {
-			error = err.message;
+			error = 'Failed to save pipeline: ' + err.message;
 		} finally {
 			saving = false;
 		}
@@ -126,23 +126,32 @@
 	<div class="settings-sidebar glass-panel">
 		<h2 class="sidebar-title">Settings</h2>
 		<nav class="sidebar-nav">
-			<a href="/inbox" class="nav-item">← Back to Inbox</a>
-			<a href="/settings/account" class="nav-item">Account Settings</a>
-			<a href="/settings/channels" class="nav-item">Channels</a>
-			<a href="/settings/users" class="nav-item">Workspace Users</a>
-			{#if productMode !== 'chatbot_only'}
-				<a href="/settings/pipeline" class="nav-item active">Lead Pipeline</a>
-			{/if}
-			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
+			<a href="/inbox" class="nav-item back-item">
+				<Icon name="arrow-left" size={14} /> Back to Inbox
+			</a>
+			<a href="/settings/account" class="nav-item">
+				<Icon name="settings" size={14} /> Account Settings
+			</a>
+			<a href="/settings/channels" class="nav-item">
+				<Icon name="channels" size={14} /> Channels
+			</a>
+			<a href="/settings/users" class="nav-item">
+				<Icon name="users" size={14} /> Workspace Users
+			</a>
+			<a href="/settings/pipeline" class="nav-item active">
+				<Icon name="pipeline" size={14} /> Lead Pipeline
+			</a>
+			<a href="/settings/knowledge-base" class="nav-item">
+				<Icon name="kb" size={14} /> Knowledge Base
+			</a>
 		</nav>
 	</div>
-
 
 	<div class="settings-content glass-panel">
 		<div class="content-header">
 			<div>
-				<h1>Lead Pipeline Editor</h1>
-				<p class="subtitle">Customize lead states, order, and colors for your business pipeline</p>
+				<h1>Lead Pipeline Stages</h1>
+				<p class="subtitle">Customize stages, colors, and sequence for tracking customer leads</p>
 			</div>
 		</div>
 
@@ -155,64 +164,56 @@
 		{/if}
 
 		{#if loading}
-			<div class="loading-state">Loading pipeline config...</div>
-		{:else if pipeline}
-			<div class="pipeline-split">
-				<!-- Pipeline States List -->
-				<div class="pipeline-list-pane">
-					<h3>Current Pipeline States</h3>
-					<p class="section-desc">Reorder, rename, or delete stages in your workflow.</p>
-					
+			<div class="loading-state">Loading pipeline stages...</div>
+		{:else}
+			<div class="pipeline-editor-container">
+				<!-- Current Stages List -->
+				<div class="settings-card glass-panel">
+					<h3>Current Stages Sequence</h3>
+					<p class="card-desc">Drag or re-order stages to represent your funnel progression.</p>
+
 					<div class="states-list">
-						{#each states as state, index}
+						{#each states as st, i}
 							<div class="state-row glass-panel">
-								<div class="state-color-indicator" style="background-color: {state.color}"></div>
-								
+								<div class="color-dot" style="background-color: {st.color}"></div>
 								<div class="state-info">
-									<div class="state-key"><code>{state.key}</code></div>
 									<input 
 										type="text" 
-										class="input-field state-label-input" 
-										bind:value={state.label}
-										placeholder="State Label"
-										required
+										class="input-field inline-edit" 
+										bind:value={st.label} 
+										placeholder="Stage Label"
 									/>
+									<span class="state-key">({st.key})</span>
 								</div>
-
-								<div class="state-color-picker">
-									<input 
-										type="color" 
-										class="color-picker-input" 
-										bind:value={state.color}
-									/>
-								</div>
-
-								<div class="state-actions">
+								<input 
+									type="color" 
+									class="color-picker" 
+									bind:value={st.color} 
+									title="Pick stage color"
+								/>
+								<div class="row-actions">
 									<button 
-										type="button" 
-										class="btn-icon" 
-										disabled={index === 0} 
-										onclick={() => moveState(index, 'up')}
+										class="icon-btn" 
+										onclick={() => moveState(i, 'up')} 
+										disabled={i === 0}
 										title="Move Up"
 									>
 										▲
 									</button>
 									<button 
-										type="button" 
-										class="btn-icon" 
-										disabled={index === states.length - 1} 
-										onclick={() => moveState(index, 'down')}
+										class="icon-btn" 
+										onclick={() => moveState(i, 'down')} 
+										disabled={i === states.length - 1}
 										title="Move Down"
 									>
 										▼
 									</button>
 									<button 
-										type="button" 
-										class="btn-danger-icon" 
-										onclick={() => removeState(index)}
-										title="Delete State"
+										class="icon-btn delete-btn" 
+										onclick={() => removeState(i)} 
+										title="Remove Stage"
 									>
-										&times;
+										<Icon name="trash" size={13} color="var(--danger)" />
 									</button>
 								</div>
 							</div>
@@ -224,60 +225,56 @@
 							type="button" 
 							class="btn-primary" 
 							onclick={handleSavePipeline}
-							disabled={saving || states.length === 0}
+							disabled={saving}
 						>
-							{saving ? 'Saving...' : 'Save Pipeline Configuration'}
+							{saving ? 'Saving...' : 'Save Pipeline Changes'}
 						</button>
 					</div>
 				</div>
 
-				<!-- Add New State Form -->
-				<div class="add-state-pane glass-panel">
-					<h3>Add New Lead State</h3>
+				<!-- Add New Stage Form -->
+				<div class="settings-card glass-panel">
+					<h3>Add New Funnel Stage</h3>
+					<p class="card-desc">Create a custom stage for your sales funnel.</p>
+
 					<form onsubmit={addState} class="add-state-form">
-						<div class="form-group">
-							<label for="state-key">State Key (unique, lowercase)</label>
-							<input 
-								type="text" 
-								id="state-key" 
-								class="input-field" 
-								bind:value={newStateKey} 
-								placeholder="e.g. negotiation" 
-								required 
-							/>
-						</div>
-
-						<div class="form-group">
-							<label for="state-label">Display Label</label>
-							<input 
-								type="text" 
-								id="state-label" 
-								class="input-field" 
-								bind:value={newStateLabel} 
-								placeholder="e.g. Negotiation" 
-							/>
-						</div>
-
-						<div class="form-group">
-							<label for="state-color">State Color</label>
-							<div class="color-select-group">
-								<input 
-									type="color" 
-									id="state-color" 
-									class="color-picker-input-large" 
-									bind:value={newStateColor} 
-								/>
+						<div class="form-row">
+							<div class="form-group">
+								<label for="stateKey">Stage Key</label>
 								<input 
 									type="text" 
-									class="input-field color-hex-text" 
-									bind:value={newStateColor}
-									placeholder="#ffffff"
+									id="stateKey" 
+									class="input-field" 
+									bind:value={newStateKey} 
+									placeholder="e.g. quote_sent" 
+									required
+								/>
+							</div>
+
+							<div class="form-group">
+								<label for="stateLabel">Stage Label</label>
+								<input 
+									type="text" 
+									id="stateLabel" 
+									class="input-field" 
+									bind:value={newStateLabel} 
+									placeholder="e.g. Quote Sent" 
+								/>
+							</div>
+
+							<div class="form-group color-group">
+								<label for="stateColor">Color</label>
+								<input 
+									type="color" 
+									id="stateColor" 
+									class="color-picker-large" 
+									bind:value={newStateColor} 
 								/>
 							</div>
 						</div>
 
-						<button type="submit" class="btn-secondary">
-							+ Add to Pipeline
+						<button type="submit" class="btn-secondary add-btn">
+							<Icon name="plus" size={14} /> Add Stage
 						</button>
 					</form>
 				</div>
@@ -289,269 +286,258 @@
 <style>
 	.settings-container {
 		display: flex;
-		gap: 24px;
-		max-width: 1200px;
-		margin: 40px auto;
-		padding: 0 24px;
-		height: calc(100vh - 80px);
+		gap: 20px;
+		max-width: 1100px;
+		margin: 24px auto;
+		padding: 0 16px;
+		height: calc(100vh - 48px);
 	}
 
 	.settings-sidebar {
-		width: 280px;
-		padding: 24px;
+		width: 240px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: 16px;
+		background: var(--bg-sidebar);
+		height: 100%;
 	}
 
 	.sidebar-title {
-		font-size: 18px;
-		font-weight: 600;
+		font-size: 16px;
+		font-weight: 700;
 		color: var(--text-primary);
-		letter-spacing: 0.5px;
 	}
 
 	.sidebar-nav {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 4px;
 	}
 
 	.nav-item {
-		padding: 10px 14px;
-		border-radius: 8px;
+		padding: 8px 12px;
+		border-radius: 6px;
 		color: var(--text-secondary);
 		text-decoration: none;
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		transition: background-color 0.2s, color 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.15s;
 	}
 
 	.nav-item:hover {
-		background: rgba(255, 255, 255, 0.04);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.nav-item.active {
-		background: rgba(var(--primary-rgb), 0.15);
-		color: #fff;
-		border: 1px solid rgba(var(--primary-rgb), 0.3);
+		background: var(--blue-bg);
+		color: var(--blue-text);
+		font-weight: 600;
+	}
+
+	.back-item {
+		margin-bottom: 8px;
+		color: var(--text-muted);
 	}
 
 	.settings-content {
 		flex: 1;
-		padding: 32px;
+		padding: 28px;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: 20px;
+		background: #FFFFFF;
+		height: 100%;
 	}
 
 	.content-header h1 {
-		font-size: 24px;
+		font-size: 20px;
 		font-weight: 700;
-		margin-bottom: 4px;
+		margin-bottom: 2px;
 	}
 
 	.subtitle {
+		font-size: 13.5px;
 		color: var(--text-secondary);
-		font-size: 14px;
-	}
-
-	.loading-state {
-		color: var(--text-secondary);
-		font-size: 14px;
-		text-align: center;
-		padding: 40px 0;
-	}
-
-	.banner {
-		padding: 12px 16px;
-		border-radius: 8px;
-		font-size: 14px;
 	}
 
 	.banner.error {
-		background: rgba(239, 68, 68, 0.15);
-		border: 1px solid rgba(239, 68, 68, 0.3);
-		color: #fca5a5;
+		padding: 10px 14px;
+		background: var(--danger-bg);
+		border: 1px solid rgba(235, 87, 87, 0.3);
+		border-radius: 6px;
+		color: var(--danger);
+		font-size: 13px;
 	}
 
 	.banner.success {
-		background: rgba(34, 197, 94, 0.15);
-		border: 1px solid rgba(34, 197, 94, 0.3);
-		color: #86efac;
+		padding: 10px 14px;
+		background: var(--success-bg);
+		border: 1px solid rgba(46, 125, 50, 0.3);
+		border-radius: 6px;
+		color: var(--success);
+		font-size: 13px;
 	}
 
-	.pipeline-split {
-		display: flex;
-		gap: 24px;
-		align-items: flex-start;
+	.loading-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+		font-size: 13.5px;
 	}
 
-	.pipeline-list-pane {
-		flex: 1;
+	.pipeline-editor-container {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: 16px;
 	}
 
-	.section-desc {
+	.settings-card {
+		padding: 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		background: #FFFFFF;
+	}
+
+	.settings-card h3 {
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.card-desc {
 		font-size: 13px;
 		color: var(--text-secondary);
-		margin-bottom: 8px;
+		margin-bottom: 10px;
 	}
 
 	.states-list {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: 8px;
+		margin-bottom: 14px;
 	}
 
 	.state-row {
 		display: flex;
 		align-items: center;
-		padding: 14px 18px;
-		gap: 16px;
+		gap: 10px;
+		padding: 8px 12px;
+		background: var(--bg-hover);
 	}
 
-	.state-color-indicator {
-		width: 16px;
-		height: 16px;
+	.color-dot {
+		width: 10px;
+		height: 10px;
 		border-radius: 50%;
 		flex-shrink: 0;
-		box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
 	}
 
 	.state-info {
-		flex: 1;
 		display: flex;
-		gap: 16px;
 		align-items: center;
+		gap: 8px;
+		flex: 1;
+	}
+
+	.inline-edit {
+		height: 32px;
+		font-size: 13px;
+		padding: 4px 8px;
+
 	}
 
 	.state-key {
-		font-size: 13px;
-		color: var(--text-secondary);
-		min-width: 100px;
+		font-size: 11px;
+		color: var(--text-muted);
 	}
 
-	.state-label-input {
-		flex: 1;
-		padding: 6px 10px;
-	}
-
-	.state-color-picker {
-		display: flex;
-		align-items: center;
-	}
-
-	.color-picker-input {
-		border: none;
-		outline: none;
+	.color-picker {
 		width: 28px;
 		height: 28px;
-		border-radius: 6px;
-		background: transparent;
+		border: none;
+		background: none;
 		cursor: pointer;
 	}
 
-	.state-actions {
+	.row-actions {
 		display: flex;
 		gap: 4px;
 	}
 
-	.btn-icon {
-		background: rgba(255, 255, 255, 0.05);
+	.icon-btn {
+		background: #FFFFFF;
 		border: 1px solid var(--border-color);
-		color: var(--text-secondary);
-		font-size: 11px;
-		width: 28px;
-		height: 28px;
-		border-radius: 6px;
-		cursor: pointer;
+		border-radius: 4px;
+		width: 26px;
+		height: 26px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		font-size: 10px;
+		cursor: pointer;
 	}
 
-	.btn-icon:hover:not(:disabled) {
-		background: rgba(255, 255, 255, 0.1);
-		color: var(--text-primary);
+	.icon-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
 	}
 
-	.btn-icon:disabled {
-		opacity: 0.3;
+	.icon-btn:disabled {
+		opacity: 0.4;
 		cursor: not-allowed;
-	}
-
-	.btn-danger-icon {
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid rgba(239, 68, 68, 0.2);
-		color: #ef4444;
-		font-size: 16px;
-		font-weight: 700;
-		width: 28px;
-		height: 28px;
-		border-radius: 6px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: background-color 0.2s;
-	}
-
-	.btn-danger-icon:hover {
-		background: rgba(239, 68, 68, 0.2);
-	}
-
-	.add-state-pane {
-		width: 340px;
-		padding: 24px;
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
 	}
 
 	.add-state-form {
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
+		gap: 10px;
+	}
+
+	.form-row {
+		display: flex;
+		gap: 10px;
+		align-items: flex-end;
 	}
 
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
+		flex: 1;
 	}
 
 	.form-group label {
 		font-size: 12px;
-		font-weight: 500;
+		font-weight: 600;
 		color: var(--text-secondary);
 	}
 
-	.color-select-group {
-		display: flex;
-		gap: 10px;
-		align-items: center;
+	.color-group {
+		flex: 0 0 60px;
 	}
 
-	.color-picker-input-large {
-		border: none;
-		outline: none;
-		width: 40px;
-		height: 40px;
-		border-radius: 8px;
-		background: transparent;
+	.color-picker-large {
+		width: 100%;
+		height: 36px;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
 		cursor: pointer;
+		background: #FFFFFF;
 	}
 
-	.color-hex-text {
-		flex: 1;
+	.add-btn {
+		align-self: flex-start;
 	}
 
 	.action-bar {
-		margin-top: 16px;
+		margin-top: 8px;
+		display: flex;
+		justify-content: flex-start;
 	}
 </style>

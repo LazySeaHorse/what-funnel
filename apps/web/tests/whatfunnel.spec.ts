@@ -16,6 +16,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+// @ts-ignore
 import { execSync } from 'child_process';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

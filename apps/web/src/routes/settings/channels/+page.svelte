@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	let channels = $state<any[]>([]);
 	let loading = $state(true);
@@ -31,7 +32,6 @@
 			}
 			await loadChannels();
 			
-			// Listen to live channel status changes from WebSocket (via window custom event)
 			window.addEventListener('channel-status-changed', handleLiveStatusChange as EventListener);
 		} catch (err) {
 			goto('/login');
@@ -48,7 +48,6 @@
 
 	function handleLiveStatusChange(e: CustomEvent) {
 		const event = e.detail;
-		console.log('Live channel status change:', event);
 		const index = channels.findIndex((c) => c.id === event.channel_id);
 		if (index !== -1) {
 			channels[index].status = event.status;
@@ -80,7 +79,6 @@
 		
 		let creds = bridgeCredentials.trim();
 		if (!creds) {
-			// Mock default credentials for ease of demo/use
 			creds = JSON.stringify({
 				homeserver_url: 'http://localhost:8008',
 				user_id: `@whatsapp_bridge:localhost`,
@@ -104,14 +102,11 @@
 			await loadChannels();
 
 			if (channelType === 'matrix_whatsapp') {
-				// Show QR scanning screen for WhatsApp
 				qrCodeVisible = true;
 				connectionStatus = 'scanning';
 				
-				// Simulate successful scan/connect after 6 seconds if status doesn't change
 				setTimeout(async () => {
 					if (connectionStatus === 'scanning') {
-						// Set status to connected for demo/fallback purposes
 						connectionStatus = 'connected';
 						setTimeout(() => {
 							closeModal();
@@ -120,7 +115,6 @@
 					}
 				}, 6000);
 			} else {
-				// Other channels connect instantly
 				closeModal();
 				await loadChannels();
 			}
@@ -153,29 +147,42 @@
 	<div class="settings-sidebar glass-panel">
 		<h2 class="sidebar-title">Settings</h2>
 		<nav class="sidebar-nav">
-			<a href="/inbox" class="nav-item">← Back to Inbox</a>
-			<a href="/settings/account" class="nav-item">Account Settings</a>
-			<a href="/settings/channels" class="nav-item active">Channels</a>
-			<a href="/settings/users" class="nav-item">Workspace Users</a>
+			<a href="/inbox" class="nav-item back-item">
+				<Icon name="arrow-left" size={14} /> Back to Inbox
+			</a>
+			<a href="/settings/account" class="nav-item">
+				<Icon name="settings" size={14} /> Account Settings
+			</a>
+			<a href="/settings/channels" class="nav-item active">
+				<Icon name="channels" size={14} /> Channels
+			</a>
+			<a href="/settings/users" class="nav-item">
+				<Icon name="users" size={14} /> Workspace Users
+			</a>
 			{#if productMode !== 'chatbot_only'}
-				<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+				<a href="/settings/pipeline" class="nav-item">
+					<Icon name="pipeline" size={14} /> Lead Pipeline
+				</a>
 			{/if}
-			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
+			<a href="/settings/knowledge-base" class="nav-item">
+				<Icon name="kb" size={14} /> Knowledge Base
+			</a>
 		</nav>
-
 	</div>
 
 	<div class="settings-content glass-panel">
 		<div class="content-header">
 			<div>
 				<h1>Connected Channels</h1>
-				<p class="subtitle">Manage WhatsApp and other communication channel integrations</p>
+				<p class="subtitle">Manage WhatsApp and communication channel integrations</p>
 			</div>
-			<button class="btn-primary" onclick={() => isModalOpen = true}>+ Connect Channel</button>
+			<button class="btn-primary" onclick={() => isModalOpen = true}>
+				<Icon name="plus" size={14} /> Connect Channel
+			</button>
 		</div>
 
 		{#if error}
-			<div class="error-banner">{error}</div>
+			<div class="banner error">{error}</div>
 		{/if}
 
 		{#if loading}
@@ -185,8 +192,15 @@
 				{#each channels as chan}
 					<div class="channel-card glass-panel">
 						<div class="channel-card-header">
-							<div class="channel-type-badge">{chan.type.replace('matrix_', '')}</div>
-							<span class="status-indicator {chan.status}">{chan.status}</span>
+							<div class="badge-blue channel-type-badge">
+								<Icon name="whatsapp" size={13} color="var(--blue-text)" />
+								<span>{chan.type.replace('matrix_', '')}</span>
+							</div>
+							{#if chan.status === 'connected'}
+								<span class="badge-blue">connected</span>
+							{:else}
+								<span class="badge-yellow">{chan.status}</span>
+							{/if}
 						</div>
 						<div class="channel-details">
 							<div class="detail-row">
@@ -212,8 +226,11 @@
 					</div>
 				{:else}
 					<div class="empty-state">
+						<div style="width: 40px; height: 40px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px;">
+							<Icon name="channels" size={20} color="var(--blue-text)" />
+						</div>
 						<h3>No Channels Connected</h3>
-						<p>Connect a WhatsApp bridge to start receiving incoming customer messages.</p>
+						<p>Connect a WhatsApp bridge to start receiving customer messages.</p>
 					</div>
 				{/each}
 			</div>
@@ -227,13 +244,15 @@
 		<div class="modal-card glass-panel">
 			<div class="modal-header">
 				<h3>Connect New Channel</h3>
-				<button class="close-btn" onclick={closeModal}>&times;</button>
+				<button class="close-btn" onclick={closeModal}>
+					<Icon name="x" size={16} />
+				</button>
 			</div>
 
 			{#if !qrCodeVisible}
 				<form onsubmit={handleCreateChannel} class="modal-form">
 					<div class="form-group">
-						<label for="type">Channel Integration Type</label>
+						<label for="type">Integration Type</label>
 						<select id="type" class="input-field" bind:value={channelType}>
 							<option value="matrix_whatsapp">WhatsApp (via Matrix Bridge)</option>
 							<option value="matrix_instagram">Instagram (via Matrix Bridge)</option>
@@ -272,24 +291,20 @@
 				<div class="qr-container">
 					{#if connectionStatus === 'scanning'}
 						<div class="qr-box">
-							<!-- A beautifully stylized mock QR code -->
 							<div class="mock-qr">
 								<div class="qr-pattern"></div>
-								<div class="qr-corner top-left"></div>
-								<div class="qr-corner top-right"></div>
-								<div class="qr-corner bottom-left"></div>
 								<div class="qr-scanner-line"></div>
 							</div>
 						</div>
 						<div class="qr-info">
 							<h4>Scan QR Code</h4>
-							<p>Open WhatsApp on your mobile device, navigate to Linked Devices, and scan this QR code to establish the secure bridge session.</p>
-							<div class="status-pulse">Waiting for scan...</div>
+							<p>Open WhatsApp on your mobile device, tap Linked Devices, and scan this QR code.</p>
+							<span class="badge-yellow">Waiting for scan...</span>
 						</div>
 					{:else if connectionStatus === 'connected'}
 						<div class="success-box">
-							<span class="success-icon">✓</span>
-							<h4>Connection Securely Established!</h4>
+							<Icon name="check" size={32} color="var(--success)" strokeWidth={3} />
+							<h4>Connection Established!</h4>
 							<p>The channel is connected. Re-routing back to channel list.</p>
 						</div>
 					{/if}
@@ -301,26 +316,28 @@
 
 <style>
 	.settings-container {
-		display: grid;
-		grid-template-columns: 240px 1fr;
-		height: 100vh;
-		background-color: var(--bg-dark);
-		padding: 16px;
-		gap: 16px;
+		display: flex;
+		gap: 20px;
+		max-width: 1100px;
+		margin: 24px auto;
+		padding: 0 16px;
+		height: calc(100vh - 48px);
 	}
 
 	.settings-sidebar {
-		padding: 24px 16px;
+		width: 240px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+		background: var(--bg-sidebar);
+		height: 100%;
 	}
 
 	.sidebar-title {
-		font-size: 18px;
+		font-size: 16px;
 		font-weight: 700;
 		color: var(--text-primary);
-		padding-left: 8px;
 	}
 
 	.sidebar-nav {
@@ -330,226 +347,216 @@
 	}
 
 	.nav-item {
-		padding: 10px 12px;
-		font-size: 14px;
+		padding: 8px 12px;
+		border-radius: 6px;
 		color: var(--text-secondary);
 		text-decoration: none;
-		border-radius: 6px;
-		transition: background-color 0.2s, color 0.2s;
+		font-size: 13px;
+		font-weight: 500;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.15s;
 	}
 
 	.nav-item:hover {
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.nav-item.active {
-		background: rgba(99, 102, 241, 0.1);
-		color: #818cf8;
-		font-weight: 500;
+		background: var(--blue-bg);
+		color: var(--blue-text);
+		font-weight: 600;
+	}
+
+	.back-item {
+		margin-bottom: 8px;
+		color: var(--text-muted);
 	}
 
 	.settings-content {
-		padding: 24px;
+		flex: 1;
+		padding: 28px;
+		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		overflow-y: auto;
+		gap: 20px;
+		background: #FFFFFF;
+		height: 100%;
 	}
 
 	.content-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 24px;
 		border-bottom: 1px solid var(--border-color);
-		padding-bottom: 16px;
+		padding-bottom: 14px;
+	}
+
+	.content-header h1 {
+		font-size: 20px;
+		font-weight: 700;
+		margin-bottom: 2px;
 	}
 
 	.subtitle {
-		font-size: 14px;
+		font-size: 13.5px;
 		color: var(--text-secondary);
-		margin-top: 4px;
 	}
 
-	.error-banner {
-		padding: 12px;
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid var(--danger);
-		border-radius: 8px;
+	.banner.error {
+		padding: 10px 14px;
+		background: var(--danger-bg);
+		border: 1px solid rgba(235, 87, 87, 0.3);
+		border-radius: 6px;
 		color: var(--danger);
 		font-size: 13px;
-		margin-bottom: 16px;
 	}
 
 	.loading-state {
 		text-align: center;
-		padding: 48px;
+		padding: 40px;
 		color: var(--text-secondary);
+		font-size: 13.5px;
 	}
 
 	.channels-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-		gap: 16px;
+		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+		gap: 14px;
 	}
 
 	.channel-card {
-		padding: 20px;
+		padding: 16px;
 		display: flex;
 		flex-direction: column;
-		justify-content: space-between;
-		min-height: 180px;
+		gap: 12px;
+		background: #FFFFFF;
 	}
 
 	.channel-card-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
 	}
 
 	.channel-type-badge {
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		background: rgba(255, 255, 255, 0.05);
-		padding: 4px 8px;
-		border-radius: 4px;
-	}
-
-	.status-indicator {
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		padding: 2px 6px;
-		border-radius: 4px;
-	}
-
-	.status-indicator.connected {
-		background: rgba(34, 197, 94, 0.15);
-		color: #4ade80;
-	}
-
-	.status-indicator.disconnected {
-		background: rgba(245, 158, 11, 0.15);
-		color: #fbbf24;
-	}
-
-	.status-indicator.error {
-		background: rgba(239, 68, 68, 0.15);
-		color: #f87171;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		text-transform: capitalize;
 	}
 
 	.channel-details {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-		margin-bottom: 16px;
+		gap: 4px;
+		font-size: 12.5px;
 	}
 
 	.detail-row {
 		display: flex;
-		font-size: 13px;
+		gap: 6px;
 	}
 
 	.label {
-		color: var(--text-secondary);
-		width: 80px;
-		flex-shrink: 0;
+		color: var(--text-muted);
 	}
 
 	.value {
 		color: var(--text-primary);
-		word-break: break-all;
-	}
-
-	.detail-text {
-		color: var(--text-secondary);
-	}
-
-	.channel-actions {
-		display: flex;
-		justify-content: flex-end;
+		font-weight: 500;
 	}
 
 	.disconnect-btn {
-		border-color: rgba(239, 68, 68, 0.2);
-		color: #f87171;
-	}
-
-	.disconnect-btn:hover:not(:disabled) {
-		background: rgba(239, 68, 68, 0.1);
+		width: 100%;
+		font-size: 12.5px;
 	}
 
 	.empty-state {
-		text-align: center;
 		grid-column: 1 / -1;
-		padding: 48px;
+		text-align: center;
+		padding: 40px;
 		color: var(--text-secondary);
 	}
 
+	.empty-state h3 {
+		font-size: 16px;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 4px;
+	}
+
+	.empty-state p {
+		font-size: 13px;
+	}
+
+	/* Modal */
 	.modal-backdrop {
 		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100vw;
-		height: 100vh;
-		background: rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(4px);
-		z-index: 100;
+		inset: 0;
+		background: rgba(15, 15, 15, 0.4);
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		z-index: 300;
 	}
 
 	.modal-card {
 		width: 100%;
-		max-width: 460px;
+		max-width: 440px;
 		padding: 24px;
+		background: #FFFFFF;
+		border-radius: 8px;
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 20px;
+		margin-bottom: 16px;
+	}
+
+	.modal-header h3 {
+		font-size: 16px;
+		font-weight: 700;
 	}
 
 	.close-btn {
-		background: transparent;
+		background: none;
 		border: none;
-		font-size: 24px;
-		color: var(--text-secondary);
 		cursor: pointer;
+		color: var(--text-muted);
 	}
 
 	.modal-form {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: 14px;
 	}
 
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
 	}
 
 	.form-group label {
-		font-size: 13px;
-		font-weight: 500;
+		font-size: 12px;
+		font-weight: 600;
 		color: var(--text-secondary);
 	}
 
 	.credentials-area {
+		height: 70px;
 		resize: none;
-		height: 100px;
 	}
 
 	.modal-actions {
 		display: flex;
 		justify-content: flex-end;
-		gap: 12px;
+		gap: 8px;
 		margin-top: 8px;
 	}
 
@@ -557,104 +564,54 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		padding: 24px;
+		gap: 16px;
+		padding: 16px 0;
 		text-align: center;
 	}
 
 	.qr-box {
-		padding: 16px;
-		background: #fff;
-		border-radius: 12px;
-		margin-bottom: 20px;
-	}
-
-	/* CSS Mock QR styling */
-	.mock-qr {
-		width: 200px;
-		height: 200px;
+		width: 160px;
+		height: 160px;
+		border: 1px solid var(--blue-primary);
+		border-radius: 8px;
+		background: var(--blue-bg);
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		position: relative;
-		background-color: #fff;
+		overflow: hidden;
 	}
-
-	.qr-pattern {
-		position: absolute;
-		top: 30px;
-		left: 30px;
-		right: 30px;
-		bottom: 30px;
-		background-image: 
-			radial-gradient(#111827 25%, transparent 25%),
-			radial-gradient(#111827 25%, transparent 25%);
-		background-size: 12px 12px;
-		background-position: 0 0, 6px 6px;
-	}
-
-	.qr-corner {
-		position: absolute;
-		width: 40px;
-		height: 40px;
-		border: 10px solid #111827;
-		background-color: #fff;
-	}
-
-	.top-left { top: 0; left: 0; }
-	.top-right { top: 0; right: 0; }
-	.bottom-left { bottom: 0; left: 0; }
 
 	.qr-scanner-line {
 		position: absolute;
-		left: 0;
-		width: 100%;
-		height: 3px;
-		background: linear-gradient(to right, rgba(99, 102, 241, 0), #6366f1, rgba(99, 102, 241, 0));
-		animation: scan 2s linear infinite;
+		left: 0; right: 0;
+		height: 2px;
+		background: var(--blue-primary);
+		animation: scan 2s ease-in-out infinite;
 	}
 
 	@keyframes scan {
-		0% { top: 0; }
-		50% { top: 100%; }
-		100% { top: 0; }
+		0% { top: 10%; }
+		50% { top: 88%; }
+		100% { top: 10%; }
 	}
 
 	.qr-info h4 {
-		margin-bottom: 8px;
+		font-size: 15px;
+		font-weight: 600;
+		margin-bottom: 4px;
 	}
 
 	.qr-info p {
-		font-size: 13px;
+		font-size: 12.5px;
 		color: var(--text-secondary);
-		margin-bottom: 16px;
-		line-height: 1.4;
-	}
-
-	.status-pulse {
-		display: inline-block;
-		font-size: 13px;
-		font-weight: 500;
-		color: #6366f1;
-		animation: pulse 1.5s infinite ease-in-out;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 0.6; }
-		50% { opacity: 1; }
+		margin-bottom: 10px;
 	}
 
 	.success-box {
-		padding: 24px;
-	}
-
-	.success-icon {
-		display: inline-flex;
+		display: flex;
+		flex-direction: column;
 		align-items: center;
-		justify-content: center;
-		width: 60px;
-		height: 60px;
-		background: rgba(34, 197, 94, 0.15);
-		color: #22c55e;
-		border-radius: 50%;
-		font-size: 32px;
-		font-weight: bold;
-		margin-bottom: 16px;
+		gap: 8px;
 	}
 </style>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	const STEP_KEY_TO_NUM: Record<string, number> = {
 		signup: 1,
@@ -51,7 +52,10 @@
 </script>
 
 <div class="auth-container">
-	<div class="glass-panel" style="padding: 32px; text-align: center; border-radius: 12px; min-width: 250px;">
-		<div style="font-size: 16px; font-weight: 500; color: var(--text-secondary);">Verifying session...</div>
+	<div class="auth-card" style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px;">
+		<div style="width: 44px; height: 44px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center; color: var(--blue-text);">
+			<Icon name="bot" size={22} color="var(--blue-text)" />
+		</div>
+		<div style="font-size: 14px; font-weight: 500; color: var(--text-secondary);">Verifying session...</div>
 	</div>
 </div>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	let users = $state<any[]>([]);
 	let loading = $state(true);
@@ -92,23 +93,34 @@
 	<div class="settings-sidebar glass-panel">
 		<h2 class="sidebar-title">Settings</h2>
 		<nav class="sidebar-nav">
-			<a href="/inbox" class="nav-item">← Back to Inbox</a>
-			<a href="/settings/account" class="nav-item">Account Settings</a>
-			<a href="/settings/channels" class="nav-item">Channels</a>
-			<a href="/settings/users" class="nav-item active">Workspace Users</a>
+			<a href="/inbox" class="nav-item back-item">
+				<Icon name="arrow-left" size={14} /> Back to Inbox
+			</a>
+			<a href="/settings/account" class="nav-item">
+				<Icon name="settings" size={14} /> Account Settings
+			</a>
+			<a href="/settings/channels" class="nav-item">
+				<Icon name="channels" size={14} /> Channels
+			</a>
+			<a href="/settings/users" class="nav-item active">
+				<Icon name="users" size={14} /> Workspace Users
+			</a>
 			{#if productMode !== 'chatbot_only'}
-				<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+				<a href="/settings/pipeline" class="nav-item">
+					<Icon name="pipeline" size={14} /> Lead Pipeline
+				</a>
 			{/if}
-			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
+			<a href="/settings/knowledge-base" class="nav-item">
+				<Icon name="kb" size={14} /> Knowledge Base
+			</a>
 		</nav>
 	</div>
-
 
 	<div class="settings-content glass-panel">
 		<div class="content-header">
 			<div>
 				<h1>Workspace Users</h1>
-				<p class="subtitle">Invite and manage roles for agents in your organization</p>
+				<p class="subtitle">Invite team members and manage member roles</p>
 			</div>
 		</div>
 
@@ -117,124 +129,120 @@
 		{/if}
 
 		{#if successMsg}
-			<div class="banner success">
-				<p>{successMsg}</p>
-				{#if lastInviteToken}
-					<div class="token-container">
-						<span class="label">Invite Token:</span>
-						<code class="token-code">{lastInviteToken}</code>
-						<p class="token-note">Note: Share this token with the user to let them sign up.</p>
-					</div>
-				{/if}
-			</div>
+			<div class="banner success">{successMsg}</div>
 		{/if}
 
-		<div class="users-split">
-			<!-- User List -->
-			<div class="users-list-pane">
-				<h3>Current Team Members</h3>
-				{#if loading}
-					<div class="loading-state">Loading users...</div>
-				{:else}
-					<table class="users-table">
-						<thead>
-							<tr>
-								<th>User Email</th>
-								<th>Role</th>
-								<th>Actions</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each users as u}
-								<tr>
-									<td>
-										<div class="user-email-cell">
-											{u.email}
-											{#if u.id === currentUser?.user_id}
-												<span class="self-badge">(You)</span>
-											{/if}
-										</div>
-									</td>
-									<td>
-										<span class="role-badge {u.role}">{u.role}</span>
-									</td>
-									<td>
-										{#if u.id !== currentUser?.user_id}
-											<select 
-												class="input-field role-select" 
-												value={u.role} 
-												onchange={(e) => handleChangeRole(u.id, (e.target as HTMLSelectElement).value)}
-											>
-												<option value="member">Member</option>
-												<option value="admin">Admin</option>
-											</select>
-										{:else}
-											<span class="disabled-action">Cannot change self</span>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				{/if}
-			</div>
+		{#if loading}
+			<div class="loading-state">Loading users...</div>
+		{:else}
+			<div class="users-sections-container">
+				<!-- Invite User Section -->
+				<div class="settings-card glass-panel">
+					<h3>Invite Team Member</h3>
+					<p class="card-desc">Send an invitation to join your workspace.</p>
 
-			<!-- Invite Form -->
-			<div class="invite-pane glass-panel">
-				<h3>Invite New User</h3>
-				<form onsubmit={handleInvite} class="invite-form">
-					<div class="form-group">
-						<label for="email">User Email Address</label>
-						<input 
-							type="email" 
-							id="email" 
-							class="input-field" 
-							bind:value={inviteEmail} 
-							placeholder="agent@example.com" 
-							required 
-							disabled={inviting}
-						/>
+					<form onsubmit={handleInvite} class="invite-form">
+						<div class="form-row">
+							<div class="form-group flex-2">
+								<label for="inviteEmail">Email Address</label>
+								<input 
+									type="email" 
+									id="inviteEmail" 
+									class="input-field" 
+									bind:value={inviteEmail} 
+									placeholder="colleague@example.com" 
+									required
+									disabled={inviting}
+								/>
+							</div>
+							<div class="form-group flex-1">
+								<label for="inviteRole">Role</label>
+								<select id="inviteRole" class="input-field" bind:value={inviteRole} disabled={inviting}>
+									<option value="member">Member</option>
+									<option value="admin">Admin</option>
+								</select>
+							</div>
+							<button type="submit" class="btn-primary invite-btn" disabled={inviting || !inviteEmail.trim()}>
+								{inviting ? 'Inviting...' : 'Send Invite'}
+							</button>
+						</div>
+					</form>
+
+					{#if lastInviteToken}
+						<div class="notion-callout token-box">
+							<span>Invite Token:</span>
+							<code>{lastInviteToken}</code>
+						</div>
+					{/if}
+				</div>
+
+				<!-- Users List Section -->
+				<div class="settings-card glass-panel">
+					<div class="section-header-row">
+						<h3>Active Members</h3>
+						<span class="badge-blue">{users.length} members</span>
 					</div>
+					<p class="card-desc">Manage roles for existing members in this workspace.</p>
 
-					<div class="form-group">
-						<label for="role">Assign Role</label>
-						<select id="role" class="input-field" bind:value={inviteRole} disabled={inviting}>
-							<option value="member">Workspace Member</option>
-							<option value="admin">Workspace Admin</option>
-						</select>
+					<div class="users-list">
+						{#each users as u}
+							<div class="user-row glass-panel">
+								<div class="user-avatar">
+									<Icon name="user" size={16} color="var(--text-secondary)" />
+								</div>
+								<div class="user-info">
+									<span class="user-email">{u.email}</span>
+									{#if u.id === currentUser?.id}
+										<span class="badge-yellow">You</span>
+									{/if}
+								</div>
+								<div class="user-role-control">
+									{#if u.id === currentUser?.id}
+										<span class="badge-blue">{u.role}</span>
+									{:else}
+										<select 
+											class="input-field role-select" 
+											value={u.role}
+											onchange={(e) => handleChangeRole(u.id, (e.target as HTMLSelectElement).value)}
+										>
+											<option value="member">Member</option>
+											<option value="admin">Admin</option>
+										</select>
+									{/if}
+								</div>
+							</div>
+						{/each}
 					</div>
-
-					<button type="submit" class="btn-primary" disabled={inviting}>
-						{inviting ? 'Inviting...' : 'Send Invitation'}
-					</button>
-				</form>
+				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 </div>
 
 <style>
 	.settings-container {
-		display: grid;
-		grid-template-columns: 240px 1fr;
-		height: 100vh;
-		background-color: var(--bg-dark);
-		padding: 16px;
-		gap: 16px;
+		display: flex;
+		gap: 20px;
+		max-width: 1100px;
+		margin: 24px auto;
+		padding: 0 16px;
+		height: calc(100vh - 48px);
 	}
 
 	.settings-sidebar {
-		padding: 24px 16px;
+		width: 240px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+		background: var(--bg-sidebar);
+		height: 100%;
 	}
 
 	.sidebar-title {
-		font-size: 18px;
+		font-size: 16px;
 		font-weight: 700;
 		color: var(--text-primary);
-		padding-left: 8px;
 	}
 
 	.sidebar-nav {
@@ -244,188 +252,195 @@
 	}
 
 	.nav-item {
-		padding: 10px 12px;
-		font-size: 14px;
+		padding: 8px 12px;
+		border-radius: 6px;
 		color: var(--text-secondary);
 		text-decoration: none;
-		border-radius: 6px;
-		transition: background-color 0.2s, color 0.2s;
+		font-size: 13px;
+		font-weight: 500;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.15s;
 	}
 
 	.nav-item:hover {
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.nav-item.active {
-		background: rgba(99, 102, 241, 0.1);
-		color: #818cf8;
-		font-weight: 500;
+		background: var(--blue-bg);
+		color: var(--blue-text);
+		font-weight: 600;
 	}
 
-	.settings-content {
-		padding: 24px;
-		display: flex;
-		flex-direction: column;
-		overflow-y: auto;
-	}
-
-	.content-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-		border-bottom: 1px solid var(--border-color);
-		padding-bottom: 16px;
-	}
-
-	.subtitle {
-		font-size: 14px;
-		color: var(--text-secondary);
-		margin-top: 4px;
-	}
-
-	.banner {
-		padding: 12px 16px;
-		border-radius: 8px;
-		font-size: 13px;
-		margin-bottom: 20px;
-	}
-
-	.banner.error {
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid var(--danger);
-		color: var(--danger);
-	}
-
-	.banner.success {
-		background: rgba(34, 197, 94, 0.1);
-		border: 1px solid var(--success);
-		color: #4ade80;
-	}
-
-	.token-container {
-		margin-top: 12px;
-		padding: 12px;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid var(--border-color);
-		border-radius: 6px;
-	}
-
-	.token-code {
-		display: block;
-		font-family: monospace;
-		font-size: 14px;
-		color: #818cf8;
-		background: rgba(99, 102, 241, 0.1);
-		padding: 6px 10px;
-		border-radius: 4px;
-		margin: 6px 0;
-		user-select: all;
-	}
-
-	.token-note {
-		font-size: 11px;
+	.back-item {
+		margin-bottom: 8px;
 		color: var(--text-muted);
 	}
 
-	.users-split {
-		display: grid;
-		grid-template-columns: 1fr 300px;
-		gap: 24px;
-		align-items: start;
+	.settings-content {
+		flex: 1;
+		padding: 28px;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+		background: #FFFFFF;
+		height: 100%;
 	}
 
-	.users-list-pane h3,
-	.invite-pane h3 {
-		font-size: 16px;
-		font-weight: 600;
-		margin-bottom: 16px;
+	.content-header h1 {
+		font-size: 20px;
+		font-weight: 700;
+		margin-bottom: 2px;
 	}
 
-	.invite-pane {
-		padding: 20px;
+	.subtitle {
+		font-size: 13.5px;
+		color: var(--text-secondary);
 	}
 
-	.invite-form {
+	.banner.error {
+		padding: 10px 14px;
+		background: var(--danger-bg);
+		border: 1px solid rgba(235, 87, 87, 0.3);
+		border-radius: 6px;
+		color: var(--danger);
+		font-size: 13px;
+	}
+
+	.banner.success {
+		padding: 10px 14px;
+		background: var(--success-bg);
+		border: 1px solid rgba(46, 125, 50, 0.3);
+		border-radius: 6px;
+		color: var(--success);
+		font-size: 13px;
+	}
+
+	.loading-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+		font-size: 13.5px;
+	}
+
+	.users-sections-container {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
 	}
 
-	.form-group {
+	.settings-card {
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+		background: #FFFFFF;
 	}
+
+	.settings-card h3 {
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.card-desc {
+		font-size: 13px;
+		color: var(--text-secondary);
+		margin-bottom: 10px;
+	}
+
+	.section-header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.form-row {
+		display: flex;
+		gap: 10px;
+		align-items: flex-end;
+	}
+
+	.form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.flex-2 { flex: 2; }
+	.flex-1 { flex: 1; }
 
 	.form-group label {
-		font-size: 13px;
-		font-weight: 500;
+		font-size: 12px;
+		font-weight: 600;
 		color: var(--text-secondary);
 	}
 
-	.loading-state {
-		text-align: center;
-		padding: 24px;
-		color: var(--text-secondary);
+	.invite-btn {
+		height: 34px;
 	}
 
-	.users-table {
-		width: 100%;
-		border-collapse: collapse;
+	.token-box {
+		margin-top: 10px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12.5px;
 	}
 
-	.users-table th,
-	.users-table td {
-		text-align: left;
-		padding: 12px;
-		border-bottom: 1px solid var(--border-color);
-		font-size: 14px;
+	.token-box code {
+		font-family: monospace;
+		background: #FFFFFF;
+		padding: 2px 6px;
+		border-radius: 4px;
+		border: 1px solid var(--yellow-border);
 	}
 
-	.users-table th {
-		color: var(--text-secondary);
-		font-weight: 500;
+	.users-list {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
 	}
 
-	.user-email-cell {
+	.user-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 10px 14px;
+		background: var(--bg-hover);
+	}
+
+	.user-avatar {
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		background: #FFFFFF;
+		border: 1px solid var(--border-color);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.user-info {
+		flex: 1;
 		display: flex;
 		align-items: center;
 		gap: 8px;
 	}
 
-	.self-badge {
-		font-size: 11px;
-		color: var(--text-muted);
-	}
-
-	.role-badge {
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		padding: 2px 6px;
-		border-radius: 4px;
-	}
-
-	.role-badge.admin {
-		background: rgba(168, 85, 247, 0.15);
-		color: #c084fc;
-	}
-
-	.role-badge.member {
-		background: rgba(99, 102, 241, 0.15);
-		color: #818cf8;
+	.user-email {
+		font-size: 13.5px;
+		font-weight: 500;
+		color: var(--text-primary);
 	}
 
 	.role-select {
-		padding: 4px 8px;
-		font-size: 13px;
-		width: 120px;
-	}
-
-	.disabled-action {
+		height: 30px;
 		font-size: 12px;
-		color: var(--text-muted);
+		width: 110px;
 	}
 </style>

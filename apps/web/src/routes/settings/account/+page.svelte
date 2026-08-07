@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	let loading = $state(true);
 	let saving = $state(false);
@@ -40,7 +41,6 @@
 						const decoded = atob(account.settings);
 						const parsed = JSON.parse(decoded);
 						
-						// Set defaults if null
 						settings.lead_tracking_enabled = parsed.lead_tracking_enabled !== false;
 						settings.unassigned_conversations_visible_to_members = parsed.unassigned_conversations_visible_to_members !== false;
 					} catch (e) {
@@ -96,17 +96,28 @@
 	<div class="settings-sidebar glass-panel">
 		<h2 class="sidebar-title">Settings</h2>
 		<nav class="sidebar-nav">
-			<a href="/inbox" class="nav-item">← Back to Inbox</a>
-			<a href="/settings/account" class="nav-item active">Account Settings</a>
-			<a href="/settings/channels" class="nav-item">Channels</a>
-			<a href="/settings/users" class="nav-item">Workspace Users</a>
+			<a href="/inbox" class="nav-item back-item">
+				<Icon name="arrow-left" size={14} /> Back to Inbox
+			</a>
+			<a href="/settings/account" class="nav-item active">
+				<Icon name="settings" size={14} /> Account Settings
+			</a>
+			<a href="/settings/channels" class="nav-item">
+				<Icon name="channels" size={14} /> Channels
+			</a>
+			<a href="/settings/users" class="nav-item">
+				<Icon name="users" size={14} /> Workspace Users
+			</a>
 			{#if productMode !== 'chatbot_only'}
-				<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+				<a href="/settings/pipeline" class="nav-item">
+					<Icon name="pipeline" size={14} /> Lead Pipeline
+				</a>
 			{/if}
-			<a href="/settings/knowledge-base" class="nav-item">Knowledge Base</a>
+			<a href="/settings/knowledge-base" class="nav-item">
+				<Icon name="kb" size={14} /> Knowledge Base
+			</a>
 		</nav>
 	</div>
-
 
 	<div class="settings-content glass-panel">
 		<div class="content-header">
@@ -132,8 +143,8 @@
 					<h3>Product Mode</h3>
 					<p class="card-desc">Choose between automating customer replies or managing your full sales pipeline.</p>
 					
-					<div class="radio-group" style="display: flex; gap: 1.5rem; margin-top: 1rem;">
-						<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+					<div class="radio-group">
+						<label class="mode-option" class:selected={productMode === 'chatbot_only'}>
 							<input 
 								type="radio" 
 								name="product_mode" 
@@ -142,9 +153,10 @@
 								onchange={() => handleSwitchMode('chatbot_only')}
 								disabled={saving}
 							/>
+							<Icon name="bot" size={16} color={productMode === 'chatbot_only' ? 'var(--blue-text)' : 'var(--text-secondary)'} />
 							<span>Automated replies only (Chatbot-only)</span>
 						</label>
-						<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+						<label class="mode-option" class:selected={productMode === 'full_workspace'}>
 							<input 
 								type="radio" 
 								name="product_mode" 
@@ -153,6 +165,7 @@
 								onchange={() => handleSwitchMode('full_workspace')}
 								disabled={saving}
 							/>
+							<Icon name="layout" size={16} color={productMode === 'full_workspace' ? 'var(--blue-text)' : 'var(--text-secondary)'} />
 							<span>Full lead workspace</span>
 						</label>
 					</div>
@@ -173,7 +186,11 @@
 								<span class="slider round"></span>
 							</label>
 							<span class="toggle-label">
-								{settings.lead_tracking_enabled ? 'Enabled' : 'Disabled'}
+								{#if settings.lead_tracking_enabled}
+									<span class="badge-blue">Enabled</span>
+								{:else}
+									<span class="badge-yellow">Disabled</span>
+								{/if}
 							</span>
 						</div>
 					</div>
@@ -193,7 +210,11 @@
 							<span class="slider round"></span>
 						</label>
 						<span class="toggle-label">
-							{settings.unassigned_conversations_visible_to_members ? 'Visible to Members' : 'Hidden from Members'}
+							{#if settings.unassigned_conversations_visible_to_members}
+								<span class="badge-blue">Visible to Members</span>
+							{:else}
+								<span class="badge-pink">Hidden from Members</span>
+							{/if}
 						</span>
 					</div>
 				</div>
@@ -216,143 +237,187 @@
 <style>
 	.settings-container {
 		display: flex;
-		gap: 24px;
-		max-width: 1200px;
-		margin: 40px auto;
-		padding: 0 24px;
-		height: calc(100vh - 80px);
+		gap: 20px;
+		max-width: 1100px;
+		margin: 24px auto;
+		padding: 0 16px;
+		height: calc(100vh - 48px);
 	}
 
 	.settings-sidebar {
-		width: 280px;
-		padding: 24px;
+		width: 240px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: 16px;
+		background: var(--bg-sidebar);
+		height: 100%;
 	}
 
 	.sidebar-title {
-		font-size: 18px;
-		font-weight: 600;
+		font-size: 16px;
+		font-weight: 700;
 		color: var(--text-primary);
-		letter-spacing: 0.5px;
 	}
 
 	.sidebar-nav {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 4px;
 	}
 
 	.nav-item {
-		padding: 10px 14px;
-		border-radius: 8px;
+		padding: 8px 12px;
+		border-radius: 6px;
 		color: var(--text-secondary);
 		text-decoration: none;
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		transition: background-color 0.2s, color 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.15s;
 	}
 
 	.nav-item:hover {
-		background: rgba(255, 255, 255, 0.04);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.nav-item.active {
-		background: rgba(var(--primary-rgb), 0.15);
-		color: #fff;
-		border: 1px solid rgba(var(--primary-rgb), 0.3);
+		background: var(--blue-bg);
+		color: var(--blue-text);
+		font-weight: 600;
+	}
+
+	.back-item {
+		margin-bottom: 8px;
+		color: var(--text-muted);
 	}
 
 	.settings-content {
 		flex: 1;
-		padding: 32px;
+		padding: 28px;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: 20px;
+		background: #FFFFFF;
+		height: 100%;
 	}
 
 	.content-header h1 {
-		font-size: 24px;
+		font-size: 20px;
 		font-weight: 700;
 		margin-bottom: 4px;
+		color: var(--text-primary);
 	}
 
 	.subtitle {
 		color: var(--text-secondary);
-		font-size: 14px;
+		font-size: 13.5px;
 	}
 
 	.loading-state {
 		color: var(--text-secondary);
-		font-size: 14px;
+		font-size: 13.5px;
 		text-align: center;
 		padding: 40px 0;
 	}
 
 	.banner {
-		padding: 12px 16px;
-		border-radius: 8px;
-		font-size: 14px;
+		padding: 10px 14px;
+		border-radius: 6px;
+		font-size: 13px;
 	}
 
 	.banner.error {
-		background: rgba(239, 68, 68, 0.15);
-		border: 1px solid rgba(239, 68, 68, 0.3);
-		color: #fca5a5;
+		background: var(--danger-bg);
+		border: 1px solid rgba(235, 87, 87, 0.3);
+		color: var(--danger);
 	}
 
 	.banner.success {
-		background: rgba(34, 197, 94, 0.15);
-		border: 1px solid rgba(34, 197, 94, 0.3);
-		color: #86efac;
+		background: var(--success-bg);
+		border: 1px solid rgba(46, 125, 50, 0.3);
+		color: var(--success);
 	}
 
 	.settings-form-container {
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: 16px;
 	}
 
 	.settings-card {
-		padding: 24px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 6px;
+		background: #FFFFFF;
 	}
 
 	.settings-card h3 {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 600;
 		color: var(--text-primary);
 	}
 
 	.card-desc {
-		font-size: 14px;
+		font-size: 13px;
 		color: var(--text-secondary);
-		margin-bottom: 12px;
+		margin-bottom: 8px;
+	}
+
+	.radio-group {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-top: 4px;
+	}
+
+	.mode-option {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 14px;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 13px;
+		font-weight: 500;
+		transition: all 0.15s;
+		background: #FFFFFF;
+	}
+
+	.mode-option:hover {
+		background: var(--bg-hover);
+	}
+
+	.mode-option.selected {
+		border-color: var(--blue-primary);
+		background: var(--blue-bg);
+		color: var(--blue-text);
 	}
 
 	.toggle-container {
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: 14px;
+		margin-top: 4px;
 	}
 
 	.toggle-label {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		color: var(--text-primary);
 	}
 
 	/* Toggle Switch Styles */
 	.switch {
 		position: relative;
 		display: inline-block;
-		width: 48px;
-		height: 24px;
+		width: 42px;
+		height: 22px;
 	}
 
 	.switch input {
@@ -368,8 +433,8 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background-color: rgba(255, 255, 255, 0.1);
-		transition: .3s;
+		background-color: #E8E8E5;
+		transition: .2s;
 		border: 1px solid var(--border-color);
 	}
 
@@ -378,23 +443,24 @@
 		content: "";
 		height: 16px;
 		width: 16px;
-		left: 3px;
-		bottom: 3px;
+		left: 2px;
+		bottom: 2px;
 		background-color: white;
-		transition: .3s;
+		transition: .2s;
+		box-shadow: 0 1px 2px rgba(0,0,0,0.15);
 	}
 
 	input:checked + .slider {
-		background-color: rgb(var(--primary-rgb));
-		border-color: rgba(var(--primary-rgb), 0.5);
+		background-color: var(--blue-primary);
+		border-color: var(--blue-primary);
 	}
 
 	input:checked + .slider:before {
-		transform: translateX(24px);
+		transform: translateX(20px);
 	}
 
 	.slider.round {
-		border-radius: 24px;
+		border-radius: 22px;
 	}
 
 	.slider.round:before {
@@ -402,7 +468,7 @@
 	}
 
 	.action-bar {
-		margin-top: 10px;
+		margin-top: 8px;
 		display: flex;
 		justify-content: flex-start;
 	}

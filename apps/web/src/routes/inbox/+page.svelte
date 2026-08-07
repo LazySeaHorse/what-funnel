@@ -4,6 +4,7 @@
 	import { apiRequest } from '$lib/api';
 	import { InboxState } from '$lib/store.svelte';
 	import DevTestWidget from '$lib/DevTestWidget.svelte';
+	import Icon from '$lib/Icon.svelte';
 
 	const inbox = new InboxState();
 	let composeText = $state('');
@@ -32,73 +33,76 @@
 	let showSetupBanner = $state(false);
 	let bannerSkippedSteps = $state<Array<{ label: string; step: number }>>([]);
 
-	onMount(async () => {
-		try {
-			await inbox.init();
-			if (!inbox.currentUser) {
-				goto('/login');
-				return;
+	onMount(() => {
+		const handleLeadStateChange = (e: CustomEvent) => {
+			if (inbox.activeConvo?.lead && e.detail.lead_id === inbox.activeConvo.lead.id) {
+				loadLeadDetails(inbox.activeConvo.lead.id);
 			}
-			
-			// Fetch account details to check lead_tracking_enabled
-			const account = await apiRequest('/workspace/account');
-			if (account) {
-				productMode = account.product_mode || 'full_workspace';
-				if (account.settings) {
-					try {
-						const decoded = atob(account.settings);
-						const parsed = JSON.parse(decoded);
-						leadTrackingEnabled = parsed.lead_tracking_enabled !== false;
-					} catch (e) {
-						console.error('Failed to parse account settings', e);
-					}
-				}
-				if (productMode === 'chatbot_only') {
-					leadTrackingEnabled = false;
-				}
-			}
-			
-			// Fetch pipeline states
-			const pipelines = await apiRequest('/workspace/pipelines');
-			if (pipelines && pipelines.length > 0) {
-				pipelineStates = pipelines[0].states || [];
-			}
+		};
+		const handleDevMessageSent = () => {
+			inbox.loadConversations();
+		};
 
-			// Finish-setup banner: check onboarding status
+		window.addEventListener('lead-state-changed', handleLeadStateChange as EventListener);
+		window.addEventListener('dev-message-sent', handleDevMessageSent);
+
+		(async () => {
 			try {
-				const dismissed = sessionStorage.getItem('setup-banner-dismissed');
-				if (!dismissed) {
-					const onboarding = await apiRequest('/onboarding/status');
-					if (onboarding?.completed_at && onboarding?.skipped_steps?.length > 0) {
-						const skipped = (onboarding.skipped_steps as string[])
-							.filter((k: string) => k in SKIPPED_STEP_NAMES)
-							.map((k: string) => SKIPPED_STEP_NAMES[k]);
-						if (skipped.length > 0) {
-							bannerSkippedSteps = skipped;
-							showSetupBanner = true;
+				await inbox.init();
+				if (!inbox.currentUser) {
+					goto('/login');
+					return;
+				}
+				
+				// Fetch account details to check lead_tracking_enabled
+				const account = await apiRequest('/workspace/account');
+				if (account) {
+					productMode = account.product_mode || 'full_workspace';
+					if (account.settings) {
+						try {
+							const decoded = atob(account.settings);
+							const parsed = JSON.parse(decoded);
+							leadTrackingEnabled = parsed.lead_tracking_enabled !== false;
+						} catch (e) {
+							console.error('Failed to parse account settings', e);
 						}
 					}
+					if (productMode === 'chatbot_only') {
+						leadTrackingEnabled = false;
+					}
 				}
-			} catch (_) {}
-			
-			// Listen to live lead state changes from WebSocket & dev widget simulated sends
-			const handleLeadStateChange = (e: CustomEvent) => {
-				if (inbox.activeConvo?.lead && e.detail.lead_id === inbox.activeConvo.lead.id) {
-					loadLeadDetails(inbox.activeConvo.lead.id);
+				
+				// Fetch pipeline states
+				const pipelines = await apiRequest('/workspace/pipelines');
+				if (pipelines && pipelines.length > 0) {
+					pipelineStates = pipelines[0].states || [];
 				}
-			};
-			const handleDevMessageSent = () => {
-				inbox.loadConversations();
-			};
-			window.addEventListener('lead-state-changed', handleLeadStateChange as EventListener);
-			window.addEventListener('dev-message-sent', handleDevMessageSent);
-			return () => {
-				window.removeEventListener('lead-state-changed', handleLeadStateChange as EventListener);
-				window.removeEventListener('dev-message-sent', handleDevMessageSent);
-			};
-		} catch (err) {
-			goto('/login');
-		}
+
+				// Finish-setup banner: check onboarding status
+				try {
+					const dismissed = sessionStorage.getItem('setup-banner-dismissed');
+					if (!dismissed) {
+						const onboarding = await apiRequest('/onboarding/status');
+						if (onboarding?.completed_at && onboarding?.skipped_steps?.length > 0) {
+							const skipped = (onboarding.skipped_steps as string[])
+								.filter((k: string) => k in SKIPPED_STEP_NAMES)
+								.map((k: string) => SKIPPED_STEP_NAMES[k]);
+							if (skipped.length > 0) {
+								bannerSkippedSteps = skipped;
+								showSetupBanner = true;
+							}
+						}
+					}
+				} catch (_) {}
+			} catch (err) {
+				goto('/login');
+			}
+		})();
+
+		return () => {
+			window.removeEventListener('lead-state-changed', handleLeadStateChange as EventListener);
+			window.removeEventListener('dev-message-sent', handleDevMessageSent);
+		};
 	});
 
 	function parseMessageContent(content: any): Record<string, any> {
@@ -119,12 +123,11 @@
 		return {};
 	}
 
-	// Derived list of displayable messages (attaches reactions, hides reaction bubbles)
+	// Derived list of displayable messages
 	let displayMessages = $derived.by(() => {
 		const msgs = inbox.messages;
 		const reactionsMap: Record<string, string[]> = {};
 
-		// 1. Gather all reactions
 		for (const m of msgs) {
 			if (m.content_type === 'reaction') {
 				try {
@@ -141,7 +144,6 @@
 			}
 		}
 
-		// 2. Map messages and attach reactions
 		return msgs
 			.filter((m: any) => m.content_type !== 'reaction')
 			.map((m: any) => {
@@ -339,7 +341,7 @@
 
 	function getStateColor(stateKey: string) {
 		const st = pipelineStates.find(s => s.key === stateKey);
-		return st ? st.color : '#6366f1';
+		return st ? st.color : '#0B6E99';
 	}
 
 	function getStateLabel(stateKey: string) {
@@ -352,12 +354,18 @@
 		const d = new Date(dateStr);
 		return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
+
+	// Tag styling rotation (Pink, Yellow, Blue)
+	function getTagStyleClass(index: number) {
+		const styles = ['badge-pink', 'badge-yellow', 'badge-blue'];
+		return styles[index % styles.length];
+	}
 </script>
 
 {#if showSetupBanner}
 	<div class="setup-banner" role="alert">
 		<div class="setup-banner-inner">
-			<span class="setup-banner-icon">⚡</span>
+			<Icon name="zap" size={16} color="var(--yellow-primary)" />
 			<div class="setup-banner-content">
 				<strong>Finish setting up your workspace</strong>
 				<div class="setup-banner-links">
@@ -372,31 +380,39 @@
 			class="setup-banner-dismiss"
 			onclick={() => { showSetupBanner = false; sessionStorage.setItem('setup-banner-dismissed', '1'); }}
 			aria-label="Dismiss banner"
-		>✕</button>
+		>
+			<Icon name="x" size={14} color="var(--text-muted)" />
+		</button>
 	</div>
 {/if}
 
-<div class="inbox-layout" class:has-lead-panel={leadTrackingEnabled && inbox.activeConvo}>
+<div class="inbox-layout" class:has-lead-panel={leadTrackingEnabled && inbox.activeConvo} class:has-banner={showSetupBanner}>
 	<!-- Left Navigation & Conversations Pane -->
 	<div class="sidebar glass-panel">
 		<!-- Header / Profile Section -->
 		<div class="profile-header">
 			<div class="logo-area">
-				<span class="logo-dot"></span>
+				<div class="logo-box">
+					<Icon name="bot" size={18} color="var(--blue-text)" />
+				</div>
 				<h2 class="logo-text">What Funnel</h2>
 			</div>
 			{#if inbox.currentUser}
 				<div class="user-meta">
 					<div class="user-email">{inbox.currentUser.email}</div>
-					<div class="user-badge">{inbox.currentUser.role}</div>
+					<div class="badge-blue" style="display: inline-block; margin-top: 4px;">{inbox.currentUser.role}</div>
 				</div>
 			{/if}
 			
 			<div class="nav-links">
 				{#if inbox.currentUser?.role === 'admin'}
-					<a href="/settings/account" class="nav-btn">Settings</a>
+					<a href="/settings/account" class="nav-btn">
+						<Icon name="settings" size={13} /> Settings
+					</a>
 				{/if}
-				<button onclick={handleLogout} class="nav-btn logout-btn">Logout</button>
+				<button onclick={handleLogout} class="nav-btn logout-btn">
+					<Icon name="logout" size={13} color="var(--danger)" /> Logout
+				</button>
 			</div>
 		</div>
 
@@ -501,7 +517,7 @@
 			<!-- Thread Header -->
 			<div class="thread-header">
 				<div class="thread-contact-info">
-					<div class="convo-avatar">{getInitial(inbox.activeConvo.contact_name)}</div>
+					<div class="convo-avatar large">{getInitial(inbox.activeConvo.contact_name)}</div>
 					<div>
 						<h3 class="contact-title">{inbox.activeConvo.contact_name || 'Unknown Contact'}</h3>
 						<div class="contact-subtitle">
@@ -517,7 +533,7 @@
 							class="btn-secondary" 
 							onclick={() => isAssignDropdownOpen = !isAssignDropdownOpen}
 						>
-							Assign Agent ⚙️
+							<Icon name="user" size={14} /> Assign Agent
 						</button>
 						{#if isAssignDropdownOpen}
 							<div class="assign-dropdown glass-panel">
@@ -556,7 +572,7 @@
 					>
 						<div class="message-bubble">
 							{#if msg.sender_type === 'ai'}
-								<span class="ai-badge">AI Assistant</span>
+								<span class="badge-pink ai-badge">AI Assistant</span>
 							{/if}
 							
 							<!-- Content Renderers -->
@@ -580,14 +596,14 @@
 								<audio src={msg.parsedContent.media_url} controls class="msg-media audio"></audio>
 							{:else if msg.content_type === 'document'}
 								<div class="msg-doc">
-									<span>📄 Document</span>
+									<span><Icon name="kb" size={14} /> Document</span>
 									<a href={msg.parsedContent.media_url} download class="doc-link">Download File</a>
 								</div>
 							{:else if msg.content_type === 'location'}
-								<p class="msg-text">📍 Location: {msg.parsedContent.text || `${msg.parsedContent.latitude}, ${msg.parsedContent.longitude}`}</p>
+								<p class="msg-text">Location: {msg.parsedContent.text || `${msg.parsedContent.latitude}, ${msg.parsedContent.longitude}`}</p>
 							{:else if msg.content_type === 'contact'}
 								<div class="msg-contact-card">
-									<span>👤 Contact Card</span>
+									<span><Icon name="user" size={14} /> Contact Card</span>
 									<strong>{msg.parsedContent.text || 'Unnamed'}</strong>
 								</div>
 							{/if}
@@ -596,7 +612,7 @@
 							{#if msg.reactions && msg.reactions.length > 0}
 								<div class="reactions-list">
 									{#each msg.reactions as rx}
-										<span class="reaction-emoji">{rx}</span>
+										<span class="reaction-badge">{rx}</span>
 									{/each}
 								</div>
 							{/if}
@@ -622,12 +638,16 @@
 				></textarea>
 				<button type="submit" class="btn-primary send-btn" disabled={!composeText.trim()}>
 					Send
+					<Icon name="send" size={15} />
 				</button>
 			</form>
 		{:else}
 			<div class="thread-empty-state">
+				<div style="width: 44px; height: 44px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">
+					<Icon name="chat" size={24} color="var(--blue-text)" />
+				</div>
 				<h2>No Conversation Selected</h2>
-				<p>Choose a conversation from the left sidebar to start messaging.</p>
+				<p>Choose a conversation from the left sidebar to view messages.</p>
 			</div>
 		{/if}
 	</div>
@@ -655,10 +675,12 @@
 				<div class="panel-section">
 					<label class="section-label">Tags</label>
 					<div class="tags-container">
-						{#each inbox.activeConvo.lead.tags || [] as tag}
-							<span class="lead-tag">
+						{#each inbox.activeConvo.lead.tags || [] as tag, idx}
+							<span class={`${getTagStyleClass(idx)} lead-tag`}>
 								{tag}
-								<button class="remove-tag-btn" onclick={() => removeTag(tag)}>&times;</button>
+								<button class="remove-tag-btn" onclick={() => removeTag(tag)}>
+									<Icon name="x" size={10} />
+								</button>
 							</span>
 						{:else}
 							<span class="no-tags-placeholder">No tags assigned</span>
@@ -682,14 +704,14 @@
 						class:active={activePanelTab === 'notes'} 
 						onclick={() => activePanelTab = 'notes'}
 					>
-						Notes ({notes.length})
+						<Icon name="notes" size={13} /> Notes ({notes.length})
 					</button>
 					<button 
 						class="panel-tab-btn" 
 						class:active={activePanelTab === 'history'} 
 						onclick={() => activePanelTab = 'history'}
 					>
-						History
+						<Icon name="history" size={13} /> History
 					</button>
 				</div>
 
@@ -698,7 +720,7 @@
 						<!-- Notes timeline -->
 						<div class="notes-timeline">
 							{#each notes as note}
-								<div class="note-card glass-panel">
+								<div class="notion-callout note-card">
 									<div class="note-header">
 										<span class="note-author">{note.author_email.split('@')[0]}</span>
 										<span class="note-time">{formatDate(note.created_at)}</span>
@@ -728,7 +750,7 @@
 										<div class="history-transition">
 											{#if hist.from_state}
 												<span class="history-state">{getStateLabel(hist.from_state)}</span> 
-												➔ 
+												<Icon name="arrow-right" size={10} />
 											{/if}
 											<span class="history-state active-state">{getStateLabel(hist.to_state)}</span>
 										</div>
@@ -746,7 +768,7 @@
 
 			{:else}
 				<div class="no-lead-state">
-					<p class="no-lead-text">This conversation is not currently being tracked as a sales lead.</p>
+					<p class="no-lead-text">This conversation is not currently tracked as a lead.</p>
 					<button class="btn-primary start-lead-btn" onclick={createLead}>
 						Start Tracking Lead
 					</button>
@@ -762,7 +784,7 @@
 {/if}
 
 <style>
-	/* ─── Setup Banner ─── */
+	/* Setup Banner */
 	.setup-banner {
 		position: fixed;
 		top: 0;
@@ -774,15 +796,8 @@
 		justify-content: space-between;
 		gap: 12px;
 		padding: 10px 20px;
-		background: rgba(245, 158, 11, 0.12);
-		border-bottom: 1px solid rgba(245, 158, 11, 0.25);
-		backdrop-filter: blur(8px);
-		-webkit-backdrop-filter: blur(8px);
-		animation: slide-down 0.3s ease both;
-	}
-	@keyframes slide-down {
-		from { transform: translateY(-100%); opacity: 0; }
-		to   { transform: translateY(0); opacity: 1; }
+		background: var(--yellow-bg);
+		border-bottom: 1px solid var(--yellow-border);
 	}
 	.setup-banner-inner {
 		display: flex;
@@ -790,10 +805,6 @@
 		gap: 10px;
 		flex: 1;
 		min-width: 0;
-	}
-	.setup-banner-icon {
-		font-size: 16px;
-		flex-shrink: 0;
 	}
 	.setup-banner-content {
 		display: flex;
@@ -803,7 +814,7 @@
 	.setup-banner-content strong {
 		font-size: 13px;
 		font-weight: 600;
-		color: #fde68a;
+		color: var(--yellow-text);
 	}
 	.setup-banner-links {
 		display: flex;
@@ -813,11 +824,9 @@
 	}
 	.setup-banner-link {
 		font-size: 12px;
-		color: var(--warning);
+		color: var(--yellow-text);
 		text-decoration: underline;
-		transition: opacity 0.15s;
 	}
-	.setup-banner-link:hover { opacity: 0.75; }
 	.sep {
 		color: var(--text-muted);
 		font-size: 12px;
@@ -825,26 +834,26 @@
 	.setup-banner-dismiss {
 		background: none;
 		border: none;
-		color: var(--text-muted);
-		font-size: 16px;
 		cursor: pointer;
-		padding: 4px 8px;
+		padding: 4px;
 		border-radius: 4px;
-		transition: color 0.15s, background 0.15s;
-		flex-shrink: 0;
-	}
-	.setup-banner-dismiss:hover {
-		color: var(--text-primary);
-		background: rgba(255,255,255,0.06);
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.inbox-layout {
 		display: grid;
-		grid-template-columns: 320px 1fr;
+		grid-template-columns: 300px 1fr;
 		height: 100vh;
-		background-color: var(--bg-dark);
-		padding: 16px;
-		gap: 16px;
+		background-color: var(--bg-page);
+		padding: 12px;
+		gap: 12px;
+	}
+
+	.inbox-layout.has-banner {
+		padding-top: 48px;
+		height: calc(100vh - 36px);
 	}
 
 	.sidebar {
@@ -852,6 +861,7 @@
 		flex-direction: column;
 		height: 100%;
 		overflow: hidden;
+		background: var(--bg-sidebar);
 	}
 
 	.profile-header {
@@ -863,48 +873,38 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin-bottom: 12px;
+		margin-bottom: 10px;
 	}
 
-	.logo-dot {
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		background: var(--accent-gradient);
+	.logo-box {
+		width: 24px;
+		height: 24px;
+		border-radius: 5px;
+		background: var(--blue-bg);
+		border: 1px solid var(--blue-border);
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.logo-text {
-		font-size: 18px;
+		font-size: 16px;
 		font-weight: 700;
-		background: var(--accent-gradient);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
+		color: var(--text-primary);
 	}
 
 	.user-meta {
-		margin-bottom: 12px;
+		margin-bottom: 10px;
 	}
 
 	.user-email {
-		font-size: 13px;
+		font-size: 12.5px;
 		color: var(--text-secondary);
-	}
-
-	.user-badge {
-		display: inline-block;
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		background: rgba(99, 102, 241, 0.15);
-		color: #818cf8;
-		padding: 2px 6px;
-		border-radius: 4px;
-		margin-top: 4px;
 	}
 
 	.nav-links {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
 		margin-top: 8px;
 	}
 
@@ -912,34 +912,31 @@
 		font-size: 12px;
 		color: var(--text-secondary);
 		text-decoration: none;
-		background: rgba(255, 255, 255, 0.03);
+		background: #FFFFFF;
 		border: 1px solid var(--border-color);
-		padding: 6px 12px;
-		border-radius: 6px;
+		padding: 4px 10px;
+		border-radius: 5px;
 		cursor: pointer;
-		transition: background-color 0.2s;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		transition: background-color 0.15s;
 	}
 
 	.nav-btn:hover {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.logout-btn {
 		margin-left: auto;
-		border-color: rgba(239, 68, 68, 0.2);
-		color: #f87171;
-	}
-
-	.logout-btn:hover {
-		background: rgba(239, 68, 68, 0.1);
-		color: #f87171;
+		color: var(--danger);
 	}
 
 	.filter-tabs {
 		display: flex;
-		padding: 8px 16px;
-		gap: 6px;
+		padding: 8px 12px;
+		gap: 4px;
 		border-bottom: 1px solid var(--border-color);
 	}
 
@@ -948,80 +945,87 @@
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
-		padding: 8px;
-		font-size: 13px;
+		padding: 6px;
+		font-size: 12.5px;
 		font-weight: 500;
 		cursor: pointer;
-		border-radius: 6px;
-		transition: background-color 0.2s, color 0.2s;
+		border-radius: 5px;
+		transition: all 0.15s;
 	}
 
 	.tab-btn:hover {
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.tab-btn.active {
-		background: rgba(99, 102, 241, 0.15);
-		color: #818cf8;
+		background: var(--blue-bg);
+		color: var(--blue-text);
+		font-weight: 600;
 	}
 
 	.conversation-list {
 		flex: 1;
 		overflow-y: auto;
-		padding: 8px;
+		padding: 6px;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 2px;
 	}
 
 	.convo-item {
 		display: flex;
 		align-items: center;
-		padding: 12px;
+		padding: 10px;
 		background: transparent;
-		border: none;
-		border-radius: 8px;
+		border: 1px solid transparent;
+		border-radius: 6px;
 		cursor: pointer;
 		width: 100%;
 		text-align: left;
-		gap: 12px;
-		transition: background-color 0.2s;
+		gap: 10px;
+		transition: all 0.15s;
 	}
 
 	.convo-item:hover {
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--bg-hover);
 	}
 
 	.convo-item.active {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.05);
+		background: var(--blue-bg);
+		border-color: var(--blue-border);
 	}
 
 	.convo-avatar {
-		width: 40px;
-		height: 40px;
-		background: linear-gradient(135deg, #1f2937, #374151);
+		width: 36px;
+		height: 36px;
+		background: #E8E8E5;
 		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 15px;
+		font-size: 14px;
 		font-weight: 600;
 		color: var(--text-primary);
 		position: relative;
 		flex-shrink: 0;
 	}
 
+	.convo-avatar.large {
+		width: 40px;
+		height: 40px;
+		font-size: 16px;
+	}
+
 	.unread-badge {
 		position: absolute;
 		top: 0;
 		right: 0;
-		width: 10px;
-		height: 10px;
+		width: 9px;
+		height: 9px;
 		border-radius: 50%;
-		background-color: #3b82f6;
-		border: 2px solid var(--bg-dark);
+		background-color: var(--pink-primary);
+		border: 2px solid #FFFFFF;
 	}
 
 	.convo-info {
@@ -1032,26 +1036,35 @@
 	.convo-top {
 		display: flex;
 		justify-content: space-between;
-		align-items: baseline;
-		margin-bottom: 4px;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 2px;
 	}
 
 	.convo-name {
-		font-size: 14px;
-		font-weight: 500;
+		font-size: 13.5px;
+		font-weight: 600;
 		color: var(--text-primary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
+	.lead-state-badge {
+		font-size: 10px;
+		font-weight: 600;
+		padding: 1px 5px;
+		border-radius: 4px;
+		white-space: nowrap;
+	}
+
 	.convo-time {
-		font-size: 11px;
+		font-size: 10.5px;
 		color: var(--text-muted);
 	}
 
 	.convo-preview {
-		font-size: 13px;
+		font-size: 12.5px;
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
@@ -1070,10 +1083,11 @@
 		flex-direction: column;
 		height: 100%;
 		overflow: hidden;
+		background: #FFFFFF;
 	}
 
 	.thread-header {
-		padding: 16px 24px;
+		padding: 14px 20px;
 		border-bottom: 1px solid var(--border-color);
 		display: flex;
 		justify-content: space-between;
@@ -1087,8 +1101,9 @@
 	}
 
 	.contact-title {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 600;
+		color: var(--text-primary);
 	}
 
 	.contact-subtitle {
@@ -1104,20 +1119,21 @@
 		position: absolute;
 		top: 100%;
 		right: 0;
-		margin-top: 8px;
+		margin-top: 6px;
 		width: 220px;
 		padding: 12px;
 		z-index: 10;
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
+		background: #FFFFFF;
 	}
 
 	.assign-dropdown h4 {
-		font-size: 12px;
+		font-size: 11px;
 		color: var(--text-secondary);
 		text-transform: uppercase;
-		margin-bottom: 4px;
+		margin-bottom: 2px;
 	}
 
 	.assign-user-row {
@@ -1131,7 +1147,7 @@
 	.message-stream {
 		flex: 1;
 		overflow-y: auto;
-		padding: 24px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
@@ -1140,12 +1156,12 @@
 	.load-more-container {
 		display: flex;
 		justify-content: center;
-		margin-bottom: 16px;
+		margin-bottom: 12px;
 	}
 
 	.load-more-btn {
 		font-size: 12px;
-		padding: 6px 12px;
+		padding: 4px 10px;
 	}
 
 	.message-row {
@@ -1158,50 +1174,43 @@
 	}
 
 	.message-bubble {
-		max-width: 60%;
-		padding: 12px 16px;
-		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.04);
+		max-width: 65%;
+		padding: 10px 14px;
+		border-radius: 8px;
+		background: var(--bg-sidebar);
 		border: 1px solid var(--border-color);
 		position: relative;
 	}
 
 	.message-row.outbound .message-bubble {
-		background: rgba(99, 102, 241, 0.08);
-		border-color: rgba(99, 102, 241, 0.2);
+		background: var(--blue-bg);
+		border-color: var(--blue-border);
 	}
 
 	.message-row.ai .message-bubble {
-		background: rgba(168, 85, 247, 0.08);
-		border-color: rgba(168, 85, 247, 0.2);
+		background: var(--pink-bg);
+		border-color: var(--pink-border);
 	}
 
 	.ai-badge {
-		display: inline-block;
-		font-size: 10px;
-		font-weight: 600;
-		color: #c084fc;
-		background: rgba(168, 85, 247, 0.15);
-		padding: 2px 6px;
-		border-radius: 4px;
 		margin-bottom: 4px;
-		text-transform: uppercase;
 	}
 
 	.msg-text {
-		font-size: 14px;
+		font-size: 13.5px;
 		line-height: 1.5;
+		color: var(--text-primary);
 	}
 
 	.msg-media {
 		max-width: 100%;
-		max-height: 250px;
-		border-radius: 8px;
+		max-height: 240px;
+		border-radius: 6px;
 		margin-top: 4px;
 	}
 
 	.msg-caption {
-		font-size: 13px;
+		font-size: 12.5px;
 		color: var(--text-secondary);
 		margin-top: 4px;
 	}
@@ -1209,12 +1218,12 @@
 	.msg-doc {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
 		font-size: 13px;
 	}
 
 	.doc-link {
-		color: #6366f1;
+		color: var(--blue-text);
 		text-decoration: none;
 		font-weight: 500;
 	}
@@ -1222,7 +1231,7 @@
 	.msg-contact-card {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 2px;
 		font-size: 13px;
 	}
 
@@ -1233,45 +1242,45 @@
 		flex-wrap: wrap;
 	}
 
-	.reaction-emoji {
-		background: rgba(255, 255, 255, 0.05);
+	.reaction-badge {
+		background: #FFFFFF;
 		border: 1px solid var(--border-color);
 		padding: 2px 6px;
-		border-radius: 10px;
-		font-size: 12px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 500;
 	}
 
 	.message-time {
 		display: block;
 		font-size: 10px;
 		color: var(--text-muted);
-		margin-top: 6px;
+		margin-top: 4px;
 		text-align: right;
 	}
 
 	.external-origin-indicator {
 		font-style: italic;
 		font-weight: 500;
-		color: var(--primary-color, #6366f1);
-		opacity: 0.95;
+		color: var(--blue-text);
 	}
 
 	.compose-area {
-		padding: 16px 24px;
+		padding: 14px 20px;
 		border-top: 1px solid var(--border-color);
 		display: flex;
-		gap: 12px;
+		gap: 10px;
 	}
 
 	.compose-input {
 		flex: 1;
 		resize: none;
-		height: 42px;
+		height: 40px;
 		line-height: 20px;
 	}
 
 	.send-btn {
-		height: 42px;
+		height: 40px;
 	}
 
 	.thread-empty-state {
@@ -1281,165 +1290,112 @@
 		justify-content: center;
 		height: 100%;
 		color: var(--text-muted);
-		gap: 8px;
+		gap: 6px;
 	}
 
 	.inbox-layout.has-lead-panel {
-		grid-template-columns: 320px 1fr 340px;
+		grid-template-columns: 300px 1fr 320px;
 	}
 
-	/* State Filter Styling */
+	/* State Filter */
 	.state-filter-container {
-		padding: 8px 16px;
+		padding: 8px 12px;
 		border-bottom: 1px solid var(--border-color);
 	}
 	
 	.state-filter-select {
-		height: 34px;
-		font-size: 13px;
-		padding: 4px 10px;
-		background: rgba(255, 255, 255, 0.02);
-		border-radius: 6px;
+		height: 32px;
+		font-size: 12.5px;
 	}
 
-	/* Lead State Badge in Conversation List */
-	.lead-state-badge {
-		font-size: 10px;
-		font-weight: 600;
-		padding: 2px 6px;
-		border-radius: 4px;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		margin-left: 8px;
-		display: inline-block;
-		white-space: nowrap;
-	}
-
-	/* Lead Panel Sidebar Styling */
+	/* Lead Panel */
 	.lead-panel {
+		padding: 18px;
 		display: flex;
 		flex-direction: column;
-		height: 100%;
-		overflow: hidden;
-		padding: 20px;
-		animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-	}
-
-	@keyframes slideInRight {
-		from { transform: translateX(20px); opacity: 0; }
-		to { transform: translateX(0); opacity: 1; }
+		gap: 16px;
+		overflow-y: auto;
+		background: #FFFFFF;
 	}
 
 	.lead-panel-title {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 700;
-		margin-bottom: 20px;
-		background: var(--accent-gradient);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		letter-spacing: 0.5px;
+		color: var(--text-primary);
+		border-bottom: 1px solid var(--border-color);
+		padding-bottom: 10px;
 	}
 
 	.panel-section {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-		margin-bottom: 20px;
+		gap: 6px;
 	}
 
 	.section-label {
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 600;
 		color: var(--text-secondary);
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.4px;
 	}
 
 	.state-select {
-		background: rgba(255, 255, 255, 0.03);
+		height: 34px;
+		font-size: 13px;
 	}
 
-	/* Tags Editor */
 	.tags-container {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
-		min-height: 32px;
-		padding: 6px;
-		background: rgba(0, 0, 0, 0.15);
-		border: 1px solid var(--border-color);
-		border-radius: 8px;
-		align-items: center;
-	}
-
-	.no-tags-placeholder {
-		font-size: 12px;
-		color: var(--text-muted);
-		padding-left: 4px;
+		margin-bottom: 6px;
 	}
 
 	.lead-tag {
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		background: rgba(var(--primary-rgb), 0.12);
-		border: 1px solid rgba(var(--primary-rgb), 0.25);
-		color: var(--text-primary);
 		padding: 2px 8px;
-		border-radius: 6px;
+		border-radius: 4px;
 		font-size: 12px;
 		font-weight: 500;
 	}
 
 	.remove-tag-btn {
-		background: transparent;
+		background: none;
 		border: none;
-		color: var(--text-secondary);
 		cursor: pointer;
-		font-size: 14px;
-		font-weight: 700;
-		display: inline-flex;
+		display: flex;
 		align-items: center;
-		justify-content: center;
 		padding: 0;
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		transition: background-color 0.2s, color 0.2s;
 	}
 
-	.remove-tag-btn:hover {
-		background: rgba(255, 255, 255, 0.1);
-		color: var(--danger);
+	.no-tags-placeholder {
+		font-size: 12.5px;
+		color: var(--text-muted);
+		font-style: italic;
 	}
 
 	.tag-input-form {
 		display: flex;
-		gap: 8px;
-		margin-top: 8px;
+		gap: 6px;
 	}
 
 	.tag-input {
-		height: 34px;
-		font-size: 13px;
+		flex: 1;
+		height: 32px;
+		font-size: 12.5px;
 	}
 
 	.add-tag-btn {
-		height: 34px;
-		width: 34px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		padding: 0;
-		font-size: 16px;
+		height: 32px;
+		padding: 0 10px;
 	}
 
-	/* Panel Tabs */
 	.panel-tabs {
 		display: flex;
 		border-bottom: 1px solid var(--border-color);
-		margin-bottom: 16px;
 		gap: 4px;
 	}
 
@@ -1447,183 +1403,134 @@
 		flex: 1;
 		background: transparent;
 		border: none;
-		border-bottom: 2px solid transparent;
 		color: var(--text-secondary);
-		font-size: 13px;
-		font-weight: 600;
-		padding: 8px 0;
+		padding: 8px;
+		font-size: 12.5px;
+		font-weight: 500;
 		cursor: pointer;
-		transition: color 0.2s, border-color 0.2s;
-	}
-
-	.panel-tab-btn:hover {
-		color: var(--text-primary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		border-bottom: 2px solid transparent;
+		transition: all 0.15s;
 	}
 
 	.panel-tab-btn.active {
-		color: #fff;
-		border-bottom-color: rgb(var(--primary-rgb));
+		color: var(--blue-text);
+		border-bottom-color: var(--blue-primary);
+		font-weight: 600;
 	}
 
-	/* Tab Content Layout */
 	.tab-content-container {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
 	}
 
-	/* Notes Timeline */
-	.notes-timeline {
-		flex: 1;
-		overflow-y: auto;
+	.notes-timeline, .history-timeline {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
-		padding-right: 4px;
-		margin-bottom: 14px;
+		gap: 8px;
+		margin-bottom: 12px;
+		max-height: 260px;
+		overflow-y: auto;
 	}
 
 	.note-card {
-		padding: 12px 14px;
-		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
 	}
 
 	.note-header {
 		display: flex;
 		justify-content: space-between;
 		font-size: 11px;
-	}
-
-	.note-author {
 		font-weight: 600;
-		color: var(--text-primary);
 	}
 
 	.note-time {
-		color: var(--text-muted);
+		color: var(--yellow-text);
+		opacity: 0.8;
+		font-weight: 400;
 	}
 
 	.note-body {
 		font-size: 13px;
-		color: var(--text-secondary);
 		line-height: 1.4;
-		white-space: pre-wrap;
 	}
 
 	.add-note-form {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 6px;
+		margin-top: auto;
 	}
 
 	.note-textarea {
 		height: 60px;
-		font-size: 13px;
+		font-size: 12.5px;
 		resize: none;
-		padding: 8px 12px;
 	}
 
 	.add-note-btn {
-		align-self: flex-end;
-		padding: 6px 12px;
-		font-size: 12px;
 		height: 32px;
+		font-size: 12.5px;
 	}
 
-	/* History Timeline */
-	.history-timeline {
-		flex: 1;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-		padding: 4px 4px 4px 8px;
+	.empty-timeline-state {
+		font-size: 12.5px;
+		color: var(--text-muted);
+		text-align: center;
+		padding: 16px 0;
 	}
 
 	.history-card {
 		display: flex;
-		gap: 12px;
-		position: relative;
-	}
-
-	.history-card:not(:last-child)::after {
-		content: "";
-		position: absolute;
-		left: 5px;
-		top: 14px;
-		bottom: -22px;
-		width: 1px;
-		background: var(--border-color);
+		align-items: flex-start;
+		gap: 8px;
+		padding: 6px 0;
 	}
 
 	.history-circle {
-		width: 12px;
-		height: 12px;
+		width: 8px;
+		height: 8px;
 		border-radius: 50%;
-		margin-top: 3px;
+		margin-top: 4px;
 		flex-shrink: 0;
-		box-shadow: 0 0 8px currentColor;
-		z-index: 1;
 	}
 
 	.history-content {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
+		font-size: 12px;
 	}
 
 	.history-transition {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-secondary);
-	}
-
-	.history-state {
-		font-weight: 600;
-	}
-
-	.history-state.active-state {
 		color: var(--text-primary);
+		font-weight: 500;
 	}
 
 	.history-meta {
-		font-size: 11px;
+		font-size: 10.5px;
 		color: var(--text-muted);
 	}
 
-	.empty-timeline-state {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		height: 100px;
-		font-size: 13px;
-		color: var(--text-muted);
-		text-align: center;
-	}
-
-	/* No Lead State */
 	.no-lead-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		flex: 1;
-		gap: 14px;
+		padding: 32px 16px;
 		text-align: center;
-		padding: 24px;
+		gap: 12px;
 	}
 
 	.no-lead-text {
 		font-size: 13px;
-		color: var(--text-muted);
-		line-height: 1.5;
+		color: var(--text-secondary);
 	}
 
 	.start-lead-btn {
 		width: 100%;
-		max-width: 200px;
+		height: 36px;
 	}
 </style>

@@ -57,7 +57,7 @@ services:
   # dependent services can use condition: service_completed_successfully.
   # ---------------------------------------------------------------------------
   migrate:
-    image: ghcr.io/pressly/goose:latest
+    build: ./packages/go-common/migrations
     container_name: whatfunnel-migrate
     environment:
       GOOSE_DRIVER: postgres

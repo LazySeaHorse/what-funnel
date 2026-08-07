@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 
 	let loading = $state(true);
 	let error = $state('');
@@ -98,9 +99,7 @@
 		error = '';
 		successMsg = '';
 		try {
-			await apiRequest(`/api/kb/concepts/${id}`, {
-				method: 'DELETE'
-			});
+			await apiRequest(`/api/kb/concepts/${id}`, { method: 'DELETE' });
 			successMsg = 'Concept deleted successfully.';
 			await loadConcepts();
 		} catch (err: any) {
@@ -108,50 +107,16 @@
 		}
 	}
 
-	function parsePayload(sugg: any) {
-		return typeof sugg.proposed_payload === 'string'
-			? JSON.parse(sugg.proposed_payload)
-			: sugg.proposed_payload;
-	}
-
-	function startEditSuggestion(sugg: any) {
-		editingSuggestionId = sugg.id;
-		const rawPayload = parsePayload(sugg);
-		editPayload = JSON.parse(jsonStringifySafe(rawPayload));
-	}
-
-	function jsonStringifySafe(obj: any) {
-		return JSON.stringify(obj);
-	}
-
-	function cancelEditSuggestion() {
-		editingSuggestionId = null;
-		editPayload = null;
-	}
-
-	async function handleApproveSuggestion(sugg: any) {
+	async function handleApproveSuggestion(sug: any) {
 		error = '';
 		successMsg = '';
-
-		let payloadToSend: any = null;
-		if (editingSuggestionId === sugg.id) {
-			payloadToSend = editPayload;
-		}
-
 		try {
-			await apiRequest(`/api/kb/suggestions/${sugg.id}/approve`, {
+			await apiRequest(`/api/kb/suggestions/${sug.id}/approve`, {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					reviewed_by: currentUser.id,
-					edited_payload: payloadToSend
-				})
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ payload: sug.payload })
 			});
-			successMsg = 'Suggestion approved successfully.';
-			editingSuggestionId = null;
-			editPayload = null;
+			successMsg = 'Suggestion approved and concept added.';
 			await Promise.all([loadConcepts(), loadSuggestions()]);
 		} catch (err: any) {
 			error = 'Failed to approve suggestion: ' + err.message;
@@ -159,49 +124,67 @@
 	}
 
 	async function handleRejectSuggestion(id: string) {
-		if (!confirm('Are you sure you want to reject this suggestion?')) return;
 		error = '';
 		successMsg = '';
 		try {
-			await apiRequest(`/api/kb/suggestions/${id}/reject`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					reviewed_by: currentUser.id
-				})
-			});
+			await apiRequest(`/api/kb/suggestions/${id}/reject`, { method: 'POST' });
 			successMsg = 'Suggestion rejected.';
 			await loadSuggestions();
 		} catch (err: any) {
 			error = 'Failed to reject suggestion: ' + err.message;
 		}
 	}
+
+	function startEditSuggestion(sug: any) {
+		editingSuggestionId = sug.id;
+		editPayload = JSON.parse(JSON.stringify(sug.payload));
+	}
+
+	function cancelEditSuggestion() {
+		editingSuggestionId = null;
+		editPayload = null;
+	}
+
+	async function saveEditedSuggestion(sug: any) {
+		sug.payload = editPayload;
+		await handleApproveSuggestion(sug);
+		editingSuggestionId = null;
+		editPayload = null;
+	}
 </script>
 
 <div class="settings-container">
-	<div class="settings-sidebar">
-		<div class="sidebar-header">
-			<h2>Settings</h2>
-		</div>
+	<div class="settings-sidebar glass-panel">
+		<h2 class="sidebar-title">Settings</h2>
 		<nav class="sidebar-nav">
-			<a href="/inbox" class="nav-item">← Back to Inbox</a>
-			<a href="/settings/account" class="nav-item">Account Settings</a>
-			<a href="/settings/channels" class="nav-item">Channels</a>
-			<a href="/settings/users" class="nav-item">Workspace Users</a>
+			<a href="/inbox" class="nav-item back-item">
+				<Icon name="arrow-left" size={14} /> Back to Inbox
+			</a>
+			<a href="/settings/account" class="nav-item">
+				<Icon name="settings" size={14} /> Account Settings
+			</a>
+			<a href="/settings/channels" class="nav-item">
+				<Icon name="channels" size={14} /> Channels
+			</a>
+			<a href="/settings/users" class="nav-item">
+				<Icon name="users" size={14} /> Workspace Users
+			</a>
 			{#if productMode !== 'chatbot_only'}
-				<a href="/settings/pipeline" class="nav-item">Lead Pipeline</a>
+				<a href="/settings/pipeline" class="nav-item">
+					<Icon name="pipeline" size={14} /> Lead Pipeline
+				</a>
 			{/if}
-			<a href="/settings/knowledge-base" class="nav-item active">Knowledge Base</a>
+			<a href="/settings/knowledge-base" class="nav-item active">
+				<Icon name="kb" size={14} /> Knowledge Base
+			</a>
 		</nav>
 	</div>
 
 	<div class="settings-content glass-panel">
 		<div class="content-header">
 			<div>
-				<h1>AI Knowledge Base Settings</h1>
-				<p class="subtitle">Import raw documentation and manage automatic answer extraction</p>
+				<h1>Knowledge Base</h1>
+				<p class="subtitle">Train your AI assistant by compiling business documents and FAQs</p>
 			</div>
 		</div>
 
@@ -214,152 +197,124 @@
 		{/if}
 
 		{#if loading}
-			<div class="loading-state">Loading knowledge base configurations...</div>
+			<div class="loading-state">Loading Knowledge Base...</div>
 		{:else}
-			<!-- Paste Compiler Section -->
-			<div class="settings-section glass-panel">
-				<h3>Compile New Raw Content</h3>
-				<p class="section-desc">Paste FAQs, policy drafts, hours, or general documentation. The AI compiler will automatically structure it into Knowledge Base concepts.</p>
-				<form onsubmit={handleCompilePaste} class="paste-form">
-					<textarea
-						class="input-field textarea-field"
-						bind:value={rawText}
-						placeholder="Example: We are open Monday to Friday 9am to 6pm. The price for our premium plan is $49/mo. For custom support, email support@example.com."
-						rows={6}
-						required
-					></textarea>
-					<div class="action-bar">
-						<button type="submit" class="btn-primary" disabled={compiling || !rawText.trim()}>
-							{compiling ? 'Compiling & Embedding...' : 'Compile Content'}
+			<div class="kb-sections-container">
+				<!-- Paste & Compile Section -->
+				<div class="settings-card glass-panel">
+					<h3>Compile Raw Text / FAQs</h3>
+					<p class="card-desc">Paste unstructured business information, policies, or FAQs below. The AI compiler will structure it into structured knowledge concepts.</p>
+					
+					<form onsubmit={handleCompilePaste} class="compile-form">
+						<textarea 
+							class="input-field raw-text-area" 
+							placeholder="Paste your business details, pricing, FAQs, services, hours, policies..."
+							bind:value={rawText}
+							required
+							disabled={compiling}
+						></textarea>
+						<button 
+							type="submit" 
+							class="btn-primary compile-btn"
+							disabled={compiling || !rawText.trim()}
+						>
+							{#if compiling}
+								Compiling...
+							{:else}
+								<Icon name="sparkles" size={15} /> Compile & Structure Knowledge
+							{/if}
 						</button>
-					</div>
-				</form>
-			</div>
+					</form>
+				</div>
 
-			<!-- Suggestions Queue Section -->
-			<div class="settings-section">
-				<h3>Approval Queue ({suggestions.length})</h3>
-				<p class="section-desc">Suggestions extracted automatically from dormant conversation mining or large content pastes. Review before publishing.</p>
-				
-				{#if suggestions.length === 0}
-					<div class="empty-state glass-panel">No pending suggestions needing approval.</div>
-				{:else}
-					<div class="suggestions-list">
-						{#each suggestions as sugg}
-							{@const payload = parsePayload(sugg)}
-							<div class="suggestion-card glass-panel">
-								<div class="card-header">
-									<div class="card-title-group">
-										<span class="badge type-badge">{sugg.type}</span>
-										<span class="confidence-badge">Confidence: {Math.round(sugg.confidence * 100)}%</span>
-									</div>
-									<div class="card-actions">
-										{#if editingSuggestionId === sugg.id}
-											<button onclick={() => handleApproveSuggestion(sugg)} class="btn-success">Save & Approve</button>
-											<button onclick={cancelEditSuggestion} class="btn-secondary">Cancel</button>
-										{:else}
-											<button onclick={() => startEditSuggestion(sugg)} class="btn-secondary">Edit</button>
-											<button onclick={() => handleApproveSuggestion(sugg)} class="btn-success">Approve</button>
-											<button onclick={() => handleRejectSuggestion(sugg.id)} class="btn-danger">Reject</button>
-										{/if}
-									</div>
-								</div>
+				<!-- Pending Approval Suggestions -->
+				{#if suggestions.length > 0}
+					<div class="settings-card glass-panel">
+						<div class="section-header-row">
+							<h3>Pending Concepts for Approval</h3>
+							<span class="badge-yellow">{suggestions.length} pending</span>
+						</div>
+						<p class="card-desc">These concepts were compiled and are waiting for your review before going live.</p>
 
-								<div class="card-body">
-									{#if editingSuggestionId === sugg.id}
-										<!-- Dynamic editor depending on type -->
-										{#if sugg.type === 'new_kb_concept'}
+						<div class="suggestions-list">
+							{#each suggestions as sug}
+								<div class="suggestion-card glass-panel">
+									{#if editingSuggestionId === sug.id}
+										<div class="edit-form">
 											<div class="form-group">
-												<label for="title-input">Title</label>
-												<input id="title-input" class="input-field" bind:value={editPayload.title} />
+												<label>Title</label>
+												<input type="text" class="input-field" bind:value={editPayload.title} />
 											</div>
 											<div class="form-group">
-												<label for="type-input">Type</label>
-												<input id="type-input" class="input-field" bind:value={editPayload.type} />
+												<label>Category</label>
+												<input type="text" class="input-field" bind:value={editPayload.category} />
 											</div>
 											<div class="form-group">
-												<label for="body-input">Body (Markdown)</label>
-												<textarea id="body-input" class="input-field textarea-field" rows={4} bind:value={editPayload.body_markdown}></textarea>
+												<label>Content</label>
+												<textarea class="input-field" rows="3" bind:value={editPayload.content}></textarea>
 											</div>
-										{:else if sugg.type === 'new_pattern'}
-											<div class="form-group">
-												<label for="q-input">Canonical Question</label>
-												<input id="q-input" class="input-field" bind:value={editPayload.canonical_question} />
+											<div class="edit-actions">
+												<button class="btn-secondary" onclick={cancelEditSuggestion}>Cancel</button>
+												<button class="btn-primary" onclick={() => saveEditedSuggestion(sug)}>Approve & Save</button>
 											</div>
-											<div class="form-group">
-												<label for="ans-input">Proposed Answer (Markdown)</label>
-												<textarea id="ans-input" class="input-field textarea-field" rows={4} bind:value={editPayload.answer_markdown}></textarea>
-											</div>
-										{/if}
+										</div>
 									{:else}
-										<!-- View proposed content -->
-										{#if sugg.type === 'new_kb_concept'}
-											<h4 class="concept-title">{payload.title} <span class="sub-type">({payload.type})</span></h4>
-											<p class="concept-body markdown-content">{payload.body_markdown}</p>
-											{#if payload.tags && payload.tags.length > 0}
-												<div class="tags-row">
-													{#each payload.tags as t}
-														<span class="tag-pill">{t}</span>
-													{/each}
-												</div>
-											{/if}
-										{:else if sugg.type === 'new_pattern'}
-											<h4 class="pattern-question">Q: {payload.canonical_question}</h4>
-											<p class="pattern-answer markdown-content">A: {payload.answer_markdown}</p>
-											{#if payload.trigger_phrases && payload.trigger_phrases.length > 0}
-												<div class="phrases-box">
-													<strong>Triggering Phrases:</strong>
-													<ul>
-														{#each payload.trigger_phrases as phrase}
-															<li>"{phrase}"</li>
-														{/each}
-													</ul>
-												</div>
-											{/if}
-										{/if}
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<!-- Active Concepts Listing Section -->
-			<div class="settings-section">
-				<h3>Active Knowledge Base Concepts ({concepts.length})</h3>
-				<p class="section-desc">These concepts are currently compiled and available to the answering engine.</p>
-				
-				{#if concepts.length === 0}
-					<div class="empty-state glass-panel">No concepts available. Paste some content above to get started.</div>
-				{:else}
-					<div class="concepts-grid">
-						{#each concepts as concept}
-							<div class="concept-card glass-panel">
-								<div class="card-header">
-									<div class="concept-title-group">
-										<h4 class="concept-title">{concept.title}</h4>
-										<span class="badge type-badge">{concept.type}</span>
-									</div>
-									<button onclick={() => handleDeleteConcept(concept.id)} class="btn-danger-icon" title="Delete Concept">&times;</button>
-								</div>
-								<div class="card-body">
-									<p class="concept-body markdown-content">{concept.body_markdown}</p>
-									{#if concept.tags && concept.tags.length > 0}
-										<div class="tags-row">
-											{#each concept.tags as t}
-												<span class="tag-pill">{t}</span>
-											{/each}
+										<div class="sug-header">
+											<span class="sug-title">{sug.payload?.title || sug.payload?.name || 'Untitled Concept'}</span>
+											<span class="badge-blue sug-cat">{sug.payload?.category || 'General'}</span>
+										</div>
+										<p class="sug-content">{sug.payload?.content || sug.payload?.description || JSON.stringify(sug.payload)}</p>
+										<div class="sug-actions">
+											<button class="btn-secondary edit-btn" onclick={() => startEditSuggestion(sug)}>
+												<Icon name="edit" size={13} /> Edit
+											</button>
+											<button class="btn-secondary reject-btn" onclick={() => handleRejectSuggestion(sug.id)}>
+												Reject
+											</button>
+											<button class="btn-primary approve-btn" onclick={() => handleApproveSuggestion(sug)}>
+												<Icon name="check" size={13} /> Approve
+											</button>
 										</div>
 									{/if}
 								</div>
-								<div class="card-footer">
-									<span class="source-tag">Source: {concept.source}</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Active Live Concepts -->
+				<div class="settings-card glass-panel">
+					<div class="section-header-row">
+						<h3>Active Knowledge Concepts</h3>
+						<span class="badge-blue">{concepts.length} active</span>
+					</div>
+					<p class="card-desc">Concepts currently active and used by your AI assistant to answer customer messages.</p>
+
+					<div class="concepts-grid">
+						{#each concepts as concept}
+							<div class="concept-item glass-panel">
+								<div class="concept-header">
+									<span class="concept-title">{concept.title || concept.name || 'Concept'}</span>
+									<button class="delete-btn" onclick={() => handleDeleteConcept(concept.id)} title="Delete Concept">
+										<Icon name="trash" size={14} color="var(--danger)" />
+									</button>
 								</div>
+								<div class="concept-meta">
+									<span class="badge-blue">{concept.category || 'General'}</span>
+								</div>
+								<p class="concept-content">{concept.content || concept.description || ''}</p>
+							</div>
+						{:else}
+							<div class="empty-state">
+								<div style="width: 40px; height: 40px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px;">
+									<Icon name="kb" size={20} color="var(--blue-text)" />
+								</div>
+								<h4>No Active Concepts</h4>
+								<p>Paste raw text above to compile concepts into your knowledge base.</p>
 							</div>
 						{/each}
 					</div>
-				{/if}
+				</div>
 			</div>
 		{/if}
 	</div>
@@ -368,308 +323,251 @@
 <style>
 	.settings-container {
 		display: flex;
-		height: 100%;
-		gap: 24px;
+		gap: 20px;
+		max-width: 1100px;
+		margin: 24px auto;
+		padding: 0 16px;
+		height: calc(100vh - 48px);
 	}
 
 	.settings-sidebar {
 		width: 240px;
-		flex-shrink: 0;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+		background: var(--bg-sidebar);
+		height: 100%;
 	}
 
-	.sidebar-header h2 {
-		font-size: 18px;
+	.sidebar-title {
+		font-size: 16px;
 		font-weight: 700;
+		color: var(--text-primary);
 	}
 
 	.sidebar-nav {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 4px;
 	}
 
 	.nav-item {
-		padding: 10px 14px;
-		border-radius: 8px;
+		padding: 8px 12px;
+		border-radius: 6px;
 		color: var(--text-secondary);
 		text-decoration: none;
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		transition: background-color 0.2s, color 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.15s;
 	}
 
 	.nav-item:hover {
-		background: rgba(255, 255, 255, 0.04);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.nav-item.active {
-		background: rgba(var(--primary-rgb), 0.15);
-		color: #fff;
-		border: 1px solid rgba(var(--primary-rgb), 0.3);
+		background: var(--blue-bg);
+		color: var(--blue-text);
+		font-weight: 600;
+	}
+
+	.back-item {
+		margin-bottom: 8px;
+		color: var(--text-muted);
 	}
 
 	.settings-content {
 		flex: 1;
-		padding: 32px;
+		padding: 28px;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 32px;
+		gap: 20px;
+		background: #FFFFFF;
+		height: 100%;
 	}
 
 	.content-header h1 {
-		font-size: 24px;
+		font-size: 20px;
 		font-weight: 700;
-		margin-bottom: 4px;
+		margin-bottom: 2px;
 	}
 
 	.subtitle {
+		font-size: 13.5px;
 		color: var(--text-secondary);
-		font-size: 14px;
-	}
-
-	.settings-section {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-	}
-
-	.settings-section h3 {
-		font-size: 18px;
-		font-weight: 600;
-	}
-
-	.section-desc {
-		font-size: 13px;
-		color: var(--text-secondary);
-		margin-top: -8px;
-	}
-
-	.loading-state, .empty-state {
-		text-align: center;
-		padding: 32px;
-		color: var(--text-secondary);
-		font-size: 14px;
-	}
-
-	.banner {
-		padding: 12px 16px;
-		border-radius: 8px;
-		font-size: 14px;
 	}
 
 	.banner.error {
-		background: rgba(239, 68, 68, 0.15);
-		border: 1px solid rgba(239, 68, 68, 0.3);
-		color: #fca5a5;
+		padding: 10px 14px;
+		background: var(--danger-bg);
+		border: 1px solid rgba(235, 87, 87, 0.3);
+		border-radius: 6px;
+		color: var(--danger);
+		font-size: 13px;
 	}
 
 	.banner.success {
-		background: rgba(34, 197, 94, 0.15);
-		border: 1px solid rgba(34, 197, 94, 0.3);
-		color: #86efac;
+		padding: 10px 14px;
+		background: var(--success-bg);
+		border: 1px solid rgba(46, 125, 50, 0.3);
+		border-radius: 6px;
+		color: var(--success);
+		font-size: 13px;
 	}
 
-	.paste-form {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
+	.loading-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+		font-size: 13.5px;
 	}
 
-	.textarea-field {
-		resize: vertical;
-		font-family: inherit;
-		line-height: 1.5;
-	}
-
-	.suggestions-list, .concepts-grid {
+	.kb-sections-container {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+	}
+
+	.settings-card {
+		padding: 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		background: #FFFFFF;
+	}
+
+	.settings-card h3 {
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.card-desc {
+		font-size: 13px;
+		color: var(--text-secondary);
+		margin-bottom: 10px;
+	}
+
+	.section-header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.compile-form {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.raw-text-area {
+		height: 120px;
+		resize: vertical;
+		font-size: 13px;
+		line-height: 1.45;
+	}
+
+	.compile-btn {
+		align-self: flex-start;
+	}
+
+	.suggestions-list {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.suggestion-card {
+		padding: 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		background: var(--bg-hover);
+	}
+
+	.sug-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.sug-title {
+		font-size: 14px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.sug-content {
+		font-size: 13px;
+		color: var(--text-secondary);
+		line-height: 1.45;
+	}
+
+	.sug-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
 	}
 
 	.concepts-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-		gap: 20px;
-	}
-
-	.suggestion-card, .concept-card {
-		padding: 20px;
-		display: flex;
-		flex-direction: column;
+		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 		gap: 12px;
 	}
 
-	.card-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 16px;
-	}
-
-	.card-title-group, .concept-title-group {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		flex-wrap: wrap;
-	}
-
-	.concept-title {
-		font-size: 16px;
-		font-weight: 600;
-	}
-
-	.sub-type {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	.pattern-question {
-		font-size: 15px;
-		font-weight: 600;
-		color: #fff;
-	}
-
-	.badge {
-		font-size: 11px;
-		padding: 2px 8px;
-		border-radius: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-	}
-
-	.type-badge {
-		background: rgba(99, 102, 241, 0.15);
-		color: #a5b4fc;
-		border: 1px solid rgba(99, 102, 241, 0.3);
-	}
-
-	.confidence-badge {
-		font-size: 12px;
-		color: #86efac;
-		font-weight: 500;
-	}
-
-	.card-actions {
-		display: flex;
-		gap: 8px;
-	}
-
-	.btn-success {
-		background: rgba(34, 197, 94, 0.2);
-		border: 1px solid rgba(34, 197, 94, 0.4);
-		color: #86efac;
-		padding: 4px 10px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.btn-success:hover {
-		background: rgba(34, 197, 94, 0.35);
-	}
-
-	.btn-danger {
-		background: rgba(239, 68, 68, 0.2);
-		border: 1px solid rgba(239, 68, 68, 0.4);
-		color: #fca5a5;
-		padding: 4px 10px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.btn-danger:hover {
-		background: rgba(239, 68, 68, 0.35);
-	}
-
-	.btn-secondary {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		color: var(--text-primary);
-		padding: 4px 10px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.btn-secondary:hover {
-		background: rgba(255, 255, 255, 0.1);
-	}
-
-	.form-group {
+	.concept-item {
+		padding: 14px;
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		margin-bottom: 10px;
+		background: #FFFFFF;
 	}
 
-	.form-group label {
-		font-size: 12px;
-		color: var(--text-secondary);
-		font-weight: 600;
-	}
-
-	.markdown-content {
-		font-size: 14px;
-		color: var(--text-secondary);
-		white-space: pre-wrap;
-		line-height: 1.6;
-	}
-
-	.tags-row {
+	.concept-header {
 		display: flex;
-		gap: 6px;
-		flex-wrap: wrap;
-		margin-top: 8px;
+		justify-content: space-between;
+		align-items: flex-start;
 	}
 
-	.tag-pill {
-		font-size: 11px;
-		padding: 2px 6px;
-		background: rgba(255, 255, 255, 0.05);
+	.concept-title {
+		font-size: 13.5px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.delete-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 2px;
+	}
+
+	.concept-content {
+		font-size: 12.5px;
 		color: var(--text-secondary);
-		border-radius: 4px;
+		line-height: 1.4;
 	}
 
-	.phrases-box {
-		margin-top: 10px;
-		padding: 10px;
-		background: rgba(0, 0, 0, 0.2);
-		border-radius: 6px;
-		font-size: 12px;
-	}
-
-	.phrases-box ul {
-		margin: 5px 0 0 16px;
-		padding: 0;
-	}
-
-	.phrases-box li {
-		color: var(--text-secondary);
-		font-style: italic;
-	}
-
-	.card-footer {
-		margin-top: auto;
-		border-top: 1px solid rgba(255, 255, 255, 0.05);
-		padding-top: 8px;
-		font-size: 11px;
+	.empty-state {
+		grid-column: 1 / -1;
+		text-align: center;
+		padding: 32px;
 		color: var(--text-secondary);
 	}
 
-	.source-tag {
-		text-transform: capitalize;
+	.empty-state h4 {
+		font-size: 15px;
+		font-weight: 600;
+		margin-bottom: 2px;
+	}
+
+	.empty-state p {
+		font-size: 13px;
 	}
 </style>
