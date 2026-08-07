@@ -81,20 +81,43 @@
 				}
 			} catch (_) {}
 			
-			// Listen to live lead state changes from WebSocket
+			// Listen to live lead state changes from WebSocket & dev widget simulated sends
 			const handleLeadStateChange = (e: CustomEvent) => {
 				if (inbox.activeConvo?.lead && e.detail.lead_id === inbox.activeConvo.lead.id) {
 					loadLeadDetails(inbox.activeConvo.lead.id);
 				}
 			};
+			const handleDevMessageSent = () => {
+				inbox.loadConversations();
+			};
 			window.addEventListener('lead-state-changed', handleLeadStateChange as EventListener);
+			window.addEventListener('dev-message-sent', handleDevMessageSent);
 			return () => {
 				window.removeEventListener('lead-state-changed', handleLeadStateChange as EventListener);
+				window.removeEventListener('dev-message-sent', handleDevMessageSent);
 			};
 		} catch (err) {
 			goto('/login');
 		}
 	});
+
+	function parseMessageContent(content: any): Record<string, any> {
+		if (!content) return {};
+		if (typeof content === 'object') return content;
+		if (typeof content === 'string') {
+			try {
+				return JSON.parse(content);
+			} catch (e1) {
+				try {
+					const decoded = atob(content);
+					return JSON.parse(decoded);
+				} catch (e2) {
+					return { text: content };
+				}
+			}
+		}
+		return {};
+	}
 
 	// Derived list of displayable messages (attaches reactions, hides reaction bubbles)
 	let displayMessages = $derived.by(() => {
@@ -105,7 +128,7 @@
 		for (const m of msgs) {
 			if (m.content_type === 'reaction') {
 				try {
-					const contentObj = typeof m.content === 'string' ? JSON.parse(m.content) : m.content;
+					const contentObj = parseMessageContent(m.content);
 					const reaction = contentObj.text || contentObj.reaction;
 					const targetExtID = contentObj.reply_to_external_id;
 					if (targetExtID && reaction) {
@@ -122,7 +145,7 @@
 		return msgs
 			.filter((m: any) => m.content_type !== 'reaction')
 			.map((m: any) => {
-				const contentObj = typeof m.content === 'string' ? JSON.parse(m.content) : m.content;
+				const contentObj = parseMessageContent(m.content);
 				return {
 					...m,
 					parsedContent: contentObj,
@@ -458,7 +481,7 @@
 						<div class="convo-preview">
 							{#if convo.last_message_preview}
 								{convo.last_message_preview.content_type === 'text' 
-									? JSON.parse(convo.last_message_preview.content).text 
+									? (parseMessageContent(convo.last_message_preview.content).text || '')
 									: `[${convo.last_message_preview.content_type}]`}
 							{:else}
 								No messages yet

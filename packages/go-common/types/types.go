@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -184,8 +185,8 @@ type Message struct {
 	Direction         string     `json:"direction" db:"direction"`
 	SenderType        string     `json:"sender_type" db:"sender_type"`
 	SenderUserID      *uuid.UUID `json:"sender_user_id" db:"sender_user_id"`
-	ContentType       string     `json:"content_type" db:"content_type"`
-	Content           []byte     `json:"content" db:"content"` // JSONB payload
-	ExternalMessageID *string    `json:"external_message_id" db:"external_message_id"`
+	ContentType       string          `json:"content_type" db:"content_type"`
+	Content           json.RawMessage `json:"content" db:"content"` // JSONB payload
+	ExternalMessageID *string         `json:"external_message_id" db:"external_message_id"`
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 }

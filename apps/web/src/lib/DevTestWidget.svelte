@@ -126,6 +126,23 @@
 		}
 	}
 
+	async function createMockChannel() {
+		try {
+			const type = `matrix_${selectedPlatform}`;
+			const newCh = await apiRequest('/channels', {
+				method: 'POST',
+				body: { type }
+			});
+			await loadChannels();
+			if (newCh && newCh.id) {
+				selectedChannelID = newCh.id;
+			}
+		} catch (err: any) {
+			lastStatus = 'error';
+			lastError = err.message || 'Failed to create mock channel';
+		}
+	}
+
 	// ─── Actions ─────────────────────────────────────────────────────────────
 	async function sendMessage() {
 		if (!messageText.trim() && contentType === 'text') return;
@@ -162,6 +179,8 @@
 			lastStatus = 'success';
 			messageText = '';
 			mediaURL = '';
+			// Dispatch event so Inbox automatically re-fetches conversations
+			window.dispatchEvent(new CustomEvent('dev-message-sent'));
 			// Auto-reset status after 3s
 			setTimeout(() => {
 				lastStatus = 'idle';
@@ -290,12 +309,14 @@
 				<div class="dev-section">
 					<div class="dev-label-row">
 						<div class="dev-label">Target Channel</div>
-						<button class="dev-refresh-btn" onclick={loadChannels} title="Refresh channels">↻</button>
+						<div style="display: flex; gap: 4px;">
+							<button class="dev-add-btn" onclick={createMockChannel} title="Auto-create mock channel">+ Mock Channel</button>
+							<button class="dev-refresh-btn" onclick={loadChannels} title="Refresh channels">↻</button>
+						</div>
 					</div>
 					{#if channels.length === 0}
 						<div class="dev-empty-note">
-							No channels found. Create one in
-							<a href="/settings/account" class="dev-link">Settings → Channels</a>.
+							No channels found. Click <strong>+ Mock Channel</strong> above to create one automatically.
 						</div>
 					{:else}
 						<select class="dev-select" bind:value={selectedChannelID}>
@@ -410,6 +431,9 @@
 				{#if lastStatus === 'success'}
 					<div class="dev-feedback dev-feedback--success">
 						✓ Message injected via {activePlatform.icon} {activePlatform.label}
+					</div>
+					<div class="dev-tip">
+						💡 <strong>Note:</strong> Simulated messages land in <em>Unassigned</em>. Switch the inbox filter to <strong>All</strong> or <strong>Unassigned</strong> to see it!
 					</div>
 				{:else if lastStatus === 'error'}
 					<div class="dev-feedback dev-feedback--error">
@@ -833,6 +857,15 @@
 		background: rgba(239, 68, 68, 0.1);
 		border: 1px solid rgba(239, 68, 68, 0.25);
 		color: #fca5a5;
+	}
+	.dev-tip {
+		font-size: 11px;
+		color: rgba(233, 213, 255, 0.7);
+		background: rgba(139, 92, 246, 0.08);
+		border: 1px solid rgba(139, 92, 246, 0.2);
+		padding: 7px 10px;
+		border-radius: 6px;
+		line-height: 1.4;
 	}
 
 	/* ─── Send Button ──────────────────────────────────────────────────────── */
