@@ -17,7 +17,12 @@ export async function apiRequest(path: string, options: ApiRequestOptions = {}) 
 		fetchOptions.body = options.body;
 	}
 	
-	const res = await fetch(path, fetchOptions);
+	let targetPath = path;
+	if (targetPath.startsWith('/') && !targetPath.startsWith('/api-gateway')) {
+		targetPath = `/api-gateway${targetPath}`;
+	}
+	
+	const res = await fetch(targetPath, fetchOptions);
 	if (!res.ok) {
 		const errData = await res.json().catch(() => ({}));
 		throw new Error(errData.error || `Request failed with status ${res.status}`);

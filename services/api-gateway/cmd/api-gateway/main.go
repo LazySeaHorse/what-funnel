@@ -104,6 +104,10 @@ func main() {
 	// Proxy /internal/conversations/* → conversation-svc
 	r.PathPrefix("/internal/conversations").Handler(proxy(conversationBase, logger))
 
+	// Proxy /simulate-inbound and /simulate/* → conversation-svc (dev test simulation)
+	r.PathPrefix("/simulate").Handler(proxy(conversationBase, logger))
+	r.Handle("/simulate-inbound", proxy(conversationBase, logger))
+
 	// Proxy /ws → notification-svc (WebSocket)
 	r.Handle("/ws", wsProxy(notificationBase, logger))
 

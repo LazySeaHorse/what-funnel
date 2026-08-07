@@ -89,7 +89,15 @@ func (s *Service) InitAdapters(ctx context.Context) error {
 					Configure(channelID string, creds matrixadapter.Credentials)
 				}); ok {
 					var mc matrixadapter.Credentials
-					if err := json.Unmarshal(decrypted, &mc); err == nil {
+					if err := json.Unmarshal(decrypted, &mc); err != nil {
+						// Fallback: check if decrypted is a JSON-encoded string
+						var strCreds string
+						if errStr := json.Unmarshal(decrypted, &strCreds); errStr == nil {
+							if errUnmarshal := json.Unmarshal([]byte(strCreds), &mc); errUnmarshal == nil {
+								configurable.Configure(id.String(), mc)
+							}
+						}
+					} else {
 						configurable.Configure(id.String(), mc)
 					}
 				}
@@ -123,6 +131,57 @@ func (s *Service) DecryptCredentials(dbCreds []byte) ([]byte, error) {
 		return nil, errors.New("invalid credentials structure: missing encrypted_data")
 	}
 	return s.cipher.Decrypt(ciphertext)
+}
+
+// SimulateInbound builds a mock InboundEvent and publishes it to the Redis
+// messages.inbound stream, simulating an incoming message from a 3rd-party
+// platform (WhatsApp, Instagram, Twitter DM, etc.) for testing purposes.
+func (s *Service) SimulateInbound(
+	ctx context.Context,
+	accountID uuid.UUID,
+	channelID string,
+	senderExternalID string,
+	senderDisplayName string,
+	senderAvatarURL string,
+	contentType string,
+	text string,
+	mediaURL string,
+) error {
+	// Verify the channel belongs to this account
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM channels WHERE id = $1 AND account_id = $2`,
+		channelID, accountID,
+	).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("channel lookup failed: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("channel not found or not owned by account")
+	}
+
+	extMsgID := fmt.Sprintf("$sim-%s", uuid.New().String())
+	event := types.InboundEvent{
+		ChannelID:        channelID,
+		ExternalThreadID: senderExternalID,
+		Contact: types.ContactRef{
+			ExternalIdentity: senderExternalID,
+			DisplayName:      senderDisplayName,
+			AvatarURL:        senderAvatarURL,
+		},
+		Message: types.NormalizedMessage{
+			ContentType:       contentType,
+			Text:              text,
+			MediaURL:          mediaURL,
+			ExternalMessageID: extMsgID,
+		},
+		Timestamp: time.Now(),
+	}
+
+	if _, err := s.pubsub.Publish(ctx, "messages.inbound", event); err != nil {
+		return fmt.Errorf("publish simulated inbound event: %w", err)
+	}
+	return nil
 }
 
 // IngestInbound processes an incoming message event from a channel.
@@ -648,7 +707,15 @@ func (s *Service) CreateChannel(ctx context.Context, accountID uuid.UUID, channe
 				Configure(channelID string, creds matrixadapter.Credentials)
 			}); ok {
 				var mc matrixadapter.Credentials
-				if err := json.Unmarshal(rawCredentials, &mc); err == nil {
+				if err := json.Unmarshal(rawCredentials, &mc); err != nil {
+					// Fallback: check if rawCredentials is a JSON-encoded string
+					var strCreds string
+					if errStr := json.Unmarshal(rawCredentials, &strCreds); errStr == nil {
+						if errUnmarshal := json.Unmarshal([]byte(strCreds), &mc); errUnmarshal == nil {
+							configurable.Configure(ch.ID.String(), mc)
+						}
+					}
+				} else {
 					configurable.Configure(ch.ID.String(), mc)
 				}
 			}
@@ -699,6 +766,15 @@ func (s *Service) ListChannels(ctx context.Context, accountID uuid.UUID) ([]*typ
 		if err != nil {
 			return nil, err
 		}
+
+		// Dynamically query adapter status and update
+		if adapter, err := s.GetAdapter(ch.Type); err == nil {
+			status := adapter.Status(ch.ID.String())
+			ch.Status = status.Status
+			ch.StatusDetail = &status.Detail
+			_, _ = s.pool.Exec(ctx, `UPDATE channels SET status = $1, status_detail = $2 WHERE id = $3`, status.Status, status.Detail, ch.ID)
+		}
+
 		channels = append(channels, ch)
 	}
 	return channels, rows.Err()

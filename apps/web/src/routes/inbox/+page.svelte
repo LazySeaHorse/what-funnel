@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
 	import { InboxState } from '$lib/store.svelte';
+	import DevTestWidget from '$lib/DevTestWidget.svelte';
 
 	const inbox = new InboxState();
 	let composeText = $state('');
@@ -731,6 +732,11 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Dev Test Widget (admin only) -->
+{#if inbox.currentUser?.role === 'admin'}
+	<DevTestWidget />
+{/if}
 
 <style>
 	/* ─── Setup Banner ─── */

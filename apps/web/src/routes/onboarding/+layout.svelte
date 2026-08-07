@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../../app.css';
 	import { onMount } from 'svelte';
-	import { page } from '$app/state';
+	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 
 	let { children } = $props();
@@ -18,7 +18,7 @@
 		'Done'
 	];
 
-	let currentStep = $derived(parseInt((page.params as any)?.step ?? '1', 10) || 1);
+	let currentStep = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
 	let completedSteps = $state<string[]>([]);
 	let skippedSteps = $state<string[]>([]);
 	let productMode = $state('full_workspace');
@@ -94,7 +94,9 @@
 
 		<!-- Step Content -->
 		<div class="wizard-content">
-			{@render children()}
+			{#key currentStep}
+				{@render children()}
+			{/key}
 		</div>
 
 		<!-- Footer -->

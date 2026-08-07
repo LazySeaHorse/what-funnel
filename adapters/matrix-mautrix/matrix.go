@@ -28,6 +28,9 @@ type Adapter struct {
 	status       map[string]types.ChannelStatus
 	sentEventIDs map[string]bool
 	client       *http.Client
+	ctx          context.Context
+	onInbound    func(types.InboundEvent)
+	onOutbound   func(types.ExternalOutboundEvent)
 }
 
 // New creates a new Matrix Adapter instance.
@@ -43,11 +46,19 @@ func New() *Adapter {
 // Configure registers credentials and status for a channel.
 func (a *Adapter) Configure(channelID string, creds Credentials) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.creds[channelID] = creds
 	a.status[channelID] = types.ChannelStatus{
 		Status: "disconnected",
 		Detail: "Configured, not started",
+	}
+	ctx := a.ctx
+	publishInbound := a.onInbound
+	publishExternalOutbound := a.onOutbound
+	a.mu.Unlock()
+
+	// If already started, dynamically spin up the sync loop for the new channel
+	if ctx != nil && publishInbound != nil && publishExternalOutbound != nil {
+		go a.syncLoop(ctx, channelID, publishInbound, publishExternalOutbound)
 	}
 }
 
@@ -76,12 +87,16 @@ func (a *Adapter) SetStatus(channelID string, status, detail string) {
 
 // Start spawns a background sync loop for each configured channel and blocks.
 func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) error {
-	a.mu.RLock()
+	a.mu.Lock()
+	a.ctx = ctx
+	a.onInbound = publishInbound
+	a.onOutbound = publishExternalOutbound
+
 	channelIDs := make([]string, 0, len(a.creds))
 	for cid := range a.creds {
 		channelIDs = append(channelIDs, cid)
 	}
-	a.mu.RUnlock()
+	a.mu.Unlock()
 
 	var wg sync.WaitGroup
 	for _, cid := range channelIDs {

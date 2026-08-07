@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
+	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 
 	// ──────────────────────────────────────────────
@@ -34,7 +34,7 @@
 	// ──────────────────────────────────────────────
 	// Reactive state
 	// ──────────────────────────────────────────────
-	let stepNum = $derived(parseInt((page.params as any)?.step ?? '1', 10) || 1);
+	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
 
 	let loading = $state(true);
 	let submitting = $state(false);
@@ -259,7 +259,7 @@
 		submitting = true;
 		error = '';
 		try {
-			await apiRequest('/account/product-mode', {
+			await apiRequest('/workspace/account/product-mode', {
 				method: 'PATCH',
 				body: { product_mode: mode }
 			});

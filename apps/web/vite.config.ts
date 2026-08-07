@@ -19,10 +19,10 @@ export default defineConfig({
 	],
 	server: {
 		proxy: {
-			'/auth': 'http://localhost:18080',
-			'/workspace': 'http://localhost:18080',
-			'/conversations': 'http://localhost:18080',
-			'/channels': 'http://localhost:18080',
+			'/api-gateway': {
+				target: 'http://localhost:18080',
+				rewrite: (path) => path.replace(/^\/api-gateway/, '')
+			},
 			'/ws': {
 				target: 'ws://localhost:18080',
 				ws: true
