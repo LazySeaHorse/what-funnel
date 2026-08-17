@@ -75,7 +75,7 @@ async function completeOnboarding(page: Page) {
   await page.waitForURL('**/onboarding/5', { timeout: 15000 });
   await page.click('button.skip-link');
   await page.waitForURL('**/onboarding/6', { timeout: 15000 });
-  await page.click('button:has-text("Continue →")');
+  await page.click('button:has-text("Continue")');
   await page.waitForURL('**/onboarding/7', { timeout: 15000 });
   await page.click('button:has-text("Accept and adjust later")');
   await page.waitForURL('**/onboarding/8', { timeout: 15000 });

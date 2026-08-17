@@ -24,13 +24,19 @@
 				goto('/inbox');
 				return;
 			}
-			const account = await apiRequest('/workspace/account');
+		} catch (err) {
+			goto('/login');
+			return;
+		}
+
+		try {
+			const account = await apiRequest('/workspace/account').catch(() => null);
 			if (account) {
 				productMode = account.product_mode || 'full_workspace';
 			}
 			await loadUsers();
-		} catch (err) {
-			goto('/login');
+		} catch (err: any) {
+			error = 'Failed to load users: ' + err.message;
 		} finally {
 			loading = false;
 		}

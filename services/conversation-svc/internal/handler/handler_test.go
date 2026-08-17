@@ -195,4 +195,32 @@ func TestHandler_Endpoints(t *testing.T) {
 	err = json.Unmarshal(rr.Body.Bytes(), &discResp)
 	require.NoError(t, err)
 	assert.Equal(t, "disconnected", discResp["status"])
+
+	// 5. POST /webhooks/telegram?channel_id={id}
+	tgPayload := `{
+		"update_id": 99999,
+		"message": {
+			"message_id": 101,
+			"from": {
+				"id": 888777,
+				"first_name": "TgCustomer"
+			},
+			"chat": {
+				"id": 888777,
+				"type": "private"
+			},
+			"date": 1723878000,
+			"text": "Hello from native Telegram webhook!"
+		}
+	}`
+	req, _ = http.NewRequest(http.MethodPost, "/webhooks/telegram?channel_id="+channel.ID.String(), bytes.NewBufferString(tgPayload))
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var whResp map[string]any
+	err = json.Unmarshal(rr.Body.Bytes(), &whResp)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", whResp["status"])
 }
+

@@ -2,6 +2,7 @@ import json
 import logging
 import httpx
 import uuid
+import asyncio
 from typing import List, Tuple, Any
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -84,12 +85,13 @@ async def embed(api_key: str, base_url: str, model: str, text: str) -> List[floa
     }
     payload = {
         "input": text,
-        "model": model
+        "model": model,
+        "dimensions": 1536
     }
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=None) as client:
         try:
-            response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+            response = await client.post(url, json=payload, headers=headers, timeout=None)
             response.raise_for_status()
         except Exception as e:
             logger.error(f"Embedding request failed: {e}")
@@ -176,9 +178,19 @@ def _get_mock_model_instance(model_class: Any) -> dict:
             data[name] = _get_mock_field_value(name, field.type_)
     return data
 
+def _clean_json_content(content: str) -> str:
+    import re
+    # Remove thinking tags from models like gemma/gemini
+    content = re.sub(r'<thought>.*?</thought>', '', content, flags=re.DOTALL).strip()
+    # Strip markdown code blocks if wrapped in ```json ... ```
+    match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+    if match:
+        content = match.group(1).strip()
+    return content
+
 async def complete(api_key: str, base_url: str, model: str, prompt: str, response_schema: Any) -> dict:
     """
-    Executes a structured chat completion against the OpenAI-compatible API.
+    Executes a structured completion against the OpenAI-compatible API.
     Validates output using the provided Pydantic model.
     """
     if api_key == "mock" or base_url == "mock" or "localhost" in base_url or "127.0.0.1" in base_url:
@@ -219,15 +231,25 @@ async def complete(api_key: str, base_url: str, model: str, prompt: str, respons
         "temperature": 0.0
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, json=payload, headers=headers, timeout=60.0)
-            response.raise_for_status()
-        except Exception as e:
-            logger.error(f"Completion request failed: {e}")
+    async with httpx.AsyncClient(timeout=None) as client:
+        last_err = None
+        response = None
+        for attempt in range(3):
+            try:
+                response = await client.post(url, json=payload, headers=headers, timeout=None)
+                response.raise_for_status()
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                logger.warning(f"Completion attempt {attempt+1} failed with {model}: {e}. Retrying...")
+                await asyncio.sleep(2.0 * (attempt + 1))
+
+        if last_err is not None or response is None:
+            logger.error(f"All completion attempts failed with {model}: {last_err}")
             raise HTTPException(
                 status_code=502,
-                detail=f"Chat completion failed on AI provider: {e}"
+                detail=f"Chat completion failed on AI provider ({model}): {last_err}"
             )
 
         res_json = response.json()
@@ -240,14 +262,21 @@ async def complete(api_key: str, base_url: str, model: str, prompt: str, respons
                 detail="Invalid response structure from AI provider completion endpoint."
             )
 
+        cleaned = _clean_json_content(content)
         try:
-            parsed = json.loads(content)
+            parsed = json.loads(cleaned)
         except Exception as e:
             logger.error(f"Failed to parse content as JSON: {content}")
             raise HTTPException(
                 status_code=502,
                 detail="AI provider response could not be parsed as JSON."
             )
+
+        if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+            parsed = parsed[0]
+
+        if isinstance(parsed, dict) and "properties" in parsed and isinstance(parsed["properties"], dict):
+            parsed = parsed["properties"]
 
         try:
             validated = response_schema.model_validate(parsed)

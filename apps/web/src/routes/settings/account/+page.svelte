@@ -23,9 +23,15 @@
 				goto('/inbox');
 				return;
 			}
-			await loadAccountSettings();
 		} catch (err) {
 			goto('/login');
+			return;
+		}
+
+		try {
+			await loadAccountSettings();
+		} catch (err: any) {
+			error = 'Failed to load settings: ' + err.message;
 		} finally {
 			loading = false;
 		}

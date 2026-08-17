@@ -82,18 +82,30 @@ export class InboxState {
 	async sendMessage(text: string) {
 		if (!this.activeConvoID || !text.trim()) return;
 		try {
-			const body = {
+			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
+			const body: any = {
 				content_type: 'text',
 				text: text,
-				sender_type: 'human',
-				sender_user_id: this.currentUser.user_id
+				sender_type: 'human'
 			};
-			await apiRequest(`/internal/conversations/${this.activeConvoID}/send`, {
+			if (senderUserId) {
+				body.sender_user_id = senderUserId;
+			}
+			const res = await apiRequest(`/internal/conversations/${this.activeConvoID}/send`, {
 				method: 'POST',
 				body
 			});
+			if (res && res.id) {
+				if (!this.messages.some(m => m.id === res.id)) {
+					this.messages = [...this.messages, res];
+				}
+			} else {
+				await this.loadMessages(true);
+			}
+			await this.loadConversations();
+			window.dispatchEvent(new CustomEvent('dev-message-sent'));
 		} catch (err) {
-			console.error(err);
+			console.error('Failed to send message:', err);
 		}
 	}
 	

@@ -174,6 +174,7 @@ type ConversationListItem struct {
 	LastMessagePreview *Message  `json:"last_message_preview"` // Nullable
 	ContactName        *string   `json:"contact_name"`
 	ContactAvatarURL   *string   `json:"contact_avatar_url"`
+	ChannelType        *string   `json:"channel_type,omitempty"`
 	Lead               *Lead     `json:"lead"` // Nullable
 }
 

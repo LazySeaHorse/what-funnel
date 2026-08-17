@@ -3,26 +3,38 @@
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
 	import { InboxState } from '$lib/store.svelte';
-	import DevTestWidget from '$lib/DevTestWidget.svelte';
-	import Icon from '$lib/Icon.svelte';
+	import CustomerSimulator from '$lib/CustomerSimulator.svelte';
 
 	const inbox = new InboxState();
-	let composeText = $state('');
-	let messageContainer: HTMLDivElement | null = $state(null);
-	let isAssignDropdownOpen = $state(false);
 
-	// Lead Management frontend states
-	let leadTrackingEnabled = $state(true);
+	// Navigation state
+	let selectedNav = $state<'inbox' | 'leads' | 'automation' | 'knowledge' | 'contacts' | 'simulate' | 'settings'>('inbox');
+	let leadTab = $state<'lead' | 'details' | 'activity'>('lead');
+	let replyTab = $state<'reply' | 'note'>('reply');
+	let searchQuery = $state('');
+	let aiAutoReplyEnabled = $state(true);
+	let messageInput = $state('');
+	let internalNoteInput = $state('');
+	let messageContainer: HTMLDivElement | null = $state(null);
+
+	// Dropdowns and UI popovers
+	let showLeadStateDropdown = $state(false);
+	let showWorkspaceDropdown = $state(false);
+	let showAssignDropdown = $state(false);
+	let showAddTagInput = $state(false);
+	let newTagText = $state('');
+
+	// Workspace & Lead state
+	let accountName = $state('What Funnel Workspace');
 	let productMode = $state('full_workspace');
+	let leadTrackingEnabled = $state(true);
 	let pipelineStates = $state<any[]>([]);
-	let activePanelTab = $state<'notes' | 'history'>('notes');
 	let notes = $state<any[]>([]);
 	let history = $state<any[]>([]);
 	let loadingNotes = $state(false);
-	let newNoteText = $state('');
-	let tagInput = $state('');
+	let isTyping = $state(false);
 
-	// Finish-setup banner
+	// Setup banner
 	const SKIPPED_STEP_NAMES: Record<string, { label: string; step: number }> = {
 		channel_connect: { label: 'Connect a channel', step: 4 },
 		kb_setup:        { label: 'Set up your knowledge base', step: 5 },
@@ -39,8 +51,13 @@
 				loadLeadDetails(inbox.activeConvo.lead.id);
 			}
 		};
-		const handleDevMessageSent = () => {
-			inbox.loadConversations();
+		const handleDevMessageSent = async () => {
+			await inbox.loadConversations();
+			if (inbox.activeConvoID) {
+				await inbox.loadMessages(true);
+				await tick();
+				scrollToBottom();
+			}
 		};
 
 		window.addEventListener('lead-state-changed', handleLeadStateChange as EventListener);
@@ -53,10 +70,16 @@
 					goto('/login');
 					return;
 				}
-				
-				// Fetch account details to check lead_tracking_enabled
+
+				// Select first conversation if none selected
+				if (inbox.conversations.length > 0 && !inbox.activeConvoID) {
+					await selectConvo(inbox.conversations[0].id);
+				}
+
+				// Fetch workspace account details
 				const account = await apiRequest('/workspace/account');
 				if (account) {
+					accountName = account.name || 'What Funnel Workspace';
 					productMode = account.product_mode || 'full_workspace';
 					if (account.settings) {
 						try {
@@ -71,14 +94,14 @@
 						leadTrackingEnabled = false;
 					}
 				}
-				
+
 				// Fetch pipeline states
 				const pipelines = await apiRequest('/workspace/pipelines');
 				if (pipelines && pipelines.length > 0) {
 					pipelineStates = pipelines[0].states || [];
 				}
 
-				// Finish-setup banner: check onboarding status
+				// Onboarding banner check
 				try {
 					const dismissed = sessionStorage.getItem('setup-banner-dismissed');
 					if (!dismissed) {
@@ -156,19 +179,46 @@
 			});
 	});
 
+	// Filtered live conversations
+	let filteredConversations = $derived.by(() => {
+		return inbox.conversations.filter((c) => {
+			const contactName = getContactName(c);
+			const lastText = getSnippet(c);
+			const matchesSearch =
+				searchQuery.trim() === '' ||
+				contactName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				lastText.toLowerCase().includes(searchQuery.toLowerCase());
+			return matchesSearch;
+		});
+	});
+
+	// Counts
+	let countAll = $derived(inbox.conversations.length);
+	let countUnassigned = $derived(inbox.conversations.filter((c) => !c.assigned_user_ids || c.assigned_user_ids.length === 0).length);
+	let countMine = $derived(
+		inbox.conversations.filter((c) => c.assigned_user_ids && inbox.currentUser && c.assigned_user_ids.includes(inbox.currentUser.user_id || inbox.currentUser.id)).length
+	);
+
+	async function changeFilter(tab: 'all' | 'unassigned' | 'mine') {
+		inbox.filter = tab;
+		await inbox.loadConversations();
+		if (inbox.conversations.length > 0 && !inbox.conversations.some((c) => c.id === inbox.activeConvoID)) {
+			await selectConvo(inbox.conversations[0].id);
+		}
+	}
+
 	async function selectConvo(id: string) {
 		await inbox.selectConversation(id);
 		await tick();
 		scrollToBottom();
 	}
 
-	async function handleSend(e?: Event) {
-		if (e) e.preventDefault();
-		if (!composeText.trim() || !inbox.activeConvoID) return;
+	async function handleSendMessage() {
+		if (!messageInput.trim() || !inbox.activeConvoID) return;
+		const text = messageInput.trim();
+		messageInput = '';
 
-		const textToSend = composeText;
-		composeText = '';
-		await inbox.sendMessage(textToSend);
+		await inbox.sendMessage(text);
 		await tick();
 		scrollToBottom();
 	}
@@ -176,17 +226,7 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			handleSend();
-		}
-	}
-
-	async function handleLoadMore() {
-		if (!inbox.nextCursor) return;
-		const oldHeight = messageContainer?.scrollHeight || 0;
-		await inbox.loadMessages(false);
-		await tick();
-		if (messageContainer) {
-			messageContainer.scrollTop = messageContainer.scrollHeight - oldHeight;
+			handleSendMessage();
 		}
 	}
 
@@ -196,43 +236,55 @@
 		}
 	}
 
-	async function handleLogout() {
-		try {
-			await apiRequest('/auth/logout', { method: 'POST' });
-			goto('/login');
-		} catch (err) {
-			console.error(err);
-		}
-	}
-
 	function formatTime(timeStr?: string) {
 		if (!timeStr) return '';
 		const d = new Date(timeStr);
 		return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
-	function getInitial(name?: string) {
-		return name ? name.charAt(0).toUpperCase() : '?';
+	function getSnippet(convo: any): string {
+		const msg = convo.last_message_preview || convo.last_message;
+		if (!msg) return 'No messages yet';
+		const parsed = parseMessageContent(msg.content);
+		return parsed.text || parsed.caption || 'Message';
 	}
 
-	function toggleUserAssignment(userID: string) {
-		if (!inbox.activeConvo) return;
-		const current = inbox.activeConvo.assigned_user_ids || [];
-		let updated: string[];
-		if (current.includes(userID)) {
-			updated = current.filter((id: string) => id !== userID);
-		} else {
-			updated = [...current, userID];
+	function getContactName(convo?: any): string {
+		if (!convo) return 'Select a conversation';
+		let name = convo.contact_name || convo.contact?.display_name || convo.display_name || convo.contact_display_name || convo.contact?.external_identity || 'Contact';
+		// Strip any trailing "(Platform)" or "(Instagram)" etc. from contact names
+		name = name.replace(/\s*\((Instagram|WhatsApp|Messenger|Telegram|Webchat|Direct|matrix_[a-z]+)\)$/i, '').trim();
+		return name;
+	}
+
+	function getContactHandle(convo?: any): string {
+		if (!convo) return '';
+		const channelName = getChannelLabel(convo.channel?.type || convo.channel_type);
+		let id = convo.contact?.external_identity || convo.external_identity || '';
+		if (id && !id.startsWith('@') && (convo.channel?.type?.includes('instagram') || convo.channel_type?.includes('instagram'))) {
+			id = `@${id}`;
 		}
-		inbox.assignConversation(updated);
+		return id ? `${channelName} • ${id}` : channelName;
 	}
 
-	function getAssignedNames(assignedIDs?: string[]) {
-		if (!assignedIDs || assignedIDs.length === 0) return 'Unassigned';
-		return inbox.users
-			.filter((u: any) => assignedIDs.includes(u.id))
-			.map((u: any) => u.email.split('@')[0])
-			.join(', ');
+	function getChannelLabel(type?: string): string {
+		if (!type) return 'Direct';
+		if (type.includes('whatsapp')) return 'WhatsApp';
+		if (type.includes('instagram')) return 'Instagram';
+		if (type.includes('messenger')) return 'Messenger';
+		if (type.includes('telegram')) return 'Telegram';
+		if (type.includes('webchat')) return 'Webchat';
+		return type;
+	}
+
+	function getTagColor(stateKey?: string): string {
+		if (!stateKey) return 'bg-amber-50 text-amber-600';
+		const lower = stateKey.toLowerCase();
+		if (lower.includes('new')) return 'bg-amber-50 text-amber-600 border border-amber-200/80';
+		if (lower.includes('interest') || lower.includes('won')) return 'bg-emerald-50 text-emerald-600 border border-emerald-200/80';
+		if (lower.includes('follow')) return 'bg-purple-50 text-purple-600 border border-purple-200/80';
+		if (lower.includes('quote')) return 'bg-rose-50 text-rose-600 border border-rose-200/80';
+		return 'bg-blue-50 text-blue-600 border border-blue-200/80';
 	}
 
 	async function loadLeadDetails(leadId: string) {
@@ -257,21 +309,6 @@
 		}
 	});
 
-	async function createLead() {
-		if (!inbox.activeConvoID) return;
-		try {
-			const lead = await apiRequest(`/conversations/${inbox.activeConvoID}/lead`, {
-				method: 'POST'
-			});
-			if (inbox.activeConvo) {
-				inbox.activeConvo.lead = lead;
-			}
-			await inbox.loadConversations();
-		} catch (err) {
-			console.error(err);
-		}
-	}
-
 	async function updateLeadState(stateKey: string) {
 		if (!inbox.activeConvo?.lead) return;
 		try {
@@ -280,38 +317,23 @@
 				body: { state_key: stateKey }
 			});
 			inbox.activeConvo.lead.current_state_key = lead.current_state_key;
+			showLeadStateDropdown = false;
 			await inbox.loadConversations();
 		} catch (err) {
 			console.error(err);
 		}
 	}
 
-	async function addTag(e: Event) {
-		e.preventDefault();
-		if (!tagInput.trim() || !inbox.activeConvo?.lead) return;
-		const tag = tagInput.trim();
+	async function addTag() {
+		if (!newTagText.trim() || !inbox.activeConvo?.lead) return;
+		const tag = newTagText.trim();
+		newTagText = '';
+		showAddTagInput = false;
+
 		const currentTags = inbox.activeConvo.lead.tags || [];
-		if (currentTags.includes(tag)) {
-			tagInput = '';
-			return;
-		}
+		if (currentTags.includes(tag)) return;
 		const newTags = [...currentTags, tag];
-		try {
-			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/tags`, {
-				method: 'PATCH',
-				body: { tags: newTags }
-			});
-			inbox.activeConvo.lead.tags = lead.tags;
-			tagInput = '';
-		} catch (err) {
-			console.error(err);
-		}
-	}
 
-	async function removeTag(tag: string) {
-		if (!inbox.activeConvo?.lead) return;
-		const currentTags = inbox.activeConvo.lead.tags || [];
-		const newTags = currentTags.filter((t: string) => t !== tag);
 		try {
 			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/tags`, {
 				method: 'PATCH',
@@ -323,1214 +345,1551 @@
 		}
 	}
 
-	async function addNote(e: Event) {
-		e.preventDefault();
-		if (!newNoteText.trim() || !inbox.activeConvo?.lead) return;
-		const body = newNoteText.trim();
+	async function postInternalNote() {
+		if (!internalNoteInput.trim() || !inbox.activeConvo?.lead) return;
+		const text = internalNoteInput.trim();
+		internalNoteInput = '';
+
 		try {
 			await apiRequest(`/leads/${inbox.activeConvo.lead.id}/notes`, {
 				method: 'POST',
-				body: { body }
+				body: { text }
 			});
-			newNoteText = '';
 			await loadLeadDetails(inbox.activeConvo.lead.id);
+			replyTab = 'reply';
 		} catch (err) {
 			console.error(err);
 		}
 	}
 
-	function getStateColor(stateKey: string) {
-		const st = pipelineStates.find(s => s.key === stateKey);
-		return st ? st.color : '#0B6E99';
+	function toggleUserAssignment(userID: string) {
+		if (!inbox.activeConvo) return;
+		const current = inbox.activeConvo.assigned_user_ids || [];
+		let updated: string[];
+		if (current.includes(userID)) {
+			updated = current.filter((id: string) => id !== userID);
+		} else {
+			updated = [...current, userID];
+		}
+		inbox.assignConversation(updated);
 	}
 
-	function getStateLabel(stateKey: string) {
-		const st = pipelineStates.find(s => s.key === stateKey);
-		return st ? st.label : stateKey;
+	async function handleLogout() {
+		try {
+			await apiRequest('/auth/logout', { method: 'POST' });
+			goto('/login');
+		} catch (err) {
+			console.error(err);
+		}
 	}
 
-	function formatDate(dateStr?: string) {
-		if (!dateStr) return '';
-		const d = new Date(dateStr);
-		return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+	const aiSuggestionText =
+		'Great choice! ✨ We have a few slots on Saturday and Sunday for manicure and haircut. Would you like me to share the available times?';
+
+	function useAISuggestion() {
+		messageInput = aiSuggestionText;
+		handleSendMessage();
 	}
 
-	// Tag styling rotation (Pink, Yellow, Blue)
-	function getTagStyleClass(index: number) {
-		const styles = ['badge-pink', 'badge-yellow', 'badge-blue'];
-		return styles[index % styles.length];
+	// ─── Knowledge Tab State ───────────────────────────────────────────────────
+	let kbConcepts = $state<any[]>([]);
+	let kbPatterns = $state<any[]>([]);
+	let kbSuggestions = $state<any[]>([]);
+	let kbLastRun = $state<any>(null);
+	let kbLoading = $state(false);
+	let kbActiveTab = $state<'concepts' | 'patterns' | 'suggestions'>('concepts');
+	let kbPasteText = $state('');
+	let kbPasting = $state(false);
+	let kbPasteResult = $state<{ added?: number; queued?: number; error?: string } | null>(null);
+	let kbExpandedConcept = $state<string | null>(null);
+	let kbExpandedPattern = $state<string | null>(null);
+	let kbMiningTriggerLoading = $state(false);
+	let kbMiningTriggerResult = $state<{ messages_scanned?: number; clusters_found?: number; suggestions_created?: number } | null>(null);
+
+	async function loadKnowledgeTab() {
+		kbLoading = true;
+		try {
+			const [conceptsRes, patternsRes, suggestionsRes, miningRes] = await Promise.allSettled([
+				apiRequest('/kb/concepts'),
+				apiRequest('/kb/patterns'),
+				apiRequest('/kb/suggestions?status_filter=pending'),
+				apiRequest('/kb/mining-runs/latest')
+			]);
+			if (conceptsRes.status === 'fulfilled') kbConcepts = conceptsRes.value?.concepts ?? [];
+			if (patternsRes.status === 'fulfilled') kbPatterns = patternsRes.value?.patterns ?? [];
+			if (suggestionsRes.status === 'fulfilled') kbSuggestions = suggestionsRes.value?.suggestions ?? [];
+			if (miningRes.status === 'fulfilled') kbLastRun = miningRes.value?.last_run ?? null;
+		} catch (err) {
+			console.error('Failed to load knowledge tab', err);
+		} finally {
+			kbLoading = false;
+		}
+	}
+
+	$effect(() => {
+		if (selectedNav === 'knowledge') {
+			loadKnowledgeTab();
+		}
+	});
+
+	async function kbDeleteConcept(id: string) {
+		if (!confirm('Delete this knowledge concept?')) return;
+		try {
+			await apiRequest(`/kb/concepts/${id}`, { method: 'DELETE' });
+			kbConcepts = kbConcepts.filter((c) => c.id !== id);
+			if (kbExpandedConcept === id) kbExpandedConcept = null;
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function kbDeletePattern(id: string) {
+		if (!confirm('Delete this pattern?')) return;
+		try {
+			await apiRequest(`/kb/patterns/${id}`, { method: 'DELETE' });
+			kbPatterns = kbPatterns.filter((p) => p.id !== id);
+			if (kbExpandedPattern === id) kbExpandedPattern = null;
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function kbCompilePaste() {
+		if (!kbPasteText.trim()) return;
+		kbPasting = true;
+		kbPasteResult = null;
+		try {
+			const res = await apiRequest('/kb/compile-paste', {
+				method: 'POST',
+				body: { raw_text: kbPasteText.trim() }
+			});
+			if (res.added_concepts) {
+				kbPasteResult = { added: res.added_concepts.length };
+				kbConcepts = [...res.added_concepts, ...kbConcepts];
+			} else if (res.suggestion_ids) {
+				kbPasteResult = { queued: res.suggestion_ids.length };
+			}
+			kbPasteText = '';
+		} catch (err: any) {
+			kbPasteResult = { error: err.message || 'Failed to compile' };
+		} finally {
+			kbPasting = false;
+		}
+	}
+
+	async function kbApproveSuggestion(id: string) {
+		try {
+			await apiRequest(`/kb/suggestions/${id}/approve`, {
+				method: 'POST',
+				body: { reviewed_by: inbox.currentUser?.user_id || inbox.currentUser?.id || '' }
+			});
+			kbSuggestions = kbSuggestions.filter((s) => s.id !== id);
+			await loadKnowledgeTab();
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function kbRejectSuggestion(id: string) {
+		try {
+			await apiRequest(`/kb/suggestions/${id}/reject`, {
+				method: 'POST',
+				body: { reviewed_by: inbox.currentUser?.user_id || inbox.currentUser?.id || '' }
+			});
+			kbSuggestions = kbSuggestions.filter((s) => s.id !== id);
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async function kbTriggerMining() {
+		kbMiningTriggerLoading = true;
+		kbMiningTriggerResult = null;
+		try {
+			const res = await apiRequest('/kb/mine/trigger', { method: 'POST' });
+			kbMiningTriggerResult = res;
+			await loadKnowledgeTab();
+		} catch (err) {
+			console.error(err);
+		} finally {
+			kbMiningTriggerLoading = false;
+		}
+	}
+
+	function kbFormatDate(iso?: string | null): string {
+		if (!iso) return 'Never';
+		const d = new Date(iso);
+		return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+	}
+
+	function kbTypeLabel(type?: string): string {
+		if (!type) return 'General';
+		return type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');
+	}
+
+	function kbTypeColor(type?: string): string {
+		const t = (type || '').toLowerCase();
+		if (t === 'faq') return 'bg-blue-50 text-blue-600 border-blue-200/80';
+		if (t === 'pricing') return 'bg-emerald-50 text-emerald-600 border-emerald-200/80';
+		if (t === 'policy') return 'bg-amber-50 text-amber-600 border-amber-200/80';
+		if (t === 'hours') return 'bg-purple-50 text-purple-600 border-purple-200/80';
+		if (t === 'service') return 'bg-rose-50 text-rose-600 border-rose-200/80';
+		return 'bg-slate-50 text-slate-600 border-slate-200/80';
 	}
 </script>
 
-{#if showSetupBanner}
-	<div class="setup-banner" role="alert">
-		<div class="setup-banner-inner">
-			<Icon name="zap" size={16} color="var(--yellow-primary)" />
-			<div class="setup-banner-content">
-				<strong>Finish setting up your workspace</strong>
-				<div class="setup-banner-links">
-					{#each bannerSkippedSteps as item, i}
-						<a href="/onboarding/{item.step}" class="setup-banner-link">{item.label}</a>
-						{#if i < bannerSkippedSteps.length - 1}<span class="sep">·</span>{/if}
-					{/each}
-				</div>
-			</div>
-		</div>
-		<button
-			class="setup-banner-dismiss"
-			onclick={() => { showSetupBanner = false; sessionStorage.setItem('setup-banner-dismissed', '1'); }}
-			aria-label="Dismiss banner"
-		>
-			<Icon name="x" size={14} color="var(--text-muted)" />
-		</button>
-	</div>
-{/if}
+<svelte:head>
+	<title>What Funnel - Omni Channel Lead Management</title>
+</svelte:head>
 
-<div class="inbox-layout" class:has-lead-panel={leadTrackingEnabled && inbox.activeConvo} class:has-banner={showSetupBanner}>
-	<!-- Left Navigation & Conversations Pane -->
-	<div class="sidebar glass-panel">
-		<!-- Header / Profile Section -->
-		<div class="profile-header">
-			<div class="logo-area">
-				<div class="logo-box">
-					<Icon name="bot" size={18} color="var(--blue-text)" />
-				</div>
-				<h2 class="logo-text">What Funnel</h2>
+<div class="flex h-screen w-full bg-[#F4F6FB] overflow-hidden text-slate-800 font-sans select-none">
+	
+	<!-- ================= LEFT MAIN NAVIGATION ================= -->
+	<aside class="w-56 flex flex-col justify-between p-4 bg-transparent shrink-0">
+		<div>
+			<!-- Logo: What Funnel Platform (Icon only) -->
+			<div class="flex items-center px-2 pt-1 pb-6 cursor-pointer" onclick={() => selectedNav = 'inbox'}>
+				<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
+					<rect width="36" height="36" rx="10" fill="#4F80FF" />
+					<circle cx="14" cy="14" r="3" fill="white" />
+					<circle cx="22" cy="18" r="4.5" fill="white" />
+					<circle cx="14" cy="23" r="2.5" fill="white" />
+				</svg>
 			</div>
-			{#if inbox.currentUser}
-				<div class="user-meta">
-					<div class="user-email">{inbox.currentUser.email}</div>
-					<div class="badge-blue" style="display: inline-block; margin-top: 4px;">{inbox.currentUser.role}</div>
-				</div>
-			{/if}
-			
-			<div class="nav-links">
-				{#if inbox.currentUser?.role === 'admin'}
-					<a href="/settings/account" class="nav-btn">
-						<Icon name="settings" size={13} /> Settings
-					</a>
-				{/if}
-				<button onclick={handleLogout} class="nav-btn logout-btn">
-					<Icon name="logout" size={13} color="var(--danger)" /> Logout
-				</button>
-			</div>
-		</div>
 
-		<!-- Filter Tabs -->
-		<div class="filter-tabs">
-			{#if inbox.currentUser?.role === 'admin'}
+			<!-- Nav links -->
+			<nav class="space-y-1">
+				<!-- Inbox -->
 				<button
-					class="tab-btn"
-					class:active={inbox.filter === 'all'}
-					onclick={() => {
-						inbox.filter = 'all';
-						inbox.loadConversations();
-					}}
+					onclick={() => selectedNav = 'inbox'}
+					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'inbox' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					All
+					<svg class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+					</svg>
+					<span>Inbox</span>
 				</button>
-			{/if}
-			<button
-				class="tab-btn"
-				class:active={inbox.filter === 'mine'}
-				onclick={() => {
-					inbox.filter = 'mine';
-					inbox.loadConversations();
-				}}
-			>
-				Mine
-			</button>
-			<button
-				class="tab-btn"
-				class:active={inbox.filter === 'unassigned'}
-				onclick={() => {
-					inbox.filter = 'unassigned';
-					inbox.loadConversations();
-				}}
-			>
-				Unassigned
-			</button>
-		</div>
 
-		{#if leadTrackingEnabled && pipelineStates.length > 0}
-			<div class="state-filter-container">
-				<select 
-					class="input-field state-filter-select"
-					bind:value={inbox.stateFilter}
-					onchange={() => inbox.loadConversations()}
-				>
-					<option value="">All Lead Stages</option>
-					{#each pipelineStates as st}
-						<option value={st.key}>{st.label}</option>
-					{/each}
-				</select>
-			</div>
-		{/if}
-
-		<!-- Conversation List -->
-		<div class="conversation-list">
-			{#each inbox.conversations as convo}
+				<!-- Leads -->
 				<button
-					class="convo-item"
-					class:active={inbox.activeConvoID === convo.id}
-					onclick={() => selectConvo(convo.id)}
+					onclick={() => selectedNav = 'leads'}
+					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'leads' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<div class="convo-avatar">
-						{getInitial(convo.contact_name)}
-						{#if convo.unread}
-							<span class="unread-badge"></span>
-						{/if}
-					</div>
-					<div class="convo-info">
-						<div class="convo-top">
-							<span class="convo-name">{convo.contact_name || 'Unknown Contact'}</span>
-							{#if leadTrackingEnabled && convo.lead}
-								<span 
-									class="lead-state-badge" 
-									style="border: 1px solid {getStateColor(convo.lead.current_state_key)}; color: {getStateColor(convo.lead.current_state_key)}"
-								>
-									{getStateLabel(convo.lead.current_state_key)}
-								</span>
-							{/if}
-							<span class="convo-time">{formatTime(convo.last_message_at)}</span>
-						</div>
-						<div class="convo-preview">
-							{#if convo.last_message_preview}
-								{convo.last_message_preview.content_type === 'text' 
-									? (parseMessageContent(convo.last_message_preview.content).text || '')
-									: `[${convo.last_message_preview.content_type}]`}
-							{:else}
-								No messages yet
-							{/if}
-						</div>
-					</div>
+					<svg class="w-5 h-5 {selectedNav === 'leads' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+					</svg>
+					<span>Leads</span>
 				</button>
-			{:else}
-				<div class="empty-list">No conversations found</div>
-			{/each}
-		</div>
-	</div>
 
-	<!-- Right Thread Pane -->
-	<div class="thread-pane glass-panel">
-		{#if inbox.activeConvo}
-			<!-- Thread Header -->
-			<div class="thread-header">
-				<div class="thread-contact-info">
-					<div class="convo-avatar large">{getInitial(inbox.activeConvo.contact_name)}</div>
+				<!-- Automation -->
+				<button
+					onclick={() => selectedNav = 'automation'}
+					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'automation' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
+				>
+					<svg class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+					</svg>
+					<span>Automation</span>
+				</button>
+
+				<!-- Knowledge -->
+				<button
+					onclick={() => selectedNav = 'knowledge'}
+					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'knowledge' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
+				>
+					<svg class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+					</svg>
+					<span>Knowledge</span>
+				</button>
+
+				<!-- Contacts -->
+				<button
+					onclick={() => selectedNav = 'contacts'}
+					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'contacts' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
+				>
+					<svg class="w-5 h-5 {selectedNav === 'contacts' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+					</svg>
+					<span>Contacts</span>
+				</button>
+
+				<!-- Simulate (Dev) -->
+				<button
+					onclick={() => selectedNav = 'simulate'}
+					class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'simulate' ? 'bg-purple-50/80 text-purple-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
+				>
+					<div class="flex items-center gap-3">
+						<svg class="w-5 h-5 {selectedNav === 'simulate' ? 'text-purple-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+						</svg>
+						<span>Simulate</span>
+					</div>
+					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {selectedNav === 'simulate' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'}">DEV</span>
+				</button>
+
+				<!-- Settings -->
+				<button
+					onclick={() => selectedNav = 'settings'}
+					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'settings' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
+				>
+					<svg class="w-5 h-5 {selectedNav === 'settings' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+					<span>Settings</span>
+				</button>
+			</nav>
+		</div>
+
+		<!-- Bottom Graphic & User Workspace Card -->
+		<div class="space-y-3">
+			<!-- Surreal 3D Landscape Illustration with Unicorn Silhouette -->
+			<div class="relative w-full h-44 rounded-2xl overflow-hidden bg-gradient-to-b from-sky-300 via-purple-300 to-pink-200 flex items-end justify-center">
+				<svg class="absolute inset-0 w-full h-full" viewBox="0 0 200 180" preserveAspectRatio="none" fill="none">
+					<defs>
+						<radialGradient id="skyGrad" cx="50%" cy="30%" r="70%">
+							<stop offset="0%" stop-color="#CBE5FF" />
+							<stop offset="60%" stop-color="#D9C5FF" />
+							<stop offset="100%" stop-color="#FFC2D8" />
+						</radialGradient>
+						<linearGradient id="hillPink" x1="0" y1="0" x2="1" y2="1">
+							<stop offset="0%" stop-color="#FF77A9" />
+							<stop offset="100%" stop-color="#C84E89" />
+						</linearGradient>
+						<linearGradient id="hillCyan" x1="0" y1="0" x2="1" y2="1">
+							<stop offset="0%" stop-color="#00E5D4" />
+							<stop offset="100%" stop-color="#00A896" />
+						</linearGradient>
+						<linearGradient id="hillGreen" x1="0" y1="0" x2="1" y2="1">
+							<stop offset="0%" stop-color="#32E875" />
+							<stop offset="100%" stop-color="#028090" />
+						</linearGradient>
+					</defs>
+					
+					<rect width="200" height="180" fill="url(#skyGrad)" />
+					<path d="M-20 180 C30 110, 80 130, 130 180 Z" fill="url(#hillPink)" opacity="0.8" />
+					<path d="M70 180 C110 100, 170 120, 220 180 Z" fill="url(#hillCyan)" opacity="0.9" />
+					<path d="M-10 180 C20 95, 120 100, 210 180 Z" fill="url(#hillGreen)" />
+					<g transform="translate(48, 70) scale(0.65)" fill="#1A2035">
+						<path d="M42 22 C40 18 36 10 32 6 C31 4 28 3 27 5 C26 7 27 10 26 12 C24 10 21 8 18 10 C16 11 15 14 16 16 C15 15 13 15 11 17 C9 19 9 22 12 25 C14 27 18 29 20 34 C21 37 20 42 19 46 L18 64 L21 64 L23 48 C25 48 27 49 28 52 L26 64 L29 64 L33 50 C36 49 39 49 42 46 C45 44 47 38 48 35 C50 36 53 38 56 42 L55 64 L58 64 L60 48 C62 48 64 50 65 54 L64 64 L67 64 L69 50 C71 45 68 38 64 34 C60 30 52 28 47 28 C45 28 43 25 42 22 Z" />
+						<path d="M64 34 C69 37 72 45 74 54 C75 58 78 62 80 66 L78 67 C75 62 72 55 70 48 C68 43 65 38 64 34 Z" fill="#1A2035" />
+					</g>
+				</svg>
+			</div>
+
+			<!-- Workspace Switcher Pill -->
+			<div
+				class="relative flex items-center justify-between p-2.5 bg-white rounded-2xl border border-slate-200/80 cursor-pointer hover:bg-slate-50 transition"
+				onclick={() => showWorkspaceDropdown = !showWorkspaceDropdown}
+			>
+				<div class="flex items-center gap-3">
+					<div class="w-8 h-8 rounded-xl bg-blue-600 text-white font-medium flex items-center justify-center text-sm">
+						{accountName.charAt(0).toUpperCase()}
+					</div>
 					<div>
-						<h3 class="contact-title">{inbox.activeConvo.contact_name || 'Unknown Contact'}</h3>
-						<div class="contact-subtitle">
-							Assigned: {getAssignedNames(inbox.activeConvo.assigned_user_ids)}
-						</div>
+						<div class="text-xs font-medium text-slate-800 leading-tight truncate max-w-[100px]">{accountName}</div>
+						<div class="text-[11px] text-slate-400 leading-tight capitalize">{inbox.currentUser?.role || 'Admin'}</div>
 					</div>
 				</div>
+				<svg class="w-4 h-4 text-slate-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+				</svg>
 
-				<!-- Assignment Multi-select (Admin only) -->
-				{#if inbox.currentUser?.role === 'admin'}
-					<div class="assignment-control">
-						<button 
-							class="btn-secondary" 
-							onclick={() => isAssignDropdownOpen = !isAssignDropdownOpen}
+				{#if showWorkspaceDropdown}
+					<div class="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl border border-slate-200 py-1.5 z-50">
+						<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase">Current Account</div>
+						<div class="px-3 py-1.5 text-xs font-medium text-slate-800">{accountName}</div>
+						<div class="border-t border-slate-100 my-1"></div>
+						<button
+							onclick={handleLogout}
+							class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-rose-50 text-rose-600 flex items-center gap-1.5"
 						>
-							<Icon name="user" size={14} /> Assign Agent
+							<span>Sign out</span>
 						</button>
-						{#if isAssignDropdownOpen}
-							<div class="assign-dropdown glass-panel">
-								<h4>Assign to:</h4>
-								{#each inbox.users as user}
-									<label class="assign-user-row">
-										<input 
-											type="checkbox" 
-											checked={inbox.activeConvo.assigned_user_ids?.includes(user.id)}
-											onchange={() => toggleUserAssignment(user.id)}
-										/>
-										<span>{user.email}</span>
-									</label>
-								{/each}
+					</div>
+				{/if}
+			</div>
+		</div>
+	</aside>
+
+	<!-- ================= MAIN CONTAINER (TOPBAR + 3-COLUMN WORKSPACE) ================= -->
+	<div class="flex-1 flex flex-col h-full min-h-0 overflow-hidden pt-3 pr-4 pb-4">
+		
+		<!-- --- Global Top Bar --- -->
+		<header class="h-12 flex items-center justify-between gap-4 mb-3 shrink-0">
+			<!-- Search Bar -->
+			<div class="relative w-80">
+				<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+					</svg>
+				</span>
+				<input
+					type="text"
+					bind:value={searchQuery}
+					placeholder="Search conversations..."
+					class="w-full pl-10 pr-12 py-2 bg-white text-xs text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200/80 focus:outline-none focus:border-blue-400 cursor-text"
+				/>
+				<span class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+					<kbd class="text-[11px] font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">⌘ K</kbd>
+				</span>
+			</div>
+
+			<!-- Right Controls -->
+			<div class="flex items-center gap-3">
+				<!-- AI Auto-reply Toggle Dropdown -->
+				<button
+					onclick={() => aiAutoReplyEnabled = !aiAutoReplyEnabled}
+					class="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200/80 text-xs font-medium text-slate-700 cursor-pointer hover:bg-slate-50 transition"
+				>
+					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}"></span>
+					<span class="text-slate-600">AI Auto-reply</span>
+					<span class="{aiAutoReplyEnabled ? 'text-emerald-600' : 'text-slate-400'} font-medium">{aiAutoReplyEnabled ? 'ON' : 'OFF'}</span>
+					<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+					</svg>
+				</button>
+
+				<!-- Bell notification -->
+				<button title="Notifications" class="w-9 h-9 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center text-slate-500 hover:text-slate-800 transition relative">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+					</svg>
+					<span class="absolute top-2 right-2 w-2 h-2 bg-blue-500 rounded-full"></span>
+				</button>
+
+				<!-- User avatar -->
+				<div class="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white cursor-pointer bg-blue-600 text-white flex items-center justify-center font-medium text-xs">
+					{inbox.currentUser?.email ? inbox.currentUser.email.charAt(0).toUpperCase() : 'U'}
+				</div>
+			</div>
+		</header>
+
+		<!-- --- Main Content View Switcher --- -->
+		{#if selectedNav === 'inbox'}
+			<!-- ================= 3-COLUMN INBOX DASHBOARD ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex overflow-hidden min-h-0 h-full">
+				
+				<!-- ================= COLUMN 1: INBOX CONVERSATION LIST ================= -->
+				<div class="w-[300px] xl:w-[320px] border-r border-slate-100 flex flex-col shrink-0 bg-white min-h-0 h-full">
+					<!-- Header & Filter Pills -->
+					<div class="p-4 pb-3 border-b border-slate-100 space-y-3">
+						<div class="flex items-center justify-between">
+							<h1 class="text-lg font-medium text-slate-900 tracking-tight">Inbox</h1>
+							<button title="Filter options" class="text-slate-400 hover:text-slate-600 p-1">
+								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+								</svg>
+							</button>
+						</div>
+
+						<!-- Tabs: All / Unassigned / Mine -->
+						<div class="flex items-center gap-1.5 text-xs">
+							<button
+								onclick={() => changeFilter('all')}
+								class="tab-btn px-3 py-1 rounded-full font-medium flex items-center gap-1.5 transition {inbox.filter === 'all' ? 'bg-blue-50 text-blue-600 border border-blue-200/60' : 'text-slate-500 hover:bg-slate-100'}"
+							>
+								<span>All</span>
+								<span class="bg-blue-600 text-white text-[10px] font-medium px-1.5 py-0.2 rounded-full">{countAll}</span>
+							</button>
+
+							<button
+								onclick={() => changeFilter('unassigned')}
+								class="tab-btn px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 transition {inbox.filter === 'unassigned' ? 'bg-blue-50 text-blue-600 border border-blue-200/60' : 'text-slate-500 hover:bg-slate-100'}"
+							>
+								<span>Unassigned</span>
+								<span class="text-slate-400 text-[11px]">{countUnassigned}</span>
+							</button>
+
+							<button
+								onclick={() => changeFilter('mine')}
+								class="tab-btn px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 transition {inbox.filter === 'mine' ? 'bg-blue-50 text-blue-600 border border-blue-200/60' : 'text-slate-500 hover:bg-slate-100'}"
+							>
+								<span>Mine</span>
+								<span class="text-slate-400 text-[11px]">{countMine}</span>
+							</button>
+						</div>
+
+						<!-- Secondary Filter Button -->
+						<button class="flex items-center gap-1.5 text-xs font-medium text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 transition">
+							<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+							</svg>
+							<span>Filters</span>
+						</button>
+					</div>
+
+					<!-- Conversation List Items -->
+					<div class="conversation-list flex-1 overflow-y-auto divide-y divide-slate-50">
+						{#if filteredConversations.length === 0}
+							<div class="p-8 text-center space-y-2">
+								<div class="w-10 h-10 mx-auto rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+									<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+									</svg>
+								</div>
+								<div class="text-xs font-medium text-slate-800">No conversations yet</div>
+								<p class="text-[11px] text-slate-400">Incoming messages from connected channels will show up here in real time.</p>
 							</div>
+						{:else}
+							{#each filteredConversations as item (item.id)}
+								{@const isSelected = inbox.activeConvoID === item.id}
+								{@const contactName = getContactName(item)}
+								{@const snippet = getSnippet(item)}
+								{@const timeStr = formatTime(item.last_message_at || item.created_at)}
+								<div
+									role="button"
+									tabindex="0"
+									onclick={() => selectConvo(item.id)}
+									onkeydown={(e) => { if (e.key === 'Enter') selectConvo(item.id); }}
+									class="convo-item relative px-4 py-3.5 flex items-start gap-3 cursor-pointer transition text-left {isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50/80'}"
+								>
+									<!-- Blue indicator bar -->
+									{#if isSelected}
+										<div class="absolute left-0 top-0 bottom-0 w-1 bg-blue-600 rounded-r"></div>
+									{/if}
+									{#if !isSelected && item.unread}
+										<div class="absolute left-1.5 top-6 w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+									{/if}
+
+									<!-- Avatar + Channel Badge -->
+									<div class="relative shrink-0 mt-0.5">
+										{#if item.contact?.avatar_url}
+											<img
+												src={item.contact.avatar_url}
+												alt={contactName}
+												class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-100"
+											/>
+										{:else}
+											<div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-sm ring-1 ring-slate-100">
+												{contactName.charAt(0).toUpperCase()}
+											</div>
+										{/if}
+
+										<div class="absolute -bottom-0.5 -right-0.5">
+											{#if item.channel?.type?.includes('instagram') || item.channel_type?.includes('instagram')}
+												<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+													<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-full h-full">
+														<rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+														<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+														<line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+													</svg>
+												</div>
+											{:else if item.channel?.type?.includes('whatsapp') || item.channel_type?.includes('whatsapp')}
+												<div class="w-4 h-4 rounded-full bg-[#25D366] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+													<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
+														<path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.077-2.227-.557-1.959-.811-3.21-2.822-3.307-2.953-.098-.132-.787-1.047-.787-1.996 0-.95.498-1.417.675-1.611.177-.194.387-.243.516-.243.13 0 .258.002.37.008.119.006.278-.045.435.334.162.391.554 1.354.603 1.454.05.099.083.215.016.347-.066.13-.1.215-.198.33-.099.116-.21.258-.299.347-.1.099-.204.207-.088.406.116.198.514.848 1.103 1.373.758.675 1.397.884 1.595.983.198.099.314.083.43-.05.116-.132.496-.578.629-.776.13-.198.264-.165.446-.099.182.066 1.156.545 1.354.644.198.099.33.149.38.232.049.083.049.479-.096.884z" />
+													</svg>
+												</div>
+											{:else if item.channel?.type?.includes('telegram') || item.channel_type?.includes('telegram')}
+												<div class="w-4 h-4 rounded-full bg-[#229ED9] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+													<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
+														<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+													</svg>
+												</div>
+											{:else}
+												<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-[#00C6FF] to-[#0078FF] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+													<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
+														<path d="M12 2C6.477 2 2 6.145 2 11.259c0 2.91 1.45 5.518 3.725 7.21V22l3.353-1.841c.925.257 1.908.396 2.922.396 5.523 0 10-4.145 10-9.259C22 6.145 17.523 2 12 2zm1.05 12.445l-2.673-2.855-5.218 2.855 5.741-6.095 2.741 2.855 5.15-2.855-5.741 6.095z" />
+													</svg>
+												</div>
+											{/if}
+										</div>
+									</div>
+
+									<!-- Details -->
+									<div class="flex-1 min-w-0">
+										<div class="flex items-center justify-between mb-0.5">
+											<span class="font-medium text-xs text-slate-800 truncate">{contactName}</span>
+											<span class="text-[10px] text-slate-400 shrink-0 font-medium">{timeStr}</span>
+										</div>
+										<p class="text-xs text-slate-500 truncate leading-snug">{snippet}</p>
+										
+										<!-- Badges -->
+										<div class="flex items-center justify-between mt-1.5">
+											<div>
+												{#if item.lead?.current_state_key}
+													<span class="text-[10px] font-medium px-2 py-0.5 rounded-md {getTagColor(item.lead.current_state_key)}">
+														{item.lead.current_state_key}
+													</span>
+												{/if}
+											</div>
+											
+											{#if item.unread}
+												<span class="w-2 h-2 rounded-full bg-blue-600"></span>
+											{/if}
+										</div>
+									</div>
+								</div>
+							{/each}
 						{/if}
 					</div>
-				{/if}
-			</div>
+				</div>
 
-			<!-- Message Stream -->
-			<div class="message-stream" bind:this={messageContainer}>
-				{#if inbox.nextCursor}
-					<div class="load-more-container">
-						<button class="btn-secondary load-more-btn" onclick={handleLoadMore}>
-							Load Older Messages
-						</button>
-					</div>
-				{/if}
-
-				{#each displayMessages as msg}
-					<div 
-						class="message-row" 
-						class:outbound={msg.direction === 'outbound'}
-						class:ai={msg.sender_type === 'ai'}
-					>
-						<div class="message-bubble">
-							{#if msg.sender_type === 'ai'}
-								<span class="badge-pink ai-badge">AI Assistant</span>
-							{/if}
-							
-							<!-- Content Renderers -->
-							{#if msg.content_type === 'text'}
-								<p class="msg-text">{msg.parsedContent.text}</p>
-							{:else if msg.content_type === 'image'}
-								<a href={msg.parsedContent.media_url} target="_blank" rel="noreferrer">
-									<img src={msg.parsedContent.media_url} alt="Uploaded Media" class="msg-media image" />
-								</a>
-								{#if msg.parsedContent.text}
-									<p class="msg-caption">{msg.parsedContent.text}</p>
-								{/if}
-							{:else if msg.content_type === 'video'}
-								<video src={msg.parsedContent.media_url} controls class="msg-media video">
-									<track kind="captions" />
-								</video>
-								{#if msg.parsedContent.text}
-									<p class="msg-caption">{msg.parsedContent.text}</p>
-								{/if}
-							{:else if msg.content_type === 'audio'}
-								<audio src={msg.parsedContent.media_url} controls class="msg-media audio"></audio>
-							{:else if msg.content_type === 'document'}
-								<div class="msg-doc">
-									<span><Icon name="kb" size={14} /> Document</span>
-									<a href={msg.parsedContent.media_url} download class="doc-link">Download File</a>
-								</div>
-							{:else if msg.content_type === 'location'}
-								<p class="msg-text">Location: {msg.parsedContent.text || `${msg.parsedContent.latitude}, ${msg.parsedContent.longitude}`}</p>
-							{:else if msg.content_type === 'contact'}
-								<div class="msg-contact-card">
-									<span><Icon name="user" size={14} /> Contact Card</span>
-									<strong>{msg.parsedContent.text || 'Unnamed'}</strong>
-								</div>
-							{/if}
-
-							<!-- Inline Reactions -->
-							{#if msg.reactions && msg.reactions.length > 0}
-								<div class="reactions-list">
-									{#each msg.reactions as rx}
-										<span class="reaction-badge">{rx}</span>
-									{/each}
-								</div>
-							{/if}
-							<span class="message-time">
-								{#if msg.parsedContent.external_origin}
-									<span class="external-origin-indicator">Sent from phone • </span>
-								{/if}
-								{formatTime(msg.created_at)}
-							</span>
+				<!-- ================= COLUMN 2: ACTIVE CHAT AREA ================= -->
+				<div class="flex-1 flex flex-col bg-[#FAFBFD] border-r border-slate-100 min-h-0 overflow-hidden">
+					{#if !inbox.activeConvo}
+						<div class="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
+							<div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+								<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+								</svg>
+							</div>
+							<h3 class="text-sm font-medium text-slate-800">Select a conversation</h3>
+							<p class="text-xs text-slate-400 max-w-xs">Pick a chat from the inbox on the left to view messages and respond.</p>
 						</div>
-					</div>
-				{/each}
-			</div>
-
-			<!-- Compose Area -->
-			<form class="compose-area" onsubmit={handleSend}>
-				<textarea
-					class="input-field compose-input"
-					placeholder="Type your reply..."
-					bind:value={composeText}
-					onkeydown={handleKeydown}
-					rows="1"
-				></textarea>
-				<button type="submit" class="btn-primary send-btn" disabled={!composeText.trim()}>
-					Send
-					<Icon name="send" size={15} />
-				</button>
-			</form>
-		{:else}
-			<div class="thread-empty-state">
-				<div style="width: 44px; height: 44px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">
-					<Icon name="chat" size={24} color="var(--blue-text)" />
-				</div>
-				<h2>No Conversation Selected</h2>
-				<p>Choose a conversation from the left sidebar to view messages.</p>
-			</div>
-		{/if}
-	</div>
-
-	{#if leadTrackingEnabled && inbox.activeConvo}
-		<div class="lead-panel glass-panel">
-			<h3 class="lead-panel-title">Lead Profile</h3>
-			
-			{#if inbox.activeConvo.lead}
-				<!-- State Selector -->
-				<div class="panel-section">
-					<label class="section-label">Pipeline Stage</label>
-					<select 
-						class="input-field state-select" 
-						value={inbox.activeConvo.lead.current_state_key}
-						onchange={(e) => updateLeadState((e.target as HTMLSelectElement).value)}
-					>
-						{#each pipelineStates as st}
-							<option value={st.key}>{st.label}</option>
-						{/each}
-					</select>
-				</div>
-				
-				<!-- Tag Editor -->
-				<div class="panel-section">
-					<label class="section-label">Tags</label>
-					<div class="tags-container">
-						{#each inbox.activeConvo.lead.tags || [] as tag, idx}
-							<span class={`${getTagStyleClass(idx)} lead-tag`}>
-								{tag}
-								<button class="remove-tag-btn" onclick={() => removeTag(tag)}>
-									<Icon name="x" size={10} />
-								</button>
-							</span>
-						{:else}
-							<span class="no-tags-placeholder">No tags assigned</span>
-						{/each}
-					</div>
-					<form onsubmit={addTag} class="tag-input-form">
-						<input 
-							type="text" 
-							class="input-field tag-input" 
-							placeholder="Add tag..."
-							bind:value={tagInput}
-						/>
-						<button type="submit" class="btn-secondary add-tag-btn">+</button>
-					</form>
-				</div>
-
-				<!-- Tabs for Notes & History -->
-				<div class="panel-tabs">
-					<button 
-						class="panel-tab-btn" 
-						class:active={activePanelTab === 'notes'} 
-						onclick={() => activePanelTab = 'notes'}
-					>
-						<Icon name="notes" size={13} /> Notes ({notes.length})
-					</button>
-					<button 
-						class="panel-tab-btn" 
-						class:active={activePanelTab === 'history'} 
-						onclick={() => activePanelTab = 'history'}
-					>
-						<Icon name="history" size={13} /> History
-					</button>
-				</div>
-
-				<div class="tab-content-container">
-					{#if activePanelTab === 'notes'}
-						<!-- Notes timeline -->
-						<div class="notes-timeline">
-							{#each notes as note}
-								<div class="notion-callout note-card">
-									<div class="note-header">
-										<span class="note-author">{note.author_email.split('@')[0]}</span>
-										<span class="note-time">{formatDate(note.created_at)}</span>
-									</div>
-									<p class="note-body">{note.body}</p>
-								</div>
-							{:else}
-								<div class="empty-timeline-state">No notes yet. Add one below.</div>
-							{/each}
-						</div>
-						<form onsubmit={addNote} class="add-note-form">
-							<textarea 
-								class="input-field note-textarea" 
-								placeholder="Write a note..." 
-								bind:value={newNoteText}
-								required
-							></textarea>
-							<button type="submit" class="btn-primary add-note-btn">Save Note</button>
-						</form>
 					{:else}
-						<!-- History timeline -->
-						<div class="history-timeline">
-							{#each history as hist}
-								<div class="history-card">
-									<div class="history-circle" style="background-color: {getStateColor(hist.to_state)}"></div>
-									<div class="history-content">
-										<div class="history-transition">
-											{#if hist.from_state}
-												<span class="history-state">{getStateLabel(hist.from_state)}</span> 
-												<Icon name="arrow-right" size={10} />
-											{/if}
-											<span class="history-state active-state">{getStateLabel(hist.to_state)}</span>
+						<!-- Chat Top Header -->
+						<div class="h-16 px-6 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+							<div class="flex items-center gap-3 min-w-0">
+								<div class="relative shrink-0">
+									{#if inbox.activeConvo.contact?.avatar_url}
+										<img
+											src={inbox.activeConvo.contact.avatar_url}
+											alt={getContactName(inbox.activeConvo)}
+											class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200"
+										/>
+									{:else}
+										<div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-sm ring-1 ring-slate-200">
+											{getContactName(inbox.activeConvo).charAt(0).toUpperCase()}
 										</div>
-										<div class="history-meta">
-											By {hist.actor_email.split('@')[0]} • {formatDate(hist.created_at)}
-										</div>
+									{/if}
+
+									<!-- Platform Logo Badge on Active Chat Avatar -->
+									<div class="absolute -bottom-0.5 -right-0.5">
+										{#if inbox.activeConvo.channel?.type?.includes('instagram') || inbox.activeConvo.channel_type?.includes('instagram')}
+											<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+												<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-full h-full">
+													<rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+													<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+													<line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+												</svg>
+											</div>
+										{:else if inbox.activeConvo.channel?.type?.includes('whatsapp') || inbox.activeConvo.channel_type?.includes('whatsapp')}
+											<div class="w-4 h-4 rounded-full bg-[#25D366] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+												<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
+													<path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.077-2.227-.557-1.959-.811-3.21-2.822-3.307-2.953-.098-.132-.787-1.047-.787-1.996 0-.95.498-1.417.675-1.611.177-.194.387-.243.516-.243.13 0 .258.002.37.008.119.006.278-.045.435.334.162.391.554 1.354.603 1.454.05.099.083.215.016.347-.066.13-.1.215-.198.33-.099.116-.21.258-.299.347-.1.099-.204.207-.088.406.116.198.514.848 1.103 1.373.758.675 1.397.884 1.595.983.198.099.314.083.43-.05.116-.132.496-.578.629-.776.13-.198.264-.165.446-.099.182.066 1.156.545 1.354.644.198.099.33.149.38.232.049.083.049.479-.096.884z" />
+												</svg>
+											</div>
+										{:else if inbox.activeConvo.channel?.type?.includes('telegram') || inbox.activeConvo.channel_type?.includes('telegram')}
+											<div class="w-4 h-4 rounded-full bg-[#229ED9] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+												<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
+													<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+												</svg>
+											</div>
+										{:else}
+											<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-[#00C6FF] to-[#0078FF] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
+												<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
+													<path d="M12 2C6.477 2 2 6.145 2 11.259c0 2.91 1.45 5.518 3.725 7.21V22l3.353-1.841c.925.257 1.908.396 2.922.396 5.523 0 10-4.145 10-9.259C22 6.145 17.523 2 12 2zm1.05 12.445l-2.673-2.855-5.218 2.855 5.741-6.095 2.741 2.855 5.15-2.855-5.741 6.095z" />
+												</svg>
+											</div>
+										{/if}
 									</div>
 								</div>
+								<div class="min-w-0">
+									<h2 class="font-medium text-sm text-slate-900 leading-tight whitespace-nowrap truncate">{getContactName(inbox.activeConvo)}</h2>
+									<p class="text-xs text-slate-400 leading-tight whitespace-nowrap truncate">{getContactHandle(inbox.activeConvo)}</p>
+								</div>
+							</div>
+
+							<div class="flex items-center gap-2">
+								<!-- Assign button -->
+								<div class="relative">
+									<button
+										title="Assign conversation"
+										onclick={() => showAssignDropdown = !showAssignDropdown}
+										class="w-8 h-8 rounded-lg border border-slate-200/80 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition"
+									>
+										<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+										</svg>
+									</button>
+
+									{#if showAssignDropdown}
+										<div class="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl border border-slate-200 py-1.5 z-50 text-xs">
+											<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase">Assign Team Member</div>
+											{#each inbox.users as u}
+												{@const isAssigned = inbox.activeConvo.assigned_user_ids?.includes(u.id)}
+												<button
+													onclick={() => toggleUserAssignment(u.id)}
+													class="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between text-slate-700 font-medium"
+												>
+													<span>{u.email.split('@')[0]}</span>
+													{#if isAssigned}
+														<span class="text-blue-600 font-medium">✓</span>
+													{/if}
+												</button>
+											{/each}
+										</div>
+									{/if}
+								</div>
+
+								<!-- Status badge -->
+								<div class="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium border border-blue-100 cursor-pointer">
+									<span>{inbox.activeConvo.status === 'closed' ? 'Closed' : 'In Conversation'}</span>
+									<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+									</svg>
+								</div>
+							</div>
+						</div>
+
+						<!-- Message Stream -->
+						<div bind:this={messageContainer} class="flex-1 p-6 overflow-y-auto space-y-4">
+							<!-- Date Separator -->
+							<div class="flex justify-center my-2">
+								<span class="text-[11px] font-medium text-slate-400 bg-slate-100/60 px-3 py-0.5 rounded-full">Messages</span>
+							</div>
+
+							{#if displayMessages.length === 0}
+								<div class="text-center py-12 text-slate-400 text-xs">
+									No messages yet in this conversation. Send a reply below.
+								</div>
 							{:else}
-								<div class="empty-timeline-state">No history recorded yet.</div>
-							{/each}
+								{#each displayMessages as msg (msg.id)}
+									{@const isCustomer = msg.sender_type === 'contact' || msg.sender_type === 'customer' || msg.direction === 'inbound'}
+									{@const textContent = msg.parsedContent.text || msg.parsedContent.caption || JSON.stringify(msg.parsedContent)}
+									{@const timeStr = formatTime(msg.created_at)}
+
+									{#if isCustomer}
+										<!-- Customer Incoming Message -->
+										<div class="message-row flex flex-col items-start max-w-md">
+											<div class="msg-text bg-white p-3.5 rounded-2xl rounded-tl-sm border border-slate-200/70 text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">
+												{textContent}
+											</div>
+											<span class="text-[10px] text-slate-400 mt-1 ml-1 font-medium">{timeStr}</span>
+										</div>
+									{:else}
+										<!-- Agent / AI Outgoing Message -->
+										<div class="message-row outbound flex flex-col items-end ml-auto max-w-md">
+											<div class="msg-text bg-gradient-to-r from-blue-600 to-blue-500 text-white p-3.5 rounded-2xl rounded-tr-sm text-xs leading-relaxed whitespace-pre-wrap">
+												{textContent}
+											</div>
+											<div class="flex items-center gap-1 text-[10px] text-slate-400 mt-1 mr-1">
+												<span>{timeStr}</span>
+												<svg class="w-3.5 h-3.5 text-blue-500 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+													<path d="M18 6L7 17l-5-5" />
+													<path d="M22 10l-7.5 7.5-1.5-1.5" />
+												</svg>
+											</div>
+										</div>
+									{/if}
+								{/each}
+							{/if}
+						</div>
+
+						<!-- --- Chat Composer & AI Suggestion --- -->
+						<div class="p-4 bg-white border-t border-slate-100 shrink-0">
+							<div class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden">
+								
+								<!-- Tabs: Reply | Internal Note -->
+								<div class="flex items-center gap-6 px-4 pt-3 border-b border-slate-100 text-xs font-medium">
+									<button
+										onclick={() => replyTab = 'reply'}
+										class="pb-2 transition {replyTab === 'reply' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
+									>
+										Reply
+									</button>
+									<button
+										onclick={() => replyTab = 'note'}
+										class="pb-2 transition {replyTab === 'note' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
+									>
+										Internal Note
+									</button>
+								</div>
+
+								{#if replyTab === 'reply'}
+									<!-- AI Suggested Response Box -->
+									<div class="m-3 p-3.5 rounded-xl bg-blue-50/40 border border-blue-100 flex items-start justify-between gap-3">
+										<div class="space-y-1">
+											<div class="flex items-center gap-1.5 text-xs font-medium text-blue-600">
+												<svg class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
+													<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
+												</svg>
+												<span>AI Suggested</span>
+											</div>
+											<div class="text-xs text-slate-700 leading-snug">
+												<div class="font-medium flex items-center gap-1">
+													Great choice! ✨
+												</div>
+												<div class="text-slate-600 text-[11.5px] mt-0.5">
+													We have a few slots available. Would you like me to share the schedule details?
+												</div>
+											</div>
+										</div>
+										<button
+											onclick={useAISuggestion}
+											class="shrink-0 px-3 py-1.5 bg-white text-blue-600 text-xs font-medium rounded-lg border border-blue-200 hover:bg-blue-50 transition"
+										>
+											Use this reply
+										</button>
+									</div>
+
+									<!-- Text Input Area -->
+									<div class="px-4 py-2">
+										<input
+											type="text"
+											bind:value={messageInput}
+											onkeydown={handleKeydown}
+											placeholder="Type your message..."
+											class="compose-input w-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
+										/>
+									</div>
+
+									<!-- Bottom Toolbar & Split Send Button -->
+									<div class="flex items-center justify-between px-3 py-2 border-t border-slate-100/60 bg-slate-50/40">
+										<!-- Left icon tools -->
+										<div class="flex items-center gap-1 text-slate-400">
+											<button title="Add attachment" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+												</svg>
+											</button>
+											<button title="Emoji picker" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+												</svg>
+											</button>
+											<button title="Saved replies" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+												</svg>
+											</button>
+													<button title="Quick automation" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+												</svg>
+											</button>
+										</div>
+
+										<!-- Right Action: Circular Send button -->
+										<button
+											onclick={handleSendMessage}
+											class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center transition"
+										>
+											<svg class="w-4 h-4 rotate-45 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+											</svg>
+										</button>
+									</div>
+								{:else}
+									<!-- Internal Note Tab Content -->
+									<div class="p-3">
+										<textarea
+											bind:value={internalNoteInput}
+											placeholder="Add an internal note visible only to your team..."
+											class="w-full h-20 p-2.5 text-xs text-slate-800 placeholder-slate-400 bg-amber-50/40 rounded-xl border border-amber-200/60 focus:outline-none"
+										></textarea>
+										<div class="flex justify-end mt-2">
+											<button
+												onclick={postInternalNote}
+												class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium rounded-lg transition"
+											>
+												Post Internal Note
+											</button>
+										</div>
+									</div>
+								{/if}
+
+							</div>
 						</div>
 					{/if}
 				</div>
 
-			{:else}
-				<div class="no-lead-state">
-					<p class="no-lead-text">This conversation is not currently tracked as a lead.</p>
-					<button class="btn-primary start-lead-btn" onclick={createLead}>
-						Start Tracking Lead
+				<!-- ================= COLUMN 3: RIGHT DETAILS & AI SUMMARY ================= -->
+				<div class="lead-panel w-[300px] xl:w-[320px] bg-white flex flex-col shrink-0 overflow-y-auto min-h-0 h-full">
+					<!-- Header Tabs: Lead / Details / Activity -->
+					<div class="flex items-center justify-around border-b border-slate-100 text-xs font-medium text-slate-400 pt-3 px-2">
+						<button
+							onclick={() => leadTab = 'lead'}
+							class="pb-2.5 px-4 transition {leadTab === 'lead' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}"
+						>
+							Lead
+						</button>
+						<button
+							onclick={() => leadTab = 'details'}
+							class="pb-2.5 px-4 transition {leadTab === 'details' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}"
+						>
+							Details
+						</button>
+						<button
+							onclick={() => leadTab = 'activity'}
+							class="pb-2.5 px-4 transition {leadTab === 'activity' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}"
+						>
+							Activity
+						</button>
+					</div>
+
+					<div class="p-4 space-y-5 flex-1">
+						{#if !inbox.activeConvo}
+							<div class="p-6 text-center text-xs text-slate-400 space-y-2">
+								<p>Select a conversation to view {leadTab} details.</p>
+								<p class="text-[11px] text-slate-400">To simulate customer inquiries, click <button onclick={() => selectedNav = 'simulate'} class="text-purple-600 font-medium underline">Simulate</button> in the left sidebar.</p>
+							</div>
+						{:else if leadTab === 'lead'}
+							<!-- Lead State -->
+							<div class="space-y-1.5 relative">
+								<span class="text-xs font-medium text-slate-500">Lead State</span>
+								<button
+									type="button"
+									onclick={() => showLeadStateDropdown = !showLeadStateDropdown}
+									class="lead-state-badge w-full flex items-center justify-between p-2.5 bg-amber-50/60 rounded-xl border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition text-left"
+								>
+									<div class="flex items-center gap-2">
+										<span class="w-2 h-2 rounded-full bg-amber-500"></span>
+										<span class="text-xs font-medium text-amber-700">{inbox.activeConvo.lead?.current_state_key || 'New Lead'}</span>
+									</div>
+									<svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+									</svg>
+								</button>
+
+								{#if showLeadStateDropdown}
+									<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 py-1 z-50">
+										{#each (pipelineStates.length > 0 ? pipelineStates : [{ key: 'new', label: 'New Lead' }, { key: 'interested', label: 'Interested' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'quoted', label: 'Quoted' }, { key: 'closed_won', label: 'Closed Won' }]) as stateOption}
+											<button
+												onclick={() => updateLeadState(stateOption.key || stateOption.label)}
+												class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 text-slate-700 flex items-center gap-2"
+											>
+												<span class="w-2 h-2 rounded-full bg-blue-500"></span>
+												<span>{stateOption.label || stateOption.key}</span>
+											</button>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<!-- Assigned to -->
+							<div class="space-y-1.5">
+								<span class="text-xs font-medium text-slate-500">Assigned to</span>
+								<div class="flex items-center gap-2">
+									{#if !inbox.activeConvo.assigned_user_ids || inbox.activeConvo.assigned_user_ids.length === 0}
+										<span class="text-xs text-slate-400">Unassigned</span>
+									{:else}
+										{#each inbox.activeConvo.assigned_user_ids as uid}
+											{@const usr = inbox.users.find(u => u.id === uid)}
+											<div class="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-medium ring-2 ring-white">
+												{usr?.email ? usr.email.charAt(0).toUpperCase() : 'U'}
+											</div>
+										{/each}
+									{/if}
+									<button
+										onclick={() => showAssignDropdown = !showAssignDropdown}
+										title="Add assignee"
+										class="w-7 h-7 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-xs transition"
+									>
+										+
+									</button>
+								</div>
+							</div>
+
+							<!-- Tags -->
+							<div class="space-y-1.5">
+								<span class="text-xs font-medium text-slate-500">Tags</span>
+								<div class="flex flex-wrap items-center gap-1.5">
+									{#if inbox.activeConvo.lead?.tags && inbox.activeConvo.lead.tags.length > 0}
+										{#each inbox.activeConvo.lead.tags as tag}
+											<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-600 text-xs font-medium border border-purple-100">
+												<span>{tag}</span>
+											</span>
+										{/each}
+									{:else}
+										<span class="text-xs text-slate-400">No tags</span>
+									{/if}
+
+									{#if showAddTagInput}
+										<div class="flex items-center gap-1">
+											<input
+												type="text"
+												bind:value={newTagText}
+												onkeydown={(e) => { if (e.key === 'Enter') addTag(); }}
+												placeholder="Tag..."
+												class="w-20 px-2 py-0.5 text-xs border border-purple-200 rounded-lg focus:outline-none"
+											/>
+											<button onclick={addTag} class="text-xs font-medium text-blue-600 px-1">✓</button>
+										</div>
+									{:else}
+										<button
+											onclick={() => showAddTagInput = true}
+											title="Add tag"
+											class="w-6 h-6 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 flex items-center justify-center text-xs transition"
+										>
+											+
+										</button>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Notes Card -->
+							<div class="space-y-1.5">
+								<span class="text-xs font-medium text-slate-500">Notes</span>
+								{#if loadingNotes}
+									<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">Loading notes...</div>
+								{:else if notes.length === 0}
+									<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">No notes yet. Use internal note to add one.</div>
+								{:else}
+									<div class="space-y-2">
+										{#each notes as note}
+											<div class="note-item p-3 rounded-2xl bg-white border border-slate-200/80 text-xs text-slate-600 leading-relaxed">
+												{note.text}
+												<div class="text-[10px] text-slate-400 mt-1">{formatTime(note.created_at)}</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<!-- AI Assist (Beta) Section -->
+							<div class="space-y-2 pt-1">
+								<div class="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+									<svg class="w-3.5 h-3.5 text-purple-600" viewBox="0 0 24 24" fill="currentColor">
+										<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
+									</svg>
+									<span>AI Assist</span>
+									<span class="text-[10px] text-slate-400 font-normal">(Beta)</span>
+								</div>
+
+								<div class="space-y-2">
+									<button class="w-full py-2 px-3 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50/50 transition">
+										Summarize conversation
+									</button>
+									<button class="w-full py-2 px-3 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50/50 transition">
+										Find similar conversations
+									</button>
+								</div>
+							</div>
+
+						{:else if leadTab === 'details'}
+							<!-- Contact Details Tab -->
+							<div class="space-y-4 text-xs">
+								<div class="p-3.5 bg-slate-50 rounded-xl space-y-2.5">
+									<div class="flex justify-between py-1 border-b border-slate-200/60">
+										<span class="text-slate-400">Display Name</span>
+										<span class="font-medium text-slate-800">{getContactName(inbox.activeConvo)}</span>
+									</div>
+									<div class="flex justify-between py-1 border-b border-slate-200/60">
+										<span class="text-slate-400">Channel</span>
+										<span class="font-medium text-slate-800">{getChannelLabel(inbox.activeConvo.channel_type || inbox.activeConvo.channel?.type)}</span>
+									</div>
+									<div class="flex justify-between py-1 border-b border-slate-200/60">
+										<span class="text-slate-400">Identity</span>
+										<span class="font-medium text-slate-800">{inbox.activeConvo.contact?.external_identity || 'N/A'}</span>
+									</div>
+									<div class="flex justify-between py-1 border-b border-slate-200/60">
+										<span class="text-slate-400">Status</span>
+										<span class="font-medium text-slate-800 capitalize">{inbox.activeConvo.status}</span>
+									</div>
+									<div class="flex justify-between py-1">
+										<span class="text-slate-400">Created</span>
+										<span class="font-medium text-slate-800">{formatTime(inbox.activeConvo.created_at)}</span>
+									</div>
+								</div>
+							</div>
+
+						{:else if leadTab === 'activity'}
+							<!-- Activity Timeline Tab -->
+							<div class="space-y-3 text-xs">
+								{#if history.length === 0}
+									<div class="text-slate-400 text-xs p-4 text-center">No state history recorded yet.</div>
+								{:else}
+									<div class="border-l-2 border-blue-200 ml-2 pl-3 space-y-4">
+										{#each history as item}
+											<div class="history-item relative">
+												<span class="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white"></span>
+												<div class="font-medium text-slate-800">Stage changed to {item.to_state}</div>
+												<div class="text-[11px] text-slate-400">{formatTime(item.created_at)}</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</div>
+
+			</div>
+
+		{:else if selectedNav === 'leads'}
+			<!-- ================= LEADS PIPELINE VIEW ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden p-6 space-y-6">
+				<div class="flex items-center justify-between">
+					<div>
+						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Leads & Pipeline</h1>
+						<p class="text-xs text-slate-500">Manage incoming prospective clients across omni-channels</p>
+					</div>
+				</div>
+
+				<div class="flex-1 grid grid-cols-4 gap-4 overflow-x-auto">
+					{#each (pipelineStates.length > 0 ? pipelineStates : [{ key: 'new', label: 'New Lead' }, { key: 'interested', label: 'Interested' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'closed_won', label: 'Closed Won' }]) as col}
+						{@const matchingLeads = inbox.conversations.filter(c => c.lead?.current_state_key === col.key || (!c.lead?.current_state_key && col.key === 'new'))}
+						<div class="bg-slate-50/70 rounded-2xl p-3 border border-slate-100 flex flex-col">
+							<div class="flex items-center justify-between mb-3 px-1">
+								<span class="text-xs font-medium text-slate-800">{col.label || col.key}</span>
+								<span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{matchingLeads.length}</span>
+							</div>
+
+							<div class="flex-1 space-y-2.5 overflow-y-auto">
+								{#each matchingLeads as convo}
+									<div
+										role="button"
+										tabindex="0"
+										onclick={() => { selectConvo(convo.id); selectedNav = 'inbox'; }}
+										onkeydown={(e) => { if (e.key === 'Enter') { selectConvo(convo.id); selectedNav = 'inbox'; } }}
+										class="bg-white p-3 rounded-xl border border-slate-200/80 hover:border-slate-300 transition cursor-pointer space-y-2"
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-medium text-slate-900">{getContactName(convo)}</span>
+											<span class="text-[10px] text-slate-400 font-medium">{formatTime(convo.last_message_at)}</span>
+										</div>
+										<p class="text-[11px] text-slate-500 line-clamp-2">{getSnippet(convo)}</p>
+									</div>
+								{/each}
+								{#if matchingLeads.length === 0}
+									<div class="h-24 border border-dashed border-slate-200 rounded-xl flex items-center justify-center text-[11px] text-slate-400">
+										No leads in this stage
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+		{:else if selectedNav === 'automation'}
+			<!-- ================= AUTOMATION VIEW ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-y-auto p-6 space-y-6">
+				<div class="flex items-center justify-between">
+					<div>
+						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Automation & AI Workflows</h1>
+						<p class="text-xs text-slate-500">Set up instant auto-replies, lead qualification triggers, and smart routing</p>
+					</div>
+				</div>
+
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+					<div class="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/40 space-y-3">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-2">
+								<span class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-medium">⚡</span>
+								<div>
+									<h3 class="text-xs font-medium text-slate-900">Instant AI Auto-reply</h3>
+									<p class="text-[11px] text-slate-400">Replies automatically to incoming customer questions</p>
+								</div>
+							</div>
+							<span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-medium">ACTIVE</span>
+						</div>
+						<p class="text-xs text-slate-600">Uses your knowledge base and business hours to provide instant answers.</p>
+					</div>
+				</div>
+			</div>
+
+		{:else if selectedNav === 'knowledge'}
+			<!-- ================= KNOWLEDGE BASE VIEW ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden">
+
+				<!-- Header -->
+				<div class="px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
+					<div class="flex items-start justify-between">
+						<div>
+							<h1 class="text-xl font-medium text-slate-900 tracking-tight">Knowledge Base</h1>
+							<p class="text-xs text-slate-500 mt-0.5">Train What Funnel AI on your pricing, FAQs, services, and policies</p>
+						</div>
+						<!-- Mining Run Status Card -->
+						<div class="flex items-center gap-3">
+							<div class="text-right">
+								<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Last AI Audit</div>
+								<div class="text-xs font-medium text-slate-700 mt-0.5">{kbFormatDate(kbLastRun?.run_at)}</div>
+								{#if kbLastRun}
+									<div class="text-[11px] text-slate-400">
+										{kbLastRun.messages_scanned} scanned · {kbLastRun.clusters_found} clusters · {kbLastRun.suggestions_created} suggestions
+									</div>
+								{/if}
+							</div>
+							<button
+								onclick={kbTriggerMining}
+								disabled={kbMiningTriggerLoading}
+								class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition disabled:opacity-50"
+							>
+								{#if kbMiningTriggerLoading}
+									<span class="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+									<span>Scanning…</span>
+								{:else}
+									<svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+									</svg>
+									<span>Run Audit Now</span>
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					{#if kbMiningTriggerResult}
+						<div class="mt-3 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700">
+							Audit complete — {kbMiningTriggerResult.messages_scanned} messages scanned, {kbMiningTriggerResult.clusters_found} clusters found, {kbMiningTriggerResult.suggestions_created} suggestions created.
+						</div>
+					{/if}
+
+					<!-- Sub-tabs -->
+					<div class="flex gap-1 mt-4">
+						{#each [{ k: 'concepts', l: 'KB Concepts', count: kbConcepts.length }, { k: 'patterns', l: 'Patterns', count: kbPatterns.length }, { k: 'suggestions', l: 'AI Suggestions', count: kbSuggestions.length }] as tab}
+							<button
+								onclick={() => kbActiveTab = tab.k as any}
+								class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all {kbActiveTab === tab.k ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}"
+							>
+								{tab.l}
+								<span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium {kbActiveTab === tab.k ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}">{tab.count}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<!-- Loading state -->
+				{#if kbLoading}
+					<div class="flex-1 flex items-center justify-center">
+						<span class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></span>
+					</div>
+
+				<!-- ── CONCEPTS TAB ── -->
+				{:else if kbActiveTab === 'concepts'}
+					<div class="flex-1 overflow-y-auto min-h-0 flex flex-col">
+						<!-- Add by paste -->
+						<div class="px-6 py-4 border-b border-slate-100 shrink-0">
+							<div class="text-xs font-medium text-slate-700 mb-2">Add business knowledge</div>
+							<textarea
+								bind:value={kbPasteText}
+								placeholder="Paste anything — pricing, policies, FAQs, hours, services… The AI will extract and structure it automatically."
+								class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 resize-none leading-relaxed"
+							></textarea>
+							<div class="flex items-center justify-between mt-2">
+								<div>
+									{#if kbPasteResult?.added !== undefined}
+										<span class="text-xs text-emerald-600 font-medium">✓ {kbPasteResult.added} concept{kbPasteResult.added !== 1 ? 's' : ''} added to KB</span>
+									{:else if kbPasteResult?.queued !== undefined}
+										<span class="text-xs text-amber-600 font-medium">⏳ {kbPasteResult.queued} concepts queued for review (AI Suggestions tab)</span>
+									{:else if kbPasteResult?.error}
+										<span class="text-xs text-rose-600 font-medium">✕ {kbPasteResult.error}</span>
+									{/if}
+								</div>
+								<button
+									onclick={kbCompilePaste}
+									disabled={kbPasting || !kbPasteText.trim()}
+									class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50"
+								>
+									{#if kbPasting}
+										<span class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+										<span>Compiling…</span>
+									{:else}
+										<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+										</svg>
+										<span>Compile with AI</span>
+									{/if}
+								</button>
+							</div>
+						</div>
+
+						<!-- Concept list -->
+						<div class="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+							{#if kbConcepts.length === 0}
+								<div class="flex flex-col items-center justify-center py-16 text-center">
+									<div class="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-3">
+										<svg class="w-5 h-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+										</svg>
+									</div>
+									<div class="text-sm font-medium text-slate-600">No knowledge concepts yet</div>
+									<div class="text-xs text-slate-400 mt-1">Paste your business info above and click "Compile with AI"</div>
+								</div>
+							{:else}
+								{#each kbConcepts as concept (concept.id)}
+									<div class="border border-slate-200/80 rounded-xl overflow-hidden">
+										<button
+											onclick={() => kbExpandedConcept = kbExpandedConcept === concept.id ? null : concept.id}
+											class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50/60 transition text-left"
+										>
+											<span class="px-2 py-0.5 rounded-md text-[10px] font-medium border shrink-0 {kbTypeColor(concept.type)}">{kbTypeLabel(concept.type)}</span>
+											<span class="flex-1 text-xs font-medium text-slate-800 truncate">{concept.title}</span>
+											<span class="text-[11px] text-slate-400 shrink-0">{kbFormatDate(concept.created_at)}</span>
+											<svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform {kbExpandedConcept === concept.id ? 'rotate-180' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+											</svg>
+										</button>
+										{#if kbExpandedConcept === concept.id}
+											<div class="px-4 pb-4 border-t border-slate-100">
+												<pre class="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed mt-3 font-mono bg-slate-50 rounded-lg p-3 max-h-48 overflow-y-auto">{concept.body_markdown}</pre>
+												<div class="flex justify-end mt-2">
+													<button
+														onclick={() => kbDeleteConcept(concept.id)}
+														class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-rose-500 hover:bg-rose-50 border border-rose-200/60 transition"
+													>
+														<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+															<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+														</svg>
+														Delete concept
+													</button>
+												</div>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							{/if}
+						</div>
+					</div>
+
+				<!-- ── PATTERNS TAB ── -->
+				{:else if kbActiveTab === 'patterns'}
+					<div class="flex-1 overflow-y-auto px-6 py-4 space-y-2 min-h-0">
+						{#if kbPatterns.length === 0}
+							<div class="flex flex-col items-center justify-center py-16 text-center">
+								<div class="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-3">
+									<svg class="w-5 h-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+									</svg>
+								</div>
+								<div class="text-sm font-medium text-slate-600">No patterns yet</div>
+								<div class="text-xs text-slate-400 mt-1">Patterns are created when you approve AI suggestions or compile knowledge</div>
+							</div>
+						{:else}
+							{#each kbPatterns as pattern (pattern.id)}
+								<div class="border border-slate-200/80 rounded-xl overflow-hidden">
+									<button
+										onclick={() => kbExpandedPattern = kbExpandedPattern === pattern.id ? null : pattern.id}
+										class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50/60 transition text-left"
+									>
+										<svg class="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+										</svg>
+										<span class="flex-1 text-xs font-medium text-slate-800 truncate">{pattern.canonical_question}</span>
+										{#if pattern.trigger_phrases?.length}
+											<span class="text-[11px] text-slate-400 shrink-0">{pattern.trigger_phrases.length} triggers</span>
+										{/if}
+										<span class="text-[11px] text-slate-400 shrink-0">{kbFormatDate(pattern.created_at)}</span>
+										<svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform {kbExpandedPattern === pattern.id ? 'rotate-180' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+										</svg>
+									</button>
+									{#if kbExpandedPattern === pattern.id}
+										<div class="px-4 pb-4 border-t border-slate-100 space-y-3">
+											<div class="mt-3">
+												<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide mb-1.5">Answer</div>
+												<pre class="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed font-mono bg-slate-50 rounded-lg p-3 max-h-40 overflow-y-auto">{pattern.answer_markdown}</pre>
+											</div>
+											{#if pattern.trigger_phrases?.length}
+												<div>
+													<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide mb-1.5">Trigger phrases</div>
+													<div class="flex flex-wrap gap-1.5">
+														{#each pattern.trigger_phrases as phrase}
+															<span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[11px]">{phrase}</span>
+														{/each}
+													</div>
+												</div>
+											{/if}
+											<div class="flex justify-end">
+												<button
+													onclick={() => kbDeletePattern(pattern.id)}
+													class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-rose-500 hover:bg-rose-50 border border-rose-200/60 transition"
+												>
+													<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+													</svg>
+													Delete pattern
+												</button>
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						{/if}
+					</div>
+
+				<!-- ── AI SUGGESTIONS TAB ── -->
+				{:else if kbActiveTab === 'suggestions'}
+					<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-0">
+						{#if kbSuggestions.length === 0}
+							<div class="flex flex-col items-center justify-center py-16 text-center">
+								<div class="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-3">
+									<svg class="w-5 h-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+									</svg>
+								</div>
+								<div class="text-sm font-medium text-slate-600">No pending suggestions</div>
+								<div class="text-xs text-slate-400 mt-1">Run an AI audit to discover new patterns from your conversation history</div>
+								<button
+									onclick={kbTriggerMining}
+									disabled={kbMiningTriggerLoading}
+									class="mt-4 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50"
+								>
+									{kbMiningTriggerLoading ? 'Scanning…' : 'Run AI Audit Now'}
+								</button>
+							</div>
+						{:else}
+							<div class="text-xs text-slate-500 mb-1">The AI found these patterns in your conversation history. Review and add the ones that look right.</div>
+							{#each kbSuggestions as suggestion (suggestion.id)}
+								{@const payload = typeof suggestion.proposed_payload === 'string' ? JSON.parse(suggestion.proposed_payload) : suggestion.proposed_payload}
+								<div class="border border-slate-200/80 rounded-xl p-4 space-y-3">
+									<!-- Type badge + confidence -->
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-2">
+											<span class="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-blue-50 text-blue-600 border-blue-200/80 capitalize">
+												{suggestion.type === 'new_pattern' ? 'New Pattern' : suggestion.type === 'new_kb_concept' ? 'New Concept' : suggestion.type}
+											</span>
+											{#if suggestion.confidence !== null && suggestion.confidence !== undefined}
+												<span class="text-[11px] text-slate-400">{Math.round(suggestion.confidence * 100)}% confidence</span>
+											{/if}
+										</div>
+										<span class="text-[11px] text-slate-400">{kbFormatDate(suggestion.created_at)}</span>
+									</div>
+
+									<!-- Content preview -->
+									{#if suggestion.type === 'new_pattern' && payload}
+										<div class="space-y-2">
+											<div class="text-xs font-medium text-slate-800">{payload.canonical_question}</div>
+											<pre class="text-[11px] text-slate-500 whitespace-pre-wrap leading-relaxed font-mono bg-slate-50 rounded-lg p-2.5 max-h-28 overflow-y-auto">{payload.answer_markdown}</pre>
+											{#if payload.trigger_phrases?.length}
+												<div class="flex flex-wrap gap-1">
+													{#each payload.trigger_phrases.slice(0, 5) as phrase}
+														<span class="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px]">{phrase}</span>
+													{/each}
+													{#if payload.trigger_phrases.length > 5}
+														<span class="text-[10px] text-slate-400">+{payload.trigger_phrases.length - 5} more</span>
+													{/if}
+												</div>
+											{/if}
+										</div>
+									{:else if suggestion.type === 'new_kb_concept' && payload}
+										<div class="space-y-1">
+											<div class="text-xs font-medium text-slate-800">{payload.title}</div>
+											<pre class="text-[11px] text-slate-500 whitespace-pre-wrap leading-relaxed font-mono bg-slate-50 rounded-lg p-2.5 max-h-28 overflow-y-auto">{payload.body_markdown}</pre>
+										</div>
+									{/if}
+
+									<!-- Actions -->
+									<div class="flex gap-2 pt-1">
+										<button
+											onclick={() => kbApproveSuggestion(suggestion.id)}
+											class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 text-emerald-700 text-xs font-medium transition"
+										>
+											<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+											</svg>
+											Approve & Add
+										</button>
+										<button
+											onclick={() => kbRejectSuggestion(suggestion.id)}
+											class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200/80 text-slate-500 hover:text-rose-500 text-xs font-medium transition"
+										>
+											<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+											</svg>
+											Dismiss
+										</button>
+									</div>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+		{:else if selectedNav === 'contacts'}
+			<!-- ================= CONTACTS VIEW ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden p-6 space-y-4">
+				<div class="flex items-center justify-between">
+					<div>
+						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Contacts Directory</h1>
+						<p class="text-xs text-slate-500">Omni-channel client directory</p>
+					</div>
+				</div>
+
+				<div class="flex-1 overflow-y-auto border border-slate-100 rounded-xl">
+					<table class="w-full text-left text-xs">
+						<thead class="bg-slate-50 text-slate-400 font-medium border-b border-slate-100">
+							<tr>
+								<th class="p-3">Name</th>
+								<th class="p-3">Channel</th>
+								<th class="p-3">Handle / Identity</th>
+								<th class="p-3">Lead State</th>
+								<th class="p-3">Last Active</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-100">
+							{#each inbox.conversations as c}
+								<tr class="hover:bg-slate-50/60 cursor-pointer" onclick={() => { selectConvo(c.id); selectedNav = 'inbox'; }}>
+									<td class="p-3 font-medium text-slate-800">{getContactName(c)}</td>
+									<td class="p-3 capitalize font-medium text-slate-600">{getChannelLabel(c.channel_type || c.channel?.type)}</td>
+									<td class="p-3 text-slate-500">{c.contact?.external_identity || 'N/A'}</td>
+									<td class="p-3">
+										<span class="px-2 py-0.5 rounded-md font-medium text-[10px] {getTagColor(c.lead?.current_state_key)}">
+											{c.lead?.current_state_key || 'New'}
+										</span>
+									</td>
+									<td class="p-3 text-slate-400">{formatTime(c.last_message_at)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</div>
+
+		{:else if selectedNav === 'simulate'}
+			<!-- ================= CUSTOMER SIMULATION STUDIO (DEV) ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden p-6 space-y-4">
+				<div class="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
+					<div class="flex items-center gap-3">
+						<div class="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center font-medium text-lg">
+							📱
+						</div>
+						<div>
+							<div class="flex items-center gap-2">
+								<h1 class="text-xl font-medium text-slate-900 tracking-tight">Customer Simulation Studio</h1>
+								<span class="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-medium border border-purple-200">DEV MODE</span>
+							</div>
+							<p class="text-xs text-slate-500">Simulate incoming customer messages and test AI auto-replies across multiple channels</p>
+						</div>
+					</div>
+
+					<button
+						onclick={() => selectedNav = 'inbox'}
+						class="px-3.5 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 transition flex items-center gap-1.5"
+					>
+						<svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+						</svg>
+						<span>Back to Inbox</span>
 					</button>
 				</div>
-			{/if}
-		</div>
-	{/if}
+
+				<!-- Full Space Simulator View -->
+				<div class="flex-1 overflow-y-auto min-h-0 w-full">
+					<CustomerSimulator />
+				</div>
+			</div>
+
+		{:else if selectedNav === 'settings'}
+			<!-- ================= SETTINGS VIEW ================= -->
+			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-y-auto p-6 space-y-6">
+				<div>
+					<h1 class="text-xl font-medium text-slate-900 tracking-tight">Workspace Settings</h1>
+					<p class="text-xs text-slate-500">Configure your business profile, channels, and team permissions</p>
+				</div>
+
+				<div class="max-w-2xl space-y-5 text-xs">
+					<div class="space-y-1.5">
+						<label for="settingsWorkspaceName" class="font-medium text-slate-700">Workspace Name</label>
+						<input id="settingsWorkspaceName" type="text" bind:value={accountName} class="w-full p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500" />
+					</div>
+
+					<div class="space-y-1.5">
+						<span class="font-medium text-slate-700">Account Details</span>
+						<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+							<div class="text-slate-700 font-medium">Logged in as: {inbox.currentUser?.email}</div>
+							<div class="text-slate-500">Role: <span class="capitalize font-medium">{inbox.currentUser?.role}</span></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+	</div>
+
 </div>
-
-<!-- Dev Test Widget (admin only) -->
-{#if inbox.currentUser?.role === 'admin'}
-	<DevTestWidget />
-{/if}
-
-<style>
-	/* Setup Banner */
-	.setup-banner {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		z-index: 200;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		padding: 10px 20px;
-		background: var(--yellow-bg);
-		border-bottom: 1px solid var(--yellow-border);
-	}
-	.setup-banner-inner {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		flex: 1;
-		min-width: 0;
-	}
-	.setup-banner-content {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-	.setup-banner-content strong {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--yellow-text);
-	}
-	.setup-banner-links {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 6px;
-	}
-	.setup-banner-link {
-		font-size: 12px;
-		color: var(--yellow-text);
-		text-decoration: underline;
-	}
-	.sep {
-		color: var(--text-muted);
-		font-size: 12px;
-	}
-	.setup-banner-dismiss {
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.inbox-layout {
-		display: grid;
-		grid-template-columns: 300px 1fr;
-		height: 100vh;
-		background-color: var(--bg-page);
-		padding: 12px;
-		gap: 12px;
-	}
-
-	.inbox-layout.has-banner {
-		padding-top: 48px;
-		height: calc(100vh - 36px);
-	}
-
-	.sidebar {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		overflow: hidden;
-		background: var(--bg-sidebar);
-	}
-
-	.profile-header {
-		padding: 16px;
-		border-bottom: 1px solid var(--border-color);
-	}
-
-	.logo-area {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-bottom: 10px;
-	}
-
-	.logo-box {
-		width: 24px;
-		height: 24px;
-		border-radius: 5px;
-		background: var(--blue-bg);
-		border: 1px solid var(--blue-border);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.logo-text {
-		font-size: 16px;
-		font-weight: 700;
-		color: var(--text-primary);
-	}
-
-	.user-meta {
-		margin-bottom: 10px;
-	}
-
-	.user-email {
-		font-size: 12.5px;
-		color: var(--text-secondary);
-	}
-
-	.nav-links {
-		display: flex;
-		gap: 6px;
-		margin-top: 8px;
-	}
-
-	.nav-btn {
-		font-size: 12px;
-		color: var(--text-secondary);
-		text-decoration: none;
-		background: #FFFFFF;
-		border: 1px solid var(--border-color);
-		padding: 4px 10px;
-		border-radius: 5px;
-		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		transition: background-color 0.15s;
-	}
-
-	.nav-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.logout-btn {
-		margin-left: auto;
-		color: var(--danger);
-	}
-
-	.filter-tabs {
-		display: flex;
-		padding: 8px 12px;
-		gap: 4px;
-		border-bottom: 1px solid var(--border-color);
-	}
-
-	.tab-btn {
-		flex: 1;
-		background: transparent;
-		border: none;
-		color: var(--text-secondary);
-		padding: 6px;
-		font-size: 12.5px;
-		font-weight: 500;
-		cursor: pointer;
-		border-radius: 5px;
-		transition: all 0.15s;
-	}
-
-	.tab-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.tab-btn.active {
-		background: var(--blue-bg);
-		color: var(--blue-text);
-		font-weight: 600;
-	}
-
-	.conversation-list {
-		flex: 1;
-		overflow-y: auto;
-		padding: 6px;
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.convo-item {
-		display: flex;
-		align-items: center;
-		padding: 10px;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: 6px;
-		cursor: pointer;
-		width: 100%;
-		text-align: left;
-		gap: 10px;
-		transition: all 0.15s;
-	}
-
-	.convo-item:hover {
-		background: var(--bg-hover);
-	}
-
-	.convo-item.active {
-		background: var(--blue-bg);
-		border-color: var(--blue-border);
-	}
-
-	.convo-avatar {
-		width: 36px;
-		height: 36px;
-		background: #E8E8E5;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 14px;
-		font-weight: 600;
-		color: var(--text-primary);
-		position: relative;
-		flex-shrink: 0;
-	}
-
-	.convo-avatar.large {
-		width: 40px;
-		height: 40px;
-		font-size: 16px;
-	}
-
-	.unread-badge {
-		position: absolute;
-		top: 0;
-		right: 0;
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
-		background-color: var(--pink-primary);
-		border: 2px solid #FFFFFF;
-	}
-
-	.convo-info {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.convo-top {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 4px;
-		margin-bottom: 2px;
-	}
-
-	.convo-name {
-		font-size: 13.5px;
-		font-weight: 600;
-		color: var(--text-primary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.lead-state-badge {
-		font-size: 10px;
-		font-weight: 600;
-		padding: 1px 5px;
-		border-radius: 4px;
-		white-space: nowrap;
-	}
-
-	.convo-time {
-		font-size: 10.5px;
-		color: var(--text-muted);
-	}
-
-	.convo-preview {
-		font-size: 12.5px;
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.empty-list {
-		text-align: center;
-		padding: 24px;
-		color: var(--text-muted);
-		font-size: 13px;
-	}
-
-	.thread-pane {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		overflow: hidden;
-		background: #FFFFFF;
-	}
-
-	.thread-header {
-		padding: 14px 20px;
-		border-bottom: 1px solid var(--border-color);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.thread-contact-info {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.contact-title {
-		font-size: 15px;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-
-	.contact-subtitle {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	.assignment-control {
-		position: relative;
-	}
-
-	.assign-dropdown {
-		position: absolute;
-		top: 100%;
-		right: 0;
-		margin-top: 6px;
-		width: 220px;
-		padding: 12px;
-		z-index: 10;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		background: #FFFFFF;
-	}
-
-	.assign-dropdown h4 {
-		font-size: 11px;
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		margin-bottom: 2px;
-	}
-
-	.assign-user-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 13px;
-		cursor: pointer;
-	}
-
-	.message-stream {
-		flex: 1;
-		overflow-y: auto;
-		padding: 20px;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.load-more-container {
-		display: flex;
-		justify-content: center;
-		margin-bottom: 12px;
-	}
-
-	.load-more-btn {
-		font-size: 12px;
-		padding: 4px 10px;
-	}
-
-	.message-row {
-		display: flex;
-		justify-content: flex-start;
-	}
-
-	.message-row.outbound {
-		justify-content: flex-end;
-	}
-
-	.message-bubble {
-		max-width: 65%;
-		padding: 10px 14px;
-		border-radius: 8px;
-		background: var(--bg-sidebar);
-		border: 1px solid var(--border-color);
-		position: relative;
-	}
-
-	.message-row.outbound .message-bubble {
-		background: var(--blue-bg);
-		border-color: var(--blue-border);
-	}
-
-	.message-row.ai .message-bubble {
-		background: var(--pink-bg);
-		border-color: var(--pink-border);
-	}
-
-	.ai-badge {
-		margin-bottom: 4px;
-	}
-
-	.msg-text {
-		font-size: 13.5px;
-		line-height: 1.5;
-		color: var(--text-primary);
-	}
-
-	.msg-media {
-		max-width: 100%;
-		max-height: 240px;
-		border-radius: 6px;
-		margin-top: 4px;
-	}
-
-	.msg-caption {
-		font-size: 12.5px;
-		color: var(--text-secondary);
-		margin-top: 4px;
-	}
-
-	.msg-doc {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		font-size: 13px;
-	}
-
-	.doc-link {
-		color: var(--blue-text);
-		text-decoration: none;
-		font-weight: 500;
-	}
-
-	.msg-contact-card {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		font-size: 13px;
-	}
-
-	.reactions-list {
-		display: flex;
-		gap: 4px;
-		margin-top: 6px;
-		flex-wrap: wrap;
-	}
-
-	.reaction-badge {
-		background: #FFFFFF;
-		border: 1px solid var(--border-color);
-		padding: 2px 6px;
-		border-radius: 4px;
-		font-size: 11px;
-		font-weight: 500;
-	}
-
-	.message-time {
-		display: block;
-		font-size: 10px;
-		color: var(--text-muted);
-		margin-top: 4px;
-		text-align: right;
-	}
-
-	.external-origin-indicator {
-		font-style: italic;
-		font-weight: 500;
-		color: var(--blue-text);
-	}
-
-	.compose-area {
-		padding: 14px 20px;
-		border-top: 1px solid var(--border-color);
-		display: flex;
-		gap: 10px;
-	}
-
-	.compose-input {
-		flex: 1;
-		resize: none;
-		height: 40px;
-		line-height: 20px;
-	}
-
-	.send-btn {
-		height: 40px;
-	}
-
-	.thread-empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		color: var(--text-muted);
-		gap: 6px;
-	}
-
-	.inbox-layout.has-lead-panel {
-		grid-template-columns: 300px 1fr 320px;
-	}
-
-	/* State Filter */
-	.state-filter-container {
-		padding: 8px 12px;
-		border-bottom: 1px solid var(--border-color);
-	}
-	
-	.state-filter-select {
-		height: 32px;
-		font-size: 12.5px;
-	}
-
-	/* Lead Panel */
-	.lead-panel {
-		padding: 18px;
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-		overflow-y: auto;
-		background: #FFFFFF;
-	}
-
-	.lead-panel-title {
-		font-size: 15px;
-		font-weight: 700;
-		color: var(--text-primary);
-		border-bottom: 1px solid var(--border-color);
-		padding-bottom: 10px;
-	}
-
-	.panel-section {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.section-label {
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.4px;
-	}
-
-	.state-select {
-		height: 34px;
-		font-size: 13px;
-	}
-
-	.tags-container {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin-bottom: 6px;
-	}
-
-	.lead-tag {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 2px 8px;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 500;
-	}
-
-	.remove-tag-btn {
-		background: none;
-		border: none;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		padding: 0;
-	}
-
-	.no-tags-placeholder {
-		font-size: 12.5px;
-		color: var(--text-muted);
-		font-style: italic;
-	}
-
-	.tag-input-form {
-		display: flex;
-		gap: 6px;
-	}
-
-	.tag-input {
-		flex: 1;
-		height: 32px;
-		font-size: 12.5px;
-	}
-
-	.add-tag-btn {
-		height: 32px;
-		padding: 0 10px;
-	}
-
-	.panel-tabs {
-		display: flex;
-		border-bottom: 1px solid var(--border-color);
-		gap: 4px;
-	}
-
-	.panel-tab-btn {
-		flex: 1;
-		background: transparent;
-		border: none;
-		color: var(--text-secondary);
-		padding: 8px;
-		font-size: 12.5px;
-		font-weight: 500;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		border-bottom: 2px solid transparent;
-		transition: all 0.15s;
-	}
-
-	.panel-tab-btn.active {
-		color: var(--blue-text);
-		border-bottom-color: var(--blue-primary);
-		font-weight: 600;
-	}
-
-	.tab-content-container {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.notes-timeline, .history-timeline {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		margin-bottom: 12px;
-		max-height: 260px;
-		overflow-y: auto;
-	}
-
-	.note-card {
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.note-header {
-		display: flex;
-		justify-content: space-between;
-		font-size: 11px;
-		font-weight: 600;
-	}
-
-	.note-time {
-		color: var(--yellow-text);
-		opacity: 0.8;
-		font-weight: 400;
-	}
-
-	.note-body {
-		font-size: 13px;
-		line-height: 1.4;
-	}
-
-	.add-note-form {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		margin-top: auto;
-	}
-
-	.note-textarea {
-		height: 60px;
-		font-size: 12.5px;
-		resize: none;
-	}
-
-	.add-note-btn {
-		height: 32px;
-		font-size: 12.5px;
-	}
-
-	.empty-timeline-state {
-		font-size: 12.5px;
-		color: var(--text-muted);
-		text-align: center;
-		padding: 16px 0;
-	}
-
-	.history-card {
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-		padding: 6px 0;
-	}
-
-	.history-circle {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		margin-top: 4px;
-		flex-shrink: 0;
-	}
-
-	.history-content {
-		font-size: 12px;
-	}
-
-	.history-transition {
-		color: var(--text-primary);
-		font-weight: 500;
-	}
-
-	.history-meta {
-		font-size: 10.5px;
-		color: var(--text-muted);
-	}
-
-	.no-lead-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 32px 16px;
-		text-align: center;
-		gap: 12px;
-	}
-
-	.no-lead-text {
-		font-size: 13px;
-		color: var(--text-secondary);
-	}
-
-	.start-lead-btn {
-		width: 100%;
-		height: 36px;
-	}
-</style>

@@ -38,11 +38,20 @@ async def lifespan(app: FastAPI):
     await app.state.db.close()
     logger.info("Database pool closed.")
 
+from playground import router as playground_router
+from fastapi.responses import RedirectResponse
+
 app = FastAPI(
     title="WhatFunnel AI KB Compiler",
     version="1.0.0",
     lifespan=lifespan
 )
+
+app.include_router(playground_router)
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    return RedirectResponse(url="/playground")
 
 # Dependency to retrieve a tenant-scoped database client.
 async def get_db(x_account_id: str = Header(..., alias="X-Account-ID")) -> ScopedDB:
@@ -64,6 +73,14 @@ async def write_audit_log(
     target_id: Optional[uuid.UUID],
     metadata: dict
 ):
+    if actor_user_id:
+        user_exists = await db.fetchval(
+            "SELECT 1 FROM users WHERE id = $1 AND account_id = $2",
+            actor_user_id, db.account_id
+        )
+        if not user_exists:
+            actor_user_id = None
+
     await db.execute(
         """
         INSERT INTO audit_logs (account_id, actor_user_id, action, target_type, target_id, metadata)
@@ -521,3 +538,77 @@ async def reject_suggestion(
     )
 
     return {"success": True}
+
+@app.get("/internal/kb/patterns")
+async def list_patterns(db: ScopedDB = Depends(get_db)):
+    rows = await db.fetch(
+        """
+        SELECT id, canonical_question, answer_markdown, trigger_phrases, created_at, updated_at
+        FROM patterns
+        WHERE account_id = $1
+        ORDER BY created_at DESC
+        """,
+        db.account_id
+    )
+    return {"patterns": [dict(r) for r in rows]}
+
+@app.delete("/internal/kb/patterns/{pattern_id}")
+async def delete_pattern(
+    pattern_id: str,
+    db: ScopedDB = Depends(get_db),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    try:
+        pattern_uuid = uuid.UUID(pattern_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid pattern ID format")
+
+    actor_user_id = None
+    if x_user_id:
+        try:
+            actor_user_id = uuid.UUID(x_user_id)
+        except ValueError:
+            pass
+
+    row = await db.fetchrow(
+        "SELECT id, canonical_question FROM patterns WHERE id = $1 AND account_id = $2",
+        pattern_uuid, db.account_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Pattern not found")
+
+    await db.execute(
+        "DELETE FROM patterns WHERE id = $1 AND account_id = $2",
+        pattern_uuid, db.account_id
+    )
+
+    await write_audit_log(
+        db=db,
+        actor_user_id=actor_user_id,
+        action="pattern.deleted",
+        target_type="pattern",
+        target_id=pattern_uuid,
+        metadata={"canonical_question": row["canonical_question"]}
+    )
+
+    return {"success": True}
+
+@app.get("/internal/kb/mining-runs/latest")
+async def latest_mining_run(db: ScopedDB = Depends(get_db)):
+    row = await db.fetchrow(
+        """
+        SELECT run_at, window_start, window_end, messages_scanned, clusters_found, suggestions_created
+        FROM kb_mining_runs
+        WHERE account_id = $1
+        ORDER BY run_at DESC
+        LIMIT 1
+        """,
+        db.account_id
+    )
+    if not row:
+        return {"last_run": None}
+    record = dict(row)
+    for key, val in record.items():
+        if isinstance(val, datetime):
+            record[key] = val.isoformat()
+    return {"last_run": record}

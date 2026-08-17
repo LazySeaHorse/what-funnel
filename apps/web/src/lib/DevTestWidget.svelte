@@ -6,6 +6,7 @@
 	// ─── State ───────────────────────────────────────────────────────────────
 	let isOpen = $state(false);
 	let isMinimized = $state(false);
+	let activeTab = $state<'chat' | 'controls'>('chat');
 	let isSending = $state(false);
 	let lastStatus = $state<'idle' | 'success' | 'error'>('idle');
 	let lastError = $state('');
@@ -16,6 +17,12 @@
 	let messageText = $state('');
 	let contentType = $state<'text' | 'image' | 'audio'>('text');
 	let mediaURL = $state('');
+
+	// ─── Active Conversation Thread State ─────────────────────────────────────
+	let convoMessages = $state<any[]>([]);
+	let activeConvoID = $state<string | null>(null);
+	let isConvoLoading = $state(false);
+	let pollInterval = $state<any>(null);
 
 	// ─── Persistent dummy test contacts (stored in localStorage) ─────────────
 	const STORAGE_KEY = 'wf_dev_test_contacts';
@@ -47,7 +54,14 @@
 			name: 'Charlie Mock',
 			externalID: 'test-charlie-003',
 			avatar: 'C',
-			platform: 'twitter',
+			platform: 'messenger',
+		},
+		{
+			id: 'c4',
+			name: 'Dana Telegram',
+			externalID: 'test-dana-004',
+			avatar: 'D',
+			platform: 'telegram',
 		},
 	];
 
@@ -72,18 +86,18 @@
 		whatsapp: [
 			"Hi! I'm interested in your product.",
 			"Can you tell me more about pricing?",
-			"I'd like to schedule a demo.",
-			"Is this still available?",
+			"What is your refund policy?",
+			"I have an urgent support question",
 		],
 		instagram: [
 			"Saw your post! Can I DM you?",
 			"What's the price for this?",
-			"Do you ship internationally?",
+			"Do you support custom enterprise setups?",
 		],
 		twitter: [
 			"Hey, I saw your tweet. Can we talk?",
-			"Interested in a collaboration?",
-			"Quick question about your service",
+			"Interested in your services!",
+			"Quick question about your compliance certifications",
 		],
 		messenger: [
 			"Hello! I came from your Facebook page.",
@@ -101,18 +115,56 @@
 		return PRESET_MESSAGES[selectedPlatform] || [];
 	}
 
-	// ─── Lifecycle ───────────────────────────────────────────────────────────
-	onMount(async () => {
-		// Restore persisted contacts
-		try {
-			const stored = localStorage.getItem(STORAGE_KEY);
-			if (stored) {
-				testContacts = JSON.parse(stored);
+	function parseMessageText(content: any): string {
+		if (!content) return '';
+		if (typeof content === 'object') return content.text || content.caption || JSON.stringify(content);
+		if (typeof content === 'string') {
+			try {
+				const parsed = JSON.parse(content);
+				return parsed.text || parsed.caption || content;
+			} catch (e1) {
+				try {
+					const decoded = atob(content);
+					const parsed = JSON.parse(decoded);
+					return parsed.text || parsed.caption || decoded;
+				} catch (e2) {
+					return content;
+				}
 			}
-		} catch {}
+		}
+		return String(content);
+	}
 
-		// Load channels
-		await loadChannels();
+	// ─── Lifecycle ───────────────────────────────────────────────────────────
+	onMount(() => {
+		(async () => {
+			// Restore persisted contacts
+			try {
+				const stored = localStorage.getItem(STORAGE_KEY);
+				if (stored) {
+					testContacts = JSON.parse(stored);
+				}
+			} catch {}
+
+			// Load channels
+			await loadChannels();
+			await refreshCurrentConvo();
+		})();
+
+		// Start polling when widget is active
+		pollInterval = setInterval(() => {
+			if (isOpen && !isMinimized) {
+				refreshCurrentConvo(false);
+			}
+		}, 2000);
+
+		window.addEventListener('dev-message-sent', () => {
+			refreshCurrentConvo(false);
+		});
+
+		return () => {
+			if (pollInterval) clearInterval(pollInterval);
+		};
 	});
 
 	async function loadChannels() {
@@ -121,10 +173,30 @@
 			channels = Array.isArray(data) ? data : [];
 			if (channels.length > 0 && !selectedChannelID) {
 				selectedChannelID = channels[0].id;
+			} else if (channels.length === 0) {
+				await createMockChannel();
 			}
 		} catch (err) {
 			channels = [];
 		}
+	}
+
+	async function selectPlatform(platformKey: string) {
+		selectedPlatform = platformKey;
+		const contact = testContacts.find((c) => c.id === selectedContactID);
+		if (contact) {
+			contact.platform = platformKey;
+		}
+		try {
+			const data = await apiRequest('/simulate/channels');
+			channels = Array.isArray(data) ? data : [];
+			const matching = channels.find(ch => ch.type === `matrix_${platformKey}` || ch.type === platformKey);
+			if (matching) {
+				selectedChannelID = matching.id;
+			} else {
+				await createMockChannel();
+			}
+		} catch {}
 	}
 
 	async function createMockChannel() {
@@ -134,9 +206,13 @@
 				method: 'POST',
 				body: { type }
 			});
-			await loadChannels();
+			const data = await apiRequest('/simulate/channels');
+			channels = Array.isArray(data) ? data : [];
 			if (newCh && newCh.id) {
 				selectedChannelID = newCh.id;
+			} else if (channels.length > 0) {
+				const found = channels.find(ch => ch.type === `matrix_${selectedPlatform}` || ch.type === selectedPlatform);
+				selectedChannelID = found ? found.id : channels[0].id;
 			}
 		} catch (err: any) {
 			lastStatus = 'error';
@@ -144,13 +220,139 @@
 		}
 	}
 
+	async function refreshCurrentConvo(showLoading = true) {
+		const contact = testContacts.find((c) => c.id === selectedContactID);
+		if (!contact) return;
+
+		if (showLoading && !convoMessages.length) isConvoLoading = true;
+
+		try {
+			// Find conversation for this contact
+			const convos = await apiRequest('/conversations?filter=all');
+			if (Array.isArray(convos)) {
+				const match = convos.find((c: any) => 
+					(c.display_name && c.display_name.startsWith(contact.name)) ||
+					(c.contact_display_name && c.contact_display_name.startsWith(contact.name))
+				);
+
+				if (match) {
+					activeConvoID = match.id;
+					const msgRes = await apiRequest(`/conversations/${match.id}/messages?limit=30`);
+					if (msgRes && msgRes.messages) {
+						convoMessages = msgRes.messages.reverse();
+					}
+				} else {
+					convoMessages = [];
+				}
+			}
+		} catch (err) {
+			// Ignore polling error
+		} finally {
+			if (showLoading) isConvoLoading = false;
+		}
+	}
+
+	function selectContact(id: string) {
+		selectedContactID = id;
+		convoMessages = [];
+		activeConvoID = null;
+		const contact = testContacts.find(c => c.id === id);
+		if (contact && contact.platform) {
+			selectPlatform(contact.platform);
+		}
+		refreshCurrentConvo(true);
+	}
+
+	function buildNativePayload(platform: string, contact: TestContact, text: string) {
+		const numericId = parseInt(contact.externalID.replace(/\D/g, ''), 10) || Math.floor(100000 + Math.random() * 900000);
+		const msgId = Math.floor(1000 + Math.random() * 90000);
+		const nowUnix = Math.floor(Date.now() / 1000);
+
+		if (platform === 'telegram') {
+			const nameParts = contact.name.trim().split(' ');
+			const firstName = nameParts[0] || 'User';
+			const lastName = nameParts.slice(1).join(' ');
+			return {
+				update_id: Math.floor(10000000 + Math.random() * 90000000),
+				message: {
+					message_id: msgId,
+					from: {
+						id: numericId,
+						is_bot: false,
+						first_name: firstName,
+						last_name: lastName,
+						username: contact.name.toLowerCase().replace(/\s+/g, '_')
+					},
+					chat: {
+						id: numericId,
+						type: 'private',
+						first_name: firstName,
+						last_name: lastName,
+						username: contact.name.toLowerCase().replace(/\s+/g, '_')
+					},
+					date: nowUnix,
+					text: text
+				}
+			};
+		} else if (platform === 'whatsapp') {
+			return {
+				object: 'whatsapp_business_account',
+				entry: [{
+					id: 'biz_account_01',
+					changes: [{
+						value: {
+							messaging_product: 'whatsapp',
+							metadata: {
+								display_phone_number: '15550000000',
+								phone_number_id: 'phone_001'
+							},
+							contacts: [{
+								profile: { name: contact.name },
+								wa_id: contact.externalID
+							}],
+							messages: [{
+								from: contact.externalID,
+								id: `wamid.HBgL${Date.now()}`,
+								timestamp: `${nowUnix}`,
+								text: { body: text },
+								type: 'text'
+							}]
+						},
+						field: 'messages'
+					}]
+				}]
+			};
+		} else {
+			return {
+				object: platform === 'instagram' ? 'instagram' : 'page',
+				entry: [{
+					id: `page_${platform}_01`,
+					time: Date.now(),
+					messaging: [{
+						sender: { id: contact.externalID },
+						recipient: { id: `page_${platform}_01` },
+						timestamp: Date.now(),
+						message: {
+							mid: `mid.${platform}.${Date.now()}`,
+							text: text
+						}
+					}]
+				}]
+			};
+		}
+	}
+
 	// ─── Actions ─────────────────────────────────────────────────────────────
 	async function sendMessage() {
 		if (!messageText.trim() && contentType === 'text') return;
 		if (!selectedChannelID) {
-			lastStatus = 'error';
-			lastError = 'No channel selected. Create a channel in Settings first.';
-			return;
+			await selectPlatform(selectedPlatform);
+			if (!selectedChannelID) {
+				lastStatus = 'error';
+				lastError = 'No channel available. Creating mock channel...';
+				await createMockChannel();
+				if (!selectedChannelID) return;
+			}
 		}
 
 		const contact = testContacts.find((c) => c.id === selectedContactID);
@@ -163,32 +365,33 @@
 		isSending = true;
 		lastStatus = 'idle';
 		lastError = '';
+		const textToSend = messageText.trim();
+		messageText = '';
 
 		try {
-			await apiRequest('/simulate-inbound', {
+			const targetPlatform = selectedPlatform || 'whatsapp';
+			const nativePayload = buildNativePayload(targetPlatform, contact, textToSend);
+			await apiRequest(`/webhooks/${targetPlatform}?channel_id=${selectedChannelID}`, {
 				method: 'POST',
-				body: {
-					channel_id: selectedChannelID,
-					sender_external_id: contact.externalID,
-					sender_display_name: `${contact.name} (${PLATFORMS.find((p) => p.key === selectedPlatform)?.label ?? selectedPlatform})`,
-					sender_avatar_url: '',
-					content_type: contentType,
-					text: messageText.trim(),
-					media_url: contentType !== 'text' ? mediaURL : '',
-				},
+				body: nativePayload
 			});
 			lastStatus = 'success';
-			messageText = '';
 			mediaURL = '';
-			// Dispatch event so Inbox automatically re-fetches conversations
+			
+			// Refresh messages immediately and again after 1.5s for AI cascade
 			window.dispatchEvent(new CustomEvent('dev-message-sent'));
-			// Auto-reset status after 3s
+			await refreshCurrentConvo(false);
 			setTimeout(() => {
+				refreshCurrentConvo(false);
 				lastStatus = 'idle';
-			}, 3000);
+			}, 2000);
+			setTimeout(() => {
+				refreshCurrentConvo(false);
+			}, 4000);
 		} catch (err: any) {
 			lastStatus = 'error';
 			lastError = err.message || 'Unknown error';
+			messageText = textToSend;
 		} finally {
 			isSending = false;
 		}
@@ -211,7 +414,7 @@
 			platform: selectedPlatform,
 		};
 		testContacts = [...testContacts, contact];
-		selectedContactID = contact.id;
+		selectContact(contact.id);
 		newContactName = '';
 		showAddContact = false;
 		try {
@@ -222,7 +425,7 @@
 	function removeContact(id: string) {
 		testContacts = testContacts.filter((c) => c.id !== id);
 		if (selectedContactID === id) {
-			selectedContactID = testContacts[0]?.id ?? '';
+			selectContact(testContacts[0]?.id ?? '');
 		}
 		try {
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(testContacts));
@@ -240,6 +443,7 @@
 	}
 
 	const activePlatform = $derived(getPlatformInfo(selectedPlatform));
+	const currentContact = $derived(testContacts.find((c) => c.id === selectedContactID) ?? testContacts[0]);
 </script>
 
 <!-- ─── Floating Launcher Button ─────────────────────────────────────────── -->
@@ -286,176 +490,230 @@
 		</div>
 
 		{#if !isMinimized}
-			<div class="dev-body">
-				<!-- Platform Picker -->
-				<div class="dev-section">
-					<div class="dev-label">Platform</div>
-					<div class="platform-grid">
-						{#each PLATFORMS as plat}
-							<button
-								class="platform-btn"
-								class:active={selectedPlatform === plat.key}
-								onclick={() => (selectedPlatform = plat.key)}
-								style="--plat-color: {plat.color}"
-								title={plat.label}
-							>
-								<span class="platform-icon">{plat.icon}</span>
-								<span class="platform-name">{plat.label}</span>
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Channel Selector -->
-				<div class="dev-section">
-					<div class="dev-label-row">
-						<div class="dev-label">Target Channel</div>
-						<div style="display: flex; gap: 4px;">
-							<button class="dev-add-btn" onclick={createMockChannel} title="Auto-create mock channel">+ Mock Channel</button>
-							<button class="dev-refresh-btn" onclick={loadChannels} title="Refresh channels">↻</button>
-						</div>
-					</div>
-					{#if channels.length === 0}
-						<div class="dev-empty-note">
-							No channels found. Click <strong>+ Mock Channel</strong> above to create one automatically.
-						</div>
-					{:else}
-						<select class="dev-select" bind:value={selectedChannelID}>
-							{#each channels as ch}
-								<option value={ch.id}>{ch.type} — {ch.id.slice(0, 8)}…</option>
-							{/each}
-						</select>
-					{/if}
-				</div>
-
-				<!-- Test Contact Selector -->
-				<div class="dev-section">
-					<div class="dev-label-row">
-						<div class="dev-label">Test Contact</div>
-						<button
-							class="dev-add-btn"
-							onclick={() => (showAddContact = !showAddContact)}
-							title="Add contact"
-						>+ Add</button>
-					</div>
-					<div class="contact-list">
-						{#each testContacts as contact}
-							<button
-								class="contact-chip"
-								class:active={selectedContactID === contact.id}
-								onclick={() => (selectedContactID = contact.id)}
-							>
-								<span class="contact-avatar">{contact.avatar}</span>
-								<span class="contact-name">{contact.name}</span>
-								{#if testContacts.length > 1}
-									<span
-										class="contact-remove"
-										role="button"
-										tabindex="0"
-										onclick={(e) => { e.stopPropagation(); removeContact(contact.id); }}
-										onkeydown={(e) => e.key === 'Enter' && removeContact(contact.id)}
-									><Icon name="x" size={10} /></span>
-								{/if}
-							</button>
-						{/each}
-					</div>
-
-					{#if showAddContact}
-						<div class="add-contact-form">
-							<input
-								class="dev-input"
-								type="text"
-								placeholder="Contact name…"
-								bind:value={newContactName}
-								onkeydown={(e) => e.key === 'Enter' && addContact()}
-							/>
-							<button class="dev-btn-secondary" onclick={addContact}>Add</button>
-						</div>
-					{/if}
-				</div>
-
-				<!-- Content Type -->
-				<div class="dev-section">
-					<div class="dev-label">Message Type</div>
-					<div class="type-tabs">
-						{#each [{ k: 'text', l: 'Text' }, { k: 'image', l: 'Image' }, { k: 'audio', l: 'Audio' }] as t}
-							<button
-								class="type-tab"
-								class:active={contentType === t.k}
-								onclick={() => (contentType = t.k as 'text' | 'image' | 'audio')}
-							>
-								{t.l}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Preset Messages (text only) -->
-				{#if contentType === 'text'}
-					<div class="dev-section">
-						<div class="dev-label">Quick Presets</div>
-						<div class="presets-list">
-							{#each getPresetMessages() as preset}
-								<button
-									class="preset-chip"
-									onclick={() => (messageText = preset)}
-								>{preset}</button>
-							{/each}
-						</div>
-					</div>
-				{/if}
-
-				<!-- Message Compose -->
-				<div class="dev-section">
-					<div class="dev-label">{contentType === 'text' ? 'Message Text' : 'Caption (optional)'}</div>
-					<textarea
-						class="dev-textarea"
-						placeholder={contentType === 'text'
-							? 'Type a message from the test contact…'
-							: 'Optional caption…'}
-						bind:value={messageText}
-						onkeydown={handleKeydown}
-						rows="3"
-					></textarea>
-
-					{#if contentType !== 'text'}
-						<input
-							class="dev-input dev-input-mt"
-							type="url"
-							placeholder="Media URL (https://…)"
-							bind:value={mediaURL}
-						/>
-					{/if}
-				</div>
-
-				<!-- Status Feedback -->
-				{#if lastStatus === 'success'}
-					<div class="dev-feedback dev-feedback--success" style="display: flex; align-items: center; gap: 6px;">
-						<Icon name="check" size={13} color="var(--success)" strokeWidth={3} /> Message injected via {activePlatform.label}
-					</div>
-					<div class="dev-tip">
-						Note: Simulated messages land in Unassigned. Switch the inbox filter to All or Unassigned to see it!
-					</div>
-				{:else if lastStatus === 'error'}
-					<div class="dev-feedback dev-feedback--error" style="display: flex; align-items: center; gap: 6px;">
-						<Icon name="x" size={13} color="var(--danger)" /> {lastError}
-					</div>
-				{/if}
-
-				<!-- Send Button -->
-				<button
-					class="dev-send-btn"
-					style="--plat-color: {activePlatform.color}"
-					disabled={isSending || (contentType === 'text' && !messageText.trim())}
-					onclick={sendMessage}
+			<!-- Tab Switcher -->
+			<div class="dev-tabs">
+				<button 
+					class="dev-tab" 
+					class:active={activeTab === 'chat'} 
+					onclick={() => { activeTab = 'chat'; refreshCurrentConvo(true); }}
 				>
-					{#if isSending}
-						<span class="dev-spinner"></span> Sending…
-					{:else}
-						Send as {activePlatform.label}
-					{/if}
+					💬 Live Chat Simulator
+				</button>
+				<button 
+					class="dev-tab" 
+					class:active={activeTab === 'controls'} 
+					onclick={() => (activeTab = 'controls')}
+				>
+					⚙️ Settings & Channels
 				</button>
 			</div>
+
+			<!-- Contact Selector Bar -->
+			<div class="dev-contact-bar">
+				<div class="contact-chips-row">
+					{#each testContacts as contact}
+						<button
+							class="contact-chip"
+							class:active={selectedContactID === contact.id}
+							onclick={() => selectContact(contact.id)}
+							title={contact.name}
+						>
+							<span class="contact-avatar">{contact.avatar}</span>
+							<span class="contact-name">{contact.name}</span>
+						</button>
+					{/each}
+					<button class="contact-add-mini" onclick={() => { activeTab = 'controls'; showAddContact = true; }} title="Add new contact">+</button>
+				</div>
+			</div>
+
+			{#if activeTab === 'chat'}
+				<!-- Live Chat Thread -->
+				<div class="dev-chat-thread">
+					{#if isConvoLoading && convoMessages.length === 0}
+						<div class="chat-loading">
+							<span class="dev-spinner"></span> Loading conversation...
+						</div>
+					{:else if convoMessages.length === 0}
+						<div class="chat-empty">
+							<div class="chat-empty-icon">💬</div>
+							<div class="chat-empty-title">Simulating {currentContact.name} ({activePlatform.label})</div>
+							<div class="chat-empty-sub">Type a question below or click a preset to test the AI cascade!</div>
+						</div>
+					{:else}
+						<div class="chat-stream">
+							{#each convoMessages as msg}
+								<div class="chat-bubble-row" class:is-customer={msg.direction === 'inbound' || msg.sender_type === 'contact'}>
+									<div class="chat-bubble" class:bubble-customer={msg.direction === 'inbound' || msg.sender_type === 'contact'} class:bubble-bot={msg.direction === 'outbound' || msg.sender_type === 'ai' || msg.sender_type === 'human'}>
+										<div class="bubble-sender">
+											{#if msg.direction === 'inbound' || msg.sender_type === 'contact'}
+												👤 {currentContact.name}
+											{:else if msg.sender_type === 'ai'}
+												🤖 AI Bot
+											{:else}
+												🧑‍💼 Support Agent
+											{/if}
+										</div>
+										<div class="bubble-text">{parseMessageText(msg.content)}</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Quick Presets -->
+				<div class="dev-presets-compact">
+					{#each getPresetMessages().slice(0, 3) as preset}
+						<button class="preset-chip-compact" onclick={() => { messageText = preset; sendMessage(); }}>
+							{preset}
+						</button>
+					{/each}
+				</div>
+
+				<!-- Chat Input Bar -->
+				<div class="dev-chat-input-bar">
+					<input
+						class="dev-chat-input"
+						type="text"
+						placeholder={`Message as ${currentContact.name}…`}
+						bind:value={messageText}
+						onkeydown={handleKeydown}
+						disabled={isSending}
+					/>
+					<button 
+						class="dev-chat-send-btn" 
+						onclick={sendMessage} 
+						disabled={isSending || !messageText.trim()}
+						style="--plat-color: {activePlatform.color}"
+					>
+						{#if isSending}
+							<span class="dev-spinner-sm"></span>
+						{:else}
+							Send
+						{/if}
+					</button>
+				</div>
+				
+				{#if lastStatus === 'error'}
+					<div class="dev-feedback dev-feedback--error" style="margin: 0 10px 10px 10px; font-size: 11px;">
+						<Icon name="x" size={11} color="var(--danger)" /> {lastError}
+					</div>
+				{/if}
+			{:else}
+				<div class="dev-body">
+					<!-- Platform Picker -->
+					<div class="dev-section">
+						<div class="dev-label">Simulated Platform</div>
+						<div class="platform-grid">
+							{#each PLATFORMS as plat}
+								<button
+									class="platform-btn"
+									class:active={selectedPlatform === plat.key}
+									onclick={() => selectPlatform(plat.key)}
+									style="--plat-color: {plat.color}"
+									title={plat.label}
+								>
+									<span class="platform-icon">{plat.icon}</span>
+									<span class="platform-name">{plat.label}</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<!-- Channel Selector -->
+					<div class="dev-section">
+						<div class="dev-label-row">
+							<div class="dev-label">Target Channel</div>
+							<div style="display: flex; gap: 4px;">
+								<button class="dev-add-btn" onclick={createMockChannel} title="Auto-create mock channel">+ Mock Channel</button>
+								<button class="dev-refresh-btn" onclick={loadChannels} title="Refresh channels">↻</button>
+							</div>
+						</div>
+						{#if channels.length === 0}
+							<div class="dev-empty-note">
+								No channels found. Click <strong>+ Mock Channel</strong> above to create one automatically.
+							</div>
+						{:else}
+							<select class="dev-select" bind:value={selectedChannelID}>
+								{#each channels as ch}
+									<option value={ch.id}>{ch.type} — {ch.id.slice(0, 8)}…</option>
+								{/each}
+							</select>
+						{/if}
+					</div>
+
+					<!-- Test Contact Manager -->
+					<div class="dev-section">
+						<div class="dev-label-row">
+							<div class="dev-label">Manage Contacts</div>
+							<button
+								class="dev-add-btn"
+								onclick={() => (showAddContact = !showAddContact)}
+								title="Add contact"
+							>+ Add</button>
+						</div>
+
+						{#if showAddContact}
+							<div class="add-contact-form">
+								<input
+									class="dev-input"
+									type="text"
+									placeholder="Contact name…"
+									bind:value={newContactName}
+									onkeydown={(e) => e.key === 'Enter' && addContact()}
+								/>
+								<button class="dev-btn-secondary" onclick={addContact}>Add</button>
+							</div>
+						{/if}
+
+						<div class="contact-list">
+							{#each testContacts as contact}
+								<div class="contact-chip" class:active={selectedContactID === contact.id}>
+									<span class="contact-avatar">{contact.avatar}</span>
+									<span class="contact-name">{contact.name}</span>
+									{#if testContacts.length > 1}
+										<span
+											class="contact-remove"
+											role="button"
+											tabindex="0"
+											onclick={() => removeContact(contact.id)}
+											onkeydown={(e) => e.key === 'Enter' && removeContact(contact.id)}
+										><Icon name="x" size={10} /></span>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+
+					<!-- Content Type -->
+					<div class="dev-section">
+						<div class="dev-label">Message Type</div>
+						<div class="type-tabs">
+							{#each [{ k: 'text', l: 'Text' }, { k: 'image', l: 'Image' }, { k: 'audio', l: 'Audio' }] as t}
+								<button
+									class="type-tab"
+									class:active={contentType === t.k}
+									onclick={() => (contentType = t.k as 'text' | 'image' | 'audio')}
+								>
+									{t.l}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					{#if contentType !== 'text'}
+						<div class="dev-section">
+							<div class="dev-label">Media URL</div>
+							<input
+								class="dev-input"
+								type="url"
+								placeholder="Media URL (https://…)"
+								bind:value={mediaURL}
+							/>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	</div>
 {/if}

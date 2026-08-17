@@ -151,7 +151,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                 ORDER BY similarity DESC
                 LIMIT 1
                 """,
-                inbound_emb, account_uuid
+                str(inbound_emb), account_uuid
             )
             EMBEDDING_THRESHOLD = 0.85
             if closest_pat and closest_pat["similarity"] >= EMBEDDING_THRESHOLD:
@@ -176,7 +176,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                 ORDER BY similarity DESC
                 LIMIT 5
                 """,
-                inbound_emb, account_uuid
+                str(inbound_emb), account_uuid
             )
             if concepts:
                 concepts_text = ""

@@ -184,6 +184,14 @@ func (s *Service) SimulateInbound(
 	return nil
 }
 
+// PublishInbound publishes a normalized InboundEvent to Redis stream messages.inbound.
+func (s *Service) PublishInbound(ctx context.Context, event types.InboundEvent) error {
+	if _, err := s.pubsub.Publish(ctx, "messages.inbound", event); err != nil {
+		return fmt.Errorf("publish inbound event: %w", err)
+	}
+	return nil
+}
+
 // IngestInbound processes an incoming message event from a channel.
 func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) error {
 	channelID, err := uuid.Parse(event.ChannelID)
@@ -875,11 +883,13 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 		SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
 		       co.display_name, co.avatar_url,
 		       cr.last_read_at,
+		       ch.type as channel_type,
 		       m.id as msg_id, m.direction as msg_direction, m.sender_type as msg_sender_type, m.sender_user_id as msg_sender_user_id,
 		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at,
 		       l.id as lead_id, l.pipeline_id as lead_pipeline_id, l.current_state_key as lead_current_state_key, l.tags as lead_tags, l.created_by as lead_created_by, l.created_at as lead_created_at, l.updated_at as lead_updated_at
 		FROM conversations c
 		JOIN contacts co ON c.contact_id = co.id
+		LEFT JOIN channels ch ON c.channel_id = ch.id
 		LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
 		LEFT JOIN leads l ON c.id = l.conversation_id
 		LEFT JOIN LATERAL (
@@ -953,6 +963,7 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 			&item.ContactName,
 			&item.ContactAvatarURL,
 			&lastReadAt,
+			&item.ChannelType,
 			&msgID,
 			&msgDirection,
 			&msgSenderType,
@@ -1054,11 +1065,13 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 		SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
 		       co.display_name, co.avatar_url,
 		       cr.last_read_at,
+		       ch.type as channel_type,
 		       m.id as msg_id, m.direction as msg_direction, m.sender_type as msg_sender_type, m.sender_user_id as msg_sender_user_id,
 		       m.content_type as msg_content_type, m.content as msg_content, m.external_message_id as msg_external_id, m.created_at as msg_created_at,
 		       l.id as lead_id, l.pipeline_id as lead_pipeline_id, l.current_state_key as lead_current_state_key, l.tags as lead_tags, l.created_by as lead_created_by, l.created_at as lead_created_at, l.updated_at as lead_updated_at
 		FROM conversations c
 		JOIN contacts co ON c.contact_id = co.id
+		LEFT JOIN channels ch ON c.channel_id = ch.id
 		LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
 		LEFT JOIN leads l ON c.id = l.conversation_id
 		LEFT JOIN LATERAL (
@@ -1082,6 +1095,7 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 		&item.ContactName,
 		&item.ContactAvatarURL,
 		&lastReadAt,
+		&item.ChannelType,
 		&msgID,
 		&msgDirection,
 		&msgSenderType,

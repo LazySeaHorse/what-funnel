@@ -108,6 +108,9 @@ func main() {
 	r.PathPrefix("/simulate").Handler(proxy(conversationBase, logger))
 	r.Handle("/simulate-inbound", proxy(conversationBase, logger))
 
+	// Proxy /webhooks/* → conversation-svc (native platform webhooks)
+	r.PathPrefix("/webhooks").Handler(proxy(conversationBase, logger))
+
 	// Proxy /ws → notification-svc (WebSocket)
 	r.Handle("/ws", wsProxy(notificationBase, logger))
 

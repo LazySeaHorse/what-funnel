@@ -26,7 +26,13 @@
 				goto('/inbox');
 				return;
 			}
-			const account = await apiRequest('/workspace/account');
+		} catch (err) {
+			goto('/login');
+			return;
+		}
+
+		try {
+			const account = await apiRequest('/workspace/account').catch(() => null);
 			if (account) {
 				productMode = account.product_mode || 'full_workspace';
 				if (productMode === 'chatbot_only') {
@@ -35,8 +41,8 @@
 				}
 			}
 			await loadPipeline();
-		} catch (err) {
-			goto('/login');
+		} catch (err: any) {
+			error = 'Failed to load pipeline: ' + err.message;
 		} finally {
 			loading = false;
 		}

@@ -724,7 +724,7 @@
 			>
 				<div class="radio-circle" class:checked={s6ReplyMode === 'draft_only'}></div>
 				<div class="mode-body">
-					<div class="mode-label">Review before sending</div>
+					<div class="mode-label">Review before it sends</div>
 					<div class="mode-desc">Assistant drafts replies for your review first. You remain in complete control.</div>
 					<span class="badge-blue inline" style="margin-top: 4px; display: inline-block;">Recommended</span>
 				</div>
@@ -738,7 +738,7 @@
 			>
 				<div class="radio-circle" class:checked={s6ReplyMode === 'auto_send'}></div>
 				<div class="mode-body">
-					<div class="mode-label">Send automatically</div>
+					<div class="mode-label">Send automatically once confident</div>
 					<div class="mode-desc">Replies are sent instantly when confidence is high. You can view logs afterwards.</div>
 				</div>
 			</button>
