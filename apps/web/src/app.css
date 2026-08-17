@@ -6,8 +6,8 @@
   --color-brand-50: #EEF4FF;
   --color-brand-100: #E0EAFF;
   --color-brand-200: #C2D6FF;
-  --color-brand-500: #4F80FF;
-  --color-brand-600: #3366FF;
+  --color-brand-500: #4F6BFF;
+  --color-brand-600: #3D5AE8;
   --color-brand-700: #254EDB;
 
   --color-dialogues-blue: #4F6BFF;
@@ -23,7 +23,7 @@
 
 :root {
   font-family: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --bg-page: #F4F6FB;
+  --bg-page: #F8F9FD;
 }
 
 body {

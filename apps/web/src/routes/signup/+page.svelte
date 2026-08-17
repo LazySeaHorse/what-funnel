@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
-	import Icon from '$lib/Icon.svelte';
+	import heroImage from '$lib/assets/sign-in-hero.webp';
 
 	let accountName = $state('');
 	let email = $state('');
 	let password = $state('');
 	let productMode = $state('full_workspace');
+	let showPassword = $state(false);
 	let error = $state('');
 	let loading = $state(false);
+	let toastMessage = $state('');
 
 	async function handleSignup(e: Event) {
 		e.preventDefault();
@@ -26,79 +28,290 @@
 			});
 			goto('/onboarding');
 		} catch (err: any) {
-			error = err.message;
+			error = err.message || 'Failed to create workspace. Please try again.';
 		} finally {
 			loading = false;
 		}
 	}
 </script>
 
-<div class="auth-container">
-	<div class="auth-card" style="max-width: 440px;">
-		<div class="auth-header">
-			<div style="display: flex; justify-content: center; margin-bottom: 12px;">
-				<div style="width: 40px; height: 40px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center;">
-					<Icon name="bot" size={22} color="var(--blue-text)" />
+<svelte:head>
+	<title>Create Account — What Funnel</title>
+</svelte:head>
+
+<div class="min-h-screen w-full bg-[#F8F9FD] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
+	<div class="w-full max-w-[1360px] mx-auto relative">
+		
+		{#if toastMessage}
+			<div class="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 transition-all animate-fade-in">
+				<svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+				</svg>
+				<span>{toastMessage}</span>
+				<button type="button" onclick={() => toastMessage = ''} class="ml-2 text-slate-400 hover:text-white" aria-label="Close notification">×</button>
+			</div>
+		{/if}
+
+		<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+			
+			<!-- Left Column: Brand, Headline, 3D Hero Image -->
+			<div class="lg:col-span-7 flex flex-col justify-between h-full relative">
+				
+				<!-- Top Content (Logo, Brand Name, Dots, Headline, Subhead) -->
+				<div class="pt-10 sm:pt-14 lg:pt-16">
+					<!-- Top Bar: Brand Logo & Decorative Dots -->
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-3">
+							<!-- What Funnel Platform Logo (matching dashboard) -->
+							<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
+								<rect width="36" height="36" rx="10" fill="#4F80FF" />
+								<circle cx="14" cy="14" r="3" fill="white" />
+								<circle cx="22" cy="18" r="4.5" fill="white" />
+								<circle cx="14" cy="23" r="2.5" fill="white" />
+							</svg>
+							<span class="text-2xl font-bold text-[#0F172A] tracking-tight">what funnel</span>
+						</div>
+
+						<!-- Decorative 4x3 Dot Matrix -->
+						<div class="hidden sm:grid grid-cols-4 gap-2 opacity-50 pr-4">
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+						</div>
+					</div>
+
+					<!-- Hero Headline and Subhead -->
+					<div class="mt-6 sm:mt-8">
+						<h1 class="text-3xl sm:text-4xl lg:text-[48px] font-medium text-[#0F172A] tracking-tight leading-[1.12]">
+							All your conversations.<br />
+							<span class="text-[#4F6BFF]">Every lead.</span> One place.
+						</h1>
+						<p class="text-slate-500 text-sm sm:text-base lg:text-[17px] font-normal leading-relaxed max-w-xl mt-3.5">
+							Unify every channel, automate answers, and track leads from hello to happy customer.
+						</p>
+					</div>
+				</div>
+
+				<!-- 3D Hero Illustration (blends seamlessly with #F8F9FD background) -->
+				<div class="relative w-full flex items-center justify-center mt-2 lg:mt-0 select-none pointer-events-none">
+					<img
+						src={heroImage}
+						alt="What Funnel Dashboard & Customer Experience in 3D"
+						class="w-full max-h-[590px] lg:max-h-[650px] object-contain"
+						loading="eager"
+					/>
+					
+					<!-- Decorative 2x2 Green Dots -->
+					<div class="absolute bottom-4 left-2 grid grid-cols-2 gap-1.5 opacity-60">
+						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
+					</div>
+				</div>
+
+			</div>
+
+			<!-- Right Column: Create Account Card -->
+			<div class="lg:col-span-5 flex justify-center lg:justify-end items-center">
+				<div class="w-full max-w-[460px] bg-white rounded-3xl border border-slate-200/90 shadow-[0_15px_45px_rgba(0,0,0,0.04)] p-7 sm:p-9">
+					
+					<!-- Form Header -->
+					<div>
+						<h2 class="text-2xl sm:text-[26px] font-bold text-[#0F172A] tracking-tight">Create workspace</h2>
+						<p class="text-slate-500 text-sm mt-1">Get started with your new account</p>
+					</div>
+
+					<!-- Error alert -->
+					{#if error}
+						<div class="mt-5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs sm:text-sm flex items-start gap-2.5 leading-relaxed">
+							<svg class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+							</svg>
+							<span>{error}</span>
+						</div>
+					{/if}
+
+					<!-- Signup Form -->
+					<form onsubmit={handleSignup} class="mt-6 space-y-4">
+						<!-- Business Name Input -->
+						<div>
+							<label for="account-name-input" class="block text-xs font-semibold text-slate-700 mb-1.5">Business Name</label>
+							<div class="relative">
+								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+										<path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+									</svg>
+								</div>
+								<input
+									type="text"
+									id="account-name-input"
+									bind:value={accountName}
+									placeholder="Acme Corp"
+									required
+									disabled={loading}
+									class="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F6BFF] focus:ring-4 focus:ring-[#4F6BFF]/10 outline-none transition-all"
+								/>
+							</div>
+						</div>
+
+						<!-- Email Input -->
+						<div>
+							<label for="signup-email-input" class="block text-xs font-semibold text-slate-700 mb-1.5">Email</label>
+							<div class="relative">
+								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<rect width="20" height="16" x="2" y="4" rx="2" />
+										<path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+									</svg>
+								</div>
+								<input
+									type="email"
+									id="signup-email-input"
+									bind:value={email}
+									placeholder="you@email.com"
+									required
+									disabled={loading}
+									class="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F6BFF] focus:ring-4 focus:ring-[#4F6BFF]/10 outline-none transition-all"
+								/>
+							</div>
+						</div>
+
+						<!-- Password Input -->
+						<div>
+							<label for="signup-password-input" class="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
+							<div class="relative">
+								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+										<path d="M7 11V7a5 5 0 0 1 10 0v4" />
+									</svg>
+								</div>
+								<input
+									type={showPassword ? 'text' : 'password'}
+									id="signup-password-input"
+									bind:value={password}
+									placeholder="At least 8 characters"
+									required
+									minlength={8}
+									disabled={loading}
+									class="w-full pl-10 pr-11 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F6BFF] focus:ring-4 focus:ring-[#4F6BFF]/10 outline-none transition-all"
+								/>
+								<button
+									type="button"
+									onclick={() => (showPassword = !showPassword)}
+									class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+									aria-label={showPassword ? 'Hide password' : 'Show password'}
+								>
+									{#if showPassword}
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+											<line x1="1" y1="1" x2="23" y2="23" />
+										</svg>
+									{:else}
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+											<circle cx="12" cy="12" r="3" />
+										</svg>
+									{/if}
+								</button>
+							</div>
+						</div>
+
+						<!-- Workspace Type Selection -->
+						<div>
+							<span class="block text-xs font-semibold text-slate-700 mb-2">Workspace Type</span>
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+								<label
+									class="flex items-center gap-2.5 p-3 border rounded-xl cursor-pointer transition-all duration-150 {productMode === 'full_workspace' ? 'border-[#4F6BFF] bg-[#EEF4FF]/50 ring-1 ring-[#4F6BFF]' : 'border-slate-200 bg-white hover:bg-slate-50'}"
+								>
+									<input
+										type="radio"
+										name="product_mode"
+										value="full_workspace"
+										checked={productMode === 'full_workspace'}
+										onchange={() => (productMode = 'full_workspace')}
+										disabled={loading}
+										class="sr-only"
+									/>
+									<div class="w-7 h-7 rounded-lg {productMode === 'full_workspace' ? 'bg-[#4F6BFF] text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0">
+										<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<rect x="3" y="3" width="18" height="18" rx="2" />
+											<path d="M9 3v18" />
+											<path d="M15 3v18" />
+											<path d="M3 9h18" />
+										</svg>
+									</div>
+									<div class="text-left">
+										<div class="text-xs font-semibold text-slate-800 leading-tight">Full Workspace</div>
+										<div class="text-[11px] text-slate-400 leading-tight mt-0.5">Inbox & leads</div>
+									</div>
+								</label>
+
+								<label
+									class="flex items-center gap-2.5 p-3 border rounded-xl cursor-pointer transition-all duration-150 {productMode === 'chatbot_only' ? 'border-[#4F6BFF] bg-[#EEF4FF]/50 ring-1 ring-[#4F6BFF]' : 'border-slate-200 bg-white hover:bg-slate-50'}"
+								>
+									<input
+										type="radio"
+										name="product_mode"
+										value="chatbot_only"
+										checked={productMode === 'chatbot_only'}
+										onchange={() => (productMode = 'chatbot_only')}
+										disabled={loading}
+										class="sr-only"
+									/>
+									<div class="w-7 h-7 rounded-lg {productMode === 'chatbot_only' ? 'bg-[#4F6BFF] text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0">
+										<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<rect x="3" y="11" width="18" height="10" rx="3" />
+											<circle cx="9" cy="16" r="1" fill="currentColor" />
+											<circle cx="15" cy="16" r="1" fill="currentColor" />
+											<path d="M12 7v4" />
+										</svg>
+									</div>
+									<div class="text-left">
+										<div class="text-xs font-semibold text-slate-800 leading-tight">Chatbot Only</div>
+										<div class="text-[11px] text-slate-400 leading-tight mt-0.5">Automations</div>
+									</div>
+								</label>
+							</div>
+						</div>
+
+						<!-- Submit Button -->
+						<button
+							type="submit"
+							disabled={loading}
+							class="w-full mt-4 py-3.5 px-4 bg-[#4F6BFF] hover:bg-[#3D5AE8] active:bg-[#254EDB] text-white font-semibold rounded-xl text-sm shadow-md shadow-[#4F6BFF]/25 hover:shadow-lg hover:shadow-[#4F6BFF]/35 active:scale-[0.99] transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+						>
+							{#if loading}
+								<svg class="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								<span>Creating workspace...</span>
+							{:else}
+								<span>Create Workspace</span>
+							{/if}
+						</button>
+					</form>
+
+					<!-- Bottom Sign In Link -->
+					<div class="mt-8 text-center text-xs sm:text-sm text-slate-500">
+						Already have an account? <a href="/login" class="text-[#4F6BFF] font-semibold hover:text-[#3D5AE8] hover:underline transition-colors">Sign in</a>
+					</div>
+
 				</div>
 			</div>
-			<h1>What Funnel</h1>
-			<p>Create your new workspace</p>
-		</div>
 
-		<form onsubmit={handleSignup} style="display: flex; flex-direction: column; gap: 16px;">
-			{#if error}
-				<div style="padding: 10px 14px; background: var(--danger-bg); border: 1px solid rgba(235, 87, 87, 0.3); border-radius: 6px; color: var(--danger); font-size: 13px;">
-					{error}
-				</div>
-			{/if}
-
-			<div style="display: flex; flex-direction: column; gap: 6px;">
-				<label for="accountName" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px;">Business Name</label>
-				<input type="text" id="accountName" class="input-field" bind:value={accountName} placeholder="Acme Corp" required disabled={loading} />
-			</div>
-
-			<div style="display: flex; flex-direction: column; gap: 6px;">
-				<label for="email" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px;">Email address</label>
-				<input type="email" id="email" class="input-field" bind:value={email} placeholder="you@example.com" required disabled={loading} />
-			</div>
-
-			<div style="display: flex; flex-direction: column; gap: 6px;">
-				<label for="password" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px;">Password</label>
-				<input type="password" id="password" class="input-field" bind:value={password} placeholder="••••••••" required disabled={loading} minlength={8} />
-			</div>
-
-			<div style="display: flex; flex-direction: column; gap: 8px;">
-				<label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px;">Workspace Type</label>
-				<div style="display: flex; flex-direction: column; gap: 8px;">
-					<label
-						style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid {productMode === 'chatbot_only' ? 'var(--blue-primary)' : 'var(--border-color)'}; background: {productMode === 'chatbot_only' ? 'var(--blue-bg)' : '#FFFFFF'}; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;"
-					>
-						<input type="radio" name="product_mode" value="chatbot_only" checked={productMode === 'chatbot_only'} onchange={() => productMode = 'chatbot_only'} disabled={loading} />
-						<Icon name="bot" size={16} color={productMode === 'chatbot_only' ? 'var(--blue-text)' : 'var(--text-secondary)'} />
-						<span style="font-size: 13px; font-weight: 500; color: var(--text-primary);">Automated replies only</span>
-					</label>
-					<label
-						style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid {productMode === 'full_workspace' ? 'var(--blue-primary)' : 'var(--border-color)'}; background: {productMode === 'full_workspace' ? 'var(--blue-bg)' : '#FFFFFF'}; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;"
-					>
-						<input type="radio" name="product_mode" value="full_workspace" checked={productMode === 'full_workspace'} onchange={() => productMode = 'full_workspace'} disabled={loading} />
-						<Icon name="layout" size={16} color={productMode === 'full_workspace' ? 'var(--blue-text)' : 'var(--text-secondary)'} />
-						<span style="font-size: 13px; font-weight: 500; color: var(--text-primary);">Full lead workspace</span>
-					</label>
-				</div>
-			</div>
-
-			<button type="submit" class="btn-primary" style="margin-top: 6px; height: 40px;" disabled={loading}>
-				{#if loading}
-					Creating account...
-				{:else}
-					Create Workspace
-					<Icon name="arrow-right" size={16} />
-				{/if}
-			</button>
-		</form>
-
-		<div style="margin-top: 24px; text-align: center; font-size: 13px; color: var(--text-secondary);">
-			Already have an account? <a href="/login" style="color: var(--blue-text); text-decoration: none; font-weight: 500;">Sign in</a>
 		</div>
 	</div>
 </div>
