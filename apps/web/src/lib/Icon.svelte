@@ -180,6 +180,54 @@
 		<polyline points="16 17 21 12 16 7" />
 		<line x1="21" y1="12" x2="9" y2="12" />
 
+	{:else if name === 'instagram'}
+		<!-- Instagram -->
+		<rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+		<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+		<line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+
+	{:else if name === 'messenger'}
+		<!-- Facebook Messenger -->
+		<path d="M12 2C6.477 2 2 6.145 2 11.258c0 2.91 1.455 5.518 3.735 7.195V22l3.39-1.86c.915.253 1.883.39 2.875.39 5.523 0 10-4.145 10-9.272C22 6.145 17.523 2 12 2z" />
+		<path d="m7.5 13.5 3.5-3.8 2.5 2.5 4.5-4-3.5 3.8-2.5-2.5-4.5 4z" />
+
+	{:else if name === 'telegram'}
+		<!-- Telegram -->
+		<path d="m21.5 3.5-19 7.5 7 2.5 2 6.5 3.5-3.5 5 4 3-18.5z" />
+		<path d="m9.5 13.5 7.5-6.5-6 7.5" />
+
+	{:else if name === 'globe' || name === 'webchat'}
+		<!-- Globe / WebChat -->
+		<circle cx="12" cy="12" r="10" />
+		<line x1="2" y1="12" x2="22" y2="12" />
+		<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+
+	{:else if name === 'drag' || name === 'grip' || name === 'handle'}
+		<!-- 6 dots drag handle -->
+		<circle cx="9" cy="6" r="1.5" fill={color} />
+		<circle cx="15" cy="6" r="1.5" fill={color} />
+		<circle cx="9" cy="12" r="1.5" fill={color} />
+		<circle cx="15" cy="12" r="1.5" fill={color} />
+		<circle cx="9" cy="18" r="1.5" fill={color} />
+		<circle cx="15" cy="18" r="1.5" fill={color} />
+
+	{:else if name === 'dialogues' || name === 'logo-dots'}
+		<!-- 4 rounded dots logo -->
+		<circle cx="7" cy="8" r="3" fill={color} />
+		<circle cx="17" cy="8" r="3" fill={color} />
+		<circle cx="7" cy="16" r="3" fill={color} />
+		<circle cx="17" cy="16" r="3" fill={color} />
+
+	{:else if name === 'store' || name === 'building'}
+		<!-- Store / Building -->
+		<path d="m2 7 1-4h18l1 4" />
+		<path d="M4 7v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7" />
+		<path d="M9 22V12h6v10" />
+
+	{:else if name === 'shield'}
+		<!-- Shield -->
+		<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+
 	{:else}
 		<!-- Generic dot / fallback mark -->
 		<circle cx="12" cy="12" r="6" />

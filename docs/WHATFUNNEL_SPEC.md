@@ -95,18 +95,24 @@ The two share: accounts, channel adapters, the conversation data model, and the 
                  │ + mautrix bridges │
                  │ (WhatsApp, IG,    │
                  │  Messenger, TG)   │
-                 └──────────────────┘
+                 └────────┬─────────┘
 ```
 
 **Frontend:** SvelteKit, talks to API Gateway over REST + WebSocket.
 
 **Data flow for an inbound message:**
-1. Bridge → Matrix homeserver → Matrix adapter normalizes into `MessageEvent`.
+1. Bridge → Matrix homeserver → Matrix adapter normalizes into `InboundEvent`.
 2. Adapter publishes to Redis Streams (`messages.inbound`).
 3. Conversation Service consumer persists message, upserts contact/conversation, publishes `conversation.updated`.
 4. `ai-answer-svc` consumer picks up `conversation.updated` (not `messages.inbound` directly — it needs the message already persisted so it has a real `message_id` to log against), runs the cascade, either publishes a suggested reply, an auto-sent reply (via adapter), or a `needs_human` flag.
 5. Notification Service pushes relevant updates over WebSocket to connected clients.
 6. Idle-conversation summarizer (debounced, see §7) runs on conversation close/return.
+
+**External send and human takeover flow:**
+1. Agent replies directly from external client (e.g. native WhatsApp app).
+2. Matrix adapter detects outbound message with sender `human`.
+3. Conversation Service stores message and sets `ai_mode_active: false` (human takeover).
+4. AI automation pauses for this conversation until re-enabled by a user or rule.
 
 ---
 
@@ -116,17 +122,23 @@ All tables carry `account_id` for row-level tenant isolation (enforced at the ap
 
 ```
 accounts
-  id, name, created_at, plan, ai_provider_config (encrypted), settings jsonb
+  id, name, created_at, plan, ai_provider_config (encrypted), settings jsonb, product_mode (full_workspace|chatbot_only)
 
 users
-  id, account_id, email, password_hash (via Authboss), role (admin|member), created_at
+  id, account_id, email, password_hash (via Authboss), role (admin|member), reply_mode_override (auto_send|draft_only), created_at
+
+invite_tokens
+  token, account_id, email, role (admin|member), created_at, used_at
+
+sessions
+  token, data bytea, expiry
 
 audit_logs
   id, account_id, actor_user_id, action, target_type, target_id, metadata jsonb, created_at
 
 channels
   id, account_id, type (matrix_whatsapp|matrix_instagram|matrix_messenger|matrix_telegram|webchat),
-  bridge_identity, status (connected|disconnected|error), created_at
+  bridge_identity, bridge_credentials jsonb, status (connected|disconnected|error), status_detail, created_at
 
 contacts
   id, account_id, channel_id, external_identity, display_name, avatar_url, merged_into_contact_id (nullable), created_at
@@ -134,6 +146,9 @@ contacts
 conversations
   id, account_id, contact_id, channel_id, status (open|closed - closed just means "idle", not archived),
   assigned_user_ids uuid[], last_message_at, ai_mode_active bool, created_at
+
+conversation_reads
+  id, account_id, conversation_id, user_id, last_read_at
 
 messages
   id, account_id, conversation_id, direction (inbound|outbound), sender_type (contact|human|ai),
@@ -145,7 +160,7 @@ lead_pipelines
 
 leads
   id, account_id, conversation_id, pipeline_id, current_state_key,
-  tags text[], created_by, updated_at
+  tags text[], created_by, created_at, updated_at
   -- notes are NOT a single field (revised from earlier draft) — see lead_notes below.
   -- A single overwritable text field loses history; a small biz owner needs to see
   -- "called Tuesday, said X" alongside "followed up Thursday", not just the latest note.
@@ -162,6 +177,10 @@ lead_state_history
 conversation_summaries
   id, account_id, conversation_id, summary_fields jsonb (account-configurable extraction schema),
   generated_at, message_count_at_generation
+
+ai_answer_events
+  id, account_id, conversation_id, message_id, stage_matched (pattern|embedding|llm_grounded|none),
+  confidence numeric, action (auto_sent|drafted|flagged_human), reply_message_id, created_at
 
 kb_concepts   -- OKF bundle, one row per concept file
   id, account_id, slug, type, title, tags text[], body_markdown, embedding vector(1536),

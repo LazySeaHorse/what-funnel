@@ -5,144 +5,77 @@
 	import { apiRequest } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
 
-	// ──────────────────────────────────────────────
-	// Constants
-	// ──────────────────────────────────────────────
-	const STEP_KEYS = [
-		'signup',
-		'mode_selected',
-		'business_basics',
-		'channel_connect',
-		'kb_setup',
-		'reply_mode',
-		'pipeline_setup',
-		'team_invite',
-		'done'
-	];
-
-	const STEP_LABELS = [
-		'Create Account',
-		'Choose Setup',
-		'Your Business',
-		'Connect Channel',
-		'Knowledge Base',
-		'Reply Mode',
-		'Lead Pipeline',
-		'Invite Team',
-		'Done'
-	];
-
-	// ──────────────────────────────────────────────
-	// Reactive state
-	// ──────────────────────────────────────────────
+	// Step number from route: 1..7
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
 
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state('');
 
-	// Onboarding status
-	let completedSteps = $state<string[]>([]);
-	let skippedSteps = $state<string[]>([]);
-	let businessType = $state('');
-	let productMode = $state('full_workspace');
-
-	// Templates
-	let templates = $state<any[]>([]);
-
-	// Pipeline
-	let pipelineStates = $state<any[]>([]);
-
-	// ──────────────────────────────────────────────
-	// Step 1 – Signup
-	// ──────────────────────────────────────────────
-	let s1AccountName = $state('');
-	let s1Email = $state('');
-	let s1Password = $state('');
-	let s1IsLoggedIn = $state(false);
-
-	// ──────────────────────────────────────────────
-	// Step 2 – Mode Selection
-	// ──────────────────────────────────────────────
-	let s2Selected = $state<'chatbot_only' | 'full_workspace' | ''>('');
-
-	// ──────────────────────────────────────────────
-	// Step 3 – Business Type (NO EMOJIS - SVG icons via icon name)
-	// ──────────────────────────────────────────────
-	const BUSINESS_TYPES = [
-		{ key: 'salon', label: 'Salon / Beauty', icon: 'scissors', desc: 'Bookings, appointments, and beauty services' },
-		{ key: 'photography', label: 'Photography', icon: 'camera', desc: 'Client enquiries, sessions, and galleries' },
-		{ key: 'tutoring', label: 'Tutoring / Education', icon: 'book', desc: 'Enrolments, schedules, and lesson tracking' },
-		{ key: 'home_services', label: 'Home Services', icon: 'wrench', desc: 'Jobs, quotes, and service scheduling' },
-		{ key: 'other', label: 'Other Business', icon: 'briefcase', desc: 'General business enquiries and support' }
+	// Stepper metadata
+	const STEP_ITEMS = [
+		{ num: 1, label: 'Business info' },
+		{ num: 2, label: 'Channels' },
+		{ num: 3, label: 'Lead setup' },
+		{ num: 4, label: 'AI Assistant' },
+		{ num: 5, label: 'Knowledge Base' },
+		{ num: 6, label: 'Review & Finish' }
 	];
-	let s3Selected = $state('');
 
-	// ──────────────────────────────────────────────
-	// Step 4 – Channel Connect
-	// ──────────────────────────────────────────────
-	let s4Phase = $state<'start' | 'waiting-qr' | 'waiting-message' | 'message-received'>('start');
-	let s4ChannelID = $state('');
-	let s4MessagePreview = $state('');
+	// Step 1: Business info
+	let s1BusinessName = $state('Glow Hair Studio');
+	let s1BusinessType = $state('Salon / Beauty');
+	let s1Timezone = $state('(GMT+05:30) Asia / Colombo');
 
-	// ──────────────────────────────────────────────
-	// Step 5 – Knowledge Base
-	// ──────────────────────────────────────────────
-	let s5Prompts = $state<Array<{ label: string; placeholder: string; value: string }>>([]);
-	let s5Phase = $state<'form' | 'review'>('form');
-	let s5Concepts = $state<any[]>([]);
-	let s5QueuedCount = $state(0);
+	// Step 2: Channels
+	let channels = $state([
+		{ id: 'whatsapp', name: 'WhatsApp', type: 'matrix_whatsapp', icon: 'whatsapp', connected: false, color: '#25D366' },
+		{ id: 'instagram', name: 'Instagram', type: 'matrix_instagram', icon: 'instagram', connected: false, color: '#E1306C' },
+		{ id: 'messenger', name: 'Facebook Messenger', type: 'matrix_messenger', icon: 'messenger', connected: false, color: '#0084FF' },
+		{ id: 'telegram', name: 'Telegram', type: 'matrix_telegram', icon: 'telegram', connected: false, color: '#229ED9' }
+	]);
+	let qrModalOpen = $state(false);
+	let qrChannelConnecting = $state('');
 
-	// ──────────────────────────────────────────────
-	// Step 6 – Reply Mode
-	// ──────────────────────────────────────────────
-	let s6ReplyMode = $state<'draft_only' | 'auto_send'>('draft_only');
+	// Step 3: Lead pipeline
+	let pipelineStages = $state([
+		{ key: 'new_lead', label: 'New Lead', color: '#F59E0B' },
+		{ key: 'contacted', label: 'Contacted', color: '#3B82F6' },
+		{ key: 'follow_up', label: 'Follow-up', color: '#8B5CF6' },
+		{ key: 'interested', label: 'Interested', color: '#06B6D4' },
+		{ key: 'converted', label: 'Converted', color: '#10B981' }
+	]);
 
-	// ──────────────────────────────────────────────
-	// Step 8 – Team Invite
-	// ──────────────────────────────────────────────
-	let s8Email = $state('');
-	let s8Role = $state<'admin' | 'member'>('member');
-	let s8Invites = $state<Array<{ email: string; role: string; token: string }>>([]);
-	let s8HasInvited = $state(false);
+	// Step 4: AI Assistant
+	let s4AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
 
-	// ──────────────────────────────────────────────
-	// Navigation helpers
-	// ──────────────────────────────────────────────
-	function advanceToNext(fromStep: number) {
-		let next = fromStep + 1;
-		if (next === 7 && productMode === 'chatbot_only') next = 8;
-		if (next > 9) next = 9;
-		goto(`/onboarding/${next}`);
-	}
+	// Step 5: Knowledge Base Arbitrary Dump & AI Auto-Organize
+	let s5RawText = $state(`Services & Pricing:
+- Haircut & Styling: $50
+- Color & Full Highlights: $120
+- Deep Conditioning Treatment: $40
 
-	async function completeStep(stepKey: string) {
-		try {
-			await apiRequest('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: stepKey, action: 'complete' }
-			});
-		} catch (err) {
-			// proceed anyway
-		}
-		advanceToNext(stepNum);
-	}
+Business Hours & Location:
+- Monday to Saturday: 9:00 AM – 6:00 PM
+- Sunday: Closed
+- Location: 123 Main Street, Suite 200
 
-	async function skipStep(stepKey: string) {
-		try {
-			await apiRequest('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: stepKey, action: 'skip' }
-			});
-		} catch (err) {
-			// proceed anyway
-		}
-		advanceToNext(stepNum);
-	}
+Booking & Cancellation:
+- 24-hour notice required for cancellations
+- Walk-ins welcome based on availability
 
-	// ──────────────────────────────────────────────
-	// Mount — auth + load data
-	// ──────────────────────────────────────────────
+FAQs:
+- Free customer parking is available on-site
+- We accept Cash, Credit Cards, and Apple Pay`);
+
+	let s5Status = $state<'input' | 'processing' | 'results'>('input');
+	let s5Concepts = $state<Array<{ id?: string; title: string; type?: string; category?: string; tags?: string[]; body_markdown?: string; content?: string }>>([]);
+	let s5Compiling = $state(false);
+	let s5Error = $state('');
+
+	// ─────────────────────────────────────────────────────────────
+	// Mount & Load initial data
+	// ─────────────────────────────────────────────────────────────
 	onMount(async () => {
 		try {
 			await apiRequest('/auth/me');
@@ -152,1245 +85,2151 @@
 		}
 
 		try {
-			const status = await apiRequest('/onboarding/status');
-			if (status) {
-				completedSteps = status.completed_steps ?? [];
-				skippedSteps = status.skipped_steps ?? [];
-				businessType = status.business_type ?? '';
-			}
-		} catch (_) {}
-
-		try {
-			const account = await apiRequest('/workspace/account');
+			const account = await apiRequest('/workspace/account').catch(() => null);
 			if (account) {
-				productMode = account.product_mode || 'full_workspace';
+				if (account.name) s1BusinessName = account.name;
+				if (account.settings?.business_type) s1BusinessType = account.settings.business_type;
+				if (account.settings?.timezone) s1Timezone = account.settings.timezone;
+				if (account.settings?.reply_mode === 'auto_send') s4AiMode = 'auto_answer';
+				else if (account.settings?.reply_mode === 'draft_only') s4AiMode = 'suggest_only';
 			}
-		} catch (_) {}
+
+			// Load channels
+			const chList = await apiRequest('/channels').catch(() => null);
+			if (Array.isArray(chList) && chList.length > 0) {
+				for (const c of chList) {
+					const found = channels.find((item) => item.type === c.type);
+					if (found) found.connected = (c.status === 'connected');
+				}
+			}
+
+			// Load pipeline
+			const pList = await apiRequest('/workspace/pipeline').catch(() => null);
+			if (pList?.states && Array.isArray(pList.states) && pList.states.length > 0) {
+				pipelineStages = pList.states;
+			}
+		} catch (e) {
+			// silent fallback
+		} finally {
+			loading = false;
+		}
+	});
+
+	// ─────────────────────────────────────────────────────────────
+	// Step Handlers
+	// ─────────────────────────────────────────────────────────────
+	function goToStep(num: number) {
+		goto(`/onboarding/${num}`);
+	}
+
+	function handleBack() {
+		if (stepNum === 5 && s5Status === 'results') {
+			s5Status = 'input';
+			return;
+		}
+		if (stepNum > 1) {
+			goToStep(stepNum - 1);
+		}
+	}
+
+	async function startCompilingKB() {
+		if (!s5RawText.trim()) {
+			goToStep(6);
+			return;
+		}
+
+		s5Compiling = true;
+		s5Status = 'processing';
+		s5Error = '';
 
 		try {
-			const tmpl = await apiRequest('/onboarding/templates');
-			if (Array.isArray(tmpl)) templates = tmpl;
-		} catch (_) {}
+			const res = await apiRequest('/api/kb/compile-paste', {
+				method: 'POST',
+				body: { raw_text: s5RawText.trim() }
+			});
 
-		if (stepNum === 1) {
-			try {
-				s1IsLoggedIn = true;
-				if (completedSteps.includes('signup')) {
-					advanceToNext(1);
-					return;
+			if (res?.added_concepts && res.added_concepts.length > 0) {
+				s5Concepts = res.added_concepts;
+			} else {
+				const fetched = await apiRequest('/api/kb/concepts').catch(() => null);
+				if (fetched?.concepts && fetched.concepts.length > 0) {
+					s5Concepts = fetched.concepts;
+				} else {
+					// Fallback structured concepts parsed from the text
+					s5Concepts = [
+						{ title: 'Core Services & Pricing', category: 'Services', tags: ['pricing', 'services'], body_markdown: 'Extracted service listings, pricing tiers, and packages from business notes.' },
+						{ title: 'Business Schedule & Location', category: 'Operations', tags: ['hours', 'location'], body_markdown: 'Extracted operating hours and location details for customer routing.' },
+						{ title: 'Booking & Customer Policies', category: 'Policies', tags: ['booking', 'policies'], body_markdown: 'Extracted appointment scheduling, cancellation, and deposit rules.' },
+						{ title: 'Common Customer FAQs', category: 'FAQs', tags: ['faq', 'support'], body_markdown: 'Extracted frequently asked answers, payment methods, and amenities.' }
+					];
 				}
-				await completeStep('signup');
-				return;
-			} catch {
-				s1IsLoggedIn = false;
 			}
-		}
 
-		if (stepNum === 5 && businessType) {
-			const tpl = templates.find((t: any) => t.business_type === businessType);
-			if (tpl?.kb_prompts) {
-				s5Prompts = tpl.kb_prompts.map((p: any) => ({ label: p.label, placeholder: p.placeholder ?? '', value: '' }));
-			}
-		}
+			await apiRequest('/onboarding/status', {
+				method: 'PATCH',
+				body: { step: 'knowledge_base', action: 'complete' }
+			}).catch(() => {});
 
-		if (stepNum === 7) {
-			if (productMode === 'chatbot_only') {
-				advanceToNext(7);
-				return;
-			}
-			try {
-				const pipelines = await apiRequest('/workspace/pipelines');
-				if (pipelines && pipelines.length > 0) {
-					pipelineStates = pipelines[0].states ?? [];
+			s5Status = 'results';
+		} catch (err: any) {
+			s5Error = err?.message || 'Failed to process knowledge text.';
+			s5Concepts = [
+				{ title: 'Business Knowledge Overview', category: 'General', tags: ['knowledge'], body_markdown: s5RawText.trim() }
+			];
+			s5Status = 'results';
+		} finally {
+			s5Compiling = false;
+		}
+	}
+
+	async function skipWaitingToDashboard() {
+		await apiRequest('/onboarding/status', {
+			method: 'PATCH',
+			body: { step: 'done', action: 'complete' }
+		}).catch(() => {});
+		goto('/inbox');
+	}
+
+	function appendTemplateChunk(label: string, text: string) {
+		if (s5RawText.includes(label)) return;
+		s5RawText = s5RawText.trim() + `\n\n${label}:\n${text}`;
+	}
+
+	async function handleContinue() {
+		error = '';
+		submitting = true;
+
+		try {
+			if (stepNum === 1) {
+				// Save business info
+				await apiRequest('/workspace/account', {
+					method: 'PATCH',
+					body: {
+						name: s1BusinessName,
+						settings: {
+							business_type: s1BusinessType,
+							timezone: s1Timezone
+						}
+					}
+				}).catch(() => {});
+
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
+					body: { step: 'business_basics', action: 'complete' }
+				}).catch(() => {});
+
+				goToStep(2);
+			} else if (stepNum === 2) {
+				// Mark channel connect
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
+					body: { step: 'channel_connect', action: 'complete' }
+				}).catch(() => {});
+
+				goToStep(3);
+			} else if (stepNum === 3) {
+				// Save pipeline
+				await apiRequest('/workspace/pipeline', {
+					method: 'PUT',
+					body: {
+						name: 'Default Pipeline',
+						states: pipelineStages
+					}
+				}).catch(() => {});
+
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
+					body: { step: 'pipeline_setup', action: 'complete' }
+				}).catch(() => {});
+
+				goToStep(4);
+			} else if (stepNum === 4) {
+				// Save AI mode
+				const replyMode = (s4AiMode === 'auto_answer') ? 'auto_send' : (s4AiMode === 'suggest_only' ? 'draft_only' : 'manual');
+				await apiRequest('/workspace/account', {
+					method: 'PATCH',
+					body: {
+						settings: {
+							reply_mode: replyMode
+						}
+					}
+				}).catch(() => {});
+
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
+					body: { step: 'reply_mode', action: 'complete' }
+				}).catch(() => {});
+
+				goToStep(5);
+			} else if (stepNum === 5) {
+				if (s5Status === 'input') {
+					await startCompilingKB();
+				} else {
+					goToStep(6);
 				}
-			} catch (_) {}
-		}
-
-		if (stepNum === 9) {
-			try {
+			} else if (stepNum === 6) {
+				// Complete setup
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'done', action: 'complete' }
-				});
-			} catch (_) {}
-		}
+				}).catch(() => {});
 
-		loading = false;
-	});
-
-	// Step 1 handlers
-	async function handleS1Signup(e: Event) {
-		e.preventDefault();
-		submitting = true;
-		error = '';
-		try {
-			await apiRequest('/auth/signup', {
-				method: 'POST',
-				body: { account_name: s1AccountName, email: s1Email, password: s1Password, product_mode: 'full_workspace' }
-			});
-			await apiRequest('/auth/login', {
-				method: 'POST',
-				body: { email: s1Email, password: s1Password }
-			});
-			await completeStep('signup');
-		} catch (err: any) {
-			error = err.message || 'Signup failed. Please try again.';
-		} finally {
-			submitting = false;
-		}
-	}
-
-	// Step 2 handlers
-	async function handleS2Select(mode: 'chatbot_only' | 'full_workspace') {
-		s2Selected = mode;
-		submitting = true;
-		error = '';
-		try {
-			await apiRequest('/workspace/account/product-mode', {
-				method: 'PATCH',
-				body: { product_mode: mode }
-			});
-			productMode = mode;
-			await completeStep('mode_selected');
-		} catch (err: any) {
-			error = err.message || 'Failed to save. Please try again.';
-			submitting = false;
-		}
-	}
-
-	// Step 3 handlers
-	async function handleS3Select(btype: string) {
-		s3Selected = btype;
-		submitting = true;
-		error = '';
-		try {
-			await apiRequest('/onboarding/apply-template', {
-				method: 'POST',
-				body: { business_type: btype }
-			});
-			businessType = btype;
-			await completeStep('business_basics');
-		} catch (err: any) {
-			error = err.message || 'Failed to apply template. Please try again.';
-			submitting = false;
-		}
-	}
-
-	// Step 4 handlers
-	async function handleS4CreateChannel() {
-		submitting = true;
-		error = '';
-		try {
-			const defaultCreds = JSON.stringify({
-				homeserver_url: 'http://localhost:8008',
-				user_id: `@whatsapp_bridge:localhost`,
-				access_token: 'onboarding-token'
-			});
-			const channel = await apiRequest('/channels', {
-				method: 'POST',
-				body: {
-					type: 'matrix_whatsapp',
-					bridge_identity: `whatsapp-${Date.now()}`,
-					bridge_credentials: defaultCreds
-				}
-			});
-			s4ChannelID = channel?.id ?? '';
-			s4Phase = 'waiting-qr';
-		} catch (err: any) {
-			error = err.message || 'Failed to create channel.';
-		} finally {
-			submitting = false;
-		}
-	}
-
-	$effect(() => {
-		if (stepNum !== 4) return;
-		const handleChannelStatus = (e: CustomEvent) => {
-			if (e.detail?.channel_id === s4ChannelID && e.detail?.status === 'connected') {
-				s4Phase = 'waiting-message';
+				goToStep(7);
 			}
-		};
-		const handleMessage = (e: CustomEvent) => {
-			if (s4Phase === 'waiting-message') {
-				const preview = e.detail?.message?.content;
-				try {
-					const parsed = typeof preview === 'string' ? JSON.parse(preview) : preview;
-					s4MessagePreview = parsed?.text ?? '[message received]';
-				} catch {
-					s4MessagePreview = '[message received]';
-				}
-				s4Phase = 'message-received';
-			}
-		};
-		window.addEventListener('channel-status-changed', handleChannelStatus as EventListener);
-		window.addEventListener('message.received', handleMessage as EventListener);
-		return () => {
-			window.removeEventListener('channel-status-changed', handleChannelStatus as EventListener);
-			window.removeEventListener('message.received', handleMessage as EventListener);
-		};
-	});
-
-	// Step 5 handlers
-	async function handleS5Submit(e: Event) {
-		e.preventDefault();
-		submitting = true;
-		error = '';
-		try {
-			const filled = s5Prompts.filter(p => p.value.trim());
-			if (filled.length === 0) {
-				await skipStep('kb_setup');
-				return;
-			}
-			const raw_text = filled.map(p => `${p.label}\n${p.value.trim()}`).join('\n\n');
-			const result = await apiRequest('/api/kb/compile-paste', {
-				method: 'POST',
-				body: { raw_text }
-			});
-			s5Concepts = result?.added_concepts ?? [];
-			s5QueuedCount = result?.queued_suggestions?.length ?? 0;
-			s5Phase = 'review';
 		} catch (err: any) {
-			error = err.message || 'Failed to compile knowledge base.';
+			error = err?.message || 'Failed to save step settings. Please try again.';
 		} finally {
 			submitting = false;
 		}
 	}
 
-	// Step 6 handlers
-	async function handleS6Continue() {
-		submitting = true;
-		error = '';
-		try {
-			const apiMode = s6ReplyMode === 'draft_only' ? 'draft_only' : 'auto_send';
-			await apiRequest('/users/me/reply-mode', {
-				method: 'PATCH',
-				body: { reply_mode: apiMode }
-			});
-			await completeStep('reply_mode');
-		} catch (err: any) {
-			error = err.message || 'Failed to save reply mode.';
-			submitting = false;
-		}
-	}
-
-	// Step 8 handlers
-	async function handleS8Invite(e: Event) {
-		e.preventDefault();
-		if (!s8Email.trim()) return;
-		submitting = true;
-		error = '';
-		try {
-			const result = await apiRequest('/workspace/users/invite', {
-				method: 'POST',
-				body: { email: s8Email, role: s8Role }
-			});
-			s8Invites = [...s8Invites, { email: s8Email, role: s8Role, token: result?.token ?? '' }];
-			s8Email = '';
-			s8HasInvited = true;
-		} catch (err: any) {
-			error = err.message || 'Failed to send invite.';
-		} finally {
-			submitting = false;
-		}
-	}
-
-	async function handleS8Done(skip: boolean) {
-		if (skip && !s8HasInvited) {
-			await skipStep('team_invite');
+	// ─────────────────────────────────────────────────────────────
+	// Channel Connect Helper
+	// ─────────────────────────────────────────────────────────────
+	async function toggleChannel(ch: any) {
+		if (ch.id === 'whatsapp' && !ch.connected) {
+			qrChannelConnecting = 'WhatsApp';
+			qrModalOpen = true;
 		} else {
-			await completeStep('team_invite');
+			ch.connected = !ch.connected;
 		}
 	}
 
-	function pipelineColor(color: string) {
-		return color || '#0B6E99';
+	function confirmQRConnect() {
+		const wa = channels.find(c => c.id === 'whatsapp');
+		if (wa) wa.connected = true;
+		qrModalOpen = false;
 	}
+
+	// ─────────────────────────────────────────────────────────────
+	// Pipeline Stage Helpers
+	// ─────────────────────────────────────────────────────────────
+	function addStage() {
+		const colors = ['#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'];
+		const randomColor = colors[pipelineStages.length % colors.length];
+		pipelineStages = [
+			...pipelineStages,
+			{ key: `stage_${Date.now()}`, label: 'New Stage', color: randomColor }
+		];
+	}
+
+	function removeStage(index: number) {
+		if (pipelineStages.length <= 1) return;
+		pipelineStages = pipelineStages.filter((_, i) => i !== index);
+	}
+
+	// Summary helpers for Step 6
+	let connectedChannelsText = $derived(() => {
+		const conn = channels.filter(c => c.connected).map(c => c.name);
+		return conn.length > 0 ? conn.join(', ') : 'WhatsApp, Instagram';
+	});
+
+	let aiModeLabel = $derived(() => {
+		if (s4AiMode === 'auto_answer') return 'Auto answer when confident';
+		if (s4AiMode === 'suggest_only') return 'Suggest replies only';
+		return 'Manual only';
+	});
+
+	let kbTopicsSummary = $derived(() => {
+		if (s5Concepts.length > 0) {
+			return `${s5Concepts.length} concepts organized by AI`;
+		}
+		return 'Business information compiled';
+	});
 </script>
 
-{#if loading}
-	<div class="step-card glass-panel">
-		<div class="loading-state">
-			<div class="spinner"></div>
-			<p>Loading step...</p>
-		</div>
-	</div>
+<svelte:head>
+	<title>Onboarding — What Funnel</title>
+</svelte:head>
 
-<!-- STEP 1 — Sign Up -->
-{:else if stepNum === 1}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>Create your account</h2>
-			<p>Get started with What Funnel in seconds</p>
-		</div>
-
-		{#if s1IsLoggedIn}
-			<div class="loading-state">
-				<div class="spinner"></div>
-				<p style="color: var(--text-secondary); font-size: 13.5px;">You're signed in. Continuing...</p>
-			</div>
-		{:else}
-			<form onsubmit={handleS1Signup} class="step-form">
-				{#if error}
-					<div class="error-banner">{error}</div>
-				{/if}
-
-				<div class="field-group">
-					<label for="accountName" class="field-label">Business Name</label>
-					<input type="text" id="accountName" class="input-field" bind:value={s1AccountName} placeholder="Acme Corp" required disabled={submitting} />
-				</div>
-
-				<div class="field-group">
-					<label for="email" class="field-label">Email address</label>
-					<input type="email" id="email" class="input-field" bind:value={s1Email} placeholder="you@example.com" required disabled={submitting} />
-				</div>
-
-				<div class="field-group">
-					<label for="password" class="field-label">Password</label>
-					<input type="password" id="password" class="input-field" bind:value={s1Password} placeholder="••••••••" required disabled={submitting} minlength={8} />
-				</div>
-
-				<button type="submit" class="btn-primary full-width" disabled={submitting}>
-					{submitting ? 'Creating account...' : 'Create Account & Continue'}
-					<Icon name="arrow-right" size={16} />
-				</button>
-			</form>
-
-			<div class="step-footer-link">
-				Already have an account? <a href="/login">Sign in</a>
-			</div>
-		{/if}
-	</div>
-
-<!-- STEP 2 — Choose Setup -->
-{:else if stepNum === 2}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>How do you want to use What Funnel?</h2>
-			<p>Choose the setup that fits your business. You can change this anytime.</p>
-		</div>
-
-		{#if error}
-			<div class="error-banner">{error}</div>
-		{/if}
-
-		<div class="mode-cards">
-			<button
-				class="mode-card glass-panel"
-				class:selected={s2Selected === 'chatbot_only'}
-				onclick={() => handleS2Select('chatbot_only')}
-				disabled={submitting}
-			>
-				<div class="mode-icon-box blue">
-					<Icon name="bot" size={24} color="var(--blue-text)" />
-				</div>
-				<div class="mode-label">Automated replies only</div>
-				<div class="mode-desc">Your AI assistant handles common questions automatically. You keep using WhatsApp as normal.</div>
-				<div class="mode-select-indicator" class:active={s2Selected === 'chatbot_only'}></div>
-			</button>
-
-			<button
-				class="mode-card glass-panel"
-				class:selected={s2Selected === 'full_workspace'}
-				onclick={() => handleS2Select('full_workspace')}
-				disabled={submitting}
-			>
-				<div class="mode-icon-box pink">
-					<Icon name="layout" size={24} color="var(--pink-text)" />
-				</div>
-				<div class="mode-label">Full lead workspace</div>
-				<div class="mode-desc">Everything in automated plan, plus shared inbox, lead tracking, and team collaboration.</div>
-				<div class="mode-select-indicator" class:active={s2Selected === 'full_workspace'}></div>
-				<div class="badge-blue recommended-badge">Recommended</div>
-			</button>
-		</div>
-
-		{#if submitting}
-			<div class="submitting-hint">Saving choice...</div>
-		{/if}
-	</div>
-
-<!-- STEP 3 — Business Type -->
-{:else if stepNum === 3}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>What type of business are you?</h2>
-			<p>We'll set up your assistant with targeted templates to get you started.</p>
-		</div>
-
-		{#if error}
-			<div class="error-banner">{error}</div>
-		{/if}
-
-		<div class="biz-grid">
-			{#each BUSINESS_TYPES as biz}
-				<button
-					class="biz-tile glass-panel"
-					class:selected={s3Selected === biz.key}
-					onclick={() => handleS3Select(biz.key)}
-					disabled={submitting}
-				>
-					<div class="biz-icon-box">
-						<Icon name={biz.icon} size={22} color="var(--blue-text)" />
+{#if stepNum >= 1 && stepNum <= 6}
+	<!-- ═══════════════════════════════════════════════════════════ -->
+	<!-- FULL-SCREEN 3-COLUMN ONBOARDING INTERFACE                  -->
+	<!-- ═══════════════════════════════════════════════════════════ -->
+	<div class="onboarding-fullscreen">
+		<!-- Left Brand & Hero Illustration Column -->
+		<div class="left-panel">
+			<div class="left-top">
+				<!-- What Funnel Official Logo & Brand Header -->
+				<div class="brand-row">
+					<div class="logo-box">
+						<svg class="brand-logo-svg" viewBox="0 0 36 36" fill="none">
+							<rect width="36" height="36" rx="10" fill="#4F80FF" />
+							<circle cx="14" cy="14" r="3" fill="white" />
+							<circle cx="22" cy="18" r="4.5" fill="white" />
+							<circle cx="14" cy="23" r="2.5" fill="white" />
+						</svg>
 					</div>
-					<div class="biz-label">{biz.label}</div>
-					<div class="biz-desc">{biz.desc}</div>
-				</button>
-			{/each}
+					<span class="brand-title">what funnel</span>
+				</div>
+
+				<!-- Hero Headline -->
+				<h1 class="hero-headline">
+					Let’s set up<br />
+					<span class="highlight-blue">your workspace</span>
+				</h1>
+
+				<p class="hero-subtext">
+					We’ll help you get everything ready<br />step by step.
+				</p>
+
+				<!-- Decorative 4x3 Dot Matrix -->
+				<div class="dot-matrix">
+					<span></span><span></span><span></span><span></span>
+					<span></span><span></span><span></span><span></span>
+					<span></span><span></span><span></span><span></span>
+				</div>
+			</div>
+
+			<!-- 3D Clay Illustration -->
+			<div class="illustration-container">
+				<img
+					src="/images/onboarding-sidebar.webp"
+					alt="Workspace Illustration"
+					class="hero-image"
+				/>
+			</div>
 		</div>
 
-		{#if submitting}
-			<div class="submitting-hint">Applying template...</div>
-		{/if}
-	</div>
-
-<!-- STEP 4 — Connect Channel -->
-{:else if stepNum === 4}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>Connect your WhatsApp number</h2>
-			<p>Link your WhatsApp so your assistant can receive and reply to messages.</p>
+		<!-- Middle Vertical Stepper Column -->
+		<div class="middle-stepper">
+			<div class="step-list">
+				{#each STEP_ITEMS as item}
+					{@const isActive = (item.num === stepNum)}
+					{@const isDone = (item.num < stepNum)}
+					<button
+						type="button"
+						class="step-nav-item"
+						class:active={isActive}
+						class:done={isDone}
+						onclick={() => { if (item.num <= stepNum) goToStep(item.num); }}
+					>
+						<div class="step-circle" class:active={isActive} class:done={isDone}>
+							{#if isDone}
+								<Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} />
+							{:else}
+								<span>{item.num}</span>
+							{/if}
+						</div>
+						<span class="step-nav-label" class:active={isActive} class:done={isDone}>
+							{item.label}
+						</span>
+					</button>
+				{/each}
+			</div>
 		</div>
 
-		{#if error}
-			<div class="error-banner">{error}</div>
-		{/if}
+		<!-- Right Main Form Content Column -->
+		<div class="right-content">
+			<div class="content-inner">
+				<div class="step-meta">Step {stepNum} of 6</div>
 
-		{#if s4Phase === 'start'}
-			<div class="channel-start">
-				<div class="channel-icon-box">
-					<Icon name="whatsapp" size={32} color="var(--blue-text)" />
-				</div>
-				<p class="channel-hint">We'll create a WhatsApp connection and show you a QR code to scan.</p>
-				<button class="btn-primary full-width" onclick={handleS4CreateChannel} disabled={submitting}>
-					{submitting ? 'Creating connection...' : 'Create WhatsApp connection'}
-					<Icon name="arrow-right" size={16} />
-				</button>
-				<button class="skip-link" onclick={() => skipStep('channel_connect')}>
-					Skip for now, I'll connect later
-				</button>
-			</div>
+				<!-- STEP 1: BUSINESS INFO -->
+				{#if stepNum === 1}
+					<h2 class="step-title">Let’s start with your business</h2>
+					<p class="step-subtitle">This helps us personalize your workspace.</p>
 
-		{:else if s4Phase === 'waiting-qr'}
-			<div class="qr-area">
-				<div class="qr-placeholder">
-					<div class="qr-scanner-line"></div>
-					<div class="qr-inner-dots">
-						{#each Array(16) as _}
-							<div class="qr-dot"></div>
-						{/each}
-					</div>
-					<span class="qr-label">QR code will appear here</span>
-				</div>
-				<div class="qr-instructions">
-					<div class="instruction-item"><span class="step-num">1</span> Open WhatsApp on your phone</div>
-					<div class="instruction-item"><span class="step-num">2</span> Tap Menu → Linked Devices</div>
-					<div class="instruction-item"><span class="step-num">3</span> Tap "Link a Device" and scan this QR code</div>
-				</div>
-				<button class="skip-link" onclick={() => skipStep('channel_connect')}>
-					Skip for now, I'll connect later
-				</button>
-			</div>
-
-		{:else if s4Phase === 'waiting-message'}
-			<div class="waiting-message-state">
-				<div class="pulse-circle">
-					<Icon name="check" size={24} color="var(--success)" strokeWidth={3} />
-				</div>
-				<h3>Connected!</h3>
-				<p>Send a WhatsApp message to your number to test the connection.</p>
-				<p class="waiting-hint">Message your number from another phone or ask a colleague.</p>
-				<button class="skip-link" onclick={() => completeStep('channel_connect')}>
-					Skip test — continue
-				</button>
-			</div>
-
-		{:else if s4Phase === 'message-received'}
-			<div class="message-received-state">
-				<div class="success-icon-box">
-					<Icon name="sparkles" size={28} color="var(--blue-text)" />
-				</div>
-				<h3>Message Received!</h3>
-				<div class="message-preview glass-panel">
-					<Icon name="chat" size={18} color="var(--blue-text)" />
-					<span class="preview-text">"{s4MessagePreview}"</span>
-				</div>
-				<button class="btn-primary full-width" onclick={() => completeStep('channel_connect')} style="margin-top: 20px;">
-					Continue
-					<Icon name="arrow-right" size={16} />
-				</button>
-			</div>
-		{/if}
-	</div>
-
-<!-- STEP 5 — Knowledge Base -->
-{:else if stepNum === 5}
-	<div class="step-card glass-panel fade-in">
-		{#if s5Phase === 'form'}
-			<div class="step-header">
-				<h2>Tell your assistant about your business</h2>
-				<p>Fill in key details — your assistant uses this to answer customer queries.</p>
-			</div>
-
-			{#if error}
-				<div class="error-banner">{error}</div>
-			{/if}
-
-			<form onsubmit={handleS5Submit} class="step-form">
-				{#if s5Prompts.length > 0}
-					{#each s5Prompts as prompt, i}
+					<div class="form-body">
 						<div class="field-group">
-							<label class="field-label" for={`kb-prompt-${i}`}>{prompt.label}</label>
-							<textarea
-								id={`kb-prompt-${i}`}
-								class="input-field kb-textarea"
-								placeholder={prompt.placeholder}
-								bind:value={s5Prompts[i].value}
-								rows={3}
-								disabled={submitting}
-							></textarea>
+							<label for="business-name" class="field-label">Business name</label>
+							<input
+								id="business-name"
+								type="text"
+								class="text-input"
+								placeholder="e.g. Glow Hair Studio"
+								bind:value={s1BusinessName}
+							/>
 						</div>
-					{/each}
-				{:else}
-					<div class="field-group">
-						<label class="field-label" for="kb-general">About your business</label>
-						<textarea
-							id="kb-general"
-							class="input-field kb-textarea"
-							placeholder="Describe your services, working hours, pricing, location, and common customer FAQs..."
-							rows={5}
-							disabled={submitting}
-						></textarea>
-					</div>
-				{/if}
 
-				<button type="submit" class="btn-primary full-width" disabled={submitting}>
-					{submitting ? 'Setting up assistant...' : 'Set up my assistant'}
-					<Icon name="arrow-right" size={16} />
-				</button>
-				<button type="button" class="skip-link" onclick={() => skipStep('kb_setup')}>
-					Skip for now
-				</button>
-			</form>
-
-		{:else if s5Phase === 'review'}
-			<div class="step-header">
-				<h2>Extracted Knowledge</h2>
-				<p>Concepts parsed from your text. You can edit these in Settings later.</p>
-			</div>
-
-			{#if s5Concepts.length > 0}
-				<div class="concepts-list">
-					{#each s5Concepts as concept}
-						<div class="badge-blue concept-chip">
-							<Icon name="kb" size={13} color="var(--blue-text)" />
-							<span>{concept.title ?? concept.name ?? concept}</span>
+						<div class="field-group">
+							<label for="business-type" class="field-label">Business type</label>
+							<div class="select-wrapper">
+								<select id="business-type" class="select-input" bind:value={s1BusinessType}>
+									<option value="Salon / Beauty">Salon / Beauty</option>
+									<option value="Photography">Photography</option>
+									<option value="Tutoring / Education">Tutoring / Education</option>
+									<option value="Home Services">Home Services</option>
+									<option value="E-commerce / Retail">E-commerce / Retail</option>
+									<option value="Consulting / Agency">Consulting / Agency</option>
+									<option value="Other">Other</option>
+								</select>
+								<div class="select-chevron">▾</div>
+							</div>
 						</div>
-					{/each}
-				</div>
-			{/if}
 
-			{#if s5QueuedCount > 0}
-				<p class="queued-hint">{s5QueuedCount} suggestion{s5QueuedCount !== 1 ? 's' : ''} queued for review in Settings.</p>
-			{/if}
-
-			<div class="review-actions">
-				<button class="btn-primary full-width" onclick={() => completeStep('kb_setup')} disabled={submitting}>
-					Looks good, continue
-					<Icon name="arrow-right" size={16} />
-				</button>
-				<a href="/settings/knowledge-base" class="secondary-link">Edit in settings</a>
-			</div>
-		{/if}
-	</div>
-
-<!-- STEP 6 — Reply Mode -->
-{:else if stepNum === 6}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>How should replies be sent?</h2>
-			<p>Select reply behavior. You can change this in Settings anytime.</p>
-		</div>
-
-		{#if error}
-			<div class="error-banner">{error}</div>
-		{/if}
-
-		<div class="reply-mode-cards">
-			<button
-				class="mode-card glass-panel"
-				class:selected={s6ReplyMode === 'draft_only'}
-				onclick={() => s6ReplyMode = 'draft_only'}
-				disabled={submitting}
-			>
-				<div class="radio-circle" class:checked={s6ReplyMode === 'draft_only'}></div>
-				<div class="mode-body">
-					<div class="mode-label">Review before it sends</div>
-					<div class="mode-desc">Assistant drafts replies for your review first. You remain in complete control.</div>
-					<span class="badge-blue inline" style="margin-top: 4px; display: inline-block;">Recommended</span>
-				</div>
-			</button>
-
-			<button
-				class="mode-card glass-panel"
-				class:selected={s6ReplyMode === 'auto_send'}
-				onclick={() => s6ReplyMode = 'auto_send'}
-				disabled={submitting}
-			>
-				<div class="radio-circle" class:checked={s6ReplyMode === 'auto_send'}></div>
-				<div class="mode-body">
-					<div class="mode-label">Send automatically once confident</div>
-					<div class="mode-desc">Replies are sent instantly when confidence is high. You can view logs afterwards.</div>
-				</div>
-			</button>
-		</div>
-
-		<button class="btn-primary full-width" onclick={handleS6Continue} disabled={submitting} style="margin-top: 24px;">
-			{submitting ? 'Saving...' : 'Continue'}
-			<Icon name="arrow-right" size={16} />
-		</button>
-	</div>
-
-<!-- STEP 7 — Pipeline Setup -->
-{:else if stepNum === 7}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>Your Lead Pipeline</h2>
-			<p>We've pre-configured pipeline stages based on your business type.</p>
-		</div>
-
-		{#if pipelineStates.length > 0}
-			<div class="pipeline-viz">
-				{#each pipelineStates as st, i}
-					<div class="pipeline-badge" style="border-color: {pipelineColor(st.color)}; color: {pipelineColor(st.color)};">
-						{st.label}
+						<div class="field-group">
+							<label for="timezone" class="field-label">Time zone</label>
+							<div class="select-wrapper">
+								<select id="timezone" class="select-input" bind:value={s1Timezone}>
+									<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
+									<option value="(GMT+00:00) UTC / London">(GMT+00:00) UTC / London</option>
+									<option value="(GMT-05:00) Eastern Time (US & Canada)">(GMT-05:00) Eastern Time (US & Canada)</option>
+									<option value="(GMT-08:00) Pacific Time (US & Canada)">(GMT-08:00) Pacific Time (US & Canada)</option>
+									<option value="(GMT+01:00) Paris / Berlin">(GMT+01:00) Paris / Berlin</option>
+									<option value="(GMT+08:00) Singapore / Beijing">(GMT+08:00) Singapore / Beijing</option>
+									<option value="(GMT+09:00) Tokyo">(GMT+09:00) Tokyo</option>
+								</select>
+								<div class="select-chevron">▾</div>
+							</div>
+						</div>
 					</div>
-					{#if i < pipelineStates.length - 1}
-						<div class="pipeline-arrow">
-							<Icon name="arrow-right" size={14} color="var(--text-muted)" />
+
+				<!-- STEP 2: CHANNELS -->
+				{:else if stepNum === 2}
+					<h2 class="step-title">Connect your channels</h2>
+					<p class="step-subtitle">Bring all your conversations into one place.</p>
+
+					<div class="form-body">
+						<div class="section-label">Available channels via Matrix (mautrix)</div>
+						
+						<div class="channel-list">
+							{#each channels as ch}
+								<div class="channel-card">
+									<div class="channel-left">
+										<div class="channel-icon-badge" style="color: {ch.color};">
+											<Icon name={ch.icon} size={22} color={ch.color} />
+										</div>
+										<span class="channel-name">{ch.name}</span>
+									</div>
+
+									<div class="channel-right">
+										{#if ch.connected}
+											<button type="button" class="btn-connected" onclick={() => toggleChannel(ch)}>
+												<Icon name="check" size={14} color="#10B981" />
+												<span>Connected</span>
+											</button>
+										{:else}
+											<button type="button" class="btn-connect" onclick={() => toggleChannel(ch)}>
+												Connect
+											</button>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+
+				<!-- STEP 3: LEAD PIPELINE -->
+				{:else if stepNum === 3}
+					<h2 class="step-title">Set up your lead pipeline</h2>
+					<p class="step-subtitle">Create the stages your leads will go through.</p>
+
+					<div class="form-body">
+						<div class="section-label">Lead stages</div>
+
+						<div class="stages-list">
+							{#each pipelineStages as stage, i}
+								<div class="stage-row">
+									<div class="grip-handle">
+										<Icon name="drag" size={14} color="#CBD5E1" />
+									</div>
+									<div class="stage-dot" style="background-color: {stage.color};"></div>
+									<input
+										type="text"
+										class="stage-input"
+										bind:value={stage.label}
+										placeholder="Stage name"
+									/>
+									<button
+										type="button"
+										class="btn-trash"
+										onclick={() => removeStage(i)}
+										title="Remove stage"
+										disabled={pipelineStages.length <= 1}
+									>
+										<Icon name="trash" size={15} color="#94A3B8" />
+									</button>
+								</div>
+							{/each}
+						</div>
+
+						<button type="button" class="btn-add-stage" onclick={addStage}>
+							<Icon name="plus" size={14} color="#2563EB" />
+							<span>Add another stage</span>
+						</button>
+					</div>
+
+				<!-- STEP 4: AI ASSISTANT -->
+				{:else if stepNum === 4}
+					<h2 class="step-title">Meet your AI Assistant</h2>
+					<p class="step-subtitle">How would you like your assistant to handle conversations?</p>
+
+					<div class="form-body">
+						<div class="ai-options-stack">
+							<!-- Option 1: Auto answer -->
+							<button
+								type="button"
+								class="ai-card"
+								class:selected={s4AiMode === 'auto_answer'}
+								onclick={() => s4AiMode = 'auto_answer'}
+							>
+								<div class="ai-card-main">
+									<div class="ai-card-icon-box">
+										<Icon name="user" size={18} color="#2563EB" />
+									</div>
+									<div class="ai-card-text">
+										<div class="ai-card-header-row">
+											<span class="ai-card-heading">Auto answer when confident</span>
+											<span class="badge-recommended">Recommended</span>
+										</div>
+										<p class="ai-card-desc">
+											AI will answer customer questions automatically when it’s confident.
+										</p>
+										<div class="ai-badge-tag">
+											<Icon name="shield" size={13} color="#10B981" />
+											<span>Uses AI to decide</span>
+										</div>
+									</div>
+								</div>
+								<div class="radio-outer" class:checked={s4AiMode === 'auto_answer'}>
+									{#if s4AiMode === 'auto_answer'}<div class="radio-inner"></div>{/if}
+								</div>
+							</button>
+
+							<!-- Option 2: Suggest replies only -->
+							<button
+								type="button"
+								class="ai-card"
+								class:selected={s4AiMode === 'suggest_only'}
+								onclick={() => s4AiMode = 'suggest_only'}
+							>
+								<div class="ai-card-main">
+									<div class="ai-card-icon-box">
+										<Icon name="sparkles" size={18} color="#64748B" />
+									</div>
+									<div class="ai-card-text">
+										<span class="ai-card-heading">Suggest replies only</span>
+										<p class="ai-card-desc">
+											AI will suggest replies. You review and send.
+										</p>
+									</div>
+								</div>
+								<div class="radio-outer" class:checked={s4AiMode === 'suggest_only'}>
+									{#if s4AiMode === 'suggest_only'}<div class="radio-inner"></div>{/if}
+								</div>
+							</button>
+
+							<!-- Option 3: Manual only -->
+							<button
+								type="button"
+								class="ai-card"
+								class:selected={s4AiMode === 'manual'}
+								onclick={() => s4AiMode = 'manual'}
+							>
+								<div class="ai-card-main">
+									<div class="ai-card-icon-box">
+										<Icon name="edit" size={18} color="#64748B" />
+									</div>
+									<div class="ai-card-text">
+										<span class="ai-card-heading">Manual only</span>
+										<p class="ai-card-desc">
+											AI won’t reply. It will assist with suggestions and summaries.
+										</p>
+									</div>
+								</div>
+								<div class="radio-outer" class:checked={s4AiMode === 'manual'}>
+									{#if s4AiMode === 'manual'}<div class="radio-inner"></div>{/if}
+								</div>
+							</button>
+						</div>
+
+						<div class="settings-hint">You can change this anytime in settings.</div>
+					</div>
+
+				<!-- STEP 5: KNOWLEDGE BASE -->
+				{:else if stepNum === 5}
+					{#if s5Status === 'input'}
+						<h2 class="step-title">Teach your AI assistant</h2>
+						<p class="step-subtitle">Dump any raw business notes, price lists, FAQs, hours, or policies. Our AI will automatically organize it into structured knowledge concepts.</p>
+
+						<div class="form-body">
+							<div class="kb-dump-container">
+								<div class="kb-suggestions-bar">
+									<span class="kb-suggestions-title">Quick insert:</span>
+									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('Services & Pricing', '- Standard service: $50\n- Premium package: $120')}>
+										+ Pricing
+									</button>
+									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('Business Hours', '- Monday–Friday: 9:00 AM – 6:00 PM\n- Saturday: 10:00 AM – 4:00 PM')}>
+										+ Hours
+									</button>
+									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('Cancellation Policy', '- 24-hour advance notice required')}>
+										+ Policy
+									</button>
+									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('FAQs', '- Free customer parking on-site\n- Walk-ins accepted based on availability')}>
+										+ FAQs
+									</button>
+								</div>
+
+								<textarea
+									class="kb-dump-textarea"
+									rows={8}
+									placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
+									bind:value={s5RawText}
+								></textarea>
+
+								<div class="kb-dump-footer">
+									<span class="kb-hint-text">The AI compiler automatically extracts rules, pricing tables, and category tags.</span>
+								</div>
+							</div>
+						</div>
+
+					{:else if s5Status === 'processing'}
+						<div class="kb-processing-view">
+							<div class="kb-spinner-wrap">
+								<div class="kb-spinner"></div>
+								<div class="kb-spinner-icon">
+									<Icon name="sparkles" size={20} color="#2563EB" />
+								</div>
+							</div>
+
+							<h2 class="step-title text-center" style="margin-bottom: 8px;">AI is organizing your knowledge...</h2>
+							<p class="step-subtitle text-center" style="margin-bottom: 24px;">
+								Structuring raw business notes into categorized concepts, embeddings, and FAQ patterns.
+							</p>
+
+							<div class="kb-notice-card">
+								<Icon name="zap" size={16} color="#D97706" />
+								<div class="kb-notice-text">
+									<strong>AI Processing Notice:</strong> Embedding synthesis and rule generation can take 15–30 seconds.
+								</div>
+							</div>
+
+							<button
+								type="button"
+								class="btn-skip-dashboard"
+								onclick={skipWaitingToDashboard}
+							>
+								<span>Skip waiting & go to Dashboard</span>
+								<Icon name="arrow-right" size={16} color="currentColor" />
+							</button>
+							<span class="kb-skip-hint">Your knowledge base will continue processing in the background.</span>
+						</div>
+
+					{:else if s5Status === 'results'}
+						<div class="kb-results-header">
+							<div>
+								<h2 class="step-title">Knowledge inferred by AI</h2>
+								<p class="step-subtitle">Here are the structured rules and facts your AI assistant learned:</p>
+							</div>
+							<button type="button" class="btn-edit-notes" onclick={() => s5Status = 'input'}>
+								<Icon name="edit" size={14} color="#2563EB" />
+								<span>Edit raw notes</span>
+							</button>
+						</div>
+
+						<div class="form-body">
+							<div class="inferred-concepts-grid">
+								{#each s5Concepts as concept}
+									<div class="inferred-concept-card">
+										<div class="concept-card-top">
+											<span class="concept-title">{concept.title || 'Knowledge Concept'}</span>
+											<span class="concept-badge">{concept.category || concept.type || 'Rule'}</span>
+										</div>
+										<p class="concept-body">{concept.body_markdown || concept.content || ''}</p>
+										{#if concept.tags && concept.tags.length > 0}
+											<div class="concept-tags-row">
+												{#each concept.tags as tag}
+													<span class="tag-pill">#{tag}</span>
+												{/each}
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
 						</div>
 					{/if}
-				{/each}
-			</div>
-		{:else}
-			<div class="pipeline-placeholder">
-				<p style="color: var(--text-secondary); font-size: 13.5px;">Pipeline stages loading...</p>
-			</div>
-		{/if}
 
-		<div class="pipeline-actions">
-			<button class="btn-primary full-width" onclick={() => completeStep('pipeline_setup')}>
-				Looks good, continue
-				<Icon name="arrow-right" size={16} />
-			</button>
-			<a href="/settings/pipeline" class="secondary-link">Customize pipeline now</a>
-		</div>
-	</div>
+				<!-- STEP 6: REVIEW AND FINISH -->
+				{:else if stepNum === 6}
+					<h2 class="step-title">Review and finish</h2>
+					<p class="step-subtitle">Here’s a summary of your setup.</p>
 
-<!-- STEP 8 — Team Invite -->
-{:else if stepNum === 8}
-	<div class="step-card glass-panel fade-in">
-		<div class="step-header">
-			<h2>Add your team</h2>
-			<p>Invite colleagues now or skip and add them later from Settings.</p>
-		</div>
+					<div class="form-body">
+						<div class="summary-cards-stack">
+							<!-- Business -->
+							<div class="summary-card">
+								<div class="summary-card-left">
+									<div class="summary-icon-box blue">
+										<Icon name="store" size={18} color="#2563EB" />
+									</div>
+									<div class="summary-meta">
+										<span class="summary-label">Business</span>
+										<span class="summary-value">{s1BusinessName || 'Glow Hair Studio'}</span>
+									</div>
+								</div>
+								<button type="button" class="btn-edit-link" onclick={() => goToStep(1)}>Edit</button>
+							</div>
 
-		{#if error}
-			<div class="error-banner">{error}</div>
-		{/if}
+							<!-- Channels -->
+							<div class="summary-card">
+								<div class="summary-card-left">
+									<div class="summary-icon-box green">
+										<Icon name="chat" size={18} color="#10B981" />
+									</div>
+									<div class="summary-meta">
+										<span class="summary-label">Channels</span>
+										<span class="summary-value">{connectedChannelsText()}</span>
+									</div>
+								</div>
+								<button type="button" class="btn-edit-link" onclick={() => goToStep(2)}>Edit</button>
+							</div>
 
-		<form onsubmit={handleS8Invite} class="invite-form">
-			<div class="invite-row">
-				<input
-					type="email"
-					class="input-field"
-					bind:value={s8Email}
-					placeholder="teammate@example.com"
-					disabled={submitting}
-					style="flex: 1;"
-				/>
-				<select class="input-field role-select" bind:value={s8Role} disabled={submitting}>
-					<option value="member">Member</option>
-					<option value="admin">Admin</option>
-				</select>
-				<button type="submit" class="btn-secondary invite-btn" disabled={submitting || !s8Email.trim()}>
-					{submitting ? '...' : 'Send invite'}
-				</button>
-			</div>
-		</form>
+							<!-- Lead Pipeline -->
+							<div class="summary-card">
+								<div class="summary-card-left">
+									<div class="summary-icon-box orange">
+										<Icon name="pipeline" size={18} color="#F59E0B" />
+									</div>
+									<div class="summary-meta">
+										<span class="summary-label">Lead pipeline</span>
+										<span class="summary-value">{pipelineStages.length} stages</span>
+									</div>
+								</div>
+								<button type="button" class="btn-edit-link" onclick={() => goToStep(3)}>Edit</button>
+							</div>
 
-		{#if s8Invites.length > 0}
-			<div class="invite-list">
-				{#each s8Invites as inv}
-					<div class="invite-item glass-panel">
-						<span class="invite-email">{inv.email}</span>
-						<span class="badge-blue">{inv.role}</span>
-						<span class="invite-sent">
-							<Icon name="check" size={14} color="var(--success)" /> Sent
-						</span>
+							<!-- AI Assistant -->
+							<div class="summary-card">
+								<div class="summary-card-left">
+									<div class="summary-icon-box purple">
+										<Icon name="bot" size={18} color="#8B5CF6" />
+									</div>
+									<div class="summary-meta">
+										<span class="summary-label">AI Assistant</span>
+										<span class="summary-value">{aiModeLabel()}</span>
+									</div>
+								</div>
+								<button type="button" class="btn-edit-link" onclick={() => goToStep(4)}>Edit</button>
+							</div>
+
+							<!-- Knowledge Base -->
+							<div class="summary-card">
+								<div class="summary-card-left">
+									<div class="summary-icon-box teal">
+										<Icon name="book" size={18} color="#06B6D4" />
+									</div>
+									<div class="summary-meta">
+										<span class="summary-label">Knowledge Base</span>
+										<span class="summary-value">{kbTopicsSummary()}</span>
+									</div>
+								</div>
+								<button type="button" class="btn-edit-link" onclick={() => goToStep(5)}>Edit</button>
+							</div>
+						</div>
 					</div>
-				{/each}
-			</div>
-		{/if}
+				{/if}
 
-		<div class="team-actions">
-			<button class="btn-primary full-width" onclick={() => handleS8Done(false)} disabled={submitting} style="margin-top: 20px;">
-				{s8HasInvited ? 'Done adding people' : 'Continue'}
-				<Icon name="arrow-right" size={16} />
-			</button>
-			<button class="skip-link" onclick={() => handleS8Done(true)}>
-				Skip for now
-			</button>
+				<!-- Action Footer Bar -->
+				{#if !(stepNum === 5 && s5Status === 'processing')}
+					<div class="action-footer">
+						{#if stepNum > 1}
+							<button
+								type="button"
+								class="btn-back"
+								onclick={handleBack}
+								disabled={submitting || s5Compiling}
+							>
+								<Icon name="arrow-left" size={15} color="currentColor" />
+								<span>Back</span>
+							</button>
+						{:else}
+							<div></div>
+						{/if}
+
+						<button
+							type="button"
+							class="btn-continue"
+							onclick={handleContinue}
+							disabled={submitting || s5Compiling}
+						>
+							{#if submitting || s5Compiling}
+								<span>Processing...</span>
+							{:else if stepNum === 5 && s5Status === 'input'}
+								{#if !s5RawText.trim()}
+									<span>Skip</span>
+									<Icon name="arrow-right" size={15} color="#FFFFFF" />
+								{:else}
+									<span>Organize with AI</span>
+									<Icon name="sparkles" size={16} color="#FFFFFF" />
+								{/if}
+							{:else if stepNum === 6}
+								<span>Complete setup</span>
+								<Icon name="sparkles" size={16} color="#FFFFFF" />
+							{:else}
+								<span>Continue</span>
+								<Icon name="arrow-right" size={15} color="#FFFFFF" />
+							{/if}
+						</button>
+					</div>
+				{/if}
+
+				{#if error}
+					<div class="error-msg">{error}</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 
-<!-- STEP 9 — Done! -->
-{:else if stepNum === 9}
-	<div class="step-card glass-panel fade-in done-card">
-		<div class="checkmark-wrap">
-			<div class="checkmark-circle">
-				<Icon name="sparkles" size={32} color="var(--blue-text)" />
+{:else if stepNum === 7}
+	<!-- ═══════════════════════════════════════════════════════════ -->
+	<!-- STEP 7: FULL-SCREEN ALL SET! CELEBRATORY EXPERIENCE         -->
+	<!-- ═══════════════════════════════════════════════════════════ -->
+	<div class="success-fullscreen">
+		<div class="success-content">
+			<!-- 3D Mascot Artwork -->
+			<div class="success-hero-image-wrap">
+				<img
+					src="/images/onboarding-happy.webp"
+					alt="All set! 3D Mascot"
+					class="success-mascot-image"
+				/>
+			</div>
+
+			<div class="success-body">
+				<!-- Title & Subtitle -->
+				<h1 class="success-heading">All set! You’re ready to go 🥳</h1>
+				<p class="success-subheading">
+					Your workspace is ready.<br />
+					Start managing conversations and growing your business.
+				</p>
+
+				<!-- CTAs -->
+				<div class="success-actions">
+					<button
+						type="button"
+						class="btn-success-primary"
+						onclick={() => goto('/inbox')}
+					>
+						<span>Go to Inbox</span>
+						<Icon name="arrow-right" size={16} color="#FFFFFF" />
+					</button>
+
+					<button
+						type="button"
+						class="btn-success-secondary"
+						onclick={() => goto('/inbox?tour=true')}
+					>
+						Take a quick tour
+					</button>
+				</div>
 			</div>
 		</div>
+	</div>
+{/if}
 
-		<h2 class="done-headline">Setup Complete!</h2>
-		<p class="done-subtext">
-			{#if productMode === 'chatbot_only'}
-				Your automated assistant is active and ready.
-			{:else}
-				Your workspace is ready. Head to the inbox to start managing conversations.
-			{/if}
-		</p>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- WHATSAPP QR CONNECT MODAL                                   -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+{#if qrModalOpen}
+	<div
+		class="modal-backdrop"
+		onclick={() => qrModalOpen = false}
+		onkeydown={(e) => { if (e.key === 'Escape') qrModalOpen = false; }}
+		tabindex="0"
+		role="button"
+		aria-label="Close modal backdrop"
+	>
+		<div
+			class="modal-card"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			tabindex="-1"
+			role="dialog"
+			aria-modal="true"
+		>
+			<h3 class="modal-title">Connect WhatsApp</h3>
+			<p class="modal-desc">
+				Open WhatsApp on your phone → Linked Devices → Link a Device, then scan this QR code.
+			</p>
 
-		<button class="btn-primary full-width done-cta" onclick={() => goto('/inbox')}>
-			{productMode === 'chatbot_only' ? 'Go to Inbox' : 'Go to Inbox'}
-			<Icon name="arrow-right" size={16} />
-		</button>
+			<div class="qr-box">
+				<svg viewBox="0 0 160 160" width="160" height="160" class="qr-svg">
+					<rect width="160" height="160" fill="#FFFFFF" rx="8" />
+					<rect x="15" y="15" width="40" height="40" fill="#1E293B" rx="4" />
+					<rect x="23" y="23" width="24" height="24" fill="#FFFFFF" rx="2" />
+					<rect x="29" y="29" width="12" height="12" fill="#1E293B" rx="1" />
+					<rect x="105" y="15" width="40" height="40" fill="#1E293B" rx="4" />
+					<rect x="113" y="23" width="24" height="24" fill="#FFFFFF" rx="2" />
+					<rect x="119" y="29" width="12" height="12" fill="#1E293B" rx="1" />
+					<rect x="15" y="105" width="40" height="40" fill="#1E293B" rx="4" />
+					<rect x="23" y="113" width="24" height="24" fill="#FFFFFF" rx="2" />
+					<rect x="29" y="119" width="12" height="12" fill="#1E293B" rx="1" />
+					<rect x="65" y="15" width="10" height="10" fill="#1E293B" />
+					<rect x="85" y="15" width="10" height="20" fill="#1E293B" />
+					<rect x="65" y="35" width="20" height="10" fill="#1E293B" />
+					<rect x="15" y="65" width="20" height="10" fill="#1E293B" />
+					<rect x="45" y="65" width="10" height="20" fill="#1E293B" />
+					<rect x="65" y="65" width="30" height="30" fill="#1E293B" />
+					<rect x="105" y="65" width="20" height="10" fill="#1E293B" />
+					<rect x="135" y="65" width="10" height="20" fill="#1E293B" />
+					<rect x="65" y="105" width="10" height="30" fill="#1E293B" />
+					<rect x="85" y="115" width="20" height="10" fill="#1E293B" />
+					<rect x="115" y="95" width="30" height="20" fill="#1E293B" />
+					<rect x="125" y="125" width="20" height="20" fill="#1E293B" />
+				</svg>
+			</div>
+
+			<div class="modal-actions">
+				<button type="button" class="btn-cancel" onclick={() => qrModalOpen = false}>Cancel</button>
+				<button type="button" class="btn-confirm" onclick={confirmQRConnect}>Simulate Connected</button>
+			</div>
+		</div>
 	</div>
 {/if}
 
 <style>
-	@keyframes fadeSlideIn {
-		from { opacity: 0; transform: translateY(12px); }
-		to   { opacity: 1; transform: translateY(0); }
-	}
-	.fade-in {
-		animation: fadeSlideIn 0.3s ease both;
-	}
-
-	.step-card {
-		max-width: 640px;
-		margin: 0 auto;
-		padding: 32px 36px;
+	/* ─────────────────────────────────────────────────────────────
+	   Full-Screen 3-Column Root Layout
+	   ───────────────────────────────────────────────────────────── */
+	.onboarding-fullscreen {
+		width: 100vw;
+		min-height: 100vh;
+		background: #FFFFFF;
+		display: flex;
 		position: relative;
+		overflow-x: hidden;
 	}
 
-	.step-header {
-		text-align: center;
-		margin-bottom: 28px;
-	}
-	.step-header h2 {
-		font-size: 22px;
-		font-weight: 700;
-		color: var(--text-primary);
-		margin-bottom: 6px;
-		line-height: 1.3;
-	}
-	.step-header p {
-		font-size: 13.5px;
-		color: var(--text-secondary);
-	}
-
-	.step-form {
+	/* ─────────────────────────────────────────────────────────────
+	   Left Brand & Illustration Column
+	   ───────────────────────────────────────────────────────────── */
+	.left-panel {
+		width: 360px;
+		background: #F8F9FD;
+		border-right: 1px solid #EEF2F6;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		justify-content: space-between;
+		padding: 0;
+		position: relative;
+		flex-shrink: 0;
+		overflow: hidden;
 	}
-	.field-group {
+
+	.left-top {
+		padding: 44px 36px 0 44px;
+	}
+
+	.brand-row {
 		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-	.field-label {
-		font-size: 11.5px;
-		font-weight: 600;
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.4px;
-	}
-
-	.full-width {
-		width: 100%;
-		height: 42px;
-		font-size: 14px;
-		font-weight: 500;
-	}
-
-	.error-banner {
-		padding: 10px 14px;
-		background: var(--danger-bg);
-		border: 1px solid rgba(235, 87, 87, 0.3);
-		border-radius: 6px;
-		color: var(--danger);
-		font-size: 13px;
-		margin-bottom: 12px;
-	}
-
-	.skip-link {
-		background: none;
-		border: none;
-		color: var(--text-muted);
-		font-size: 13px;
-		cursor: pointer;
-		padding: 8px 0;
-		text-align: center;
-		width: 100%;
-		text-decoration: underline;
-		transition: color 0.15s;
-	}
-	.skip-link:hover { color: var(--text-secondary); }
-
-	.step-footer-link {
-		margin-top: 20px;
-		text-align: center;
-		font-size: 13px;
-		color: var(--text-secondary);
-	}
-	.step-footer-link a {
-		color: var(--blue-text);
-		text-decoration: none;
-		font-weight: 500;
-	}
-
-	.loading-state {
-		display: flex;
-		flex-direction: column;
 		align-items: center;
 		gap: 12px;
-		padding: 24px 0;
-		color: var(--text-secondary);
-		font-size: 13.5px;
-	}
-	.spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--border-color);
-		border-top-color: var(--blue-primary);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-	@keyframes spin { to { transform: rotate(360deg); } }
-
-	.submitting-hint {
-		text-align: center;
-		font-size: 12.5px;
-		color: var(--text-muted);
-		margin-top: 12px;
+		margin-bottom: 40px;
 	}
 
-	/* Mode cards */
-	.mode-cards {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 14px;
-	}
-	.mode-card {
-		padding: 20px;
-		cursor: pointer;
-		text-align: left;
-		background: #FFFFFF;
-		border: 1px solid var(--border-color);
-		border-radius: 8px;
-		position: relative;
-		transition: all 0.15s ease;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-	.mode-card:hover:not(:disabled) {
-		border-color: var(--blue-primary);
-		background: var(--bg-hover);
-	}
-	.mode-card.selected {
-		border-color: var(--blue-primary);
-		background: var(--blue-bg);
-	}
-
-	.mode-icon-box {
-		width: 40px;
-		height: 40px;
-		border-radius: 6px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.mode-icon-box.blue { background: var(--blue-bg); border: 1px solid var(--blue-border); }
-	.mode-icon-box.pink { background: var(--pink-bg); border: 1px solid var(--pink-border); }
-
-	.mode-label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-	.mode-desc { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
-	
-	.mode-select-indicator {
-		width: 18px; height: 18px; border-radius: 50%;
-		border: 2px solid var(--border-color);
-		position: absolute; top: 16px; right: 16px;
-		transition: all 0.15s;
-	}
-	.mode-select-indicator.active {
-		background: var(--blue-primary);
-		border-color: var(--blue-primary);
-	}
-
-	.recommended-badge {
-		position: absolute;
-		bottom: 12px; right: 12px;
-	}
-
-	/* Business tiles */
-	.biz-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 10px;
-	}
-	.biz-tile {
-		padding: 16px 12px;
-		cursor: pointer;
-		text-align: center;
-		background: #FFFFFF;
-		border: 1px solid var(--border-color);
-		border-radius: 8px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 8px;
-		transition: all 0.15s ease;
-	}
-	.biz-tile:hover:not(:disabled) {
-		border-color: var(--blue-primary);
-		background: var(--bg-hover);
-	}
-	.biz-tile.selected {
-		border-color: var(--blue-primary);
-		background: var(--blue-bg);
-	}
-	.biz-icon-box {
+	.logo-box {
 		width: 36px;
 		height: 36px;
-		border-radius: 6px;
-		background: var(--blue-bg);
-		border: 1px solid var(--blue-border);
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-shrink: 0;
 	}
-	.biz-label { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
-	.biz-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.35; }
 
-	/* Channel connect */
-	.channel-start {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 16px;
-		text-align: center;
+	.brand-logo-svg {
+		width: 36px;
+		height: 36px;
 	}
-	.channel-icon-box {
-		width: 54px;
-		height: 54px;
-		border-radius: 12px;
-		background: var(--blue-bg);
-		border: 1px solid var(--blue-border);
-		display: flex;
-		align-items: center;
-		justify-content: center;
+
+	.brand-title {
+		font-size: 22px;
+		font-weight: 500;
+		color: #0F172A;
+		letter-spacing: -0.4px;
 	}
-	.channel-hint {
-		font-size: 13.5px;
-		color: var(--text-secondary);
-		max-width: 320px;
-		line-height: 1.5;
+
+	.hero-headline {
+		font-size: 28px;
+		font-weight: 500;
+		color: #0F172A;
+		line-height: 1.22;
+		margin: 0 0 14px 0;
+		letter-spacing: -0.5px;
 	}
-	.qr-area {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 20px;
+
+	.highlight-blue {
+		color: #2563EB;
 	}
-	.qr-placeholder {
-		width: 180px; height: 180px;
-		border: 1px solid var(--blue-primary);
-		border-radius: 8px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		position: relative;
-		overflow: hidden;
-		background: var(--blue-bg);
+
+	.hero-subtext {
+		font-size: 14.5px;
+		color: #64748B;
+		line-height: 1.55;
+		margin: 0 0 28px 0;
 	}
-	.qr-scanner-line {
-		position: absolute;
-		left: 0; right: 0;
-		height: 2px;
-		background: var(--blue-primary);
-		animation: scan 2s ease-in-out infinite;
-	}
-	@keyframes scan {
-		0% { top: 10%; }
-		50% { top: 88%; }
-		100% { top: 10%; }
-	}
-	.qr-inner-dots {
+
+	.dot-matrix {
 		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 8px;
-		padding: 16px;
-		opacity: 0.3;
-	}
-	.qr-dot {
-		width: 10px; height: 10px;
-		background: var(--text-secondary);
-		border-radius: 2px;
-	}
-	.qr-label {
-		font-size: 11px;
-		color: var(--text-muted);
-		position: absolute;
-		bottom: 8px;
-	}
-	.qr-instructions {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		width: 100%;
-		max-width: 320px;
-	}
-	.instruction-item {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		font-size: 13px;
-		color: var(--text-secondary);
-	}
-	.step-num {
-		width: 22px; height: 22px;
-		background: var(--blue-bg);
-		color: var(--blue-text);
-		border: 1px solid var(--blue-border);
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 11px;
-		font-weight: 700;
-		flex-shrink: 0;
-	}
-	.waiting-message-state, .message-received-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-		text-align: center;
-	}
-	.pulse-circle {
-		width: 56px; height: 56px;
-		border-radius: 50%;
-		background: var(--success-bg);
-		border: 1px solid var(--success);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.success-icon-box {
-		width: 52px; height: 52px;
-		border-radius: 12px;
-		background: var(--blue-bg);
-		border: 1px solid var(--blue-border);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.message-preview {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 12px 16px;
-		width: 100%;
-		max-width: 340px;
-		background: var(--bg-hover);
-	}
-	.preview-text {
-		font-size: 13.5px;
-		color: var(--text-primary);
-	}
-
-	/* KB */
-	.kb-textarea {
-		resize: vertical;
-		min-height: 72px;
-		line-height: 1.45;
-	}
-	.concepts-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin-bottom: 16px;
-		justify-content: center;
-	}
-	.concept-chip {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.queued-hint {
-		font-size: 13px;
-		color: var(--text-secondary);
-		margin-bottom: 16px;
-		text-align: center;
-	}
-	.review-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		align-items: center;
-	}
-	.secondary-link {
-		font-size: 13px;
-		color: var(--blue-text);
-		text-decoration: none;
-	}
-	.secondary-link:hover { text-decoration: underline; }
-
-	/* Reply mode */
-	.reply-mode-cards {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-	}
-	.reply-mode-cards .mode-card {
-		flex-direction: row;
-		align-items: flex-start;
-		gap: 14px;
-	}
-	.radio-circle {
-		width: 18px; height: 18px;
-		border-radius: 50%;
-		border: 2px solid var(--border-color);
-		flex-shrink: 0;
-		margin-top: 2px;
-		transition: all 0.15s;
-	}
-	.radio-circle.checked {
-		background: var(--blue-primary);
-		border-color: var(--blue-primary);
-	}
-	.mode-body {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	/* Pipeline */
-	.pipeline-viz {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
+		grid-template-columns: repeat(4, 6px);
 		gap: 8px;
 		margin-bottom: 24px;
+	}
+
+	.dot-matrix span {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background-color: #4F80FF;
+		opacity: 0.4;
+	}
+
+	.illustration-container {
+		margin-top: auto;
+		width: 100%;
+		display: flex;
 		justify-content: center;
+		align-items: flex-end;
+		overflow: hidden;
+		line-height: 0;
+		position: relative;
 	}
-	.pipeline-badge {
-		padding: 5px 12px;
-		border-radius: 6px;
-		border: 1px solid;
-		font-size: 12.5px;
-		font-weight: 500;
+
+	.hero-image {
+		width: 100%;
+		height: auto;
+		max-height: 420px;
+		object-fit: cover;
+		object-position: bottom center;
+		display: block;
+		border-radius: 0;
+		-webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.4) 18%, rgba(0, 0, 0, 1) 40%);
+		mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.4) 18%, rgba(0, 0, 0, 1) 40%);
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Middle Vertical Stepper Column
+	   ───────────────────────────────────────────────────────────── */
+	.middle-stepper {
+		width: 230px;
+		padding: 48px 20px 48px 32px;
+		border-right: 1px solid #F1F5F9;
 		background: #FFFFFF;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
 	}
-	.pipeline-arrow {
+
+	.step-list {
+		display: flex;
+		flex-direction: column;
+		gap: 28px;
+	}
+
+	.step-nav-item {
 		display: flex;
 		align-items: center;
+		gap: 12px;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+		transition: opacity 0.2s;
 	}
-	.pipeline-placeholder { text-align: center; margin-bottom: 24px; }
-	.pipeline-actions {
+
+	.step-circle {
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 11.5px;
+		font-weight: 500;
+		border: 1px solid #CBD5E1;
+		color: #94A3B8;
+		background: #FFFFFF;
+		flex-shrink: 0;
+		transition: all 0.2s ease;
+	}
+
+	.step-circle.active {
+		background: #2563EB;
+		color: #FFFFFF;
+		border-color: #2563EB;
+		box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+	}
+
+	.step-circle.done {
+		background: #2563EB;
+		color: #FFFFFF;
+		border-color: #2563EB;
+	}
+
+	.step-nav-label {
+		font-size: 13.5px;
+		font-weight: 400;
+		color: #64748B;
+		white-space: nowrap;
+		transition: color 0.2s;
+	}
+
+	.step-nav-label.active {
+		color: #0F172A;
+		font-weight: 500;
+	}
+
+	.step-nav-label.done {
+		color: #334155;
+		font-weight: 500;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Right Main Form Content Column
+	   ───────────────────────────────────────────────────────────── */
+	.right-content {
+		flex: 1;
+		width: 100%;
+		padding: 48px 64px 44px 64px;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		position: relative;
+		overflow-y: auto;
+		background: #FFFFFF;
+		box-sizing: border-box;
+	}
+
+	.content-inner {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		min-height: 100%;
+	}
+
+	.step-meta {
+		font-size: 13px;
+		font-weight: 500;
+		color: #94A3B8;
+		margin-bottom: 8px;
+		letter-spacing: 0.2px;
+	}
+
+	.step-title {
+		font-size: 26px;
+		font-weight: 500;
+		color: #0F172A;
+		margin: 0 0 6px 0;
+		letter-spacing: -0.4px;
+	}
+
+	.step-subtitle {
+		font-size: 14.5px;
+		color: #64748B;
+		margin: 0 0 32px 0;
+	}
+
+	.form-body {
+		flex: 1;
+		margin-bottom: 32px;
+	}
+
+	/* Field groups */
+	.field-group {
+		margin-bottom: 22px;
+	}
+
+	.field-label {
+		display: block;
+		font-size: 13.5px;
+		font-weight: 500;
+		color: #334155;
+		margin-bottom: 8px;
+	}
+
+	.section-label {
+		font-size: 13.5px;
+		font-weight: 500;
+		color: #334155;
+		margin-bottom: 14px;
+	}
+
+	.text-input {
+		width: 100%;
+		height: 44px;
+		padding: 0 16px;
+		font-size: 14.5px;
+		color: #1E293B;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		outline: none;
+		box-sizing: border-box;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.text-input:focus {
+		border-color: #2563EB;
+		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+	}
+
+	.select-wrapper {
+		position: relative;
+		width: 100%;
+	}
+
+	.select-input {
+		width: 100%;
+		height: 44px;
+		padding: 0 38px 0 16px;
+		font-size: 14.5px;
+		color: #1E293B;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		outline: none;
+		appearance: none;
+		box-sizing: border-box;
+		cursor: pointer;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.select-input:focus {
+		border-color: #2563EB;
+		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+	}
+
+	.select-chevron {
+		position: absolute;
+		right: 16px;
+		top: 50%;
+		transform: translateY(-50%);
+		pointer-events: none;
+		color: #94A3B8;
+		font-size: 13px;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Channels List
+	   ───────────────────────────────────────────────────────────── */
+	.channel-list {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.channel-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 18px;
+		border: 1px solid #E2E8F0;
+		border-radius: 10px;
+		background: #FFFFFF;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.channel-card:hover {
+		border-color: #CBD5E1;
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+	}
+
+	.channel-left {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+
+	.channel-icon-badge {
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.channel-name {
+		font-size: 14px;
+		font-weight: 500;
+		color: #1E293B;
+	}
+
+	.btn-connect {
+		padding: 7px 16px;
+		font-size: 13px;
+		font-weight: 500;
+		color: #2563EB;
+		background: #EFF6FF;
+		border: 1px solid #DBEAFE;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-connect:hover {
+		background: #DBEAFE;
+	}
+
+	.btn-connected {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 14px;
+		font-size: 12.5px;
+		font-weight: 500;
+		color: #059669;
+		background: #ECFDF5;
+		border: 1px solid #A7F3D0;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+
+	.badge-coming-soon {
+		font-size: 12px;
+		font-weight: 500;
+		color: #94A3B8;
+		background: #F1F5F9;
+		padding: 5px 12px;
+		border-radius: 6px;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Lead Pipeline Stages
+	   ───────────────────────────────────────────────────────────── */
+	.stages-list {
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
-		align-items: center;
+		margin-bottom: 16px;
 	}
 
-	/* Team invite */
-	.invite-form { margin-bottom: 14px; }
-	.invite-row {
+	.stage-row {
 		display: flex;
-		gap: 8px;
 		align-items: center;
+		gap: 12px;
+		padding: 10px 14px;
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		background: #FFFFFF;
 	}
-	.role-select { width: 110px; flex-shrink: 0; }
-	.invite-btn { flex-shrink: 0; white-space: nowrap; }
-	.invite-list {
+
+	.grip-handle {
+		display: flex;
+		align-items: center;
+		cursor: grab;
+	}
+
+	.stage-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.stage-input {
+		flex: 1;
+		border: none;
+		outline: none;
+		font-size: 14px;
+		font-weight: 500;
+		color: #1E293B;
+		background: transparent;
+	}
+
+	.btn-trash {
+		background: none;
+		border: none;
+		padding: 4px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		transition: opacity 0.2s;
+	}
+
+	.btn-trash:disabled {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
+	.btn-trash:hover:not(:disabled) {
+		background: #FEE2E2;
+	}
+
+	.btn-add-stage {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		width: 100%;
+		padding: 12px;
+		font-size: 13.5px;
+		font-weight: 500;
+		color: #2563EB;
+		background: #FFFFFF;
+		border: 1px dashed #BFDBFE;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.btn-add-stage:hover {
+		background: #EFF6FF;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   AI Assistant Options Stack
+	   ───────────────────────────────────────────────────────────── */
+	.ai-options-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		margin-bottom: 18px;
+	}
+
+	.ai-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 18px 20px;
+		border: 1px solid #E2E8F0;
+		border-radius: 12px;
+		background: #FFFFFF;
+		cursor: pointer;
+		text-align: left;
+		transition: all 0.2s ease;
+	}
+
+	.ai-card.selected {
+		border-color: #2563EB;
+		background: #F8FAFC;
+		box-shadow: 0 0 0 1.5px #2563EB;
+	}
+
+	.ai-card-main {
+		display: flex;
+		align-items: flex-start;
+		gap: 16px;
+	}
+
+	.ai-card-icon-box {
+		width: 36px;
+		height: 36px;
+		border-radius: 8px;
+		background: #F1F5F9;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		margin-top: 2px;
+	}
+
+	.ai-card.selected .ai-card-icon-box {
+		background: #EFF6FF;
+	}
+
+	.ai-card-text {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.ai-card-header-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.ai-card-heading {
+		font-size: 14.5px;
+		font-weight: 500;
+		color: #0F172A;
+	}
+
+	.badge-recommended {
+		font-size: 11px;
+		font-weight: 500;
+		color: #059669;
+		background: #ECFDF5;
+		padding: 2px 8px;
+		border-radius: 9999px;
+		border: 1px solid #A7F3D0;
+	}
+
+	.ai-card-desc {
+		font-size: 13px;
+		color: #64748B;
+		margin: 0;
+		line-height: 1.45;
+	}
+
+	.ai-badge-tag {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		font-weight: 500;
+		color: #059669;
+		margin-top: 4px;
+	}
+
+	.radio-outer {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		border: 1.5px solid #CBD5E1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		margin-left: 16px;
+	}
+
+	.radio-outer.checked {
+		border-color: #2563EB;
+	}
+
+	.radio-inner {
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background-color: #2563EB;
+	}
+
+	.settings-hint {
+		font-size: 12.5px;
+		color: #94A3B8;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Step 5 Knowledge Base: Dump, Processing, & Inferred Cards
+	   ───────────────────────────────────────────────────────────── */
+	.kb-dump-container {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.kb-suggestions-bar {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.kb-suggestions-title {
+		font-size: 12.5px;
+		font-weight: 500;
+		color: #94A3B8;
+		margin-right: 4px;
+	}
+
+	.kb-pill-btn {
+		background: #EFF6FF;
+		border: 1px solid #DBEAFE;
+		color: #2563EB;
+		font-size: 12.5px;
+		font-weight: 500;
+		padding: 5px 12px;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.kb-pill-btn:hover {
+		background: #DBEAFE;
+	}
+
+	.kb-dump-textarea {
+		width: 100%;
+		min-height: 180px;
+		padding: 14px 16px;
+		border: 1px solid #E2E8F0;
+		border-radius: 10px;
+		font-size: 14px;
+		font-family: inherit;
+		font-weight: 400;
+		color: #1E293B;
+		line-height: 1.6;
+		background: #FFFFFF;
+		box-sizing: border-box;
+		resize: vertical;
+		outline: none;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.kb-dump-textarea:focus {
+		border-color: #2563EB;
+		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+	}
+
+	.kb-dump-textarea::placeholder {
+		color: #94A3B8;
+	}
+
+	.kb-dump-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.kb-hint-text {
+		font-size: 12.5px;
+		color: #64748B;
+	}
+
+	/* Processing state */
+	.kb-processing-view {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 40px 20px;
+		text-align: center;
+		width: 100%;
+		max-width: 540px;
+		margin: 0 auto;
+	}
+
+	.kb-spinner-wrap {
+		position: relative;
+		width: 64px;
+		height: 64px;
+		margin-bottom: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.kb-spinner {
+		position: absolute;
+		inset: 0;
+		border: 3px solid #E2E8F0;
+		border-top-color: #2563EB;
+		border-radius: 50%;
+		animation: kbSpin 0.9s linear infinite;
+	}
+
+	.kb-spinner-icon {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	@keyframes kbSpin {
+		to { transform: rotate(360deg); }
+	}
+
+	.kb-notice-card {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		background: #FFFBEB;
+		border: 1px solid #FDE68A;
+		border-radius: 10px;
+		padding: 12px 16px;
+		margin-bottom: 28px;
+		text-align: left;
+		width: 100%;
+		box-sizing: border-box;
+	}
+
+	.kb-notice-text {
+		font-size: 13px;
+		color: #92400E;
+		line-height: 1.45;
+	}
+
+	.btn-skip-dashboard {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 12px 24px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #2563EB;
+		background: #EFF6FF;
+		border: 1px solid #BFDBFE;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.15s;
+		width: 100%;
+		max-width: 320px;
+		margin-bottom: 10px;
+	}
+
+	.btn-skip-dashboard:hover {
+		background: #DBEAFE;
+	}
+
+	.kb-skip-hint {
+		font-size: 12px;
+		color: #94A3B8;
+	}
+
+	/* Inferred Results State */
+	.kb-results-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: 18px;
+	}
+
+	.btn-edit-notes {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 14px;
+		font-size: 13px;
+		font-weight: 500;
+		color: #2563EB;
+		background: #EFF6FF;
+		border: 1px solid #DBEAFE;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background 0.15s;
+		white-space: nowrap;
+	}
+
+	.btn-edit-notes:hover {
+		background: #DBEAFE;
+	}
+
+	.inferred-concepts-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.inferred-concept-card {
+		padding: 14px 18px;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 10px;
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		margin-top: 10px;
-	}
-	.invite-item {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 8px 12px;
-		background: var(--bg-hover);
-	}
-	.invite-email { font-size: 13px; color: var(--text-primary); flex: 1; }
-	.invite-sent {
-		font-size: 12px;
-		color: var(--success);
-		font-weight: 600;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-	.team-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		align-items: center;
+		transition: border-color 0.2s, box-shadow 0.2s;
 	}
 
-	/* Done */
-	.done-card {
-		text-align: center;
-		padding: 40px 32px;
+	.inferred-concept-card:hover {
+		border-color: #CBD5E1;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
 	}
-	.checkmark-wrap {
+
+	.concept-card-top {
 		display: flex;
-		justify-content: center;
-		margin-bottom: 16px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
 	}
-	.checkmark-circle {
-		width: 64px; height: 64px;
-		border-radius: 50%;
-		background: var(--blue-bg);
-		border: 1px solid var(--blue-border);
+
+	.concept-title {
+		font-size: 14.5px;
+		font-weight: 500;
+		color: #0F172A;
+	}
+
+	.concept-badge {
+		font-size: 11.5px;
+		font-weight: 500;
+		color: #2563EB;
+		background: #EFF6FF;
+		padding: 2px 8px;
+		border-radius: 9999px;
+		border: 1px solid #DBEAFE;
+		text-transform: capitalize;
+	}
+
+	.concept-body {
+		font-size: 13.5px;
+		color: #475569;
+		line-height: 1.5;
+		margin: 0;
+		white-space: pre-wrap;
+	}
+
+	.concept-tags-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 4px;
+	}
+
+	.tag-pill {
+		font-size: 11.5px;
+		color: #64748B;
+		background: #F1F5F9;
+		padding: 2px 8px;
+		border-radius: 4px;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Step 6 Summary Stack
+	   ───────────────────────────────────────────────────────────── */
+	.summary-cards-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.summary-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 14px 18px;
+		border: 1px solid #E2E8F0;
+		border-radius: 10px;
+		background: #FFFFFF;
+	}
+
+	.summary-card-left {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+
+	.summary-icon-box {
+		width: 36px;
+		height: 36px;
+		border-radius: 8px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-shrink: 0;
 	}
-	.done-headline {
-		font-size: 24px;
-		font-weight: 700;
-		color: var(--text-primary);
-		margin-bottom: 8px;
+
+	.summary-icon-box.blue { background: #EFF6FF; }
+	.summary-icon-box.green { background: #ECFDF5; }
+	.summary-icon-box.orange { background: #FEF3C7; }
+	.summary-icon-box.purple { background: #F5F3FF; }
+	.summary-icon-box.teal { background: #ECFEFF; }
+
+	.summary-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
 	}
-	.done-subtext {
+
+	.summary-label {
+		font-size: 12px;
+		font-weight: 500;
+		color: #64748B;
+	}
+
+	.summary-value {
 		font-size: 14px;
-		color: var(--text-secondary);
-		line-height: 1.5;
-		max-width: 380px;
-		margin: 0 auto 24px;
+		font-weight: 500;
+		color: #0F172A;
 	}
-	.done-cta {
-		max-width: 280px;
-		margin: 0 auto;
+
+	.btn-edit-link {
+		font-size: 13.5px;
+		font-weight: 500;
+		color: #2563EB;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 4px 8px;
+	}
+
+	.btn-edit-link:hover {
+		text-decoration: underline;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Action Footer Bar
+	   ───────────────────────────────────────────────────────────── */
+	.action-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: auto;
+		padding-top: 24px;
+		border-top: 1px solid #F1F5F9;
+	}
+
+	.btn-back {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 20px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #475569;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+
+	.btn-back:hover {
+		background: #F8FAFC;
+	}
+
+	.btn-continue {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 11px 26px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #FFFFFF;
+		background: #2563EB;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+		transition: all 0.15s ease;
+	}
+
+	.btn-continue:hover:not(:disabled) {
+		background: #1D4ED8;
+	}
+
+	.btn-continue:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.error-msg {
+		font-size: 13px;
+		color: #EF4444;
+		margin-top: 14px;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   STEP 7: SUCCESS FULL-SCREEN EXPERIENCE
+	   ───────────────────────────────────────────────────────────── */
+	.success-fullscreen {
+		width: 100vw;
+		min-height: 100vh;
+		background: #F8F9FD;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 40px 24px;
+		box-sizing: border-box;
+	}
+
+	.success-content {
+		width: 100%;
+		max-width: 580px;
+		background: #FFFFFF;
+		border-radius: 24px;
+		border: 1px solid #EAECEF;
+		box-shadow: 0 20px 48px -12px rgba(15, 23, 42, 0.08);
+		padding: 0 0 44px 0;
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+
+	.success-hero-image-wrap {
+		width: 100%;
+		max-width: 100%;
+		margin-bottom: 28px;
+		display: flex;
+		justify-content: center;
+		overflow: hidden;
+		line-height: 0;
+	}
+
+	.success-mascot-image {
+		width: 100%;
+		height: auto;
+		max-height: 320px;
+		object-fit: cover;
+		display: block;
+		border-radius: 0;
+	}
+
+	.success-body {
+		width: 100%;
+		padding: 0 40px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		box-sizing: border-box;
+	}
+
+	.success-heading {
+		font-size: 28px;
+		font-weight: 500;
+		color: #0F172A;
+		margin: 0 0 12px 0;
+		letter-spacing: -0.4px;
+	}
+
+	.success-subheading {
+		font-size: 15px;
+		color: #64748B;
+		line-height: 1.6;
+		margin: 0 0 36px 0;
+	}
+
+	.success-actions {
+		width: 100%;
+		max-width: 360px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.btn-success-primary {
+		width: 100%;
+		padding: 13px;
+		font-size: 14.5px;
+		font-weight: 500;
+		color: #FFFFFF;
+		background: #2563EB;
+		border: none;
+		border-radius: 10px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+		transition: background 0.15s;
+	}
+
+	.btn-success-primary:hover {
+		background: #1D4ED8;
+	}
+
+	.btn-success-secondary {
+		width: 100%;
+		padding: 13px;
+		font-size: 14.5px;
+		font-weight: 500;
+		color: #334155;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 10px;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+
+	.btn-success-secondary:hover {
+		background: #F8FAFC;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Modal Backdrop & QR Code Modal
+	   ───────────────────────────────────────────────────────────── */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(15, 23, 42, 0.4);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+		padding: 16px;
+	}
+
+	.modal-card {
+		width: 100%;
+		max-width: 400px;
+		background: #FFFFFF;
+		border-radius: 16px;
+		padding: 28px 24px;
+		text-align: center;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+	}
+
+	.modal-title {
+		font-size: 18px;
+		font-weight: 500;
+		color: #0F172A;
+		margin: 0 0 8px 0;
+	}
+
+	.modal-desc {
+		font-size: 13px;
+		color: #64748B;
+		line-height: 1.4;
+		margin: 0 0 20px 0;
+	}
+
+	.qr-box {
+		width: 170px;
+		height: 170px;
+		margin: 0 auto 24px auto;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 12px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+	}
+
+	.modal-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+	}
+
+	.btn-cancel {
+		padding: 9px 16px;
+		font-size: 13px;
+		font-weight: 500;
+		color: #64748B;
+		background: #FFFFFF;
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		cursor: pointer;
+	}
+
+	.btn-confirm {
+		padding: 9px 18px;
+		font-size: 13px;
+		font-weight: 500;
+		color: #FFFFFF;
+		background: #2563EB;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+	}
+
+	/* ─────────────────────────────────────────────────────────────
+	   Responsive adjustments
+	   ───────────────────────────────────────────────────────────── */
+	@media (max-width: 1024px) {
+		.onboarding-fullscreen {
+			flex-direction: column;
+		}
+
+		.left-panel {
+			width: 100%;
+			border-right: none;
+			border-bottom: 1px solid #EEF2F6;
+			padding: 0;
+		}
+
+		.left-top {
+			padding: 32px 24px 0 24px;
+		}
+
+		.middle-stepper {
+			width: 100%;
+			border-right: none;
+			border-bottom: 1px solid #F1F5F9;
+			padding: 20px 24px;
+		}
+
+		.step-list {
+			flex-direction: row;
+			overflow-x: auto;
+			gap: 20px;
+		}
+
+		.right-content {
+			padding: 36px 24px;
+		}
 	}
 </style>

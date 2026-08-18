@@ -4,25 +4,21 @@
 	import { apiRequest } from '$lib/api';
 
 	const STEP_KEYS = [
-		'signup',
-		'mode_selected',
 		'business_basics',
 		'channel_connect',
-		'kb_setup',
-		'reply_mode',
 		'pipeline_setup',
-		'team_invite'
+		'reply_mode',
+		'preferences',
+		'review_finish'
 	];
 
 	const STEP_KEY_TO_NUM: Record<string, number> = {
-		signup: 1,
-		mode_selected: 2,
-		business_basics: 3,
-		channel_connect: 4,
-		kb_setup: 5,
-		reply_mode: 6,
-		pipeline_setup: 7,
-		team_invite: 8
+		business_basics: 1,
+		channel_connect: 2,
+		pipeline_setup: 3,
+		reply_mode: 4,
+		preferences: 5,
+		review_finish: 6
 	};
 
 	onMount(async () => {
@@ -52,15 +48,14 @@
 				}
 			}
 
-			// All steps done or skipped => done
-			goto('/onboarding/9');
+			// All steps completed or skipped => go to step 7 (success)
+			goto('/onboarding/7');
 		} catch (err) {
-			// If onboarding status endpoint doesn't exist yet, just start at step 1
 			goto('/onboarding/1');
 		}
 	});
 </script>
 
-<div class="glass-panel" style="padding: 40px; text-align: center; max-width: 680px; margin: 0 auto;">
-	<div style="font-size: 14px; color: var(--text-secondary);">Checking your progress...</div>
+<div style="padding: 40px; text-align: center; max-width: 480px; margin: 0 auto; color: #64748B; font-size: 14px;">
+	Loading your workspace setup...
 </div>
