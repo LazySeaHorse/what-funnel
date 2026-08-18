@@ -734,7 +734,7 @@
 		border-radius: 12px;
 		color: #c4b5fd;
 		font-size: 13px;
-		font-weight: 600;
+		font-weight: 500;
 		cursor: pointer;
 		backdrop-filter: blur(12px);
 		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(139, 92, 246, 0.15) inset;
@@ -796,7 +796,7 @@
 	.dev-header-icon { font-size: 16px; }
 	.dev-header-title {
 		font-size: 13px;
-		font-weight: 700;
+		font-weight: 500;
 		color: #e9d5ff;
 		letter-spacing: 0.3px;
 	}
@@ -853,7 +853,7 @@
 	}
 	.dev-label {
 		font-size: 10px;
-		font-weight: 700;
+		font-weight: 500;
 		text-transform: uppercase;
 		letter-spacing: 0.8px;
 		color: rgba(167, 139, 250, 0.7);
@@ -868,7 +868,7 @@
 		border: 1px solid rgba(139, 92, 246, 0.25);
 		color: #a78bfa;
 		font-size: 11px;
-		font-weight: 600;
+		font-weight: 500;
 		padding: 3px 8px;
 		border-radius: 5px;
 		cursor: pointer;
@@ -1018,7 +1018,7 @@
 		border-radius: 7px;
 		color: #a78bfa;
 		font-size: 12px;
-		font-weight: 600;
+		font-weight: 500;
 		padding: 6px 12px;
 		cursor: pointer;
 		white-space: nowrap;
@@ -1136,7 +1136,7 @@
 		border-radius: 10px;
 		color: #fff;
 		font-size: 13px;
-		font-weight: 700;
+		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
 		display: flex;

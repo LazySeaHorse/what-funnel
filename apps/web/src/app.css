@@ -3,27 +3,43 @@
 @theme {
   --font-sans: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
-  --color-brand-50: #EEF4FF;
-  --color-brand-100: #E0EAFF;
-  --color-brand-200: #C2D6FF;
-  --color-brand-500: #4F6BFF;
-  --color-brand-600: #3D5AE8;
-  --color-brand-700: #254EDB;
+  --color-brand-50: #EFF6FF;
+  --color-brand-100: #DBEAFE;
+  --color-brand-200: #BFDBFE;
+  --color-brand-500: #3B82F6;
+  --color-brand-600: #2563EB;
+  --color-brand-700: #1D4ED8;
 
-  --color-dialogues-blue: #4F6BFF;
-  --color-dialogues-soft-blue: #E8F0FF;
+  --color-dialogues-blue: #2563EB;
+  --color-dialogues-soft-blue: #EFF6FF;
   --color-dialogues-mint: #22C55E;
-  --color-dialogues-sunshine: #FFC83D;
-  --color-dialogues-coral: #FF6FA7;
-  --color-dialogues-lavender: #B79CFF;
+  --color-dialogues-sunshine: #F59E0B;
+  --color-dialogues-coral: #EF4444;
+  --color-dialogues-lavender: #8B5CF6;
   --color-dialogues-ink: #0F172A;
   --color-dialogues-slate: #64748B;
-  --color-dialogues-border: #E5E7EB;
+  --color-dialogues-border: #E2E8F0;
 }
 
 :root {
   font-family: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --bg-page: #F8F9FD;
+  
+  /* Fallback tokens for settings and dialog components */
+  --blue-primary: #2563EB;
+  --blue-bg: #EFF6FF;
+  --blue-border: #BFDBFE;
+  --blue-text: #2563EB;
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-muted: #94A3B8;
+  --border-color: #E2E8F0;
+  --bg-sidebar: #F8F9FD;
+  --bg-hover: #F1F5F9;
+  --danger: #EF4444;
+  --danger-bg: #FEF2F2;
+  --success: #10B981;
+  --success-bg: #ECFDF5;
 }
 
 body {

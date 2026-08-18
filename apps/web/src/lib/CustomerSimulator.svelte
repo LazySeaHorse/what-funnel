@@ -414,11 +414,11 @@
 	
 	<!-- Header / Persona selector -->
 	<div class="space-y-2">
-		<div class="flex items-center justify-between">
-			<span class="font-semibold text-slate-700">Simulate Customer</span>
+		<div class="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50 text-xs">
+			<span class="font-medium text-slate-700">Simulate Customer</span>
 			<button
 				onclick={() => showAddContact = !showAddContact}
-				class="text-[11px] font-semibold text-blue-600 hover:text-blue-700 transition"
+				class="text-[11px] font-medium text-blue-600 hover:text-blue-700 transition"
 			>
 				{showAddContact ? 'Cancel' : '+ New Persona'}
 			</button>

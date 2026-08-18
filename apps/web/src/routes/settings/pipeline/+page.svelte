@@ -311,7 +311,7 @@
 
 	.sidebar-title {
 		font-size: 16px;
-		font-weight: 700;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
@@ -342,7 +342,7 @@
 	.nav-item.active {
 		background: var(--blue-bg);
 		color: var(--blue-text);
-		font-weight: 600;
+		font-weight: 500;
 	}
 
 	.back-item {
@@ -363,7 +363,7 @@
 
 	.content-header h1 {
 		font-size: 20px;
-		font-weight: 700;
+		font-weight: 500;
 		margin-bottom: 2px;
 	}
 
@@ -413,7 +413,7 @@
 
 	.settings-card h3 {
 		font-size: 15px;
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
@@ -520,7 +520,7 @@
 
 	.form-group label {
 		font-size: 12px;
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--text-secondary);
 	}
 

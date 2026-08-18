@@ -40,11 +40,11 @@
 	<title>Sign In — What Funnel</title>
 </svelte:head>
 
-<div class="min-h-screen w-full bg-[#F8F9FD] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
+<div class="min-h-[100dvh] w-full bg-[#F8F9FD] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
 	<div class="w-full max-w-[1360px] mx-auto relative">
 		
 		{#if toastMessage}
-			<div class="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 transition-all animate-fade-in">
+			<div class="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all">
 				<svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
 				</svg>
@@ -58,77 +58,77 @@
 			<!-- Left Column: Brand, Headline, 3D Hero Image -->
 			<div class="lg:col-span-7 flex flex-col justify-between h-full relative">
 				
-				<!-- Top Content (Logo, Brand Name, Dots, Headline, Subhead) -->
-				<div class="pt-10 sm:pt-14 lg:pt-16">
+				<!-- Top Content -->
+				<div class="pt-6 sm:pt-10 lg:pt-12">
 					<!-- Top Bar: Brand Logo & Decorative Dots -->
 					<div class="flex items-center justify-between">
 						<div class="flex items-center gap-3">
-							<!-- What Funnel Platform Logo (matching dashboard) -->
+							<!-- What Funnel Platform Logo -->
 							<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-								<rect width="36" height="36" rx="10" fill="#4F80FF" />
+								<rect width="36" height="36" rx="10" fill="#2563EB" />
 								<circle cx="14" cy="14" r="3" fill="white" />
 								<circle cx="22" cy="18" r="4.5" fill="white" />
 								<circle cx="14" cy="23" r="2.5" fill="white" />
 							</svg>
-							<span class="text-2xl font-bold text-[#0F172A] tracking-tight">what funnel</span>
+							<span class="text-2xl font-medium text-slate-900 tracking-tight">what funnel</span>
 						</div>
 
-						<!-- Decorative 4x3 Dot Matrix (matching Figma mock) -->
-						<div class="hidden sm:grid grid-cols-4 gap-2 opacity-50 pr-4">
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
-							<div class="w-1.5 h-1.5 rounded-full bg-[#4F6BFF]"></div>
+						<!-- Decorative 4x3 Dot Matrix -->
+						<div class="hidden sm:grid grid-cols-4 gap-2 w-fit opacity-40 pr-4">
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+							<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
 						</div>
 					</div>
 
 					<!-- Hero Headline and Subhead -->
 					<div class="mt-6 sm:mt-8">
-						<h1 class="text-3xl sm:text-4xl lg:text-[48px] font-medium text-[#0F172A] tracking-tight leading-[1.12]">
+						<h1 class="text-3xl sm:text-4xl lg:text-5xl font-medium text-slate-900 tracking-tight leading-[1.15]">
 							All your conversations.<br />
-							<span class="text-[#4F6BFF]">Every lead.</span> One place.
+							<span class="text-blue-600">Every lead.</span> One place.
 						</h1>
-						<p class="text-slate-500 text-sm sm:text-base lg:text-[17px] font-normal leading-relaxed max-w-xl mt-3.5">
+						<p class="text-slate-500 text-sm sm:text-base font-normal leading-relaxed max-w-xl mt-3.5">
 							Unify every channel, automate answers, and track leads from hello to happy customer.
 						</p>
 					</div>
 				</div>
 
-				<!-- 3D Hero Illustration (blends seamlessly with #F8F9FD background) -->
-				<div class="relative w-full flex items-center justify-center mt-2 lg:mt-0 select-none pointer-events-none">
+				<!-- 3D Hero Illustration -->
+				<div class="relative w-full flex items-center justify-center mt-2 lg:mt-0 pointer-events-none">
 					<img
 						src={heroImage}
 						alt="What Funnel Dashboard & Customer Experience in 3D"
-						class="w-full max-h-[590px] lg:max-h-[650px] object-contain"
+						class="w-full max-h-[520px] lg:max-h-[580px] object-contain"
 						loading="eager"
 					/>
 					
-					<!-- Decorative 2x2 Green Dots (matching bottom left of mockup) -->
+					<!-- Decorative 2x2 Green Dots -->
 					<div class="absolute bottom-4 left-2 grid grid-cols-2 gap-1.5 opacity-60">
-						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
-						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
-						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
-						<div class="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+						<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
 					</div>
 				</div>
 
 			</div>
 
-			<!-- Right Column: Sign In Card matching mockup -->
+			<!-- Right Column: Sign In Card -->
 			<div class="lg:col-span-5 flex justify-center lg:justify-end items-center">
-				<div class="w-full max-w-[440px] bg-white rounded-3xl border border-slate-200/90 shadow-[0_15px_45px_rgba(0,0,0,0.04)] p-7 sm:p-9">
+				<div class="w-full max-w-[440px] bg-white rounded-2xl border border-slate-200 shadow-sm p-7 sm:p-9">
 					
 					<!-- Form Header -->
 					<div>
-						<h2 class="text-2xl sm:text-[26px] font-bold text-[#0F172A] tracking-tight">Welcome back</h2>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Welcome back</h2>
 						<p class="text-slate-500 text-sm mt-1">Sign in to continue to your workspace</p>
 					</div>
 
@@ -146,7 +146,7 @@
 					<form onsubmit={handleLogin} class="mt-6 space-y-4">
 						<!-- Email Input -->
 						<div>
-							<label for="email-input" class="block text-xs font-semibold text-slate-700 mb-1.5">Email</label>
+							<label for="email-input" class="block text-xs font-medium text-slate-700 mb-1.5">Email</label>
 							<div class="relative">
 								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
 									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -161,14 +161,14 @@
 									placeholder="you@email.com"
 									required
 									disabled={loading}
-									class="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F6BFF] focus:ring-4 focus:ring-[#4F6BFF]/10 outline-none transition-all"
+									class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
 								/>
 							</div>
 						</div>
 
 						<!-- Password Input -->
 						<div>
-							<label for="password-input" class="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
+							<label for="password-input" class="block text-xs font-medium text-slate-700 mb-1.5">Password</label>
 							<div class="relative">
 								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
 									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -183,7 +183,7 @@
 									placeholder="Enter your password"
 									required
 									disabled={loading}
-									class="w-full pl-10 pr-11 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F6BFF] focus:ring-4 focus:ring-[#4F6BFF]/10 outline-none transition-all"
+									class="w-full pl-10 pr-11 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
 								/>
 								<button
 									type="button"
@@ -208,15 +208,15 @@
 
 						<!-- Remember Me & Forgot Password -->
 						<div class="flex items-center justify-between pt-1">
-							<label class="flex items-center gap-2 cursor-pointer select-none">
+							<label class="flex items-center gap-2 cursor-pointer">
 								<input
 									type="checkbox"
 									bind:checked={rememberMe}
-									class="w-4 h-4 rounded border-slate-300 text-[#4F6BFF] focus:ring-[#4F6BFF]/20 accent-[#4F6BFF] cursor-pointer"
+									class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-200 accent-blue-600 cursor-pointer"
 								/>
-								<span class="text-xs sm:text-sm text-slate-500">Remember me</span>
+								<span class="text-xs sm:text-sm text-slate-500 font-normal">Remember me</span>
 							</label>
-							<a href="#forgot" onclick={(e) => { e.preventDefault(); toastMessage = 'Password reset instructions have been dispatched to your email.'; }} class="text-xs sm:text-sm font-medium text-[#4F6BFF] hover:text-[#3D5AE8] hover:underline transition-colors">
+							<a href="#forgot" onclick={(e) => { e.preventDefault(); toastMessage = 'Password reset instructions have been dispatched to your email.'; }} class="text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors">
 								Forgot password?
 							</a>
 						</div>
@@ -225,7 +225,7 @@
 						<button
 							type="submit"
 							disabled={loading}
-							class="w-full mt-2 py-3.5 px-4 bg-[#4F6BFF] hover:bg-[#3D5AE8] active:bg-[#254EDB] text-white font-semibold rounded-xl text-sm shadow-md shadow-[#4F6BFF]/25 hover:shadow-lg hover:shadow-[#4F6BFF]/35 active:scale-[0.99] transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+							class="w-full mt-2 py-3 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm active:scale-[0.99] transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
 						>
 							{#if loading}
 								<svg class="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
@@ -252,7 +252,7 @@
 						<button
 							type="button"
 							onclick={() => handleSocialLogin('Google')}
-							class="w-full py-3 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-medium text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-xs active:scale-[0.99]"
+							class="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-medium text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-xs"
 						>
 							<svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24">
 								<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -267,7 +267,7 @@
 						<button
 							type="button"
 							onclick={() => handleSocialLogin('Microsoft')}
-							class="w-full py-3 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-medium text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-xs active:scale-[0.99]"
+							class="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-medium text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-xs"
 						>
 							<svg class="w-4 h-4 shrink-0" viewBox="0 0 21 21">
 								<rect x="1" y="1" width="9" height="9" fill="#f25022"/>
@@ -281,7 +281,7 @@
 
 					<!-- Bottom Create Account Link -->
 					<div class="mt-8 text-center text-xs sm:text-sm text-slate-500">
-						Don't have an account? <a href="/signup" class="text-[#4F6BFF] font-semibold hover:text-[#3D5AE8] hover:underline transition-colors">Create account</a>
+						Don't have an account? <a href="/signup" class="text-blue-600 font-medium hover:text-blue-700 hover:underline transition-colors">Create account</a>
 					</div>
 
 				</div>

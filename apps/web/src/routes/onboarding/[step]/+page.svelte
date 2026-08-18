@@ -49,7 +49,7 @@
 	// Step 4: AI Assistant
 	let s4AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
 
-	// Step 5: Knowledge Base Arbitrary Dump & AI Auto-Organize
+	// Step 5: Knowledge Base
 	let s5RawText = $state(`Services & Pricing:
 - Haircut & Styling: $50
 - Color & Full Highlights: $120
@@ -155,7 +155,6 @@ FAQs:
 				if (fetched?.concepts && fetched.concepts.length > 0) {
 					s5Concepts = fetched.concepts;
 				} else {
-					// Fallback structured concepts parsed from the text
 					s5Concepts = [
 						{ title: 'Core Services & Pricing', category: 'Services', tags: ['pricing', 'services'], body_markdown: 'Extracted service listings, pricing tiers, and packages from business notes.' },
 						{ title: 'Business Schedule & Location', category: 'Operations', tags: ['hours', 'location'], body_markdown: 'Extracted operating hours and location details for customer routing.' },
@@ -201,7 +200,6 @@ FAQs:
 
 		try {
 			if (stepNum === 1) {
-				// Save business info
 				await apiRequest('/workspace/account', {
 					method: 'PATCH',
 					body: {
@@ -220,7 +218,6 @@ FAQs:
 
 				goToStep(2);
 			} else if (stepNum === 2) {
-				// Mark channel connect
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'channel_connect', action: 'complete' }
@@ -228,7 +225,6 @@ FAQs:
 
 				goToStep(3);
 			} else if (stepNum === 3) {
-				// Save pipeline
 				await apiRequest('/workspace/pipeline', {
 					method: 'PUT',
 					body: {
@@ -244,7 +240,6 @@ FAQs:
 
 				goToStep(4);
 			} else if (stepNum === 4) {
-				// Save AI mode
 				const replyMode = (s4AiMode === 'auto_answer') ? 'auto_send' : (s4AiMode === 'suggest_only' ? 'draft_only' : 'manual');
 				await apiRequest('/workspace/account', {
 					method: 'PATCH',
@@ -268,7 +263,6 @@ FAQs:
 					goToStep(6);
 				}
 			} else if (stepNum === 6) {
-				// Complete setup
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'done', action: 'complete' }
@@ -283,9 +277,6 @@ FAQs:
 		}
 	}
 
-	// ─────────────────────────────────────────────────────────────
-	// Channel Connect Helper
-	// ─────────────────────────────────────────────────────────────
 	async function toggleChannel(ch: any) {
 		if (ch.id === 'whatsapp' && !ch.connected) {
 			qrChannelConnecting = 'WhatsApp';
@@ -301,9 +292,6 @@ FAQs:
 		qrModalOpen = false;
 	}
 
-	// ─────────────────────────────────────────────────────────────
-	// Pipeline Stage Helpers
-	// ─────────────────────────────────────────────────────────────
 	function addStage() {
 		const colors = ['#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'];
 		const randomColor = colors[pipelineStages.length % colors.length];
@@ -318,7 +306,6 @@ FAQs:
 		pipelineStages = pipelineStages.filter((_, i) => i !== index);
 	}
 
-	// Summary helpers for Step 6
 	let connectedChannelsText = $derived(() => {
 		const conn = channels.filter(c => c.connected).map(c => c.name);
 		return conn.length > 0 ? conn.join(', ') : 'WhatsApp, Instagram';
@@ -342,76 +329,92 @@ FAQs:
 	<title>Onboarding — What Funnel</title>
 </svelte:head>
 
-{#if stepNum >= 1 && stepNum <= 6}
-	<!-- ═══════════════════════════════════════════════════════════ -->
-	<!-- FULL-SCREEN 3-COLUMN ONBOARDING INTERFACE                  -->
-	<!-- ═══════════════════════════════════════════════════════════ -->
-	<div class="onboarding-fullscreen">
-		<!-- Left Brand & Hero Illustration Column -->
-		<div class="left-panel">
-			<div class="left-top">
-				<!-- What Funnel Official Logo & Brand Header -->
-				<div class="brand-row">
-					<div class="logo-box">
-						<svg class="brand-logo-svg" viewBox="0 0 36 36" fill="none">
-							<rect width="36" height="36" rx="10" fill="#4F80FF" />
-							<circle cx="14" cy="14" r="3" fill="white" />
-							<circle cx="22" cy="18" r="4.5" fill="white" />
-							<circle cx="14" cy="23" r="2.5" fill="white" />
-						</svg>
-					</div>
-					<span class="brand-title">what funnel</span>
+{#if stepNum >= 1 && stepNum <= 7}
+	<!-- FULL-SCREEN 3-COLUMN ONBOARDING INTERFACE (Pure Tailwind) -->
+	<div class="min-h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-x-hidden font-sans text-slate-800 antialiased">
+		
+		<!-- Left Column: Brand, Headline, Bottom-Anchored Illustration -->
+		<div class="w-full lg:w-80 xl:w-96 bg-[#F8F9FD] border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
+			<!-- Top content above background graphic -->
+			<div class="relative z-10">
+				<!-- Logo -->
+				<div class="flex items-center gap-3 mb-8">
+					<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
+						<rect width="36" height="36" rx="10" fill="#2563EB" />
+						<circle cx="14" cy="14" r="3" fill="white" />
+						<circle cx="22" cy="18" r="4.5" fill="white" />
+						<circle cx="14" cy="23" r="2.5" fill="white" />
+					</svg>
+					<span class="text-xl font-medium text-slate-900 tracking-tight">what funnel</span>
 				</div>
 
-				<!-- Hero Headline -->
-				<h1 class="hero-headline">
-					Let’s set up<br />
-					<span class="highlight-blue">your workspace</span>
-				</h1>
+				<!-- Headline & Subtext -->
+				{#if stepNum === 7}
+					<h1 class="text-2xl sm:text-3xl font-medium text-slate-900 leading-snug tracking-tight mb-3">
+						Workspace is<br />
+						<span class="text-blue-600">ready to go</span>
+					</h1>
+					<p class="text-sm text-slate-500 leading-relaxed mb-6 font-normal">
+						Your setup is complete and channels are connected.
+					</p>
+				{:else}
+					<h1 class="text-2xl sm:text-3xl font-medium text-slate-900 leading-snug tracking-tight mb-3">
+						Let’s set up<br />
+						<span class="text-blue-600">your workspace</span>
+					</h1>
+					<p class="text-sm text-slate-500 leading-relaxed mb-6 font-normal">
+						We’ll help you get everything ready step by step.
+					</p>
+				{/if}
 
-				<p class="hero-subtext">
-					We’ll help you get everything ready<br />step by step.
-				</p>
-
-				<!-- Decorative 4x3 Dot Matrix -->
-				<div class="dot-matrix">
-					<span></span><span></span><span></span><span></span>
-					<span></span><span></span><span></span><span></span>
-					<span></span><span></span><span></span><span></span>
+				<!-- Decorative Dot Matrix -->
+				<div class="hidden sm:grid grid-cols-4 gap-2 w-fit opacity-40 mb-6">
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
 				</div>
 			</div>
 
-			<!-- 3D Clay Illustration -->
-			<div class="illustration-container">
+			<!-- Bottom-Anchored Full-Width Graphic Fading Towards Top -->
+			<div class="absolute inset-x-0 bottom-0 w-full overflow-hidden pointer-events-none flex flex-col justify-end">
+				<!-- Gradient Overlay Fading from Panel Background to Transparent -->
+				<div class="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#F8F9FD] via-[#F8F9FD]/60 to-transparent z-10 pointer-events-none"></div>
 				<img
-					src="/images/onboarding-sidebar.webp"
-					alt="Workspace Illustration"
-					class="hero-image"
+					src={stepNum === 7 ? '/images/onboarding-happy.webp' : '/images/onboarding-sidebar.webp'}
+					alt={stepNum === 7 ? 'Setup Complete Mascot' : 'Workspace Illustration'}
+					class="w-full h-auto max-h-80 object-cover object-bottom [mask-image:linear-gradient(to_bottom,transparent_0%,black_35%)]"
 				/>
 			</div>
 		</div>
 
-		<!-- Middle Vertical Stepper Column -->
-		<div class="middle-stepper">
-			<div class="step-list">
+		<!-- Middle Column: Stepper Navigation -->
+		<div class="w-full lg:w-56 p-6 lg:py-10 lg:px-6 border-b lg:border-b-0 lg:border-r border-slate-100 bg-white shrink-0 flex flex-col justify-start">
+			<div class="flex lg:flex-col gap-3 sm:gap-6 overflow-x-auto lg:overflow-x-visible">
 				{#each STEP_ITEMS as item}
 					{@const isActive = (item.num === stepNum)}
-					{@const isDone = (item.num < stepNum)}
+					{@const isDone = (item.num < stepNum || stepNum === 7)}
 					<button
 						type="button"
-						class="step-nav-item"
-						class:active={isActive}
-						class:done={isDone}
+						class="flex items-center gap-3 bg-transparent border-0 p-0 text-left cursor-pointer transition shrink-0 {isActive ? 'opacity-100' : isDone ? 'opacity-85' : 'opacity-50'}"
 						onclick={() => { if (item.num <= stepNum) goToStep(item.num); }}
 					>
-						<div class="step-circle" class:active={isActive} class:done={isDone}>
+						<div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium shrink-0 transition-all {isActive ? 'bg-blue-600 text-white shadow-xs' : isDone ? 'bg-blue-600 text-white' : 'border border-slate-300 text-slate-400 bg-white'}">
 							{#if isDone}
 								<Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} />
 							{:else}
 								<span>{item.num}</span>
 							{/if}
 						</div>
-						<span class="step-nav-label" class:active={isActive} class:done={isDone}>
+						<span class="text-xs sm:text-sm font-medium {isActive ? 'text-slate-900' : isDone ? 'text-slate-700' : 'text-slate-400'} whitespace-nowrap">
 							{item.label}
 						</span>
 					</button>
@@ -419,87 +422,93 @@ FAQs:
 			</div>
 		</div>
 
-		<!-- Right Main Form Content Column -->
-		<div class="right-content">
-			<div class="content-inner">
-				<div class="step-meta">Step {stepNum} of 6</div>
+		<!-- Right Main Form Content Column: Takes Up Full Remaining Width -->
+		<div class="flex-1 p-6 sm:p-10 lg:p-12 overflow-y-auto bg-white flex flex-col justify-between min-h-0">
+			<div class="w-full flex flex-col min-h-full justify-between">
+				<div class="w-full">
+					<!-- STEP 1: BUSINESS INFO -->
+					{#if stepNum === 1}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 1 of 6</div>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
+						<p class="text-sm text-slate-500 mb-8 font-normal">This helps us personalize your workspace.</p>
 
-				<!-- STEP 1: BUSINESS INFO -->
-				{#if stepNum === 1}
-					<h2 class="step-title">Let’s start with your business</h2>
-					<p class="step-subtitle">This helps us personalize your workspace.</p>
+						<div class="space-y-5 w-full">
+							<div>
+								<label for="business-name" class="block text-xs font-medium text-slate-700 mb-1.5">Business name</label>
+								<input
+									id="business-name"
+									type="text"
+									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-normal"
+									placeholder="e.g. Glow Hair Studio"
+									bind:value={s1BusinessName}
+								/>
+							</div>
 
-					<div class="form-body">
-						<div class="field-group">
-							<label for="business-name" class="field-label">Business name</label>
-							<input
-								id="business-name"
-								type="text"
-								class="text-input"
-								placeholder="e.g. Glow Hair Studio"
-								bind:value={s1BusinessName}
-							/>
-						</div>
+							<div>
+								<label for="business-type" class="block text-xs font-medium text-slate-700 mb-1.5">Business type</label>
+								<div class="relative w-full">
+									<select id="business-type" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={s1BusinessType}>
+										<option value="Salon / Beauty">Salon / Beauty</option>
+										<option value="Photography">Photography</option>
+										<option value="Tutoring / Education">Tutoring / Education</option>
+										<option value="Home Services">Home Services</option>
+										<option value="E-commerce / Retail">E-commerce / Retail</option>
+										<option value="Consulting / Agency">Consulting / Agency</option>
+										<option value="Other">Other</option>
+									</select>
+									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+										</svg>
+									</div>
+								</div>
+							</div>
 
-						<div class="field-group">
-							<label for="business-type" class="field-label">Business type</label>
-							<div class="select-wrapper">
-								<select id="business-type" class="select-input" bind:value={s1BusinessType}>
-									<option value="Salon / Beauty">Salon / Beauty</option>
-									<option value="Photography">Photography</option>
-									<option value="Tutoring / Education">Tutoring / Education</option>
-									<option value="Home Services">Home Services</option>
-									<option value="E-commerce / Retail">E-commerce / Retail</option>
-									<option value="Consulting / Agency">Consulting / Agency</option>
-									<option value="Other">Other</option>
-								</select>
-								<div class="select-chevron">▾</div>
+							<div>
+								<label for="timezone" class="block text-xs font-medium text-slate-700 mb-1.5">Time zone</label>
+								<div class="relative w-full">
+									<select id="timezone" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={s1Timezone}>
+										<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
+										<option value="(GMT+00:00) UTC / London">(GMT+00:00) UTC / London</option>
+										<option value="(GMT-05:00) Eastern Time (US & Canada)">(GMT-05:00) Eastern Time (US & Canada)</option>
+										<option value="(GMT-08:00) Pacific Time (US & Canada)">(GMT-08:00) Pacific Time (US & Canada)</option>
+										<option value="(GMT+01:00) Paris / Berlin">(GMT+01:00) Paris / Berlin</option>
+										<option value="(GMT+08:00) Singapore / Beijing">(GMT+08:00) Singapore / Beijing</option>
+										<option value="(GMT+09:00) Tokyo">(GMT+09:00) Tokyo</option>
+									</select>
+									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+										</svg>
+									</div>
+								</div>
 							</div>
 						</div>
 
-						<div class="field-group">
-							<label for="timezone" class="field-label">Time zone</label>
-							<div class="select-wrapper">
-								<select id="timezone" class="select-input" bind:value={s1Timezone}>
-									<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
-									<option value="(GMT+00:00) UTC / London">(GMT+00:00) UTC / London</option>
-									<option value="(GMT-05:00) Eastern Time (US & Canada)">(GMT-05:00) Eastern Time (US & Canada)</option>
-									<option value="(GMT-08:00) Pacific Time (US & Canada)">(GMT-08:00) Pacific Time (US & Canada)</option>
-									<option value="(GMT+01:00) Paris / Berlin">(GMT+01:00) Paris / Berlin</option>
-									<option value="(GMT+08:00) Singapore / Beijing">(GMT+08:00) Singapore / Beijing</option>
-									<option value="(GMT+09:00) Tokyo">(GMT+09:00) Tokyo</option>
-								</select>
-								<div class="select-chevron">▾</div>
-							</div>
-						</div>
-					</div>
+					<!-- STEP 2: CHANNELS -->
+					{:else if stepNum === 2}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 6</div>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
+						<p class="text-sm text-slate-500 mb-8 font-normal">Bring all your customer conversations into one place.</p>
 
-				<!-- STEP 2: CHANNELS -->
-				{:else if stepNum === 2}
-					<h2 class="step-title">Connect your channels</h2>
-					<p class="step-subtitle">Bring all your conversations into one place.</p>
-
-					<div class="form-body">
-						<div class="section-label">Available channels via Matrix (mautrix)</div>
-						
-						<div class="channel-list">
+						<div class="space-y-3 w-full">
 							{#each channels as ch}
-								<div class="channel-card">
-									<div class="channel-left">
-										<div class="channel-icon-badge" style="color: {ch.color};">
-											<Icon name={ch.icon} size={22} color={ch.color} />
+								<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition">
+									<div class="flex items-center gap-3">
+										<div class="w-9 h-9 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center">
+											<Icon name={ch.icon} size={20} color={ch.color} />
 										</div>
-										<span class="channel-name">{ch.name}</span>
+										<span class="text-sm font-medium text-slate-800">{ch.name}</span>
 									</div>
 
-									<div class="channel-right">
+									<div>
 										{#if ch.connected}
-											<button type="button" class="btn-connected" onclick={() => toggleChannel(ch)}>
+											<button type="button" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium cursor-pointer" onclick={() => toggleChannel(ch)}>
 												<Icon name="check" size={14} color="#10B981" />
 												<span>Connected</span>
 											</button>
 										{:else}
-											<button type="button" class="btn-connect" onclick={() => toggleChannel(ch)}>
+											<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => toggleChannel(ch)}>
 												Connect
 											</button>
 										{/if}
@@ -507,422 +516,382 @@ FAQs:
 								</div>
 							{/each}
 						</div>
-					</div>
 
-				<!-- STEP 3: LEAD PIPELINE -->
-				{:else if stepNum === 3}
-					<h2 class="step-title">Set up your lead pipeline</h2>
-					<p class="step-subtitle">Create the stages your leads will go through.</p>
+					<!-- STEP 3: LEAD PIPELINE -->
+					{:else if stepNum === 3}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 3 of 6</div>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
+						<p class="text-sm text-slate-500 mb-8 font-normal">Create the stages your leads will go through.</p>
 
-					<div class="form-body">
-						<div class="section-label">Lead stages</div>
-
-						<div class="stages-list">
-							{#each pipelineStages as stage, i}
-								<div class="stage-row">
-									<div class="grip-handle">
-										<Icon name="drag" size={14} color="#CBD5E1" />
+						<div class="space-y-3 w-full">
+							<div class="space-y-2 w-full">
+								{#each pipelineStages as stage, i}
+									<div class="flex items-center gap-2.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl w-full">
+										<div class="w-2.5 h-2.5 rounded-full shrink-0 ml-1" style="background-color: {stage.color};"></div>
+										<input
+											type="text"
+											class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none font-normal"
+											bind:value={stage.label}
+											placeholder="Stage name"
+										/>
+										<button
+											type="button"
+											class="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+											onclick={() => removeStage(i)}
+											title="Remove stage"
+											disabled={pipelineStages.length <= 1}
+										>
+											<Icon name="trash" size={16} color="currentColor" />
+										</button>
 									</div>
-									<div class="stage-dot" style="background-color: {stage.color};"></div>
-									<input
-										type="text"
-										class="stage-input"
-										bind:value={stage.label}
-										placeholder="Stage name"
-									/>
-									<button
-										type="button"
-										class="btn-trash"
-										onclick={() => removeStage(i)}
-										title="Remove stage"
-										disabled={pipelineStages.length <= 1}
-									>
-										<Icon name="trash" size={15} color="#94A3B8" />
-									</button>
-								</div>
-							{/each}
+								{/each}
+							</div>
+
+							<button type="button" class="mt-2 flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer" onclick={addStage}>
+								<Icon name="plus" size={14} color="currentColor" />
+								<span>Add another stage</span>
+							</button>
 						</div>
 
-						<button type="button" class="btn-add-stage" onclick={addStage}>
-							<Icon name="plus" size={14} color="#2563EB" />
-							<span>Add another stage</span>
-						</button>
-					</div>
+					<!-- STEP 4: AI ASSISTANT -->
+					{:else if stepNum === 4}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 4 of 6</div>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Meet your AI Assistant</h2>
+						<p class="text-sm text-slate-500 mb-8 font-normal">How would you like your assistant to handle conversations?</p>
 
-				<!-- STEP 4: AI ASSISTANT -->
-				{:else if stepNum === 4}
-					<h2 class="step-title">Meet your AI Assistant</h2>
-					<p class="step-subtitle">How would you like your assistant to handle conversations?</p>
-
-					<div class="form-body">
-						<div class="ai-options-stack">
+						<div class="space-y-3 w-full">
 							<!-- Option 1: Auto answer -->
 							<button
 								type="button"
-								class="ai-card"
-								class:selected={s4AiMode === 'auto_answer'}
+								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s4AiMode === 'auto_answer' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
 								onclick={() => s4AiMode = 'auto_answer'}
 							>
-								<div class="ai-card-main">
-									<div class="ai-card-icon-box">
-										<Icon name="user" size={18} color="#2563EB" />
+								<div class="flex items-start gap-3.5">
+									<div class="w-8 h-8 rounded-lg {s4AiMode === 'auto_answer' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+										<Icon name="bot" size={18} color="currentColor" />
 									</div>
-									<div class="ai-card-text">
-										<div class="ai-card-header-row">
-											<span class="ai-card-heading">Auto answer when confident</span>
-											<span class="badge-recommended">Recommended</span>
+									<div>
+										<div class="flex items-center gap-2">
+											<span class="text-sm font-medium text-slate-900">Auto answer when confident</span>
+											<span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-medium">Recommended</span>
 										</div>
-										<p class="ai-card-desc">
-											AI will answer customer questions automatically when it’s confident.
-										</p>
-										<div class="ai-badge-tag">
-											<Icon name="shield" size={13} color="#10B981" />
-											<span>Uses AI to decide</span>
-										</div>
+										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will answer customer questions automatically when confidence is high.</p>
 									</div>
 								</div>
-								<div class="radio-outer" class:checked={s4AiMode === 'auto_answer'}>
-									{#if s4AiMode === 'auto_answer'}<div class="radio-inner"></div>{/if}
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 {s4AiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
+									{#if s4AiMode === 'auto_answer'}
+										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
+									{/if}
 								</div>
 							</button>
 
 							<!-- Option 2: Suggest replies only -->
 							<button
 								type="button"
-								class="ai-card"
-								class:selected={s4AiMode === 'suggest_only'}
+								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s4AiMode === 'suggest_only' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
 								onclick={() => s4AiMode = 'suggest_only'}
 							>
-								<div class="ai-card-main">
-									<div class="ai-card-icon-box">
-										<Icon name="sparkles" size={18} color="#64748B" />
+								<div class="flex items-start gap-3.5">
+									<div class="w-8 h-8 rounded-lg {s4AiMode === 'suggest_only' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+										<Icon name="sparkles" size={18} color="currentColor" />
 									</div>
-									<div class="ai-card-text">
-										<span class="ai-card-heading">Suggest replies only</span>
-										<p class="ai-card-desc">
-											AI will suggest replies. You review and send.
-										</p>
+									<div>
+										<span class="text-sm font-medium text-slate-900">Suggest replies only</span>
+										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will draft suggested responses for your team to review and dispatch.</p>
 									</div>
 								</div>
-								<div class="radio-outer" class:checked={s4AiMode === 'suggest_only'}>
-									{#if s4AiMode === 'suggest_only'}<div class="radio-inner"></div>{/if}
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 {s4AiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
+									{#if s4AiMode === 'suggest_only'}
+										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
+									{/if}
 								</div>
 							</button>
 
 							<!-- Option 3: Manual only -->
 							<button
 								type="button"
-								class="ai-card"
-								class:selected={s4AiMode === 'manual'}
+								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s4AiMode === 'manual' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
 								onclick={() => s4AiMode = 'manual'}
 							>
-								<div class="ai-card-main">
-									<div class="ai-card-icon-box">
-										<Icon name="edit" size={18} color="#64748B" />
+								<div class="flex items-start gap-3.5">
+									<div class="w-8 h-8 rounded-lg {s4AiMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+										<Icon name="edit" size={18} color="currentColor" />
 									</div>
-									<div class="ai-card-text">
-										<span class="ai-card-heading">Manual only</span>
-										<p class="ai-card-desc">
-											AI won’t reply. It will assist with suggestions and summaries.
-										</p>
+									<div>
+										<span class="text-sm font-medium text-slate-900">Manual only</span>
+										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will not send messages automatically. All replies are composed manually.</p>
 									</div>
 								</div>
-								<div class="radio-outer" class:checked={s4AiMode === 'manual'}>
-									{#if s4AiMode === 'manual'}<div class="radio-inner"></div>{/if}
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 {s4AiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
+									{#if s4AiMode === 'manual'}
+										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
+									{/if}
 								</div>
 							</button>
 						</div>
 
-						<div class="settings-hint">You can change this anytime in settings.</div>
-					</div>
+					<!-- STEP 5: KNOWLEDGE BASE -->
+					{:else if stepNum === 5}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 5 of 6</div>
+						{#if s5Status === 'input'}
+							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Teach your AI assistant</h2>
+							<p class="text-sm text-slate-500 mb-6 font-normal">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
 
-				<!-- STEP 5: KNOWLEDGE BASE -->
-				{:else if stepNum === 5}
-					{#if s5Status === 'input'}
-						<h2 class="step-title">Teach your AI assistant</h2>
-						<p class="step-subtitle">Dump any raw business notes, price lists, FAQs, hours, or policies. Our AI will automatically organize it into structured knowledge concepts.</p>
-
-						<div class="form-body">
-							<div class="kb-dump-container">
-								<div class="kb-suggestions-bar">
-									<span class="kb-suggestions-title">Quick insert:</span>
-									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('Services & Pricing', '- Standard service: $50\n- Premium package: $120')}>
+							<div class="space-y-4 w-full">
+								<div class="flex flex-wrap items-center gap-2">
+									<span class="text-xs font-medium text-slate-500">Quick templates:</span>
+									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Services & Pricing', '- Standard service: $50\n- Premium package: $120')}>
 										+ Pricing
 									</button>
-									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('Business Hours', '- Monday–Friday: 9:00 AM – 6:00 PM\n- Saturday: 10:00 AM – 4:00 PM')}>
+									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Business Hours', '- Monday–Friday: 9:00 AM – 6:00 PM\n- Saturday: 10:00 AM – 4:00 PM')}>
 										+ Hours
 									</button>
-									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('Cancellation Policy', '- 24-hour advance notice required')}>
+									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Cancellation Policy', '- 24-hour advance notice required')}>
 										+ Policy
 									</button>
-									<button type="button" class="kb-pill-btn" onclick={() => appendTemplateChunk('FAQs', '- Free customer parking on-site\n- Walk-ins accepted based on availability')}>
+									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('FAQs', '- Free customer parking on-site\n- Walk-ins accepted based on availability')}>
 										+ FAQs
 									</button>
 								</div>
 
 								<textarea
-									class="kb-dump-textarea"
-									rows={8}
+									class="w-full h-52 p-4 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none leading-relaxed resize-none font-normal"
 									placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
 									bind:value={s5RawText}
 								></textarea>
+							</div>
 
-								<div class="kb-dump-footer">
-									<span class="kb-hint-text">The AI compiler automatically extracts rules, pricing tables, and category tags.</span>
+						{:else if s5Status === 'processing'}
+							<div class="py-12 flex flex-col items-center justify-center text-center space-y-4 w-full">
+								<div class="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+									<Icon name="sparkles" size={24} color="currentColor" />
 								</div>
-							</div>
-						</div>
+								<h2 class="text-xl font-medium text-slate-900">Organizing your knowledge...</h2>
+								<p class="text-xs sm:text-sm text-slate-500 max-w-sm font-normal">
+									Structuring raw business notes into categorized concepts and FAQ patterns.
+								</p>
 
-					{:else if s5Status === 'processing'}
-						<div class="kb-processing-view">
-							<div class="kb-spinner-wrap">
-								<div class="kb-spinner"></div>
-								<div class="kb-spinner-icon">
-									<Icon name="sparkles" size={20} color="#2563EB" />
+								<button
+									type="button"
+									class="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-xl transition"
+									onclick={skipWaitingToDashboard}
+								>
+									Skip waiting & go to Dashboard →
+								</button>
+							</div>
+
+						{:else if s5Status === 'results'}
+							<div class="flex items-center justify-between mb-4 w-full">
+								<div>
+									<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Structured Knowledge</h2>
+									<p class="text-sm text-slate-500 font-normal">Concepts inferred from your business notes:</p>
 								</div>
+								<button type="button" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition" onclick={() => s5Status = 'input'}>
+									Edit raw notes
+								</button>
 							</div>
 
-							<h2 class="step-title text-center" style="margin-bottom: 8px;">AI is organizing your knowledge...</h2>
-							<p class="step-subtitle text-center" style="margin-bottom: 24px;">
-								Structuring raw business notes into categorized concepts, embeddings, and FAQ patterns.
-							</p>
-
-							<div class="kb-notice-card">
-								<Icon name="zap" size={16} color="#D97706" />
-								<div class="kb-notice-text">
-									<strong>AI Processing Notice:</strong> Embedding synthesis and rule generation can take 15–30 seconds.
-								</div>
-							</div>
-
-							<button
-								type="button"
-								class="btn-skip-dashboard"
-								onclick={skipWaitingToDashboard}
-							>
-								<span>Skip waiting & go to Dashboard</span>
-								<Icon name="arrow-right" size={16} color="currentColor" />
-							</button>
-							<span class="kb-skip-hint">Your knowledge base will continue processing in the background.</span>
-						</div>
-
-					{:else if s5Status === 'results'}
-						<div class="kb-results-header">
-							<div>
-								<h2 class="step-title">Knowledge inferred by AI</h2>
-								<p class="step-subtitle">Here are the structured rules and facts your AI assistant learned:</p>
-							</div>
-							<button type="button" class="btn-edit-notes" onclick={() => s5Status = 'input'}>
-								<Icon name="edit" size={14} color="#2563EB" />
-								<span>Edit raw notes</span>
-							</button>
-						</div>
-
-						<div class="form-body">
-							<div class="inferred-concepts-grid">
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
 								{#each s5Concepts as concept}
-									<div class="inferred-concept-card">
-										<div class="concept-card-top">
-											<span class="concept-title">{concept.title || 'Knowledge Concept'}</span>
-											<span class="concept-badge">{concept.category || concept.type || 'Rule'}</span>
+									<div class="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-medium text-slate-900">{concept.title || 'Knowledge Concept'}</span>
+											<span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-medium">{concept.category || concept.type || 'Rule'}</span>
 										</div>
-										<p class="concept-body">{concept.body_markdown || concept.content || ''}</p>
-										{#if concept.tags && concept.tags.length > 0}
-											<div class="concept-tags-row">
-												{#each concept.tags as tag}
-													<span class="tag-pill">#{tag}</span>
-												{/each}
-											</div>
-										{/if}
+										<p class="text-xs text-slate-600 line-clamp-3 font-normal">{concept.body_markdown || concept.content || ''}</p>
 									</div>
 								{/each}
 							</div>
-						</div>
-					{/if}
+						{/if}
 
-				<!-- STEP 6: REVIEW AND FINISH -->
-				{:else if stepNum === 6}
-					<h2 class="step-title">Review and finish</h2>
-					<p class="step-subtitle">Here’s a summary of your setup.</p>
+					<!-- STEP 6: REVIEW AND FINISH -->
+					{:else if stepNum === 6}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 6 of 6</div>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
+						<p class="text-sm text-slate-500 mb-8 font-normal">Here’s a summary of your workspace setup.</p>
 
-					<div class="form-body">
-						<div class="summary-cards-stack">
+						<div class="space-y-3 w-full">
 							<!-- Business -->
-							<div class="summary-card">
-								<div class="summary-card-left">
-									<div class="summary-icon-box blue">
-										<Icon name="store" size={18} color="#2563EB" />
+							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+										<Icon name="store" size={16} color="currentColor" />
 									</div>
-									<div class="summary-meta">
-										<span class="summary-label">Business</span>
-										<span class="summary-value">{s1BusinessName || 'Glow Hair Studio'}</span>
+									<div>
+										<div class="text-[11px] font-medium text-slate-400 uppercase">Business</div>
+										<div class="text-sm font-medium text-slate-900">{s1BusinessName || 'Glow Hair Studio'}</div>
 									</div>
 								</div>
-								<button type="button" class="btn-edit-link" onclick={() => goToStep(1)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(1)}>Edit</button>
 							</div>
 
 							<!-- Channels -->
-							<div class="summary-card">
-								<div class="summary-card-left">
-									<div class="summary-icon-box green">
-										<Icon name="chat" size={18} color="#10B981" />
+							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+										<Icon name="chat" size={16} color="currentColor" />
 									</div>
-									<div class="summary-meta">
-										<span class="summary-label">Channels</span>
-										<span class="summary-value">{connectedChannelsText()}</span>
+									<div>
+										<div class="text-[11px] font-medium text-slate-400 uppercase">Channels</div>
+										<div class="text-sm font-medium text-slate-900">{connectedChannelsText()}</div>
 									</div>
 								</div>
-								<button type="button" class="btn-edit-link" onclick={() => goToStep(2)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(2)}>Edit</button>
 							</div>
 
 							<!-- Lead Pipeline -->
-							<div class="summary-card">
-								<div class="summary-card-left">
-									<div class="summary-icon-box orange">
-										<Icon name="pipeline" size={18} color="#F59E0B" />
+							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+										<Icon name="pipeline" size={16} color="currentColor" />
 									</div>
-									<div class="summary-meta">
-										<span class="summary-label">Lead pipeline</span>
-										<span class="summary-value">{pipelineStages.length} stages</span>
+									<div>
+										<div class="text-[11px] font-medium text-slate-400 uppercase">Lead pipeline</div>
+										<div class="text-sm font-medium text-slate-900">{pipelineStages.length} stages configured</div>
 									</div>
 								</div>
-								<button type="button" class="btn-edit-link" onclick={() => goToStep(3)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(3)}>Edit</button>
 							</div>
 
 							<!-- AI Assistant -->
-							<div class="summary-card">
-								<div class="summary-card-left">
-									<div class="summary-icon-box purple">
-										<Icon name="bot" size={18} color="#8B5CF6" />
+							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+										<Icon name="bot" size={16} color="currentColor" />
 									</div>
-									<div class="summary-meta">
-										<span class="summary-label">AI Assistant</span>
-										<span class="summary-value">{aiModeLabel()}</span>
+									<div>
+										<div class="text-[11px] font-medium text-slate-400 uppercase">AI Assistant</div>
+										<div class="text-sm font-medium text-slate-900">{aiModeLabel()}</div>
 									</div>
 								</div>
-								<button type="button" class="btn-edit-link" onclick={() => goToStep(4)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(4)}>Edit</button>
 							</div>
 
 							<!-- Knowledge Base -->
-							<div class="summary-card">
-								<div class="summary-card-left">
-									<div class="summary-icon-box teal">
-										<Icon name="book" size={18} color="#06B6D4" />
+							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+										<Icon name="book" size={16} color="currentColor" />
 									</div>
-									<div class="summary-meta">
-										<span class="summary-label">Knowledge Base</span>
-										<span class="summary-value">{kbTopicsSummary()}</span>
+									<div>
+										<div class="text-[11px] font-medium text-slate-400 uppercase">Knowledge Base</div>
+										<div class="text-sm font-medium text-slate-900">{kbTopicsSummary()}</div>
 									</div>
 								</div>
-								<button type="button" class="btn-edit-link" onclick={() => goToStep(5)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(5)}>Edit</button>
 							</div>
 						</div>
-					</div>
-				{/if}
+
+					<!-- STEP 7: ALL SET! READY TO GO -->
+					{:else if stepNum === 7}
+						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup Complete</div>
+						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">All set! You’re ready to go</h2>
+						<p class="text-sm text-slate-500 mb-8 font-normal">Your workspace is configured and ready. Start managing customer conversations and capturing leads.</p>
+
+						<div class="space-y-3 w-full">
+							<div class="p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-3.5">
+								<div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+									<Icon name="check" size={18} color="#FFFFFF" strokeWidth={2.5} />
+								</div>
+								<div>
+									<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
+									<div class="text-xs text-slate-500 font-normal mt-0.5">Your business profile, channels, and reply preferences are active.</div>
+								</div>
+							</div>
+
+							<div class="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
+								<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+									<Icon name="chat" size={18} color="currentColor" />
+								</div>
+								<div>
+									<div class="text-sm font-medium text-slate-900">Omni-Channel Inbox</div>
+									<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from WhatsApp, Instagram, Messenger, and Telegram in one unified view.</div>
+								</div>
+							</div>
+
+							<div class="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
+								<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+									<Icon name="bot" size={18} color="currentColor" />
+								</div>
+								<div>
+									<div class="text-sm font-medium text-slate-900">AI Co-pilot & Auto Answers</div>
+									<div class="text-xs text-slate-500 font-normal mt-0.5">Answers customer queries and generates reply drafts tailored to your business rules.</div>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</div>
 
 				<!-- Action Footer Bar -->
 				{#if !(stepNum === 5 && s5Status === 'processing')}
-					<div class="action-footer">
-						{#if stepNum > 1}
+					<div class="pt-8 mt-6 border-t border-slate-100 flex items-center justify-between w-full">
+						{#if stepNum === 7}
 							<button
 								type="button"
-								class="btn-back"
+								class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer"
+								onclick={() => goto('/inbox?tour=true')}
+							>
+								Take a quick tour
+							</button>
+
+							<button
+								type="button"
+								class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer flex items-center gap-2"
+								onclick={() => goto('/inbox')}
+							>
+								<span>Go to Inbox</span>
+								<Icon name="chevron-right" size={14} color="#FFFFFF" />
+							</button>
+						{:else if stepNum > 1}
+							<button
+								type="button"
+								class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
 								onclick={handleBack}
 								disabled={submitting || s5Compiling}
 							>
-								<Icon name="arrow-left" size={15} color="currentColor" />
-								<span>Back</span>
+								Back
 							</button>
 						{:else}
 							<div></div>
 						{/if}
 
-						<button
-							type="button"
-							class="btn-continue"
-							onclick={handleContinue}
-							disabled={submitting || s5Compiling}
-						>
-							{#if submitting || s5Compiling}
-								<span>Processing...</span>
-							{:else if stepNum === 5 && s5Status === 'input'}
-								{#if !s5RawText.trim()}
-									<span>Skip</span>
-									<Icon name="arrow-right" size={15} color="#FFFFFF" />
+						{#if stepNum < 7}
+							<button
+								type="button"
+								class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+								onclick={handleContinue}
+								disabled={submitting || s5Compiling}
+							>
+								{#if submitting || s5Compiling}
+									<span>Processing...</span>
+								{:else if stepNum === 5 && s5Status === 'input'}
+									{#if !s5RawText.trim()}
+										<span>Skip</span>
+									{:else}
+										<span>Organize with AI</span>
+									{/if}
+								{:else if stepNum === 6}
+									<span>Complete setup</span>
 								{:else}
-									<span>Organize with AI</span>
-									<Icon name="sparkles" size={16} color="#FFFFFF" />
+									<span>Continue</span>
 								{/if}
-							{:else if stepNum === 6}
-								<span>Complete setup</span>
-								<Icon name="sparkles" size={16} color="#FFFFFF" />
-							{:else}
-								<span>Continue</span>
-								<Icon name="arrow-right" size={15} color="#FFFFFF" />
-							{/if}
-						</button>
+							</button>
+						{/if}
 					</div>
 				{/if}
 
 				{#if error}
-					<div class="error-msg">{error}</div>
+					<div class="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
 				{/if}
-			</div>
-		</div>
-	</div>
-
-{:else if stepNum === 7}
-	<!-- ═══════════════════════════════════════════════════════════ -->
-	<!-- STEP 7: FULL-SCREEN ALL SET! CELEBRATORY EXPERIENCE         -->
-	<!-- ═══════════════════════════════════════════════════════════ -->
-	<div class="success-fullscreen">
-		<div class="success-content">
-			<!-- 3D Mascot Artwork -->
-			<div class="success-hero-image-wrap">
-				<img
-					src="/images/onboarding-happy.webp"
-					alt="All set! 3D Mascot"
-					class="success-mascot-image"
-				/>
-			</div>
-
-			<div class="success-body">
-				<!-- Title & Subtitle -->
-				<h1 class="success-heading">All set! You’re ready to go 🥳</h1>
-				<p class="success-subheading">
-					Your workspace is ready.<br />
-					Start managing conversations and growing your business.
-				</p>
-
-				<!-- CTAs -->
-				<div class="success-actions">
-					<button
-						type="button"
-						class="btn-success-primary"
-						onclick={() => goto('/inbox')}
-					>
-						<span>Go to Inbox</span>
-						<Icon name="arrow-right" size={16} color="#FFFFFF" />
-					</button>
-
-					<button
-						type="button"
-						class="btn-success-secondary"
-						onclick={() => goto('/inbox?tour=true')}
-					>
-						Take a quick tour
-					</button>
-				</div>
 			</div>
 		</div>
 	</div>
 {/if}
 
-<!-- ═══════════════════════════════════════════════════════════ -->
-<!-- WHATSAPP QR CONNECT MODAL                                   -->
-<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- WHATSAPP QR CONNECT MODAL (Pure Tailwind) -->
 {#if qrModalOpen}
 	<div
-		class="modal-backdrop"
+		class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
 		onclick={() => qrModalOpen = false}
 		onkeydown={(e) => { if (e.key === 'Escape') qrModalOpen = false; }}
 		tabindex="0"
@@ -930,20 +899,22 @@ FAQs:
 		aria-label="Close modal backdrop"
 	>
 		<div
-			class="modal-card"
+			class="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6 space-y-5"
 			onclick={(e) => e.stopPropagation()}
 			onkeydown={(e) => e.stopPropagation()}
 			tabindex="-1"
 			role="dialog"
 			aria-modal="true"
 		>
-			<h3 class="modal-title">Connect WhatsApp</h3>
-			<p class="modal-desc">
-				Open WhatsApp on your phone → Linked Devices → Link a Device, then scan this QR code.
-			</p>
+			<div>
+				<h3 class="text-lg font-medium text-slate-900">Connect WhatsApp</h3>
+				<p class="text-xs text-slate-500 mt-1 font-normal">
+					Open WhatsApp on your phone → Linked Devices → Link a Device, then scan this QR code.
+				</p>
+			</div>
 
-			<div class="qr-box">
-				<svg viewBox="0 0 160 160" width="160" height="160" class="qr-svg">
+			<div class="w-44 h-44 mx-auto p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-center">
+				<svg viewBox="0 0 160 160" width="140" height="140">
 					<rect width="160" height="160" fill="#FFFFFF" rx="8" />
 					<rect x="15" y="15" width="40" height="40" fill="#1E293B" rx="4" />
 					<rect x="23" y="23" width="24" height="24" fill="#FFFFFF" rx="2" />
@@ -969,1267 +940,14 @@ FAQs:
 				</svg>
 			</div>
 
-			<div class="modal-actions">
-				<button type="button" class="btn-cancel" onclick={() => qrModalOpen = false}>Cancel</button>
-				<button type="button" class="btn-confirm" onclick={confirmQRConnect}>Simulate Connected</button>
+			<div class="flex items-center justify-end gap-2 pt-2">
+				<button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition cursor-pointer" onclick={() => qrModalOpen = false}>
+					Cancel
+				</button>
+				<button type="button" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium shadow-xs transition cursor-pointer" onclick={confirmQRConnect}>
+					Simulate Connected
+				</button>
 			</div>
 		</div>
 	</div>
 {/if}
-
-<style>
-	/* ─────────────────────────────────────────────────────────────
-	   Full-Screen 3-Column Root Layout
-	   ───────────────────────────────────────────────────────────── */
-	.onboarding-fullscreen {
-		width: 100vw;
-		min-height: 100vh;
-		background: #FFFFFF;
-		display: flex;
-		position: relative;
-		overflow-x: hidden;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Left Brand & Illustration Column
-	   ───────────────────────────────────────────────────────────── */
-	.left-panel {
-		width: 360px;
-		background: #F8F9FD;
-		border-right: 1px solid #EEF2F6;
-		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
-		padding: 0;
-		position: relative;
-		flex-shrink: 0;
-		overflow: hidden;
-	}
-
-	.left-top {
-		padding: 44px 36px 0 44px;
-	}
-
-	.brand-row {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		margin-bottom: 40px;
-	}
-
-	.logo-box {
-		width: 36px;
-		height: 36px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.brand-logo-svg {
-		width: 36px;
-		height: 36px;
-	}
-
-	.brand-title {
-		font-size: 22px;
-		font-weight: 500;
-		color: #0F172A;
-		letter-spacing: -0.4px;
-	}
-
-	.hero-headline {
-		font-size: 28px;
-		font-weight: 500;
-		color: #0F172A;
-		line-height: 1.22;
-		margin: 0 0 14px 0;
-		letter-spacing: -0.5px;
-	}
-
-	.highlight-blue {
-		color: #2563EB;
-	}
-
-	.hero-subtext {
-		font-size: 14.5px;
-		color: #64748B;
-		line-height: 1.55;
-		margin: 0 0 28px 0;
-	}
-
-	.dot-matrix {
-		display: grid;
-		grid-template-columns: repeat(4, 6px);
-		gap: 8px;
-		margin-bottom: 24px;
-	}
-
-	.dot-matrix span {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background-color: #4F80FF;
-		opacity: 0.4;
-	}
-
-	.illustration-container {
-		margin-top: auto;
-		width: 100%;
-		display: flex;
-		justify-content: center;
-		align-items: flex-end;
-		overflow: hidden;
-		line-height: 0;
-		position: relative;
-	}
-
-	.hero-image {
-		width: 100%;
-		height: auto;
-		max-height: 420px;
-		object-fit: cover;
-		object-position: bottom center;
-		display: block;
-		border-radius: 0;
-		-webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.4) 18%, rgba(0, 0, 0, 1) 40%);
-		mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.4) 18%, rgba(0, 0, 0, 1) 40%);
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Middle Vertical Stepper Column
-	   ───────────────────────────────────────────────────────────── */
-	.middle-stepper {
-		width: 230px;
-		padding: 48px 20px 48px 32px;
-		border-right: 1px solid #F1F5F9;
-		background: #FFFFFF;
-		flex-shrink: 0;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.step-list {
-		display: flex;
-		flex-direction: column;
-		gap: 28px;
-	}
-
-	.step-nav-item {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		background: none;
-		border: none;
-		padding: 0;
-		cursor: pointer;
-		text-align: left;
-		transition: opacity 0.2s;
-	}
-
-	.step-circle {
-		width: 24px;
-		height: 24px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 11.5px;
-		font-weight: 500;
-		border: 1px solid #CBD5E1;
-		color: #94A3B8;
-		background: #FFFFFF;
-		flex-shrink: 0;
-		transition: all 0.2s ease;
-	}
-
-	.step-circle.active {
-		background: #2563EB;
-		color: #FFFFFF;
-		border-color: #2563EB;
-		box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
-	}
-
-	.step-circle.done {
-		background: #2563EB;
-		color: #FFFFFF;
-		border-color: #2563EB;
-	}
-
-	.step-nav-label {
-		font-size: 13.5px;
-		font-weight: 400;
-		color: #64748B;
-		white-space: nowrap;
-		transition: color 0.2s;
-	}
-
-	.step-nav-label.active {
-		color: #0F172A;
-		font-weight: 500;
-	}
-
-	.step-nav-label.done {
-		color: #334155;
-		font-weight: 500;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Right Main Form Content Column
-	   ───────────────────────────────────────────────────────────── */
-	.right-content {
-		flex: 1;
-		width: 100%;
-		padding: 48px 64px 44px 64px;
-		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
-		position: relative;
-		overflow-y: auto;
-		background: #FFFFFF;
-		box-sizing: border-box;
-	}
-
-	.content-inner {
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
-	.step-meta {
-		font-size: 13px;
-		font-weight: 500;
-		color: #94A3B8;
-		margin-bottom: 8px;
-		letter-spacing: 0.2px;
-	}
-
-	.step-title {
-		font-size: 26px;
-		font-weight: 500;
-		color: #0F172A;
-		margin: 0 0 6px 0;
-		letter-spacing: -0.4px;
-	}
-
-	.step-subtitle {
-		font-size: 14.5px;
-		color: #64748B;
-		margin: 0 0 32px 0;
-	}
-
-	.form-body {
-		flex: 1;
-		margin-bottom: 32px;
-	}
-
-	/* Field groups */
-	.field-group {
-		margin-bottom: 22px;
-	}
-
-	.field-label {
-		display: block;
-		font-size: 13.5px;
-		font-weight: 500;
-		color: #334155;
-		margin-bottom: 8px;
-	}
-
-	.section-label {
-		font-size: 13.5px;
-		font-weight: 500;
-		color: #334155;
-		margin-bottom: 14px;
-	}
-
-	.text-input {
-		width: 100%;
-		height: 44px;
-		padding: 0 16px;
-		font-size: 14.5px;
-		color: #1E293B;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 8px;
-		outline: none;
-		box-sizing: border-box;
-		transition: border-color 0.2s, box-shadow 0.2s;
-	}
-
-	.text-input:focus {
-		border-color: #2563EB;
-		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-	}
-
-	.select-wrapper {
-		position: relative;
-		width: 100%;
-	}
-
-	.select-input {
-		width: 100%;
-		height: 44px;
-		padding: 0 38px 0 16px;
-		font-size: 14.5px;
-		color: #1E293B;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 8px;
-		outline: none;
-		appearance: none;
-		box-sizing: border-box;
-		cursor: pointer;
-		transition: border-color 0.2s, box-shadow 0.2s;
-	}
-
-	.select-input:focus {
-		border-color: #2563EB;
-		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-	}
-
-	.select-chevron {
-		position: absolute;
-		right: 16px;
-		top: 50%;
-		transform: translateY(-50%);
-		pointer-events: none;
-		color: #94A3B8;
-		font-size: 13px;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Channels List
-	   ───────────────────────────────────────────────────────────── */
-	.channel-list {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.channel-card {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 12px 18px;
-		border: 1px solid #E2E8F0;
-		border-radius: 10px;
-		background: #FFFFFF;
-		transition: border-color 0.2s, box-shadow 0.2s;
-	}
-
-	.channel-card:hover {
-		border-color: #CBD5E1;
-		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
-	}
-
-	.channel-left {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-	}
-
-	.channel-icon-badge {
-		width: 28px;
-		height: 28px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.channel-name {
-		font-size: 14px;
-		font-weight: 500;
-		color: #1E293B;
-	}
-
-	.btn-connect {
-		padding: 7px 16px;
-		font-size: 13px;
-		font-weight: 500;
-		color: #2563EB;
-		background: #EFF6FF;
-		border: 1px solid #DBEAFE;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-connect:hover {
-		background: #DBEAFE;
-	}
-
-	.btn-connected {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 7px 14px;
-		font-size: 12.5px;
-		font-weight: 500;
-		color: #059669;
-		background: #ECFDF5;
-		border: 1px solid #A7F3D0;
-		border-radius: 6px;
-		cursor: pointer;
-	}
-
-	.badge-coming-soon {
-		font-size: 12px;
-		font-weight: 500;
-		color: #94A3B8;
-		background: #F1F5F9;
-		padding: 5px 12px;
-		border-radius: 6px;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Lead Pipeline Stages
-	   ───────────────────────────────────────────────────────────── */
-	.stages-list {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		margin-bottom: 16px;
-	}
-
-	.stage-row {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 10px 14px;
-		border: 1px solid #E2E8F0;
-		border-radius: 8px;
-		background: #FFFFFF;
-	}
-
-	.grip-handle {
-		display: flex;
-		align-items: center;
-		cursor: grab;
-	}
-
-	.stage-dot {
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.stage-input {
-		flex: 1;
-		border: none;
-		outline: none;
-		font-size: 14px;
-		font-weight: 500;
-		color: #1E293B;
-		background: transparent;
-	}
-
-	.btn-trash {
-		background: none;
-		border: none;
-		padding: 4px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		transition: opacity 0.2s;
-	}
-
-	.btn-trash:disabled {
-		opacity: 0.3;
-		cursor: not-allowed;
-	}
-
-	.btn-trash:hover:not(:disabled) {
-		background: #FEE2E2;
-	}
-
-	.btn-add-stage {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		width: 100%;
-		padding: 12px;
-		font-size: 13.5px;
-		font-weight: 500;
-		color: #2563EB;
-		background: #FFFFFF;
-		border: 1px dashed #BFDBFE;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: background 0.2s;
-	}
-
-	.btn-add-stage:hover {
-		background: #EFF6FF;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   AI Assistant Options Stack
-	   ───────────────────────────────────────────────────────────── */
-	.ai-options-stack {
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
-		margin-bottom: 18px;
-	}
-
-	.ai-card {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 18px 20px;
-		border: 1px solid #E2E8F0;
-		border-radius: 12px;
-		background: #FFFFFF;
-		cursor: pointer;
-		text-align: left;
-		transition: all 0.2s ease;
-	}
-
-	.ai-card.selected {
-		border-color: #2563EB;
-		background: #F8FAFC;
-		box-shadow: 0 0 0 1.5px #2563EB;
-	}
-
-	.ai-card-main {
-		display: flex;
-		align-items: flex-start;
-		gap: 16px;
-	}
-
-	.ai-card-icon-box {
-		width: 36px;
-		height: 36px;
-		border-radius: 8px;
-		background: #F1F5F9;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		margin-top: 2px;
-	}
-
-	.ai-card.selected .ai-card-icon-box {
-		background: #EFF6FF;
-	}
-
-	.ai-card-text {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.ai-card-header-row {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
-
-	.ai-card-heading {
-		font-size: 14.5px;
-		font-weight: 500;
-		color: #0F172A;
-	}
-
-	.badge-recommended {
-		font-size: 11px;
-		font-weight: 500;
-		color: #059669;
-		background: #ECFDF5;
-		padding: 2px 8px;
-		border-radius: 9999px;
-		border: 1px solid #A7F3D0;
-	}
-
-	.ai-card-desc {
-		font-size: 13px;
-		color: #64748B;
-		margin: 0;
-		line-height: 1.45;
-	}
-
-	.ai-badge-tag {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-size: 12px;
-		font-weight: 500;
-		color: #059669;
-		margin-top: 4px;
-	}
-
-	.radio-outer {
-		width: 20px;
-		height: 20px;
-		border-radius: 50%;
-		border: 1.5px solid #CBD5E1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		margin-left: 16px;
-	}
-
-	.radio-outer.checked {
-		border-color: #2563EB;
-	}
-
-	.radio-inner {
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
-		background-color: #2563EB;
-	}
-
-	.settings-hint {
-		font-size: 12.5px;
-		color: #94A3B8;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Step 5 Knowledge Base: Dump, Processing, & Inferred Cards
-	   ───────────────────────────────────────────────────────────── */
-	.kb-dump-container {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.kb-suggestions-bar {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 8px;
-	}
-
-	.kb-suggestions-title {
-		font-size: 12.5px;
-		font-weight: 500;
-		color: #94A3B8;
-		margin-right: 4px;
-	}
-
-	.kb-pill-btn {
-		background: #EFF6FF;
-		border: 1px solid #DBEAFE;
-		color: #2563EB;
-		font-size: 12.5px;
-		font-weight: 500;
-		padding: 5px 12px;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.15s;
-	}
-
-	.kb-pill-btn:hover {
-		background: #DBEAFE;
-	}
-
-	.kb-dump-textarea {
-		width: 100%;
-		min-height: 180px;
-		padding: 14px 16px;
-		border: 1px solid #E2E8F0;
-		border-radius: 10px;
-		font-size: 14px;
-		font-family: inherit;
-		font-weight: 400;
-		color: #1E293B;
-		line-height: 1.6;
-		background: #FFFFFF;
-		box-sizing: border-box;
-		resize: vertical;
-		outline: none;
-		transition: border-color 0.2s, box-shadow 0.2s;
-	}
-
-	.kb-dump-textarea:focus {
-		border-color: #2563EB;
-		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
-	}
-
-	.kb-dump-textarea::placeholder {
-		color: #94A3B8;
-	}
-
-	.kb-dump-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.kb-hint-text {
-		font-size: 12.5px;
-		color: #64748B;
-	}
-
-	/* Processing state */
-	.kb-processing-view {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 40px 20px;
-		text-align: center;
-		width: 100%;
-		max-width: 540px;
-		margin: 0 auto;
-	}
-
-	.kb-spinner-wrap {
-		position: relative;
-		width: 64px;
-		height: 64px;
-		margin-bottom: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.kb-spinner {
-		position: absolute;
-		inset: 0;
-		border: 3px solid #E2E8F0;
-		border-top-color: #2563EB;
-		border-radius: 50%;
-		animation: kbSpin 0.9s linear infinite;
-	}
-
-	.kb-spinner-icon {
-		position: relative;
-		z-index: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	@keyframes kbSpin {
-		to { transform: rotate(360deg); }
-	}
-
-	.kb-notice-card {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		background: #FFFBEB;
-		border: 1px solid #FDE68A;
-		border-radius: 10px;
-		padding: 12px 16px;
-		margin-bottom: 28px;
-		text-align: left;
-		width: 100%;
-		box-sizing: border-box;
-	}
-
-	.kb-notice-text {
-		font-size: 13px;
-		color: #92400E;
-		line-height: 1.45;
-	}
-
-	.btn-skip-dashboard {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		padding: 12px 24px;
-		font-size: 14px;
-		font-weight: 500;
-		color: #2563EB;
-		background: #EFF6FF;
-		border: 1px solid #BFDBFE;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.15s;
-		width: 100%;
-		max-width: 320px;
-		margin-bottom: 10px;
-	}
-
-	.btn-skip-dashboard:hover {
-		background: #DBEAFE;
-	}
-
-	.kb-skip-hint {
-		font-size: 12px;
-		color: #94A3B8;
-	}
-
-	/* Inferred Results State */
-	.kb-results-header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 16px;
-		margin-bottom: 18px;
-	}
-
-	.btn-edit-notes {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 7px 14px;
-		font-size: 13px;
-		font-weight: 500;
-		color: #2563EB;
-		background: #EFF6FF;
-		border: 1px solid #DBEAFE;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: background 0.15s;
-		white-space: nowrap;
-	}
-
-	.btn-edit-notes:hover {
-		background: #DBEAFE;
-	}
-
-	.inferred-concepts-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.inferred-concept-card {
-		padding: 14px 18px;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 10px;
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		transition: border-color 0.2s, box-shadow 0.2s;
-	}
-
-	.inferred-concept-card:hover {
-		border-color: #CBD5E1;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
-	}
-
-	.concept-card-top {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-	}
-
-	.concept-title {
-		font-size: 14.5px;
-		font-weight: 500;
-		color: #0F172A;
-	}
-
-	.concept-badge {
-		font-size: 11.5px;
-		font-weight: 500;
-		color: #2563EB;
-		background: #EFF6FF;
-		padding: 2px 8px;
-		border-radius: 9999px;
-		border: 1px solid #DBEAFE;
-		text-transform: capitalize;
-	}
-
-	.concept-body {
-		font-size: 13.5px;
-		color: #475569;
-		line-height: 1.5;
-		margin: 0;
-		white-space: pre-wrap;
-	}
-
-	.concept-tags-row {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin-top: 4px;
-	}
-
-	.tag-pill {
-		font-size: 11.5px;
-		color: #64748B;
-		background: #F1F5F9;
-		padding: 2px 8px;
-		border-radius: 4px;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Step 6 Summary Stack
-	   ───────────────────────────────────────────────────────────── */
-	.summary-cards-stack {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.summary-card {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 14px 18px;
-		border: 1px solid #E2E8F0;
-		border-radius: 10px;
-		background: #FFFFFF;
-	}
-
-	.summary-card-left {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-	}
-
-	.summary-icon-box {
-		width: 36px;
-		height: 36px;
-		border-radius: 8px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.summary-icon-box.blue { background: #EFF6FF; }
-	.summary-icon-box.green { background: #ECFDF5; }
-	.summary-icon-box.orange { background: #FEF3C7; }
-	.summary-icon-box.purple { background: #F5F3FF; }
-	.summary-icon-box.teal { background: #ECFEFF; }
-
-	.summary-meta {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.summary-label {
-		font-size: 12px;
-		font-weight: 500;
-		color: #64748B;
-	}
-
-	.summary-value {
-		font-size: 14px;
-		font-weight: 500;
-		color: #0F172A;
-	}
-
-	.btn-edit-link {
-		font-size: 13.5px;
-		font-weight: 500;
-		color: #2563EB;
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 4px 8px;
-	}
-
-	.btn-edit-link:hover {
-		text-decoration: underline;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Action Footer Bar
-	   ───────────────────────────────────────────────────────────── */
-	.action-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-top: auto;
-		padding-top: 24px;
-		border-top: 1px solid #F1F5F9;
-	}
-
-	.btn-back {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 20px;
-		font-size: 14px;
-		font-weight: 500;
-		color: #475569;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: background 0.15s;
-	}
-
-	.btn-back:hover {
-		background: #F8FAFC;
-	}
-
-	.btn-continue {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		padding: 11px 26px;
-		font-size: 14px;
-		font-weight: 500;
-		color: #FFFFFF;
-		background: #2563EB;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
-		transition: all 0.15s ease;
-	}
-
-	.btn-continue:hover:not(:disabled) {
-		background: #1D4ED8;
-	}
-
-	.btn-continue:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.error-msg {
-		font-size: 13px;
-		color: #EF4444;
-		margin-top: 14px;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   STEP 7: SUCCESS FULL-SCREEN EXPERIENCE
-	   ───────────────────────────────────────────────────────────── */
-	.success-fullscreen {
-		width: 100vw;
-		min-height: 100vh;
-		background: #F8F9FD;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 40px 24px;
-		box-sizing: border-box;
-	}
-
-	.success-content {
-		width: 100%;
-		max-width: 580px;
-		background: #FFFFFF;
-		border-radius: 24px;
-		border: 1px solid #EAECEF;
-		box-shadow: 0 20px 48px -12px rgba(15, 23, 42, 0.08);
-		padding: 0 0 44px 0;
-		text-align: center;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		box-sizing: border-box;
-		overflow: hidden;
-	}
-
-	.success-hero-image-wrap {
-		width: 100%;
-		max-width: 100%;
-		margin-bottom: 28px;
-		display: flex;
-		justify-content: center;
-		overflow: hidden;
-		line-height: 0;
-	}
-
-	.success-mascot-image {
-		width: 100%;
-		height: auto;
-		max-height: 320px;
-		object-fit: cover;
-		display: block;
-		border-radius: 0;
-	}
-
-	.success-body {
-		width: 100%;
-		padding: 0 40px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		box-sizing: border-box;
-	}
-
-	.success-heading {
-		font-size: 28px;
-		font-weight: 500;
-		color: #0F172A;
-		margin: 0 0 12px 0;
-		letter-spacing: -0.4px;
-	}
-
-	.success-subheading {
-		font-size: 15px;
-		color: #64748B;
-		line-height: 1.6;
-		margin: 0 0 36px 0;
-	}
-
-	.success-actions {
-		width: 100%;
-		max-width: 360px;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.btn-success-primary {
-		width: 100%;
-		padding: 13px;
-		font-size: 14.5px;
-		font-weight: 500;
-		color: #FFFFFF;
-		background: #2563EB;
-		border: none;
-		border-radius: 10px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
-		transition: background 0.15s;
-	}
-
-	.btn-success-primary:hover {
-		background: #1D4ED8;
-	}
-
-	.btn-success-secondary {
-		width: 100%;
-		padding: 13px;
-		font-size: 14.5px;
-		font-weight: 500;
-		color: #334155;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 10px;
-		cursor: pointer;
-		transition: background 0.15s;
-	}
-
-	.btn-success-secondary:hover {
-		background: #F8FAFC;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Modal Backdrop & QR Code Modal
-	   ───────────────────────────────────────────────────────────── */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(15, 23, 42, 0.4);
-		backdrop-filter: blur(4px);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 999;
-		padding: 16px;
-	}
-
-	.modal-card {
-		width: 100%;
-		max-width: 400px;
-		background: #FFFFFF;
-		border-radius: 16px;
-		padding: 28px 24px;
-		text-align: center;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-	}
-
-	.modal-title {
-		font-size: 18px;
-		font-weight: 500;
-		color: #0F172A;
-		margin: 0 0 8px 0;
-	}
-
-	.modal-desc {
-		font-size: 13px;
-		color: #64748B;
-		line-height: 1.4;
-		margin: 0 0 20px 0;
-	}
-
-	.qr-box {
-		width: 170px;
-		height: 170px;
-		margin: 0 auto 24px auto;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 12px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-	}
-
-	.modal-actions {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 10px;
-	}
-
-	.btn-cancel {
-		padding: 9px 16px;
-		font-size: 13px;
-		font-weight: 500;
-		color: #64748B;
-		background: #FFFFFF;
-		border: 1px solid #E2E8F0;
-		border-radius: 8px;
-		cursor: pointer;
-	}
-
-	.btn-confirm {
-		padding: 9px 18px;
-		font-size: 13px;
-		font-weight: 500;
-		color: #FFFFFF;
-		background: #2563EB;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-	}
-
-	/* ─────────────────────────────────────────────────────────────
-	   Responsive adjustments
-	   ───────────────────────────────────────────────────────────── */
-	@media (max-width: 1024px) {
-		.onboarding-fullscreen {
-			flex-direction: column;
-		}
-
-		.left-panel {
-			width: 100%;
-			border-right: none;
-			border-bottom: 1px solid #EEF2F6;
-			padding: 0;
-		}
-
-		.left-top {
-			padding: 32px 24px 0 24px;
-		}
-
-		.middle-stepper {
-			width: 100%;
-			border-right: none;
-			border-bottom: 1px solid #F1F5F9;
-			padding: 20px 24px;
-		}
-
-		.step-list {
-			flex-direction: row;
-			overflow-x: auto;
-			gap: 20px;
-		}
-
-		.right-content {
-			padding: 36px 24px;
-		}
-	}
-</style>

@@ -542,7 +542,7 @@
 	<title>What Funnel - Omni Channel Lead Management</title>
 </svelte:head>
 
-<div class="flex h-screen w-full bg-[#F4F6FB] overflow-hidden text-slate-800 font-sans select-none">
+<div class="flex h-screen w-full bg-[#F4F6FB] overflow-hidden text-slate-800 font-sans">
 	
 	<!-- ================= LEFT MAIN NAVIGATION ================= -->
 	<aside class="w-56 flex flex-col justify-between p-4 bg-transparent shrink-0">
@@ -550,7 +550,7 @@
 			<!-- Logo: What Funnel Platform (Icon only) -->
 			<div class="flex items-center px-2 pt-1 pb-6 cursor-pointer" onclick={() => selectedNav = 'inbox'}>
 				<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-					<rect width="36" height="36" rx="10" fill="#4F80FF" />
+					<rect width="36" height="36" rx="10" fill="#2563EB" />
 					<circle cx="14" cy="14" r="3" fill="white" />
 					<circle cx="22" cy="18" r="4.5" fill="white" />
 					<circle cx="14" cy="23" r="2.5" fill="white" />
@@ -642,45 +642,11 @@
 			</nav>
 		</div>
 
-		<!-- Bottom Graphic & User Workspace Card -->
+		<!-- User Workspace Card -->
 		<div class="space-y-3">
-			<!-- Surreal 3D Landscape Illustration with Unicorn Silhouette -->
-			<div class="relative w-full h-44 rounded-2xl overflow-hidden bg-gradient-to-b from-sky-300 via-purple-300 to-pink-200 flex items-end justify-center">
-				<svg class="absolute inset-0 w-full h-full" viewBox="0 0 200 180" preserveAspectRatio="none" fill="none">
-					<defs>
-						<radialGradient id="skyGrad" cx="50%" cy="30%" r="70%">
-							<stop offset="0%" stop-color="#CBE5FF" />
-							<stop offset="60%" stop-color="#D9C5FF" />
-							<stop offset="100%" stop-color="#FFC2D8" />
-						</radialGradient>
-						<linearGradient id="hillPink" x1="0" y1="0" x2="1" y2="1">
-							<stop offset="0%" stop-color="#FF77A9" />
-							<stop offset="100%" stop-color="#C84E89" />
-						</linearGradient>
-						<linearGradient id="hillCyan" x1="0" y1="0" x2="1" y2="1">
-							<stop offset="0%" stop-color="#00E5D4" />
-							<stop offset="100%" stop-color="#00A896" />
-						</linearGradient>
-						<linearGradient id="hillGreen" x1="0" y1="0" x2="1" y2="1">
-							<stop offset="0%" stop-color="#32E875" />
-							<stop offset="100%" stop-color="#028090" />
-						</linearGradient>
-					</defs>
-					
-					<rect width="200" height="180" fill="url(#skyGrad)" />
-					<path d="M-20 180 C30 110, 80 130, 130 180 Z" fill="url(#hillPink)" opacity="0.8" />
-					<path d="M70 180 C110 100, 170 120, 220 180 Z" fill="url(#hillCyan)" opacity="0.9" />
-					<path d="M-10 180 C20 95, 120 100, 210 180 Z" fill="url(#hillGreen)" />
-					<g transform="translate(48, 70) scale(0.65)" fill="#1A2035">
-						<path d="M42 22 C40 18 36 10 32 6 C31 4 28 3 27 5 C26 7 27 10 26 12 C24 10 21 8 18 10 C16 11 15 14 16 16 C15 15 13 15 11 17 C9 19 9 22 12 25 C14 27 18 29 20 34 C21 37 20 42 19 46 L18 64 L21 64 L23 48 C25 48 27 49 28 52 L26 64 L29 64 L33 50 C36 49 39 49 42 46 C45 44 47 38 48 35 C50 36 53 38 56 42 L55 64 L58 64 L60 48 C62 48 64 50 65 54 L64 64 L67 64 L69 50 C71 45 68 38 64 34 C60 30 52 28 47 28 C45 28 43 25 42 22 Z" />
-						<path d="M64 34 C69 37 72 45 74 54 C75 58 78 62 80 66 L78 67 C75 62 72 55 70 48 C68 43 65 38 64 34 Z" fill="#1A2035" />
-					</g>
-				</svg>
-			</div>
-
 			<!-- Workspace Switcher Pill -->
 			<div
-				class="relative flex items-center justify-between p-2.5 bg-white rounded-2xl border border-slate-200/80 cursor-pointer hover:bg-slate-50 transition"
+				class="relative flex items-center justify-between p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition"
 				onclick={() => showWorkspaceDropdown = !showWorkspaceDropdown}
 			>
 				<div class="flex items-center gap-3">
@@ -749,14 +715,6 @@
 					<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
 					</svg>
-				</button>
-
-				<!-- Bell notification -->
-				<button title="Notifications" class="w-9 h-9 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center text-slate-500 hover:text-slate-800 transition relative">
-					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-					</svg>
-					<span class="absolute top-2 right-2 w-2 h-2 bg-blue-500 rounded-full"></span>
 				</button>
 
 				<!-- User avatar -->
@@ -1063,7 +1021,7 @@
 									{:else}
 										<!-- Agent / AI Outgoing Message -->
 										<div class="message-row outbound flex flex-col items-end ml-auto max-w-md">
-											<div class="msg-text bg-gradient-to-r from-blue-600 to-blue-500 text-white p-3.5 rounded-2xl rounded-tr-sm text-xs leading-relaxed whitespace-pre-wrap">
+											<div class="msg-text bg-blue-600 text-white p-3.5 rounded-2xl rounded-tr-sm text-xs leading-relaxed whitespace-pre-wrap">
 												{textContent}
 											</div>
 											<div class="flex items-center gap-1 text-[10px] text-slate-400 mt-1 mr-1">

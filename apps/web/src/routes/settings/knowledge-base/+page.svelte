@@ -348,7 +348,7 @@
 
 	.sidebar-title {
 		font-size: 16px;
-		font-weight: 700;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
@@ -379,7 +379,7 @@
 	.nav-item.active {
 		background: var(--blue-bg);
 		color: var(--blue-text);
-		font-weight: 600;
+		font-weight: 500;
 	}
 
 	.back-item {
@@ -400,7 +400,7 @@
 
 	.content-header h1 {
 		font-size: 20px;
-		font-weight: 700;
+		font-weight: 500;
 		margin-bottom: 2px;
 	}
 
@@ -450,7 +450,7 @@
 
 	.settings-card h3 {
 		font-size: 15px;
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
@@ -505,7 +505,7 @@
 
 	.sug-title {
 		font-size: 14px;
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
@@ -543,7 +543,7 @@
 
 	.concept-title {
 		font-size: 13.5px;
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
@@ -569,7 +569,7 @@
 
 	.empty-state h4 {
 		font-size: 15px;
-		font-weight: 600;
+		font-weight: 500;
 		margin-bottom: 2px;
 	}
 

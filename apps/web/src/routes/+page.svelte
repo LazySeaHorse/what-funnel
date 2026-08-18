@@ -51,11 +51,11 @@
 	});
 </script>
 
-<div class="auth-container">
-	<div class="auth-card" style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px;">
-		<div style="width: 44px; height: 44px; border-radius: 8px; background: var(--blue-bg); border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center; color: var(--blue-text);">
-			<Icon name="bot" size={22} color="var(--blue-text)" />
+<div class="min-h-[100dvh] w-full bg-[#F8F9FD] flex items-center justify-center p-4 font-sans text-slate-800 antialiased">
+	<div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-8 flex flex-col items-center gap-4 text-center">
+		<div class="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+			<Icon name="bot" size={22} color="currentColor" />
 		</div>
-		<div style="font-size: 14px; font-weight: 500; color: var(--text-secondary);">Verifying session...</div>
+		<div class="text-sm font-medium text-slate-500">Verifying session...</div>
 	</div>
 </div>
