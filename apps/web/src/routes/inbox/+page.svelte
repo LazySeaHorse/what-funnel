@@ -4,6 +4,10 @@
 	import { apiRequest } from '$lib/api';
 	import { InboxState } from '$lib/store.svelte';
 	import CustomerSimulator from '$lib/CustomerSimulator.svelte';
+	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
+	import LeadStateBadge from '$lib/components/LeadStateBadge.svelte';
+	import UserAvatar from '$lib/components/UserAvatar.svelte';
+	import LeadsView from '$lib/components/leads/LeadsView.svelte';
 
 	const inbox = new InboxState();
 
@@ -51,13 +55,6 @@
 	let showSortDropdown = $state(false);
 	let showFiltersDropdown = $state(false);
 	let selectedLeadId = $state<string | null>(null);
-	let leadDrawerTab = $state<'overview' | 'details' | 'notes' | 'activity'>('overview');
-	let showDrawerStateDropdown = $state(false);
-	let showDrawerAssignDropdown = $state(false);
-	let showDrawerTagInput = $state(false);
-	let showAddNoteInput = $state(false);
-	let drawerTagText = $state('');
-	let drawerNoteText = $state('');
 	let showLeadDrawer = $state(true);
 	let selectedLeadRowIds = $state<string[]>([]);
 	let leadsPerPage = $state(10);
@@ -223,7 +220,6 @@
 	}
 
 	async function handleDrawerStateChange(newKey: string) {
-		showDrawerStateDropdown = false;
 		const targetLeadId = inbox.activeConvo?.lead?.id || activeLead?.realConvo?.lead?.id;
 		if (targetLeadId) {
 			try {
@@ -244,16 +240,13 @@
 		}
 	}
 
-	async function handleDrawerAddTag() {
-		if (!drawerTagText.trim()) return;
-		const tag = drawerTagText.trim();
-		drawerTagText = '';
-		showDrawerTagInput = false;
+	async function handleDrawerAddTag(tag: string) {
 		const lead = inbox.activeConvo?.lead || activeLead?.realConvo?.lead;
-		if (lead?.id) {
+		if (lead?.id && tag.trim()) {
+			const tagClean = tag.trim();
 			const currentTags = lead.tags || [];
-			if (!currentTags.includes(tag)) {
-				const newTags = [...currentTags, tag];
+			if (!currentTags.includes(tagClean)) {
+				const newTags = [...currentTags, tagClean];
 				try {
 					const updated = await apiRequest(`/leads/${lead.id}/tags`, {
 						method: 'PATCH',
@@ -291,17 +284,13 @@
 		}
 	}
 
-	async function handleDrawerSaveNote() {
-		if (!drawerNoteText.trim()) return;
-		const text = drawerNoteText.trim();
-		drawerNoteText = '';
-		showAddNoteInput = false;
+	async function handleDrawerSaveNote(text: string) {
 		const leadId = inbox.activeConvo?.lead?.id || activeLead?.realConvo?.lead?.id;
-		if (leadId) {
+		if (leadId && text.trim()) {
 			try {
 				await apiRequest(`/leads/${leadId}/notes`, {
 					method: 'POST',
-					body: { body: text }
+					body: { body: text.trim() }
 				});
 				await loadLeadDetails(leadId);
 			} catch (err) {
@@ -1088,54 +1077,19 @@
 
 									<!-- Avatar + Channel Badge -->
 									<div class="relative shrink-0 mt-0.5">
-										{#if item.contact?.avatar_url}
-											<img
-												src={item.contact.avatar_url}
-												alt={contactName}
-												class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-100"
-											/>
-										{:else}
-											<div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-sm ring-1 ring-slate-100">
-												{contactName.charAt(0).toUpperCase()}
-											</div>
-										{/if}
-
-										<div class="absolute -bottom-0.5 -right-0.5">
-											{#if item.channel?.type?.includes('instagram') || item.channel_type?.includes('instagram')}
-												<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-													<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-full h-full">
-														<rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-														<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-														<line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
-													</svg>
-												</div>
-											{:else if item.channel?.type?.includes('whatsapp') || item.channel_type?.includes('whatsapp')}
-												<div class="w-4 h-4 rounded-full bg-[#25D366] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-													<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
-														<path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.077-2.227-.557-1.959-.811-3.21-2.822-3.307-2.953-.098-.132-.787-1.047-.787-1.996 0-.95.498-1.417.675-1.611.177-.194.387-.243.516-.243.13 0 .258.002.37.008.119.006.278-.045.435.334.162.391.554 1.354.603 1.454.05.099.083.215.016.347-.066.13-.1.215-.198.33-.099.116-.21.258-.299.347-.1.099-.204.207-.088.406.116.198.514.848 1.103 1.373.758.675 1.397.884 1.595.983.198.099.314.083.43-.05.116-.132.496-.578.629-.776.13-.198.264-.165.446-.099.182.066 1.156.545 1.354.644.198.099.33.149.38.232.049.083.049.479-.096.884z" />
-													</svg>
-												</div>
-											{:else if item.channel?.type?.includes('telegram') || item.channel_type?.includes('telegram')}
-												<div class="w-4 h-4 rounded-full bg-[#229ED9] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-													<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
-														<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-													</svg>
-												</div>
-											{:else}
-												<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-[#00C6FF] to-[#0078FF] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-													<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
-														<path d="M12 2C6.477 2 2 6.145 2 11.259c0 2.91 1.45 5.518 3.725 7.21V22l3.353-1.841c.925.257 1.908.396 2.922.396 5.523 0 10-4.145 10-9.259C22 6.145 17.523 2 12 2zm1.05 12.445l-2.673-2.855-5.218 2.855 5.741-6.095 2.741 2.855 5.15-2.855-5.741 6.095z" />
-													</svg>
-												</div>
-											{/if}
-										</div>
+										<UserAvatar
+											name={contactName}
+											avatar={item.contact?.avatar_url}
+											size="lg"
+											channel={item.channel?.type || item.channel_type}
+										/>
 									</div>
 
 									<!-- Details -->
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center justify-between mb-0.5">
 											<span class="font-medium text-xs text-slate-800 truncate">{contactName}</span>
-											<span class="text-[10px] text-slate-400 shrink-0 font-medium">{timeStr}</span>
+											<span class="text-[10px] text-slate-400 shrink-0 font-medium tabular-nums">{timeStr}</span>
 										</div>
 										<p class="text-xs text-slate-500 truncate leading-snug">{snippet}</p>
 										
@@ -1143,9 +1097,7 @@
 										<div class="flex items-center justify-between mt-1.5">
 											<div>
 												{#if item.lead?.current_state_key}
-													<span class="text-[10px] font-medium px-2 py-0.5 rounded-md {getTagColor(item.lead.current_state_key)}">
-														{item.lead.current_state_key}
-													</span>
+													<LeadStateBadge stateKey={item.lead.current_state_key} size="xs" />
 												{/if}
 											</div>
 											
@@ -1176,50 +1128,12 @@
 						<!-- Chat Top Header -->
 						<div class="h-16 px-6 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
 							<div class="flex items-center gap-3 min-w-0">
-								<div class="relative shrink-0">
-									{#if inbox.activeConvo.contact?.avatar_url}
-										<img
-											src={inbox.activeConvo.contact.avatar_url}
-											alt={getContactName(inbox.activeConvo)}
-											class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200"
-										/>
-									{:else}
-										<div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-sm ring-1 ring-slate-200">
-											{getContactName(inbox.activeConvo).charAt(0).toUpperCase()}
-										</div>
-									{/if}
-
-									<!-- Platform Logo Badge on Active Chat Avatar -->
-									<div class="absolute -bottom-0.5 -right-0.5">
-										{#if inbox.activeConvo.channel?.type?.includes('instagram') || inbox.activeConvo.channel_type?.includes('instagram')}
-											<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-												<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-full h-full">
-													<rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-													<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-													<line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
-												</svg>
-											</div>
-										{:else if inbox.activeConvo.channel?.type?.includes('whatsapp') || inbox.activeConvo.channel_type?.includes('whatsapp')}
-											<div class="w-4 h-4 rounded-full bg-[#25D366] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-												<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
-													<path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.077-2.227-.557-1.959-.811-3.21-2.822-3.307-2.953-.098-.132-.787-1.047-.787-1.996 0-.95.498-1.417.675-1.611.177-.194.387-.243.516-.243.13 0 .258.002.37.008.119.006.278-.045.435.334.162.391.554 1.354.603 1.454.05.099.083.215.016.347-.066.13-.1.215-.198.33-.099.116-.21.258-.299.347-.1.099-.204.207-.088.406.116.198.514.848 1.103 1.373.758.675 1.397.884 1.595.983.198.099.314.083.43-.05.116-.132.496-.578.629-.776.13-.198.264-.165.446-.099.182.066 1.156.545 1.354.644.198.099.33.149.38.232.049.083.049.479-.096.884z" />
-												</svg>
-											</div>
-										{:else if inbox.activeConvo.channel?.type?.includes('telegram') || inbox.activeConvo.channel_type?.includes('telegram')}
-											<div class="w-4 h-4 rounded-full bg-[#229ED9] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-												<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
-													<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-												</svg>
-											</div>
-										{:else}
-											<div class="w-4 h-4 rounded-full bg-gradient-to-tr from-[#00C6FF] to-[#0078FF] flex items-center justify-center p-[2px] text-white ring-1 ring-white">
-												<svg viewBox="0 0 24 24" fill="currentColor" class="w-full h-full">
-													<path d="M12 2C6.477 2 2 6.145 2 11.259c0 2.91 1.45 5.518 3.725 7.21V22l3.353-1.841c.925.257 1.908.396 2.922.396 5.523 0 10-4.145 10-9.259C22 6.145 17.523 2 12 2zm1.05 12.445l-2.673-2.855-5.218 2.855 5.741-6.095 2.741 2.855 5.15-2.855-5.741 6.095z" />
-												</svg>
-											</div>
-										{/if}
-									</div>
-								</div>
+								<UserAvatar
+									name={getContactName(inbox.activeConvo)}
+									avatar={inbox.activeConvo.contact?.avatar_url}
+									size="lg"
+									channel={inbox.activeConvo.channel?.type || inbox.activeConvo.channel_type}
+								/>
 								<div class="min-w-0">
 									<h2 class="font-medium text-sm text-slate-900 leading-tight whitespace-nowrap truncate">{getContactName(inbox.activeConvo)}</h2>
 									<p class="text-xs text-slate-400 leading-tight whitespace-nowrap truncate">{getContactHandle(inbox.activeConvo)}</p>
@@ -1701,618 +1615,38 @@
 					</div>
 				</div>
 
-				<!-- Horizontal Stage Cards Tabs -->
-				<div class="flex items-center gap-2.5 overflow-x-auto pb-1 shrink-0 scrollbar-none">
-					<!-- All Leads -->
-					<button
-						onclick={() => leadsFilterTab = 'all'}
-						class="flex flex-col justify-between px-4 py-2.5 min-w-[90px] h-[64px] rounded-xl border text-left transition cursor-pointer {leadsFilterTab === 'all' ? 'bg-blue-50/70 border-blue-600 text-blue-600 shadow-xs' : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700'}"
-					>
-						<span class="text-xs font-medium">All Leads</span>
-						<span class="text-base font-semibold leading-tight">{totalLeadsCount}</span>
-					</button>
-
-					<!-- New Lead -->
-					<button
-						onclick={() => leadsFilterTab = 'new'}
-						class="flex flex-col justify-between px-4 py-2.5 min-w-[100px] h-[64px] rounded-xl border text-left transition cursor-pointer {leadsFilterTab === 'new' ? 'bg-amber-50/60 border-amber-500 text-amber-700 shadow-xs' : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700'}"
-					>
-						<div class="flex items-center gap-1.5 text-xs font-medium">
-							<span class="w-2 h-2 rounded-full bg-amber-500"></span>
-							<span>New Lead</span>
-						</div>
-						<span class="text-base font-semibold leading-tight text-slate-900">{countNewLead}</span>
-					</button>
-
-					<!-- Contacted -->
-					<button
-						onclick={() => leadsFilterTab = 'contacted'}
-						class="flex flex-col justify-between px-4 py-2.5 min-w-[100px] h-[64px] rounded-xl border text-left transition cursor-pointer {leadsFilterTab === 'contacted' ? 'bg-blue-50/60 border-blue-500 text-blue-700 shadow-xs' : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700'}"
-					>
-						<div class="flex items-center gap-1.5 text-xs font-medium">
-							<span class="w-2 h-2 rounded-full bg-blue-500"></span>
-							<span>Contacted</span>
-						</div>
-						<span class="text-base font-semibold leading-tight text-slate-900">{countContacted}</span>
-					</button>
-
-					<!-- Follow-up -->
-					<button
-						onclick={() => leadsFilterTab = 'follow_up'}
-						class="flex flex-col justify-between px-4 py-2.5 min-w-[100px] h-[64px] rounded-xl border text-left transition cursor-pointer {leadsFilterTab === 'follow_up' ? 'bg-purple-50/60 border-purple-500 text-purple-700 shadow-xs' : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700'}"
-					>
-						<div class="flex items-center gap-1.5 text-xs font-medium">
-							<span class="w-2 h-2 rounded-full bg-purple-500"></span>
-							<span>Follow-up</span>
-						</div>
-						<span class="text-base font-semibold leading-tight text-slate-900">{countFollowUp}</span>
-					</button>
-
-					<!-- Interested -->
-					<button
-						onclick={() => leadsFilterTab = 'interested'}
-						class="flex flex-col justify-between px-4 py-2.5 min-w-[100px] h-[64px] rounded-xl border text-left transition cursor-pointer {leadsFilterTab === 'interested' ? 'bg-emerald-50/60 border-emerald-500 text-emerald-700 shadow-xs' : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700'}"
-					>
-						<div class="flex items-center gap-1.5 text-xs font-medium">
-							<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-							<span>Interested</span>
-						</div>
-						<span class="text-base font-semibold leading-tight text-slate-900">{countInterested}</span>
-					</button>
-
-					<!-- Converted -->
-					<button
-						onclick={() => leadsFilterTab = 'converted'}
-						class="flex flex-col justify-between px-4 py-2.5 min-w-[100px] h-[64px] rounded-xl border text-left transition cursor-pointer {leadsFilterTab === 'converted' ? 'bg-teal-50/60 border-teal-500 text-teal-700 shadow-xs' : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700'}"
-					>
-						<div class="flex items-center gap-1.5 text-xs font-medium">
-							<span class="w-2 h-2 rounded-full bg-teal-500"></span>
-							<span>Converted</span>
-						</div>
-						<span class="text-base font-semibold leading-tight text-slate-900">{countConverted}</span>
-					</button>
-
-					<!-- Pipeline Settings link -->
-					<a
-						href="/settings/pipeline"
-						class="flex items-center justify-center gap-1.5 px-4 h-[64px] rounded-xl border border-dashed border-slate-200 hover:border-slate-300 hover:bg-white text-xs font-medium text-slate-500 transition cursor-pointer shrink-0"
-					>
-						<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-						</svg>
-						<span>Manage pipeline</span>
-					</a>
-				</div>
-
-				<!-- Main Split Area: Table on Left + Detail Drawer on Right -->
-				<div class="flex-1 flex gap-3 min-h-0 overflow-hidden">
-					
-					<!-- ================= LEADS TABLE CARD ================= -->
-					<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col min-h-0 overflow-hidden shadow-xs">
-						
-						<!-- Table Header -->
-						<div class="grid grid-cols-[40px_2.4fr_0.9fr_1.3fr_1.1fr_2fr_1fr] px-4 py-3 bg-white border-b border-slate-100 text-[11px] font-medium text-slate-400 uppercase tracking-wider items-center shrink-0">
-							<div class="flex items-center justify-center">
-								<input
-									type="checkbox"
-									checked={selectedLeadRowIds.length === filteredLeads.length && filteredLeads.length > 0}
-									onclick={toggleAllLeadRows}
-									class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
-								/>
-							</div>
-							<div>Lead</div>
-							<div>Channel</div>
-							<div>Lead State</div>
-							<div>Assigned to</div>
-							<div>Last Message</div>
-							<div class="flex items-center gap-1">
-								<span>Updated</span>
-								<svg class="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-								</svg>
-							</div>
-						</div>
-
-						<!-- Table Rows List -->
-						<div class="flex-1 overflow-y-auto min-h-0 divide-y divide-slate-100">
-							{#each filteredLeads as lead}
-								{@const isSelected = selectedLeadId === lead.id}
-								{@const isChecked = selectedLeadRowIds.includes(lead.id)}
-								{@const st = getLeadStateInfo(lead.stateKey)}
-								<div
-									role="button"
-									tabindex="0"
-									onclick={() => handleSelectLeadRow(lead)}
-									onkeydown={(e) => { if (e.key === 'Enter') handleSelectLeadRow(lead); }}
-									class="grid grid-cols-[40px_2.4fr_0.9fr_1.3fr_1.1fr_2fr_1fr] px-4 py-3 items-center text-xs transition cursor-pointer hover:bg-slate-50/80 {isSelected ? 'bg-blue-50/30' : ''}"
-								>
-									<!-- Checkbox -->
-									<div class="flex items-center justify-center" onclick={(e) => e.stopPropagation()}>
-										<input
-											type="checkbox"
-											checked={isChecked}
-											onclick={(e) => toggleLeadRowCheckbox(lead.id, e)}
-											class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
-										/>
-									</div>
-
-									<!-- Lead: Avatar + Name + Subtitle -->
-									<div class="flex items-center gap-3 pr-2 min-w-0">
-										<div class="relative w-8 h-8 rounded-full shrink-0 overflow-hidden {lead.avatar ? '' : lead.avatarBg || 'bg-blue-100 text-blue-700'} flex items-center justify-center font-medium text-xs">
-											{#if lead.avatar}
-												<img src={lead.avatar} alt={lead.name} class="w-full h-full object-cover" />
-											{:else}
-												<span>{lead.name.charAt(0).toUpperCase()}</span>
-											{/if}
-										</div>
-										<div class="min-w-0 flex-1">
-											<div class="font-medium text-slate-900 truncate leading-tight">{lead.name}</div>
-											<div class="text-[11px] text-slate-400 truncate leading-tight mt-0.5">{lead.lastMessage}</div>
-										</div>
-									</div>
-
-									<!-- Channel Icon -->
-									<div class="flex items-center">
-										{#if lead.channel === 'instagram'}
-											<div title="Instagram" class="w-6 h-6 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center text-white shadow-xs">
-												<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-													<rect width="20" height="20" x="2" y="2" rx="5" ry="5"/>
-													<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
-													<line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/>
-												</svg>
-											</div>
-										{:else if lead.channel === 'whatsapp'}
-											<div title="WhatsApp" class="w-6 h-6 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-xs">
-												<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
-												</svg>
-											</div>
-										{:else if lead.channel === 'messenger'}
-											<div title="Messenger" class="w-6 h-6 rounded-lg bg-gradient-to-tr from-blue-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-xs">
-												<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12 2C6.36 2 2 6.13 2 11.7c0 2.91 1.2 5.51 3.14 7.35V22l3.05-1.68c1.17.32 2.44.5 3.81.5 5.64 0 10-4.13 10-9.7S17.64 2 12 2zm1 12.3-2.54-2.71-4.96 2.71 5.45-5.79 2.6 2.71 4.9-2.71-5.45 5.79z"/>
-												</svg>
-											</div>
-										{:else if lead.channel === 'telegram'}
-											<div title="Telegram" class="w-6 h-6 rounded-lg bg-sky-500 flex items-center justify-center text-white shadow-xs">
-												<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8-1.7 8.01c-.13.57-.46.71-.94.44l-2.6-1.92-1.25 1.21c-.14.14-.26.26-.53.26l.19-2.64 4.81-4.34c.21-.19-.05-.29-.32-.11L8.35 13.56l-2.56-.8c-.56-.17-.57-.56.12-.83l10-3.86c.46-.17.87.11.73.73z"/>
-												</svg>
-											</div>
-										{:else}
-											<div title="Webchat" class="w-6 h-6 rounded-lg bg-blue-500 flex items-center justify-center text-white shadow-xs">
-												<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-												</svg>
-											</div>
-										{/if}
-									</div>
-
-									<!-- Lead State Pill -->
-									<div>
-										<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium {st.bg}">
-											<span class="w-1.5 h-1.5 rounded-full {st.dot}"></span>
-											<span>{lead.stateLabel}</span>
-										</span>
-									</div>
-
-									<!-- Assigned to -->
-									<div class="flex items-center -space-x-1.5">
-										{#if lead.assignees && lead.assignees.length > 0}
-											{#each lead.assignees as usr}
-												<div class="w-6 h-6 rounded-full ring-2 ring-white overflow-hidden {usr.bg || 'bg-blue-600'} text-white flex items-center justify-center text-[10px] font-medium" title={usr.name}>
-													{#if usr.avatar}
-														<img src={usr.avatar} alt={usr.name} class="w-full h-full object-cover" />
-													{:else}
-														<span>{usr.initials}</span>
-													{/if}
-												</div>
-											{/each}
-											{#if lead.assigneesExtra > 0}
-												<div class="w-6 h-6 rounded-full ring-2 ring-white bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-medium">
-													+{lead.assigneesExtra}
-												</div>
-											{/if}
-										{:else}
-											<span class="text-slate-300 text-xs italic">Unassigned</span>
-										{/if}
-									</div>
-
-									<!-- Last Message -->
-									<div class="text-slate-600 truncate pr-3 text-xs">
-										{lead.lastMessage}
-									</div>
-
-									<!-- Updated -->
-									<div class="text-[11px] text-slate-400 font-medium whitespace-nowrap">
-										{lead.updatedAt}
-									</div>
-								</div>
-							{/each}
-
-							{#if filteredLeads.length === 0}
-								<div class="py-20 flex flex-col items-center justify-center text-center">
-									<div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
-										<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-										</svg>
-									</div>
-									<div class="text-sm font-semibold text-slate-800">No leads in this view</div>
-									<div class="text-xs text-slate-400 mt-1 max-w-sm">Leads are automatically created as incoming inquiries arrive across your connected channels.</div>
-								</div>
-							{/if}
-						</div>
-
-						<!-- Table Footer Pagination -->
-						<div class="px-4 py-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 shrink-0">
-							<div>
-								Showing {filteredLeads.length > 0 ? 1 : 0} to {filteredLeads.length} of {totalLeadsCount} leads
-							</div>
-
-							<div class="flex items-center gap-3">
-								<div class="flex items-center gap-1">
-									<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50">
-										<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-										</svg>
-									</button>
-									<button class="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 font-medium flex items-center justify-center">1</button>
-									<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50">
-										<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-										</svg>
-									</button>
-								</div>
-
-								<div class="flex items-center gap-1.5 pl-2 border-l border-slate-200">
-									<span class="text-[11px] text-slate-400">10 / page</span>
-								</div>
-							</div>
-						</div>
-
-					</div>
-
-					<!-- ================= RIGHT DETAIL DRAWER ================= -->
-					{#if showLeadDrawer && activeLead}
-						{@const st = getLeadStateInfo(activeLead.stateKey)}
-						<div class="w-[380px] xl:w-[420px] bg-white rounded-2xl border border-slate-200/80 flex flex-col min-h-0 overflow-y-auto p-5 space-y-5 shrink-0 shadow-xs">
-							
-							<!-- Top Action Buttons -->
-							<div class="flex items-center justify-between shrink-0">
-								<button
-									onclick={() => { selectConvo(activeLead.convoId); selectedNav = 'inbox'; }}
-									class="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-medium transition cursor-pointer shadow-xs"
-								>
-									<span>Open Chat</span>
-									<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-									</svg>
-								</button>
-
-								<button
-									onclick={() => showLeadDrawer = false}
-									title="Close details"
-									class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition"
-								>
-									<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
-							</div>
-
-							<!-- Lead Profile Header Card -->
-							<div class="flex items-center justify-between pb-1">
-								<div class="flex items-center gap-3.5 min-w-0">
-									<div class="relative w-12 h-12 rounded-full overflow-hidden shrink-0 {activeLead.avatar ? '' : activeLead.avatarBg || 'bg-blue-100 text-blue-700'} flex items-center justify-center font-semibold text-base shadow-xs">
-										{#if activeLead.avatar}
-											<img src={activeLead.avatar} alt={activeLead.name} class="w-full h-full object-cover" />
-										{:else}
-											<span>{activeLead.name.charAt(0).toUpperCase()}</span>
-										{/if}
-										
-										<!-- Channel mini badge -->
-										{#if activeLead.channel === 'instagram'}
-											<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-gradient-to-tr from-amber-500 to-purple-600 ring-2 ring-white flex items-center justify-center text-white">
-												<svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<rect width="20" height="20" x="2" y="2" rx="5" ry="5"/>
-												</svg>
-											</div>
-										{:else if activeLead.channel === 'whatsapp'}
-											<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 ring-2 ring-white flex items-center justify-center text-white">
-												<svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
-												</svg>
-											</div>
-										{/if}
-									</div>
-
-									<div class="min-w-0">
-										<h2 class="text-sm font-semibold text-slate-900 truncate leading-tight">{activeLead.name}</h2>
-										<div class="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
-											{#if activeLead.channel === 'instagram'}
-												<svg class="w-3.5 h-3.5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<rect width="20" height="20" x="2" y="2" rx="5" ry="5"/>
-													<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
-												</svg>
-											{:else}
-												<svg class="w-3.5 h-3.5 text-emerald-500" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
-												</svg>
-											{/if}
-											<span class="capitalize">{activeLead.channel}</span>
-											{#if activeLead.handle}
-												<span>•</span>
-												<span class="truncate">{activeLead.handle}</span>
-											{/if}
-										</div>
-									</div>
-								</div>
-							</div>
-
-							<!-- Sub Navigation Tabs -->
-							<div class="flex items-center gap-4 border-b border-slate-100 text-xs">
-								<button
-									onclick={() => leadDrawerTab = 'overview'}
-									class="pb-2.5 font-medium transition relative {leadDrawerTab === 'overview' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'}"
-								>
-									<span>Overview</span>
-									{#if leadDrawerTab === 'overview'}
-										<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full"></span>
-									{/if}
-								</button>
-
-								<button
-									onclick={() => leadDrawerTab = 'details'}
-									class="pb-2.5 font-medium transition relative {leadDrawerTab === 'details' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'}"
-								>
-									<span>Details</span>
-									{#if leadDrawerTab === 'details'}
-										<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full"></span>
-									{/if}
-								</button>
-
-								<button
-									onclick={() => leadDrawerTab = 'notes'}
-									class="pb-2.5 font-medium transition relative {leadDrawerTab === 'notes' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'}"
-								>
-									<span>Notes</span>
-									{#if leadDrawerTab === 'notes'}
-										<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full"></span>
-									{/if}
-								</button>
-
-								<button
-									onclick={() => leadDrawerTab = 'activity'}
-									class="pb-2.5 font-medium transition relative {leadDrawerTab === 'activity' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'}"
-								>
-									<span>Activity</span>
-									{#if leadDrawerTab === 'activity'}
-										<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full"></span>
-									{/if}
-								</button>
-							</div>
-
-							<!-- Lead State Selector -->
-							<div class="space-y-1.5 relative">
-								<label class="block text-[11px] font-medium text-slate-500">Lead State</label>
-								<button
-									onclick={() => showDrawerStateDropdown = !showDrawerStateDropdown}
-									class="w-full flex items-center justify-between p-2.5 rounded-xl border border-amber-200/80 bg-amber-50/40 text-xs font-medium text-amber-800 hover:bg-amber-50 transition cursor-pointer"
-								>
-									<div class="flex items-center gap-2">
-										<span class="w-2 h-2 rounded-full {st.dot}"></span>
-										<span>{activeLead.stateLabel}</span>
-									</div>
-									<svg class="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-									</svg>
-								</button>
-
-								{#if showDrawerStateDropdown}
-									<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl py-1 z-50 text-xs space-y-0.5">
-										{#each (pipelineStates.length > 0 ? pipelineStates : [{ key: 'new', label: 'New Lead' }, { key: 'contacted', label: 'Contacted' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'interested', label: 'Interested' }, { key: 'converted', label: 'Converted' }]) as opt}
-											{@const info = getLeadStateInfo(opt.key)}
-											<button
-												onclick={() => handleDrawerStateChange(opt.key)}
-												class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 font-medium {activeLead.stateKey === opt.key ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
-											>
-												<span class="w-2 h-2 rounded-full {info.dot}"></span>
-												<span>{info.label}</span>
-											</button>
-										{/each}
-									</div>
-								{/if}
-							</div>
-
-							<!-- Assigned to -->
-							<div class="space-y-1.5 relative">
-								<label class="block text-[11px] font-medium text-slate-500">Assigned to</label>
-								<div class="flex items-center gap-2">
-									{#if activeLead.assignees && activeLead.assignees.length > 0}
-										{#each activeLead.assignees as usr}
-											<div class="w-8 h-8 rounded-full overflow-hidden {usr.bg || 'bg-blue-600'} text-white flex items-center justify-center text-xs font-medium ring-2 ring-slate-100 shadow-xs" title={usr.name}>
-												{#if usr.avatar}
-													<img src={usr.avatar} alt={usr.name} class="w-full h-full object-cover" />
-												{:else}
-													<span>{usr.initials}</span>
-												{/if}
-											</div>
-										{/each}
-									{:else}
-										<span class="text-xs text-slate-400 italic">Unassigned</span>
-									{/if}
-									<button
-										onclick={() => showDrawerAssignDropdown = !showDrawerAssignDropdown}
-										class="w-8 h-8 rounded-full border border-dashed border-slate-300 hover:border-slate-400 hover:bg-slate-50 flex items-center justify-center text-slate-500 transition cursor-pointer"
-										title="Assign user"
-									>
-										<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-										</svg>
-									</button>
-								</div>
-
-								{#if showDrawerAssignDropdown}
-									<div class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-xl py-1 z-50 text-xs">
-										<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">
-											Assign Team Member
-										</div>
-										{#each inbox.users as u}
-											{@const isAssigned = (inbox.activeConvo?.assigned_user_ids || []).includes(u.id)}
-											<button
-												onclick={() => toggleUserAssignment(u.id)}
-												class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 font-medium {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
-											>
-												<div class="flex items-center gap-2 truncate">
-													<span class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px]">{(u.name || u.email).charAt(0).toUpperCase()}</span>
-													<span class="truncate">{u.name || u.email}</span>
-												</div>
-												{#if isAssigned}
-													<svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-													</svg>
-												{/if}
-											</button>
-										{/each}
-									</div>
-								{/if}
-							</div>
-
-							<!-- Tags -->
-							<div class="space-y-1.5">
-								<label class="block text-[11px] font-medium text-slate-500">Tags</label>
-								<div class="flex flex-wrap items-center gap-1.5">
-									{#each (inbox.activeConvo?.lead?.tags || activeLead.tags) as tag}
-										<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50/70 border border-blue-200/60 text-blue-700 text-xs font-medium">
-											<span>{tag}</span>
-											<button onclick={() => handleDrawerRemoveTag(tag)} class="text-blue-400 hover:text-blue-600 text-[10px]">×</button>
-										</span>
-									{/each}
-
-									{#if showDrawerTagInput}
-										<div class="flex items-center gap-1">
-											<input
-												type="text"
-												bind:value={drawerTagText}
-												placeholder="Tag name..."
-												onkeydown={(e) => { if (e.key === 'Enter') handleDrawerAddTag(); }}
-												class="w-24 px-2 py-0.5 text-xs bg-white border border-blue-400 rounded-lg outline-none"
-											/>
-											<button onclick={handleDrawerAddTag} class="px-1.5 py-0.5 bg-blue-600 text-white rounded text-[11px]">Add</button>
-										</div>
-									{:else}
-										<button
-											onclick={() => showDrawerTagInput = true}
-											class="w-6 h-6 rounded-lg border border-dashed border-slate-300 hover:border-slate-400 hover:bg-slate-50 flex items-center justify-center text-slate-500 transition cursor-pointer"
-											title="Add tag"
-										>
-											<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-											</svg>
-										</button>
-									{/if}
-								</div>
-							</div>
-
-							<!-- AI Summary Box -->
-							<div class="space-y-1.5">
-								<div class="flex items-center gap-1 text-[11px] font-medium text-slate-800">
-									<span>AI Summary</span>
-									<span class="text-blue-600 font-bold">✦</span>
-								</div>
-								
-								<div class="p-3.5 bg-slate-50/90 rounded-xl border border-slate-200/60 space-y-2 text-xs text-slate-600 leading-relaxed">
-									<ul class="space-y-1">
-										{#each activeLead.aiSummary.bullets as bullet}
-											<li class="flex items-start gap-1.5">
-												<span class="text-slate-400 mt-1">•</span>
-												<span>{bullet}</span>
-											</li>
-										{/each}
-									</ul>
-
-									<div class="border-t border-slate-200/60 pt-2 mt-2">
-										<div class="text-[11px] font-medium text-blue-600 leading-tight">Suggested next step</div>
-										<div class="text-xs text-slate-700 font-normal mt-0.5">{activeLead.aiSummary.suggestedNextStep}</div>
-									</div>
-								</div>
-							</div>
-
-							<!-- Notes -->
-							<div class="space-y-1.5">
-								<div class="flex items-center justify-between">
-									<label class="block text-[11px] font-medium text-slate-500">Notes</label>
-									{#if !showAddNoteInput}
-										<button onclick={() => showAddNoteInput = true} class="text-[11px] text-blue-600 font-medium hover:underline">+ Add note</button>
-									{/if}
-								</div>
-
-								{#if showAddNoteInput}
-									<div class="space-y-2 p-2.5 bg-slate-50/80 rounded-xl border border-slate-200">
-										<textarea
-											bind:value={drawerNoteText}
-											placeholder="Add an internal note about this lead..."
-											rows="2"
-											class="w-full p-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 resize-none"
-										></textarea>
-										<div class="flex items-center justify-end gap-1.5">
-											<button onclick={() => { showAddNoteInput = false; drawerNoteText = ''; }} class="px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-											<button onclick={handleDrawerSaveNote} class="px-3 py-1 text-xs bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700">Save</button>
-										</div>
-									</div>
-								{/if}
-
-								{#if notes.length > 0}
-									<div class="space-y-2 max-h-36 overflow-y-auto">
-										{#each notes as note}
-											<div class="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200/60 text-xs space-y-1">
-												<div class="flex items-center justify-between text-[10px] text-slate-400">
-													<span class="font-medium text-slate-600">{note.author_name || note.user_email || 'Team Member'}</span>
-													<span>{formatTime(note.created_at)}</span>
-												</div>
-												<p class="text-slate-700 leading-relaxed">{note.text || note.body}</p>
-											</div>
-										{/each}
-									</div>
-								{:else if !showAddNoteInput}
-									<div class="p-3 bg-slate-50/70 rounded-xl border border-slate-200/60 text-xs text-slate-400 italic">
-										No notes yet. Click "+ Add note" to add an internal note.
-									</div>
-								{/if}
-							</div>
-
-							<!-- Contact info -->
-							<div class="space-y-2 pt-1 border-t border-slate-100">
-								<label class="block text-[11px] font-medium text-slate-500">Contact info</label>
-								
-								{#each activeLead.contactInfo as info}
-									<div class="flex items-center justify-between p-2.5 bg-slate-50/50 rounded-xl border border-slate-100 text-xs">
-										<div class="flex items-center gap-2.5 min-w-0">
-											{#if info.type === 'instagram'}
-												<svg class="w-4 h-4 text-pink-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<rect width="20" height="20" x="2" y="2" rx="5" ry="5"/>
-													<path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
-												</svg>
-											{:else}
-												<svg class="w-4 h-4 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
-												</svg>
-											{/if}
-											<span class="text-slate-800 font-medium truncate">{info.value}</span>
-										</div>
-
-										<div class="flex items-center gap-1 text-[11px] text-slate-400">
-											<span>{info.label}</span>
-										</div>
-									</div>
-								{/each}
-							</div>
-
-						</div>
-					{/if}
-
-				</div>
-
+				<!-- Reusable Modular Leads View Component -->
+				<LeadsView
+					leads={filteredLeads}
+					counts={{
+						all: totalLeadsCount,
+						new: countNewLead,
+						contacted: countContacted,
+						follow_up: countFollowUp,
+						interested: countInterested,
+						converted: countConverted
+					}}
+					activeFilter={leadsFilterTab}
+					selectedLeadId={selectedLeadId}
+					selectedRowIds={selectedLeadRowIds}
+					showDrawer={showLeadDrawer}
+					activeLead={activeLead}
+					pipelineStates={pipelineStates}
+					users={inbox.users}
+					notes={notes}
+					assignedUserIds={inbox.activeConvo?.assigned_user_ids || []}
+					onSelectFilter={(key) => leadsFilterTab = key}
+					onSelectLead={handleSelectLeadRow}
+					onToggleCheckbox={toggleLeadRowCheckbox}
+					onToggleAllCheckboxes={toggleAllLeadRows}
+					onCloseDrawer={() => showLeadDrawer = false}
+					onOpenChat={(convoId) => { selectConvo(convoId); selectedNav = 'inbox'; }}
+					onChangeState={handleDrawerStateChange}
+					onToggleAssignee={toggleUserAssignment}
+					onAddTag={handleDrawerAddTag}
+					onRemoveTag={handleDrawerRemoveTag}
+					onSaveNote={handleDrawerSaveNote}
+				/>
 			</div>
 
 		{:else if selectedNav === 'automation'}
