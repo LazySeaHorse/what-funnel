@@ -545,8 +545,18 @@
 <div class="flex h-screen w-full bg-[#F4F6FB] overflow-hidden text-slate-800 font-sans">
 	
 	<!-- ================= LEFT MAIN NAVIGATION ================= -->
-	<aside class="w-56 flex flex-col justify-between p-4 bg-transparent shrink-0">
-		<div>
+	<aside class="relative w-56 flex flex-col justify-between p-4 bg-transparent shrink-0 overflow-hidden">
+		<!-- Bottom Hero Illustration (anchored to bottom, full width, fading to background at top and bottom) -->
+		<div class="absolute bottom-0 left-0 right-0 w-full pointer-events-none select-none z-0 overflow-hidden">
+			<img
+				src="/images/dashboard-sidebar-hero.webp"
+				alt=""
+				class="w-full h-auto object-cover object-bottom"
+				style="mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 78%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 78%, transparent 100%);"
+			/>
+		</div>
+
+		<div class="relative z-10">
 			<!-- Logo: What Funnel Platform (Icon only) -->
 			<div class="flex items-center px-2 pt-1 pb-6 cursor-pointer" onclick={() => selectedNav = 'inbox'}>
 				<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
@@ -643,10 +653,10 @@
 		</div>
 
 		<!-- User Workspace Card -->
-		<div class="space-y-3">
+		<div class="relative z-10 space-y-3">
 			<!-- Workspace Switcher Pill -->
 			<div
-				class="relative flex items-center justify-between p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition"
+				class="relative flex items-center justify-between p-2.5 bg-white/90 backdrop-blur-xs rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition"
 				onclick={() => showWorkspaceDropdown = !showWorkspaceDropdown}
 			>
 				<div class="flex items-center gap-3">

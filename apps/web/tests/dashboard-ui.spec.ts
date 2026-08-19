@@ -6,10 +6,9 @@ test('dashboard UI renders correctly with What Funnel branding and Poppins font'
   // Sign up a fresh account
   const email = `dash-${Date.now()}@e2e.local`;
   await page.goto('/signup');
-  await page.fill('#accountName', 'What Funnel Studio');
-  await page.fill('#email', email);
-  await page.fill('#password', 'E2ePassword99!');
-  await page.click('input[value="full_workspace"]');
+  await page.fill('#account-name-input', 'What Funnel Studio');
+  await page.fill('#signup-email-input', email);
+  await page.fill('#signup-password-input', 'E2ePassword99!');
   await page.click('button[type="submit"]');
 
   // Wait for signup & login to finish (redirects to onboarding)
