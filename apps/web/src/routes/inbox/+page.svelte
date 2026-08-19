@@ -943,11 +943,11 @@
 		</div>
 	</aside>
 
-	<!-- ================= MAIN CONTAINER (TOPBAR + 3-COLUMN WORKSPACE) ================= -->
-	<div class="flex-1 flex flex-col h-full min-h-0 overflow-hidden pt-3 pr-4 pb-4">
+	<!-- ================= MAIN CONTAINER (WHITE CANVAS EXTENDING TO EDGES) ================= -->
+	<main class="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white rounded-tl-3xl border-l border-slate-200/80">
 		
 		<!-- --- Global Top Bar --- -->
-		<header class="h-12 flex items-center justify-between gap-4 mb-3 shrink-0">
+		<header class="h-14 px-6 border-b border-slate-100 flex items-center justify-between shrink-0">
 			<!-- Search Bar -->
 			<div class="relative w-80">
 				<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -959,10 +959,10 @@
 					type="text"
 					bind:value={searchQuery}
 					placeholder="Search conversations..."
-					class="w-full pl-10 pr-12 py-2 bg-white text-xs text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200/80 focus:outline-none focus:border-blue-400 cursor-text"
+					class="w-full pl-10 pr-12 py-2 bg-slate-50 text-xs text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 focus:bg-white cursor-text transition"
 				/>
 				<span class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-					<kbd class="text-[11px] font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">⌘ K</kbd>
+					<kbd class="text-[11px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">⌘ K</kbd>
 				</span>
 			</div>
 
@@ -971,7 +971,7 @@
 				<!-- AI Auto-reply Toggle Dropdown -->
 				<button
 					onclick={() => aiAutoReplyEnabled = !aiAutoReplyEnabled}
-					class="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200/80 text-xs font-medium text-slate-700 cursor-pointer hover:bg-slate-50 transition"
+					class="flex items-center gap-2 px-3.5 py-1.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer transition"
 				>
 					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}"></span>
 					<span class="text-slate-600">AI Auto-reply</span>
@@ -982,7 +982,7 @@
 				</button>
 
 				<!-- User avatar -->
-				<div class="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white cursor-pointer bg-blue-600 text-white flex items-center justify-center font-medium text-xs">
+				<div class="w-8 h-8 rounded-full overflow-hidden ring-2 ring-slate-100 cursor-pointer bg-blue-600 text-white flex items-center justify-center font-medium text-xs">
 					{inbox.currentUser?.email ? inbox.currentUser.email.charAt(0).toUpperCase() : 'U'}
 				</div>
 			</div>
@@ -991,7 +991,7 @@
 		<!-- --- Main Content View Switcher --- -->
 		{#if selectedNav === 'inbox'}
 			<!-- ================= 3-COLUMN INBOX DASHBOARD ================= -->
-			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex overflow-hidden min-h-0 h-full">
+			<div class="flex-1 flex overflow-hidden min-h-0 h-full">
 				
 				<!-- ================= COLUMN 1: INBOX CONVERSATION LIST ================= -->
 				<div class="w-[300px] xl:w-[320px] border-r border-slate-100 flex flex-col shrink-0 bg-white min-h-0 h-full">
@@ -1559,7 +1559,7 @@
 
 		{:else if selectedNav === 'leads'}
 			<!-- ================= LEADS TAB DASHBOARD VIEW ================= -->
-			<div class="flex-1 flex flex-col min-h-0 h-full gap-3 overflow-hidden">
+			<div class="flex-1 flex flex-col min-h-0 h-full p-6 gap-4 overflow-hidden">
 				
 				<!-- Top Header Row: Title & Actions -->
 				<div class="flex items-center justify-between shrink-0 px-1">
@@ -1651,7 +1651,7 @@
 
 		{:else if selectedNav === 'automation'}
 			<!-- ================= AUTOMATION VIEW ================= -->
-			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-y-auto p-6 space-y-6">
+			<div class="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
 				<div class="flex items-center justify-between">
 					<div>
 						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Automation & AI Workflows</h1>
@@ -1678,7 +1678,7 @@
 
 		{:else if selectedNav === 'knowledge'}
 			<!-- ================= KNOWLEDGE BASE VIEW ================= -->
-			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden">
+			<div class="flex-1 flex flex-col overflow-hidden">
 
 				<!-- Header -->
 				<div class="px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
@@ -1798,28 +1798,34 @@
 									<div class="border border-slate-200/80 rounded-xl overflow-hidden">
 										<button
 											onclick={() => kbExpandedConcept = kbExpandedConcept === concept.id ? null : concept.id}
-											class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50/60 transition text-left"
+											class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-50/60 transition"
 										>
-											<span class="px-2 py-0.5 rounded-md text-[10px] font-medium border shrink-0 {kbTypeColor(concept.type)}">{kbTypeLabel(concept.type)}</span>
-											<span class="flex-1 text-xs font-medium text-slate-800 truncate">{concept.title}</span>
-											<span class="text-[11px] text-slate-400 shrink-0">{kbFormatDate(concept.created_at)}</span>
-											<svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform {kbExpandedConcept === concept.id ? 'rotate-180' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-											</svg>
+											<div class="flex items-center gap-2.5 min-w-0">
+												<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {kbTypeColor(concept.concept_type)}">
+													{kbTypeLabel(concept.concept_type)}
+												</span>
+												<span class="text-xs font-medium text-slate-800 truncate">{concept.title}</span>
+												{#if concept.source_type === 'paste'}
+													<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
+												{/if}
+											</div>
+											<div class="flex items-center gap-2 shrink-0">
+												<span class="text-[10px] text-slate-400">conf {(concept.confidence * 100).toFixed(0)}%</span>
+												<svg class="w-3.5 h-3.5 text-slate-400 transition-transform {kbExpandedConcept === concept.id ? 'rotate-180' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+												</svg>
+											</div>
 										</button>
+
 										{#if kbExpandedConcept === concept.id}
-											<div class="px-4 pb-4 border-t border-slate-100">
-												<pre class="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed mt-3 font-mono bg-slate-50 rounded-lg p-3 max-h-48 overflow-y-auto">{concept.body_markdown}</pre>
-												<div class="flex justify-end mt-2">
+											<div class="px-4 pb-4 pt-1 border-t border-slate-100 bg-slate-50/40 text-xs space-y-2">
+												<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">{concept.content}</div>
+												<div class="flex items-center justify-between pt-2 text-[11px] text-slate-400 border-t border-slate-100">
+													<span>Added {kbFormatDate(concept.created_at)}</span>
 													<button
 														onclick={() => kbDeleteConcept(concept.id)}
-														class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-rose-500 hover:bg-rose-50 border border-rose-200/60 transition"
-													>
-														<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-															<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-														</svg>
-														Delete concept
-													</button>
+														class="text-rose-500 hover:text-rose-700 transition"
+													>Delete</button>
 												</div>
 											</div>
 										{/if}
@@ -1831,73 +1837,36 @@
 
 				<!-- ── PATTERNS TAB ── -->
 				{:else if kbActiveTab === 'patterns'}
-					<div class="flex-1 overflow-y-auto px-6 py-4 space-y-2 min-h-0">
+					<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3">
 						{#if kbPatterns.length === 0}
 							<div class="flex flex-col items-center justify-center py-16 text-center">
 								<div class="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-3">
 									<svg class="w-5 h-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+										<path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
 									</svg>
 								</div>
-								<div class="text-sm font-medium text-slate-600">No patterns yet</div>
-								<div class="text-xs text-slate-400 mt-1">Patterns are created when you approve AI suggestions or compile knowledge</div>
+								<div class="text-sm font-medium text-slate-600">No conversation patterns mined yet</div>
+								<div class="text-xs text-slate-400 mt-1">Run an AI audit above to scan customer messages for common question patterns</div>
 							</div>
 						{:else}
 							{#each kbPatterns as pattern (pattern.id)}
-								<div class="border border-slate-200/80 rounded-xl overflow-hidden">
-									<button
-										onclick={() => kbExpandedPattern = kbExpandedPattern === pattern.id ? null : pattern.id}
-										class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50/60 transition text-left"
-									>
-										<svg class="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-										</svg>
-										<span class="flex-1 text-xs font-medium text-slate-800 truncate">{pattern.canonical_question}</span>
-										{#if pattern.trigger_phrases?.length}
-											<span class="text-[11px] text-slate-400 shrink-0">{pattern.trigger_phrases.length} triggers</span>
-										{/if}
-										<span class="text-[11px] text-slate-400 shrink-0">{kbFormatDate(pattern.created_at)}</span>
-										<svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform {kbExpandedPattern === pattern.id ? 'rotate-180' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-										</svg>
-									</button>
-									{#if kbExpandedPattern === pattern.id}
-										<div class="px-4 pb-4 border-t border-slate-100 space-y-3">
-											<div class="mt-3">
-												<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide mb-1.5">Answer</div>
-												<pre class="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed font-mono bg-slate-50 rounded-lg p-3 max-h-40 overflow-y-auto">{pattern.answer_markdown}</pre>
-											</div>
-											{#if pattern.trigger_phrases?.length}
-												<div>
-													<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide mb-1.5">Trigger phrases</div>
-													<div class="flex flex-wrap gap-1.5">
-														{#each pattern.trigger_phrases as phrase}
-															<span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[11px]">{phrase}</span>
-														{/each}
-													</div>
-												</div>
-											{/if}
-											<div class="flex justify-end">
-												<button
-													onclick={() => kbDeletePattern(pattern.id)}
-													class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-rose-500 hover:bg-rose-50 border border-rose-200/60 transition"
-												>
-													<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-													</svg>
-													Delete pattern
-												</button>
-											</div>
-										</div>
+								<div class="p-4 rounded-xl border border-slate-200/80 bg-white space-y-2">
+									<div class="flex items-center justify-between">
+										<span class="text-xs font-medium text-slate-800">{pattern.pattern_name}</span>
+										<span class="text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{pattern.frequency_count} inquiries</span>
+									</div>
+									<div class="text-xs text-slate-500">Representative query: <span class="italic text-slate-700">"{pattern.representative_query}"</span></div>
+									{#if pattern.intent}
+										<div class="text-[11px] text-slate-400">Intent: {pattern.intent}</div>
 									{/if}
 								</div>
 							{/each}
 						{/if}
 					</div>
 
-				<!-- ── AI SUGGESTIONS TAB ── -->
+				<!-- ── SUGGESTIONS TAB ── -->
 				{:else if kbActiveTab === 'suggestions'}
-					<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-0">
+					<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3">
 						{#if kbSuggestions.length === 0}
 							<div class="flex flex-col items-center justify-center py-16 text-center">
 								<div class="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-3">
@@ -1905,77 +1874,34 @@
 										<path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
 									</svg>
 								</div>
-								<div class="text-sm font-medium text-slate-600">No pending suggestions</div>
-								<div class="text-xs text-slate-400 mt-1">Run an AI audit to discover new patterns from your conversation history</div>
-								<button
-									onclick={kbTriggerMining}
-									disabled={kbMiningTriggerLoading}
-									class="mt-4 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50"
-								>
-									{kbMiningTriggerLoading ? 'Scanning…' : 'Run AI Audit Now'}
-								</button>
+								<div class="text-sm font-medium text-slate-600">No suggestions pending review</div>
+								<div class="text-xs text-slate-400 mt-1">When AI audits find knowledge gaps in conversations, recommendations will appear here</div>
 							</div>
 						{:else}
-							<div class="text-xs text-slate-500 mb-1">The AI found these patterns in your conversation history. Review and add the ones that look right.</div>
-							{#each kbSuggestions as suggestion (suggestion.id)}
-								{@const payload = typeof suggestion.proposed_payload === 'string' ? JSON.parse(suggestion.proposed_payload) : suggestion.proposed_payload}
-								<div class="border border-slate-200/80 rounded-xl p-4 space-y-3">
-									<!-- Type badge + confidence -->
+							{#each kbSuggestions as sugg (sugg.id)}
+								<div class="p-4 rounded-xl border border-slate-200/80 bg-white space-y-2.5">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
-											<span class="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-blue-50 text-blue-600 border-blue-200/80 capitalize">
-												{suggestion.type === 'new_pattern' ? 'New Pattern' : suggestion.type === 'new_kb_concept' ? 'New Concept' : suggestion.type}
+											<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {kbTypeColor(sugg.concept_type)}">
+												{kbTypeLabel(sugg.concept_type)}
 											</span>
-											{#if suggestion.confidence !== null && suggestion.confidence !== undefined}
-												<span class="text-[11px] text-slate-400">{Math.round(suggestion.confidence * 100)}% confidence</span>
-											{/if}
+											<span class="text-xs font-medium text-slate-800">{sugg.title}</span>
 										</div>
-										<span class="text-[11px] text-slate-400">{kbFormatDate(suggestion.created_at)}</span>
+										<span class="text-[10px] text-slate-400">conf {(sugg.confidence * 100).toFixed(0)}%</span>
 									</div>
-
-									<!-- Content preview -->
-									{#if suggestion.type === 'new_pattern' && payload}
-										<div class="space-y-2">
-											<div class="text-xs font-medium text-slate-800">{payload.canonical_question}</div>
-											<pre class="text-[11px] text-slate-500 whitespace-pre-wrap leading-relaxed font-mono bg-slate-50 rounded-lg p-2.5 max-h-28 overflow-y-auto">{payload.answer_markdown}</pre>
-											{#if payload.trigger_phrases?.length}
-												<div class="flex flex-wrap gap-1">
-													{#each payload.trigger_phrases.slice(0, 5) as phrase}
-														<span class="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px]">{phrase}</span>
-													{/each}
-													{#if payload.trigger_phrases.length > 5}
-														<span class="text-[10px] text-slate-400">+{payload.trigger_phrases.length - 5} more</span>
-													{/if}
-												</div>
-											{/if}
+									<div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg leading-relaxed whitespace-pre-wrap">{sugg.content}</div>
+									<div class="flex items-center justify-between pt-1 text-xs">
+										<span class="text-[11px] text-slate-400">From {sugg.source_type}</span>
+										<div class="flex items-center gap-2">
+											<button
+												onclick={() => kbRejectSuggestion(sugg.id)}
+												class="px-2.5 py-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+											>Dismiss</button>
+											<button
+												onclick={() => kbApproveSuggestion(sugg.id)}
+												class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition"
+											>Add to Knowledge Base</button>
 										</div>
-									{:else if suggestion.type === 'new_kb_concept' && payload}
-										<div class="space-y-1">
-											<div class="text-xs font-medium text-slate-800">{payload.title}</div>
-											<pre class="text-[11px] text-slate-500 whitespace-pre-wrap leading-relaxed font-mono bg-slate-50 rounded-lg p-2.5 max-h-28 overflow-y-auto">{payload.body_markdown}</pre>
-										</div>
-									{/if}
-
-									<!-- Actions -->
-									<div class="flex gap-2 pt-1">
-										<button
-											onclick={() => kbApproveSuggestion(suggestion.id)}
-											class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 text-emerald-700 text-xs font-medium transition"
-										>
-											<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-											</svg>
-											Approve & Add
-										</button>
-										<button
-											onclick={() => kbRejectSuggestion(suggestion.id)}
-											class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200/80 text-slate-500 hover:text-rose-500 text-xs font-medium transition"
-										>
-											<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-											</svg>
-											Dismiss
-										</button>
 									</div>
 								</div>
 							{/each}
@@ -1986,7 +1912,7 @@
 
 		{:else if selectedNav === 'contacts'}
 			<!-- ================= CONTACTS VIEW ================= -->
-			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden p-6 space-y-4">
+			<div class="flex-1 flex flex-col overflow-hidden p-6 space-y-4">
 				<div class="flex items-center justify-between">
 					<div>
 						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Contacts Directory</h1>
@@ -2026,7 +1952,7 @@
 
 		{:else if selectedNav === 'simulate'}
 			<!-- ================= CUSTOMER SIMULATION STUDIO (DEV) ================= -->
-			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-hidden p-6 space-y-4">
+			<div class="flex-1 flex flex-col overflow-hidden p-6 space-y-4">
 				<div class="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
 					<div class="flex items-center gap-3">
 						<div class="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center font-medium text-lg">
@@ -2060,7 +1986,7 @@
 
 		{:else if selectedNav === 'settings'}
 			<!-- ================= SETTINGS VIEW ================= -->
-			<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col overflow-y-auto p-6 space-y-6">
+			<div class="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
 				<div>
 					<h1 class="text-xl font-medium text-slate-900 tracking-tight">Workspace Settings</h1>
 					<p class="text-xs text-slate-500">Configure your business profile, channels, and team permissions</p>
@@ -2083,6 +2009,6 @@
 			</div>
 		{/if}
 
-	</div>
+	</main>
 
 </div>
