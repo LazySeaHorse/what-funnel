@@ -72,7 +72,7 @@
 	}
 </script>
 
-<div class="w-[380px] xl:w-[420px] bg-white rounded-2xl border border-slate-200/80 flex flex-col min-h-0 overflow-y-auto p-5 space-y-5 shrink-0 shadow-xs">
+<div class="w-[340px] xl:w-[380px] bg-white flex flex-col shrink-0 min-h-0 h-full overflow-y-auto p-5 space-y-5 border-l border-slate-100">
 	<!-- Top Action Buttons -->
 	<div class="flex items-center justify-between shrink-0">
 		<button

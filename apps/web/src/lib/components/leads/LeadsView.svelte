@@ -66,16 +66,18 @@
 	} = $props();
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
-	<!-- Top Bar / Stage Filters -->
-	<LeadStageFilters
-		{activeFilter}
-		{counts}
-		{onSelectFilter}
-	/>
+<div class="flex-1 flex flex-col min-h-0 h-full overflow-hidden bg-white">
+	<!-- Top Sub-Header: Filter Chips -->
+	<div class="px-6 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+		<LeadStageFilters
+			{activeFilter}
+			{counts}
+			{onSelectFilter}
+		/>
+	</div>
 
-	<!-- Main Split Area: Table on Left + Detail Drawer on Right -->
-	<div class="flex-1 flex gap-3 min-h-0 overflow-hidden">
+	<!-- Main Split Area: Full-height Left Table + Full-height Right Detail Drawer -->
+	<div class="flex-1 flex min-h-0 h-full overflow-hidden">
 		<LeadsTable
 			{leads}
 			totalLeadsCount={counts.all}
@@ -104,3 +106,4 @@
 		{/if}
 	</div>
 </div>
+

@@ -26,9 +26,9 @@
 	);
 </script>
 
-<div class="flex-1 bg-white rounded-2xl border border-slate-200/80 flex flex-col min-h-0 overflow-hidden shadow-xs">
+<div class="flex-1 bg-white flex flex-col min-h-0 h-full overflow-hidden">
 	<!-- Table Header Row -->
-	<div class="grid grid-cols-[40px_2.4fr_0.9fr_1.3fr_1.1fr_2fr_1fr] px-4 py-3 bg-slate-50/60 border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider shrink-0 select-none">
+	<div class="grid grid-cols-[48px_2.4fr_0.9fr_1.3fr_1.1fr_2fr_1fr] px-6 py-3.5 bg-slate-50/70 border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider shrink-0 select-none">
 		<div class="flex items-center justify-center">
 			<input
 				type="checkbox"
@@ -51,7 +51,7 @@
 	</div>
 
 	<!-- Table Rows List -->
-	<div class="flex-1 overflow-y-auto min-h-0 divide-y divide-slate-100">
+	<div class="flex-1 overflow-y-auto min-h-0 divide-y divide-slate-100/70">
 		{#each leads as lead (lead.id)}
 			{@const isSelected = selectedLeadId === lead.id}
 			{@const isChecked = selectedRowIds.includes(lead.id)}
@@ -60,7 +60,7 @@
 				tabindex="0"
 				onclick={() => onSelectLead(lead)}
 				onkeydown={(e) => { if (e.key === 'Enter') onSelectLead(lead); }}
-				class="grid grid-cols-[40px_2.4fr_0.9fr_1.3fr_1.1fr_2fr_1fr] px-4 py-3 items-center text-xs transition cursor-pointer hover:bg-slate-50/80 {isSelected ? 'bg-blue-50/30' : ''}"
+				class="grid grid-cols-[48px_2.4fr_0.9fr_1.3fr_1.1fr_2fr_1fr] px-6 py-3.5 items-center text-xs transition cursor-pointer hover:bg-slate-50/80 {isSelected ? 'bg-blue-50/30' : ''}"
 			>
 				<!-- Checkbox -->
 				<div class="flex items-center justify-center" onclick={(e) => e.stopPropagation()} role="presentation">
@@ -120,7 +120,7 @@
 		{/each}
 
 		{#if leads.length === 0}
-			<div class="py-20 flex flex-col items-center justify-center text-center">
+			<div class="py-24 flex flex-col items-center justify-center text-center">
 				<div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
 					<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -133,7 +133,7 @@
 	</div>
 
 	<!-- Table Footer Pagination -->
-	<div class="px-4 py-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 shrink-0 select-none">
+	<div class="px-6 py-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 shrink-0 select-none">
 		<div class="tabular-nums">
 			Showing {leads.length > 0 ? 1 : 0} to {leads.length} of {totalLeadsCount} leads
 		</div>

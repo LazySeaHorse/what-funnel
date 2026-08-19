@@ -1559,17 +1559,19 @@
 
 		{:else if selectedNav === 'leads'}
 			<!-- ================= LEADS TAB DASHBOARD VIEW ================= -->
-			<div class="flex-1 flex flex-col min-h-0 h-full p-6 gap-4 overflow-hidden">
+			<div class="flex-1 flex flex-col min-h-0 h-full overflow-hidden bg-white">
 				
 				<!-- Top Header Row: Title & Actions -->
-				<div class="flex items-center justify-between shrink-0 px-1">
-					<h1 class="text-2xl font-semibold text-slate-900 tracking-tight">Leads</h1>
+				<div class="px-6 py-3 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+					<div class="flex items-center gap-4">
+						<h1 class="text-xl font-semibold text-slate-900 tracking-tight">Leads</h1>
+					</div>
 
 					<div class="flex items-center gap-2 relative">
 						<!-- Filters Button -->
 						<button
 							onclick={() => showFiltersDropdown = !showFiltersDropdown}
-							class="flex items-center gap-2 px-3.5 py-1.5 bg-white rounded-xl border border-slate-200/80 text-xs font-medium text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-xs"
+							class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 transition cursor-pointer"
 						>
 							<svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -1581,7 +1583,7 @@
 						<div class="relative">
 							<button
 								onclick={() => showSortDropdown = !showSortDropdown}
-								class="flex items-center gap-2 px-3.5 py-1.5 bg-white rounded-xl border border-slate-200/80 text-xs font-medium text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-xs"
+								class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 transition cursor-pointer"
 							>
 								<span>Sort: {leadsSort === 'newest' ? 'Newest' : leadsSort === 'oldest' ? 'Oldest' : 'Name'}</span>
 								<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1615,7 +1617,7 @@
 					</div>
 				</div>
 
-				<!-- Reusable Modular Leads View Component -->
+				<!-- Reusable Modular Leads View Component (docked full-height) -->
 				<LeadsView
 					leads={filteredLeads}
 					counts={{
