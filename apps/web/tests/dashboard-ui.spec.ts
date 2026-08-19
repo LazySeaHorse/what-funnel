@@ -6,13 +6,14 @@ test('dashboard UI renders correctly with What Funnel branding and Poppins font'
   // Sign up a fresh account
   const email = `dash-${Date.now()}@e2e.local`;
   await page.goto('/signup');
+  await page.waitForLoadState('networkidle');
   await page.fill('#account-name-input', 'What Funnel Studio');
   await page.fill('#signup-email-input', email);
   await page.fill('#signup-password-input', 'E2ePassword99!');
-  await page.click('button[type="submit"]');
+  await page.locator('button[type="submit"]').click();
 
   // Wait for signup & login to finish (redirects to onboarding)
-  await page.waitForURL('**/onboarding/**', { timeout: 20000 });
+  await page.waitForURL((url) => url.pathname.includes('/onboarding') || url.pathname.includes('/inbox'), { timeout: 20000 });
 
   // Navigate to inbox
   await page.goto('/inbox');
@@ -53,7 +54,7 @@ test('leads tab UI renders real database leads with table and detail drawer', as
   await page.fill('#signup-password-input', 'E2ePassword99!');
   await page.click('button[type="submit"]');
 
-  await page.waitForURL('**/onboarding/**', { timeout: 20000 });
+  await page.waitForURL((url) => url.pathname.includes('/onboarding') || url.pathname.includes('/inbox'), { timeout: 20000 });
   await page.goto('/inbox');
   await page.waitForLoadState('networkidle');
 

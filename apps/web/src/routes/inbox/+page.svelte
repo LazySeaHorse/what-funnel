@@ -796,7 +796,7 @@
 	<title>What Funnel - Omni Channel Lead Management</title>
 </svelte:head>
 
-<div class="flex h-screen w-full bg-[#F4F6FB] overflow-hidden text-slate-800 font-sans">
+<div class="flex h-screen w-full bg-[#F9FAFC] overflow-hidden text-slate-800 font-sans">
 	
 	<!-- ================= LEFT MAIN NAVIGATION ================= -->
 	<aside class="relative w-56 flex flex-col justify-between p-4 bg-transparent shrink-0 overflow-hidden">
@@ -814,7 +814,7 @@
 			<!-- Logo: What Funnel Platform (Icon only) -->
 			<div class="flex items-center px-2 pt-1 pb-6 cursor-pointer" onclick={() => selectedNav = 'inbox'}>
 				<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-					<rect width="36" height="36" rx="10" fill="#2563EB" />
+					<rect width="36" height="36" rx="10" fill="#0057D0" />
 					<circle cx="14" cy="14" r="3" fill="white" />
 					<circle cx="22" cy="18" r="4.5" fill="white" />
 					<circle cx="14" cy="23" r="2.5" fill="white" />
@@ -1113,7 +1113,7 @@
 				</div>
 
 				<!-- ================= COLUMN 2: ACTIVE CHAT AREA ================= -->
-				<div class="flex-1 flex flex-col bg-[#FAFBFD] border-r border-slate-100 min-h-0 overflow-hidden">
+				<div class="flex-1 flex flex-col bg-[#F9FAFC] border-r border-slate-100 min-h-0 overflow-hidden">
 					{#if !inbox.activeConvo}
 						<div class="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
 							<div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">

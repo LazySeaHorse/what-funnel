@@ -334,13 +334,13 @@ FAQs:
 	<div class="min-h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-x-hidden font-sans text-slate-800 antialiased">
 		
 		<!-- Left Column: Brand, Headline, Bottom-Anchored Illustration -->
-		<div class="w-full lg:w-80 xl:w-96 bg-[#F8F9FD] border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
+		<div class="w-full lg:w-80 xl:w-96 bg-[#F9FAFC] border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
 			<!-- Top content above background graphic -->
 			<div class="relative z-10">
 				<!-- Logo -->
 				<div class="flex items-center gap-3 mb-8">
 					<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-						<rect width="36" height="36" rx="10" fill="#2563EB" />
+						<rect width="36" height="36" rx="10" fill="#0057D0" />
 						<circle cx="14" cy="14" r="3" fill="white" />
 						<circle cx="22" cy="18" r="4.5" fill="white" />
 						<circle cx="14" cy="23" r="2.5" fill="white" />
@@ -387,7 +387,7 @@ FAQs:
 			<!-- Bottom-Anchored Full-Width Graphic Fading Towards Top -->
 			<div class="absolute inset-x-0 bottom-0 w-full overflow-hidden pointer-events-none flex flex-col justify-end">
 				<!-- Gradient Overlay Fading from Panel Background to Transparent -->
-				<div class="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#F8F9FD] via-[#F8F9FD]/60 to-transparent z-10 pointer-events-none"></div>
+				<div class="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#F9FAFC] via-[#F9FAFC]/60 to-transparent z-10 pointer-events-none"></div>
 				<img
 					src={stepNum === 7 ? '/images/onboarding-happy.webp' : '/images/onboarding-sidebar.webp'}
 					alt={stepNum === 7 ? 'Setup Complete Mascot' : 'Workspace Illustration'}

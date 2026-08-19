@@ -39,7 +39,7 @@
 	<title>Create Account — What Funnel</title>
 </svelte:head>
 
-<div class="min-h-[100dvh] w-full bg-[#F8F9FD] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
+<div class="min-h-[100dvh] w-full bg-[#F9FAFC] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
 	<div class="w-full max-w-[1360px] mx-auto relative">
 		
 		{#if toastMessage}
@@ -64,7 +64,7 @@
 						<div class="flex items-center gap-3">
 							<!-- What Funnel Platform Logo -->
 							<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-								<rect width="36" height="36" rx="10" fill="#2563EB" />
+								<rect width="36" height="36" rx="10" fill="#0057D0" />
 								<circle cx="14" cy="14" r="3" fill="white" />
 								<circle cx="22" cy="18" r="4.5" fill="white" />
 								<circle cx="14" cy="23" r="2.5" fill="white" />
