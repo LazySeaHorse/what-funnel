@@ -944,7 +944,7 @@
 	</aside>
 
 	<!-- ================= MAIN CONTAINER (WHITE CANVAS EXTENDING TO EDGES) ================= -->
-	<main class="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white rounded-tl-3xl border-l border-slate-200/80">
+	<main class="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white border-l border-slate-200/80">
 		
 		<!-- --- Global Top Bar --- -->
 		<header class="h-14 px-6 border-b border-slate-100 flex items-center justify-between shrink-0">
