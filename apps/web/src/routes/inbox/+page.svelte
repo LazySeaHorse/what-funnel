@@ -45,338 +45,71 @@
 	let showSetupBanner = $state(false);
 	let bannerSkippedSteps = $state<Array<{ label: string; step: number }>>([]);
 
-	// ─── Leads Tab Enhanced State & Mock Data ─────────────────────────────────
+	// ─── Leads Tab Enhanced State (Real Data Only) ───────────────────────────
 	let leadsFilterTab = $state<string>('all');
 	let leadsSort = $state<'newest' | 'oldest' | 'name'>('newest');
 	let showSortDropdown = $state(false);
 	let showFiltersDropdown = $state(false);
-	let selectedLeadId = $state<string>('lead-1');
+	let selectedLeadId = $state<string | null>(null);
 	let leadDrawerTab = $state<'overview' | 'details' | 'notes' | 'activity'>('overview');
 	let showDrawerStateDropdown = $state(false);
 	let showDrawerAssignDropdown = $state(false);
 	let showDrawerTagInput = $state(false);
+	let showAddNoteInput = $state(false);
 	let drawerTagText = $state('');
 	let drawerNoteText = $state('');
-	let showAddLeadModal = $state(false);
 	let showLeadDrawer = $state(true);
-	let newLeadForm = $state({
-		name: '',
-		handle: '',
-		channel: 'instagram',
-		stateKey: 'new',
-		lastMessage: '',
-		tags: ''
-	});
-	let selectedLeadRowIds = $state<string[]>(['lead-1']);
+	let selectedLeadRowIds = $state<string[]>([]);
 	let leadsPerPage = $state(10);
 	let leadsCurrentPage = $state(1);
 
-	let mockLeads = $state<any[]>([
-		{
-			id: 'lead-1',
-			name: 'Sarah Johnson',
-			avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-rose-100 text-rose-700',
-			handle: '@sarahj_18',
-			channel: 'instagram',
-			stateKey: 'new',
-			stateLabel: 'New Lead',
-			stateColor: 'amber',
-			assignees: [
-				{ name: 'David', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&auto=format&fit=crop&q=80', initials: 'D', bg: 'bg-blue-600' },
-				{ name: 'Emma', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80', initials: 'E', bg: 'bg-purple-600' }
-			],
-			assigneesExtra: 1,
-			lastMessage: 'Hi! Do you have any weekend slots...',
-			updatedAt: '11:41 AM',
-			tags: ['Balayage', 'Haircut', 'Weekend'],
-			aiSummary: {
-				bullets: [
-					'Interested in balayage and haircut.',
-					'Prefers weekend appointments.',
-					'First asked about availability.'
-				],
-				suggestedNextStep: 'Share available time slots and pricing.'
-			},
-			notes: 'Mentioned she has an event next week. Prefers natural tones.',
-			contactInfo: [
-				{ type: 'instagram', value: '@sarahj_18', label: 'Instagram' },
-				{ type: 'phone', value: '+94 77 123 4567', label: 'Sabyaee' }
-			]
-		},
-		{
-			id: 'lead-2',
-			name: 'Rohan Perera',
-			avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-emerald-100 text-emerald-700',
-			handle: '+94 77 123 4567',
-			channel: 'whatsapp',
-			stateKey: 'contacted',
-			stateLabel: 'Contacted',
-			stateColor: 'blue',
-			assignees: [
-				{ name: 'Alex', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80', initials: 'A', bg: 'bg-emerald-600' }
-			],
-			assigneesExtra: 0,
-			lastMessage: 'Can I see the pricing for the...',
-			updatedAt: '11:30 AM',
-			tags: ['VIP', 'Pricing'],
-			aiSummary: {
-				bullets: [
-					'Requested full pricing guide for bridal and hair styling.',
-					'Responded with introductory catalog.'
-				],
-				suggestedNextStep: 'Send customized quote based on guest count.'
-			},
-			notes: 'Follow up tomorrow afternoon with WhatsApp catalog.',
-			contactInfo: [
-				{ type: 'phone', value: '+94 77 123 4567', label: 'WhatsApp' }
-			]
-		},
-		{
-			id: 'lead-3',
-			name: 'Ayesha Malik',
-			avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-purple-100 text-purple-700',
-			handle: '@ayesha.m',
-			channel: 'messenger',
-			stateKey: 'follow_up',
-			stateLabel: 'Follow-up',
-			stateColor: 'purple',
-			assignees: [
-				{ name: 'Lisa', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80', initials: 'L', bg: 'bg-amber-600' }
-			],
-			assigneesExtra: 0,
-			lastMessage: 'Where are you located?',
-			updatedAt: '10:58 AM',
-			tags: ['Location', 'Inquiry'],
-			aiSummary: {
-				bullets: [
-					'Asked for studio address and parking options.',
-					'Auto-reply shared location and map link.'
-				],
-				suggestedNextStep: 'Confirm preferred appointment time.'
-			},
-			notes: 'Prefers downtown salon branch.',
-			contactInfo: [
-				{ type: 'messenger', value: '@ayesha.m', label: 'Messenger' }
-			]
-		},
-		{
-			id: 'lead-4',
-			name: 'Daniel Kim',
-			avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-amber-100 text-amber-700',
-			handle: '+1 555 234 5678',
-			channel: 'whatsapp',
-			stateKey: 'interested',
-			stateLabel: 'Interested',
-			stateColor: 'green',
-			assignees: [
-				{ name: 'David', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&auto=format&fit=crop&q=80', initials: 'D', bg: 'bg-blue-600' },
-				{ name: 'Emma', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80', initials: 'E', bg: 'bg-purple-600' }
-			],
-			assigneesExtra: 1,
-			lastMessage: "Thanks! I'll get back to you by...",
-			updatedAt: '10:42 AM',
-			tags: ['Booking', 'Haircut'],
-			aiSummary: {
-				bullets: [
-					'Confirmed intent to book Friday afternoon slot.',
-					'Requested slot reservation.'
-				],
-				suggestedNextStep: 'Send appointment confirmation link.'
-			},
-			notes: 'Prefers 4:30 PM timeslot on Friday.',
-			contactInfo: [
-				{ type: 'phone', value: '+1 555 234 5678', label: 'WhatsApp' }
-			]
-		},
-		{
-			id: 'lead-5',
-			name: 'Priya Nair',
-			avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-blue-100 text-blue-700',
-			handle: '@priya_nair',
-			channel: 'instagram',
-			stateKey: 'new',
-			stateLabel: 'New Lead',
-			stateColor: 'amber',
-			assignees: [
-				{ name: 'Alex', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80', initials: 'A', bg: 'bg-emerald-600' }
-			],
-			assigneesExtra: 0,
-			lastMessage: 'Do you offer home service for hair...',
-			updatedAt: '9:15 AM',
-			tags: ['Home Service', 'Bridal'],
-			aiSummary: {
-				bullets: [
-					'Inquiring regarding on-location hair and makeup.',
-					'Event is in 3 weeks.'
-				],
-				suggestedNextStep: 'Send home service travel rate card.'
-			},
-			notes: 'Group of 4 bridesmaids + bride.',
-			contactInfo: [
-				{ type: 'instagram', value: '@priya_nair', label: 'Instagram' }
-			]
-		},
-		{
-			id: 'lead-6',
-			name: 'James Wilson',
-			avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-slate-100 text-slate-700',
-			handle: '@jwilson',
-			channel: 'messenger',
-			stateKey: 'contacted',
-			stateLabel: 'Contacted',
-			stateColor: 'blue',
-			assignees: [
-				{ name: 'Lisa', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80', initials: 'L', bg: 'bg-amber-600' }
-			],
-			assigneesExtra: 0,
-			lastMessage: 'Is a deposit required?',
-			updatedAt: 'Yesterday',
-			tags: ['Deposit', 'Policy'],
-			aiSummary: {
-				bullets: [
-					'Asked whether booking requires advance deposit.',
-					'Provided payment options.'
-				],
-				suggestedNextStep: 'Send invoice link once slot selected.'
-			},
-			notes: 'Sent payment options via Messenger.',
-			contactInfo: [
-				{ type: 'messenger', value: '@jwilson', label: 'Messenger' }
-			]
-		},
-		{
-			id: 'lead-7',
-			name: 'Neha Sharma',
-			avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-rose-100 text-rose-700',
-			handle: '+91 98765 43210',
-			channel: 'whatsapp',
-			stateKey: 'follow_up',
-			stateLabel: 'Follow-up',
-			stateColor: 'purple',
-			assignees: [
-				{ name: 'Alex', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80', initials: 'A', bg: 'bg-emerald-600' }
-			],
-			assigneesExtra: 0,
-			lastMessage: "What's your cancellation policy?",
-			updatedAt: 'Yesterday',
-			tags: ['Policy', 'Reschedule'],
-			aiSummary: {
-				bullets: [
-					'Requested policy clarification on cancellations.',
-					'AI Bot answered with standard 24h notice window.'
-				],
-				suggestedNextStep: 'Follow up if rescheduling is desired.'
-			},
-			notes: 'May need to move booking from Thursday to Sunday.',
-			contactInfo: [
-				{ type: 'phone', value: '+91 98765 43210', label: 'WhatsApp' }
-			]
-		},
-		{
-			id: 'lead-8',
-			name: 'Michael Dissanayake',
-			avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-cyan-100 text-cyan-700',
-			handle: '@michael_d',
-			channel: 'telegram',
-			stateKey: 'interested',
-			stateLabel: 'Interested',
-			stateColor: 'green',
-			assignees: [
-				{ name: 'Lisa', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80', initials: 'L', bg: 'bg-amber-600' }
-			],
-			assigneesExtra: 0,
-			lastMessage: 'Do you have any ongoing offers?',
-			updatedAt: '2d ago',
-			tags: ['Offers', 'Promo'],
-			aiSummary: {
-				bullets: [
-					'Asking about seasonal package discounts.',
-					'Shared 10% welcome coupon.'
-				],
-				suggestedNextStep: 'Offer complimentary treatment with service.'
-			},
-			notes: 'Looking for mens grooming package.',
-			contactInfo: [
-				{ type: 'telegram', value: '@michael_d', label: 'Telegram' }
-			]
-		},
-		{
-			id: 'lead-9',
-			name: 'Isabella Lee',
-			avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
-			avatarBg: 'bg-teal-100 text-teal-700',
-			handle: '@isabella_l',
-			channel: 'instagram',
-			stateKey: 'converted',
-			stateLabel: 'Converted',
-			stateColor: 'emerald',
-			assignees: [
-				{ name: 'David', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&auto=format&fit=crop&q=80', initials: 'D', bg: 'bg-blue-600' },
-				{ name: 'Emma', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80', initials: 'E', bg: 'bg-purple-600' }
-			],
-			assigneesExtra: 1,
-			lastMessage: 'I want to book for next Saturday.',
-			updatedAt: '2d ago',
-			tags: ['Booked', 'Confirmed'],
-			aiSummary: {
-				bullets: [
-					'Successfully scheduled for Saturday 2:00 PM.',
-					'Deposit verified.'
-				],
-				suggestedNextStep: 'Send appointment reminder 24h prior.'
-			},
-			notes: 'Full treatment with master stylist.',
-			contactInfo: [
-				{ type: 'instagram', value: '@isabella_l', label: 'Instagram' }
-			]
-		}
-	]);
-
 	function getLeadStateInfo(key: string) {
+		const matchedState = pipelineStates.find((s) => s.key === key);
+		const label = matchedState?.label || (
+			key === 'new' ? 'New Lead' :
+			key === 'contacted' ? 'Contacted' :
+			key === 'follow_up' ? 'Follow-up' :
+			key === 'interested' ? 'Interested' :
+			key === 'converted' || key === 'closed_won' ? 'Converted' :
+			key
+		);
+
 		switch (key) {
 			case 'new':
-				return { label: 'New Lead', color: 'amber', dot: 'bg-amber-500', bg: 'bg-amber-50 text-amber-700 border border-amber-200/80' };
+				return { label, color: 'amber', dot: 'bg-amber-500', bg: 'bg-amber-50 text-amber-700 border border-amber-200/80' };
 			case 'contacted':
-				return { label: 'Contacted', color: 'blue', dot: 'bg-blue-500', bg: 'bg-blue-50 text-blue-700 border border-blue-200/80' };
+				return { label, color: 'blue', dot: 'bg-blue-500', bg: 'bg-blue-50 text-blue-700 border border-blue-200/80' };
 			case 'follow_up':
-				return { label: 'Follow-up', color: 'purple', dot: 'bg-purple-500', bg: 'bg-purple-50 text-purple-700 border border-purple-200/80' };
+				return { label, color: 'purple', dot: 'bg-purple-500', bg: 'bg-purple-50 text-purple-700 border border-purple-200/80' };
 			case 'interested':
-				return { label: 'Interested', color: 'green', dot: 'bg-emerald-500', bg: 'bg-emerald-50 text-emerald-700 border border-emerald-200/80' };
+				return { label, color: 'green', dot: 'bg-emerald-500', bg: 'bg-emerald-50 text-emerald-700 border border-emerald-200/80' };
 			case 'converted':
 			case 'closed_won':
-				return { label: 'Converted', color: 'emerald', dot: 'bg-teal-500', bg: 'bg-teal-50 text-teal-700 border border-teal-200/80' };
+				return { label, color: 'emerald', dot: 'bg-teal-500', bg: 'bg-teal-50 text-teal-700 border border-teal-200/80' };
 			default:
-				return { label: key, color: 'blue', dot: 'bg-blue-500', bg: 'bg-blue-50 text-blue-700 border border-blue-200/80' };
+				return { label, color: 'blue', dot: 'bg-blue-500', bg: 'bg-blue-50 text-blue-700 border border-blue-200/80' };
 		}
 	}
 
-	let allLeadsCombined = $derived.by(() => {
-		const realLeads = inbox.conversations.map((c, i) => {
+	let realLeads = $derived.by(() => {
+		return inbox.conversations.map((c) => {
 			const channelType = c.channel?.type || c.channel_type || 'matrix_instagram';
-			let channel: any = 'instagram';
+			let channel: 'instagram' | 'whatsapp' | 'messenger' | 'telegram' | 'webchat' = 'instagram';
 			if (channelType.includes('whatsapp')) channel = 'whatsapp';
 			else if (channelType.includes('messenger')) channel = 'messenger';
 			else if (channelType.includes('telegram')) channel = 'telegram';
 			else if (channelType.includes('webchat')) channel = 'webchat';
 
-			const stKey = c.lead?.current_state_key || (i % 5 === 0 ? 'new' : i % 5 === 1 ? 'contacted' : i % 5 === 2 ? 'follow_up' : i % 5 === 3 ? 'interested' : 'converted');
+			const stKey = c.lead?.current_state_key || 'new';
 			const stInfo = getLeadStateInfo(stKey);
 
 			return {
 				id: c.id,
 				convoId: c.id,
 				name: getContactName(c),
-				avatar: '',
+				avatar: c.contact?.avatar_url || '',
 				avatarBg: 'bg-blue-100 text-blue-700',
-				handle: getContactHandle(c) || '@contact',
+				handle: getContactHandle(c) || c.contact?.external_identity || '',
 				channel,
 				stateKey: stKey,
 				stateLabel: stInfo.label,
@@ -384,49 +117,48 @@
 				assignees: (c.assigned_user_ids || []).map((uid: string) => {
 					const u = inbox.users.find((usr) => usr.id === uid);
 					return {
-						name: u?.email?.split('@')[0] || 'User',
-						initials: (u?.email || 'U').charAt(0).toUpperCase(),
+						id: uid,
+						name: u?.name || u?.email?.split('@')[0] || 'User',
+						initials: (u?.name || u?.email || 'U').charAt(0).toUpperCase(),
+						avatar: u?.avatar_url || '',
 						bg: 'bg-blue-600'
 					};
 				}),
-				assigneesExtra: 0,
-				lastMessage: getSnippet(c),
+				assigneesExtra: Math.max(0, (c.assigned_user_ids?.length || 0) - 2),
+				lastMessage: getSnippet(c) || 'No messages yet',
 				updatedAt: formatTime(c.last_message_at || c.created_at) || 'Just now',
-				tags: c.lead?.tags && c.lead.tags.length > 0 ? c.lead.tags : ['Inquiry', 'Active'],
+				tags: c.lead?.tags || [],
 				aiSummary: {
 					bullets: [
-						`Customer messaged on ${getChannelLabel(channelType)}.`,
-						'Latest response received.',
-						'Lead status active.'
+						`Channel: ${getChannelLabel(channelType)}`,
+						`Contact: ${getContactName(c)} (${getContactHandle(c) || 'No handle'})`,
+						`Status: ${stInfo.label}`
 					],
-					suggestedNextStep: 'Reply directly to the customer message.'
+					suggestedNextStep: stKey === 'new'
+						? 'Review incoming message and respond to prospect.'
+						: 'Check latest customer messages and follow up.'
 				},
-				notes: notes.length > 0 ? notes[0].body : 'Lead created from conversation thread.',
 				contactInfo: [
-					{ type: channel === 'whatsapp' ? 'phone' : 'instagram', value: c.contact?.external_identity || '@client', label: getChannelLabel(channelType) }
+					{
+						type: channel === 'whatsapp' ? 'phone' : 'instagram',
+						value: getContactHandle(c) || c.contact?.external_identity || 'Not provided',
+						label: getChannelLabel(channelType)
+					}
 				],
 				realConvo: c
 			};
 		});
-
-		const combined = [...realLeads];
-		for (const m of mockLeads) {
-			if (!combined.some((item) => item.id === m.id || item.name === m.name)) {
-				combined.push(m);
-			}
-		}
-		return combined;
 	});
 
-	let totalLeadsCount = $derived(allLeadsCombined.length);
-	let countNewLead = $derived(allLeadsCombined.filter((l) => l.stateKey === 'new').length);
-	let countContacted = $derived(allLeadsCombined.filter((l) => l.stateKey === 'contacted').length);
-	let countFollowUp = $derived(allLeadsCombined.filter((l) => l.stateKey === 'follow_up').length);
-	let countInterested = $derived(allLeadsCombined.filter((l) => l.stateKey === 'interested').length);
-	let countConverted = $derived(allLeadsCombined.filter((l) => l.stateKey === 'converted' || l.stateKey === 'closed_won').length);
+	let totalLeadsCount = $derived(realLeads.length);
+	let countNewLead = $derived(realLeads.filter((l) => l.stateKey === 'new').length);
+	let countContacted = $derived(realLeads.filter((l) => l.stateKey === 'contacted').length);
+	let countFollowUp = $derived(realLeads.filter((l) => l.stateKey === 'follow_up').length);
+	let countInterested = $derived(realLeads.filter((l) => l.stateKey === 'interested').length);
+	let countConverted = $derived(realLeads.filter((l) => l.stateKey === 'converted' || l.stateKey === 'closed_won').length);
 
 	let filteredLeads = $derived.by(() => {
-		let list = allLeadsCombined.filter((l) => {
+		let list = realLeads.filter((l) => {
 			if (leadsFilterTab !== 'all') {
 				if (leadsFilterTab === 'new' && l.stateKey !== 'new') return false;
 				if (leadsFilterTab === 'contacted' && l.stateKey !== 'contacted') return false;
@@ -450,14 +182,21 @@
 	});
 
 	let activeLead = $derived.by(() => {
-		const found = allLeadsCombined.find((l) => l.id === selectedLeadId);
-		return found || allLeadsCombined[0] || mockLeads[0];
+		if (selectedLeadId) {
+			const found = realLeads.find((l) => l.id === selectedLeadId);
+			if (found) return found;
+		}
+		return realLeads[0] || null;
 	});
 
-	function handleSelectLeadRow(lead: any) {
+	async function handleSelectLeadRow(lead: any) {
 		selectedLeadId = lead.id;
 		if (lead.convoId) {
-			selectConvo(lead.convoId);
+			await inbox.selectConversation(lead.convoId);
+			const targetLeadId = inbox.activeConvo?.lead?.id || lead.realConvo?.lead?.id;
+			if (targetLeadId) {
+				await loadLeadDetails(targetLeadId);
+			}
 		}
 		if (!selectedLeadRowIds.includes(lead.id)) {
 			selectedLeadRowIds = [lead.id];
@@ -485,101 +224,90 @@
 
 	async function handleDrawerStateChange(newKey: string) {
 		showDrawerStateDropdown = false;
-		if (activeLead?.realConvo?.lead?.id) {
-			await updateLeadState(newKey);
-		}
-		const found = mockLeads.find((l) => l.id === activeLead.id);
-		if (found) {
-			found.stateKey = newKey;
-			const info = getLeadStateInfo(newKey);
-			found.stateLabel = info.label;
-			found.stateColor = info.color;
+		const targetLeadId = inbox.activeConvo?.lead?.id || activeLead?.realConvo?.lead?.id;
+		if (targetLeadId) {
+			try {
+				const lead = await apiRequest(`/leads/${targetLeadId}/state`, {
+					method: 'PATCH',
+					body: { state_key: newKey }
+				});
+				if (inbox.activeConvo?.lead) {
+					inbox.activeConvo.lead.current_state_key = lead.current_state_key;
+				}
+				if (activeLead?.realConvo?.lead) {
+					activeLead.realConvo.lead.current_state_key = lead.current_state_key;
+				}
+				await inbox.loadConversations();
+			} catch (err) {
+				console.error(err);
+			}
 		}
 	}
 
-	function handleDrawerAddTag() {
+	async function handleDrawerAddTag() {
 		if (!drawerTagText.trim()) return;
 		const tag = drawerTagText.trim();
 		drawerTagText = '';
 		showDrawerTagInput = false;
-		if (activeLead?.realConvo?.lead?.id) {
-			newTagText = tag;
-			addTag();
-		}
-		if (activeLead && !activeLead.tags.includes(tag)) {
-			activeLead.tags = [...activeLead.tags, tag];
+		const lead = inbox.activeConvo?.lead || activeLead?.realConvo?.lead;
+		if (lead?.id) {
+			const currentTags = lead.tags || [];
+			if (!currentTags.includes(tag)) {
+				const newTags = [...currentTags, tag];
+				try {
+					const updated = await apiRequest(`/leads/${lead.id}/tags`, {
+						method: 'PATCH',
+						body: { tags: newTags }
+					});
+					lead.tags = updated.tags;
+					if (inbox.activeConvo?.lead) {
+						inbox.activeConvo.lead.tags = updated.tags;
+					}
+					await inbox.loadConversations();
+				} catch (err) {
+					console.error(err);
+				}
+			}
 		}
 	}
 
-	function handleDrawerRemoveTag(tagToRemove: string) {
-		if (activeLead) {
-			activeLead.tags = activeLead.tags.filter((t: string) => t !== tagToRemove);
+	async function handleDrawerRemoveTag(tagToRemove: string) {
+		const lead = inbox.activeConvo?.lead || activeLead?.realConvo?.lead;
+		if (!lead?.id) return;
+		const currentTags = lead.tags || [];
+		const newTags = currentTags.filter((t: string) => t !== tagToRemove);
+		try {
+			const updated = await apiRequest(`/leads/${lead.id}/tags`, {
+				method: 'PATCH',
+				body: { tags: newTags }
+			});
+			lead.tags = updated.tags;
+			if (inbox.activeConvo?.lead) {
+				inbox.activeConvo.lead.tags = updated.tags;
+			}
+			await inbox.loadConversations();
+		} catch (err) {
+			console.error(err);
 		}
 	}
 
-	function handleDrawerSaveNote() {
+	async function handleDrawerSaveNote() {
 		if (!drawerNoteText.trim()) return;
-		if (activeLead?.realConvo?.lead?.id) {
-			internalNoteInput = drawerNoteText;
-			postInternalNote();
-		}
-		if (activeLead) {
-			activeLead.notes = drawerNoteText.trim();
-		}
+		const text = drawerNoteText.trim();
 		drawerNoteText = '';
-	}
-
-	function handleCreateNewLead(e: Event) {
-		e.preventDefault();
-		if (!newLeadForm.name.trim()) return;
-		const info = getLeadStateInfo(newLeadForm.stateKey);
-		const newId = `lead-${Date.now()}`;
-		const tagList = newLeadForm.tags.split(',').map((t) => t.trim()).filter(Boolean);
-
-		mockLeads = [
-			{
-				id: newId,
-				name: newLeadForm.name,
-				avatar: '',
-				avatarBg: 'bg-blue-100 text-blue-700',
-				handle: newLeadForm.handle || `@${newLeadForm.name.toLowerCase().replace(/\s+/g, '')}`,
-				channel: newLeadForm.channel,
-				stateKey: newLeadForm.stateKey,
-				stateLabel: info.label,
-				stateColor: info.color,
-				assignees: [
-					{ name: 'Admin', initials: 'A', bg: 'bg-blue-600' }
-				],
-				assigneesExtra: 0,
-				lastMessage: newLeadForm.lastMessage || 'New inquiry created',
-				updatedAt: 'Just now',
-				tags: tagList.length > 0 ? tagList : ['New Lead'],
-				aiSummary: {
-					bullets: [
-						'Manually added lead prospect.',
-						'Awaiting initial discovery outreach.'
-					],
-					suggestedNextStep: 'Send introduction and service brochure.'
-				},
-				notes: 'Added from Leads dashboard.',
-				contactInfo: [
-					{ type: newLeadForm.channel === 'whatsapp' ? 'phone' : 'instagram', value: newLeadForm.handle || '@lead', label: newLeadForm.channel }
-				]
-			},
-			...mockLeads
-		];
-
-		selectedLeadId = newId;
-		selectedLeadRowIds = [newId];
-		showAddLeadModal = false;
-		newLeadForm = {
-			name: '',
-			handle: '',
-			channel: 'instagram',
-			stateKey: 'new',
-			lastMessage: '',
-			tags: ''
-		};
+		showAddNoteInput = false;
+		const leadId = inbox.activeConvo?.lead?.id || activeLead?.realConvo?.lead?.id;
+		if (leadId) {
+			try {
+				await apiRequest(`/leads/${leadId}/notes`, {
+					method: 'POST',
+					body: { body: text }
+				});
+				await loadLeadDetails(leadId);
+			} catch (err) {
+				console.error(err);
+			}
+		}
 	}
 
 	onMount(() => {
@@ -890,7 +618,7 @@
 		try {
 			await apiRequest(`/leads/${inbox.activeConvo.lead.id}/notes`, {
 				method: 'POST',
-				body: { text }
+				body: { body: text }
 			});
 			await loadLeadDetails(inbox.activeConvo.lead.id);
 			replyTab = 'reply';
@@ -2044,16 +1772,16 @@
 						<span class="text-base font-semibold leading-tight text-slate-900">{countConverted}</span>
 					</button>
 
-					<!-- + Add view button -->
-					<button
-						onclick={() => showAddLeadModal = true}
+					<!-- Pipeline Settings link -->
+					<a
+						href="/settings/pipeline"
 						class="flex items-center justify-center gap-1.5 px-4 h-[64px] rounded-xl border border-dashed border-slate-200 hover:border-slate-300 hover:bg-white text-xs font-medium text-slate-500 transition cursor-pointer shrink-0"
 					>
 						<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
 						</svg>
-						<span>Add view</span>
-					</button>
+						<span>Manage pipeline</span>
+					</a>
 				</div>
 
 				<!-- Main Split Area: Table on Left + Detail Drawer on Right -->
@@ -2203,14 +1931,14 @@
 							{/each}
 
 							{#if filteredLeads.length === 0}
-								<div class="py-16 flex flex-col items-center justify-center text-center">
-									<div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
-										<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+								<div class="py-20 flex flex-col items-center justify-center text-center">
+									<div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
+										<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 											<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
 										</svg>
 									</div>
-									<div class="text-xs font-medium text-slate-800">No leads found</div>
-									<div class="text-[11px] text-slate-400 mt-0.5">Try adjusting your filters or search criteria</div>
+									<div class="text-sm font-semibold text-slate-800">No leads in this view</div>
+									<div class="text-xs text-slate-400 mt-1 max-w-sm">Leads are automatically created as incoming inquiries arrive across your connected channels.</div>
 								</div>
 							{/if}
 						</div>
@@ -2218,7 +1946,7 @@
 						<!-- Table Footer Pagination -->
 						<div class="px-4 py-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 shrink-0">
 							<div>
-								Showing 1 to {Math.min(leadsPerPage, filteredLeads.length)} of {totalLeadsCount} leads
+								Showing {filteredLeads.length > 0 ? 1 : 0} to {filteredLeads.length} of {totalLeadsCount} leads
 							</div>
 
 							<div class="flex items-center gap-3">
@@ -2229,10 +1957,6 @@
 										</svg>
 									</button>
 									<button class="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 font-medium flex items-center justify-center">1</button>
-									<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50">2</button>
-									<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50">3</button>
-									<span class="text-slate-300 px-1">...</span>
-									<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50">13</button>
 									<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50">
 										<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 											<path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
@@ -2242,9 +1966,6 @@
 
 								<div class="flex items-center gap-1.5 pl-2 border-l border-slate-200">
 									<span class="text-[11px] text-slate-400">10 / page</span>
-									<svg class="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-									</svg>
 								</div>
 							</div>
 						</div>
@@ -2259,13 +1980,13 @@
 							<!-- Top Action Buttons -->
 							<div class="flex items-center justify-between shrink-0">
 								<button
-									onclick={() => showAddLeadModal = true}
+									onclick={() => { selectConvo(activeLead.convoId); selectedNav = 'inbox'; }}
 									class="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-medium transition cursor-pointer shadow-xs"
 								>
-									<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+									<span>Open Chat</span>
+									<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
 									</svg>
-									<span>Add lead</span>
 								</button>
 
 								<button
@@ -2282,7 +2003,7 @@
 							<!-- Lead Profile Header Card -->
 							<div class="flex items-center justify-between pb-1">
 								<div class="flex items-center gap-3.5 min-w-0">
-									<div class="relative w-12 h-12 rounded-full overflow-hidden shrink-0 {activeLead.avatar ? '' : activeLead.avatarBg || 'bg-rose-100 text-rose-700'} flex items-center justify-center font-semibold text-base shadow-xs">
+									<div class="relative w-12 h-12 rounded-full overflow-hidden shrink-0 {activeLead.avatar ? '' : activeLead.avatarBg || 'bg-blue-100 text-blue-700'} flex items-center justify-center font-semibold text-base shadow-xs">
 										{#if activeLead.avatar}
 											<img src={activeLead.avatar} alt={activeLead.name} class="w-full h-full object-cover" />
 										{:else}
@@ -2319,17 +2040,13 @@
 												</svg>
 											{/if}
 											<span class="capitalize">{activeLead.channel}</span>
-											<span>•</span>
-											<span class="truncate">{activeLead.handle}</span>
+											{#if activeLead.handle}
+												<span>•</span>
+												<span class="truncate">{activeLead.handle}</span>
+											{/if}
 										</div>
 									</div>
 								</div>
-
-								<button title="More options" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50">
-									<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-									</svg>
-								</button>
 							</div>
 
 							<!-- Sub Navigation Tabs -->
@@ -2393,7 +2110,7 @@
 
 								{#if showDrawerStateDropdown}
 									<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl py-1 z-50 text-xs space-y-0.5">
-										{#each [{ key: 'new', label: 'New Lead' }, { key: 'contacted', label: 'Contacted' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'interested', label: 'Interested' }, { key: 'converted', label: 'Converted' }] as opt}
+										{#each (pipelineStates.length > 0 ? pipelineStates : [{ key: 'new', label: 'New Lead' }, { key: 'contacted', label: 'Contacted' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'interested', label: 'Interested' }, { key: 'converted', label: 'Converted' }]) as opt}
 											{@const info = getLeadStateInfo(opt.key)}
 											<button
 												onclick={() => handleDrawerStateChange(opt.key)}
@@ -2408,7 +2125,7 @@
 							</div>
 
 							<!-- Assigned to -->
-							<div class="space-y-1.5">
+							<div class="space-y-1.5 relative">
 								<label class="block text-[11px] font-medium text-slate-500">Assigned to</label>
 								<div class="flex items-center gap-2">
 									{#if activeLead.assignees && activeLead.assignees.length > 0}
@@ -2421,6 +2138,8 @@
 												{/if}
 											</div>
 										{/each}
+									{:else}
+										<span class="text-xs text-slate-400 italic">Unassigned</span>
 									{/if}
 									<button
 										onclick={() => showDrawerAssignDropdown = !showDrawerAssignDropdown}
@@ -2432,13 +2151,38 @@
 										</svg>
 									</button>
 								</div>
+
+								{#if showDrawerAssignDropdown}
+									<div class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-xl py-1 z-50 text-xs">
+										<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">
+											Assign Team Member
+										</div>
+										{#each inbox.users as u}
+											{@const isAssigned = (inbox.activeConvo?.assigned_user_ids || []).includes(u.id)}
+											<button
+												onclick={() => toggleUserAssignment(u.id)}
+												class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 font-medium {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
+											>
+												<div class="flex items-center gap-2 truncate">
+													<span class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px]">{(u.name || u.email).charAt(0).toUpperCase()}</span>
+													<span class="truncate">{u.name || u.email}</span>
+												</div>
+												{#if isAssigned}
+													<svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+													</svg>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{/if}
 							</div>
 
 							<!-- Tags -->
 							<div class="space-y-1.5">
 								<label class="block text-[11px] font-medium text-slate-500">Tags</label>
 								<div class="flex flex-wrap items-center gap-1.5">
-									{#each activeLead.tags as tag}
+									{#each (inbox.activeConvo?.lead?.tags || activeLead.tags) as tag}
 										<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50/70 border border-blue-200/60 text-blue-700 text-xs font-medium">
 											<span>{tag}</span>
 											<button onclick={() => handleDrawerRemoveTag(tag)} class="text-blue-400 hover:text-blue-600 text-[10px]">×</button>
@@ -2498,16 +2242,43 @@
 							<div class="space-y-1.5">
 								<div class="flex items-center justify-between">
 									<label class="block text-[11px] font-medium text-slate-500">Notes</label>
+									{#if !showAddNoteInput}
+										<button onclick={() => showAddNoteInput = true} class="text-[11px] text-blue-600 font-medium hover:underline">+ Add note</button>
+									{/if}
 								</div>
-								
-								<div class="p-3 bg-slate-50/70 rounded-xl border border-slate-200/60 text-xs text-slate-700 flex items-start justify-between gap-2">
-									<p class="leading-relaxed">{activeLead.notes || 'No notes added yet.'}</p>
-									<button title="Edit note" class="text-slate-400 hover:text-slate-600 p-0.5 shrink-0">
-										<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-										</svg>
-									</button>
-								</div>
+
+								{#if showAddNoteInput}
+									<div class="space-y-2 p-2.5 bg-slate-50/80 rounded-xl border border-slate-200">
+										<textarea
+											bind:value={drawerNoteText}
+											placeholder="Add an internal note about this lead..."
+											rows="2"
+											class="w-full p-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 resize-none"
+										></textarea>
+										<div class="flex items-center justify-end gap-1.5">
+											<button onclick={() => { showAddNoteInput = false; drawerNoteText = ''; }} class="px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+											<button onclick={handleDrawerSaveNote} class="px-3 py-1 text-xs bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700">Save</button>
+										</div>
+									</div>
+								{/if}
+
+								{#if notes.length > 0}
+									<div class="space-y-2 max-h-36 overflow-y-auto">
+										{#each notes as note}
+											<div class="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200/60 text-xs space-y-1">
+												<div class="flex items-center justify-between text-[10px] text-slate-400">
+													<span class="font-medium text-slate-600">{note.author_name || note.user_email || 'Team Member'}</span>
+													<span>{formatTime(note.created_at)}</span>
+												</div>
+												<p class="text-slate-700 leading-relaxed">{note.text || note.body}</p>
+											</div>
+										{/each}
+									</div>
+								{:else if !showAddNoteInput}
+									<div class="p-3 bg-slate-50/70 rounded-xl border border-slate-200/60 text-xs text-slate-400 italic">
+										No notes yet. Click "+ Add note" to add an internal note.
+									</div>
+								{/if}
 							</div>
 
 							<!-- Contact info -->
@@ -2532,9 +2303,6 @@
 
 										<div class="flex items-center gap-1 text-[11px] text-slate-400">
 											<span>{info.label}</span>
-											<svg class="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-											</svg>
 										</div>
 									</div>
 								{/each}
@@ -2546,102 +2314,6 @@
 				</div>
 
 			</div>
-
-			<!-- Add Lead Modal -->
-			{#if showAddLeadModal}
-				<div class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-					<div class="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="text-base font-semibold text-slate-900">Add New Lead</h3>
-							<button onclick={() => showAddLeadModal = false} class="text-slate-400 hover:text-slate-600">×</button>
-						</div>
-
-						<form onsubmit={handleCreateNewLead} class="space-y-3.5 text-xs">
-							<div>
-								<label for="lead-name" class="block font-medium text-slate-700 mb-1">Lead / Contact Name</label>
-								<input
-									id="lead-name"
-									type="text"
-									bind:value={newLeadForm.name}
-									placeholder="e.g. Jessica Smith"
-									required
-									class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white"
-								/>
-							</div>
-
-							<div class="grid grid-cols-2 gap-3">
-								<div>
-									<label for="lead-channel" class="block font-medium text-slate-700 mb-1">Channel</label>
-									<select
-										id="lead-channel"
-										bind:value={newLeadForm.channel}
-										class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white"
-									>
-										<option value="instagram">Instagram</option>
-										<option value="whatsapp">WhatsApp</option>
-										<option value="messenger">Messenger</option>
-										<option value="telegram">Telegram</option>
-										<option value="webchat">Webchat</option>
-									</select>
-								</div>
-
-								<div>
-									<label for="lead-handle" class="block font-medium text-slate-700 mb-1">Handle / Phone</label>
-									<input
-										id="lead-handle"
-										type="text"
-										bind:value={newLeadForm.handle}
-										placeholder="@handle or +1..."
-										class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white"
-									/>
-								</div>
-							</div>
-
-							<div>
-								<label for="lead-state" class="block font-medium text-slate-700 mb-1">Initial Stage</label>
-								<select
-									id="lead-state"
-									bind:value={newLeadForm.stateKey}
-									class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white"
-								>
-									<option value="new">New Lead</option>
-									<option value="contacted">Contacted</option>
-									<option value="follow_up">Follow-up</option>
-									<option value="interested">Interested</option>
-									<option value="converted">Converted</option>
-								</select>
-							</div>
-
-							<div>
-								<label for="lead-msg" class="block font-medium text-slate-700 mb-1">Last Message / Note</label>
-								<textarea
-									id="lead-msg"
-									bind:value={newLeadForm.lastMessage}
-									placeholder="Inquired about services..."
-									rows="2"
-									class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white"
-								></textarea>
-							</div>
-
-							<div class="flex items-center justify-end gap-2 pt-2">
-								<button
-									type="button"
-									onclick={() => showAddLeadModal = false}
-									class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium"
-								>
-									Cancel
-								</button>
-								<button
-									type="submit"
-									class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-xs"
-								>
-									Create Lead
-								</button>
-							</div>
-						</form>
-					</div>
-				</div>
-			{/if}
 
 		{:else if selectedNav === 'automation'}
 			<!-- ================= AUTOMATION VIEW ================= -->

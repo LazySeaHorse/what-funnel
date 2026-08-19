@@ -43,10 +43,10 @@ test('dashboard UI renders correctly with What Funnel branding and Poppins font'
   await page.screenshot({ path: 'test-results/dashboard-screenshot.png' });
 });
 
-test('leads tab UI renders matching mockup with table and detail drawer', async ({ page }) => {
+test('leads tab UI renders real database leads with table and detail drawer', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  const email = `leads-tab-${Date.now()}@e2e.local`;
+  const email = `leads-real-${Date.now()}@e2e.local`;
   await page.goto('/signup');
   await page.fill('#account-name-input', 'Glamour Salon');
   await page.fill('#signup-email-input', email);
@@ -57,36 +57,54 @@ test('leads tab UI renders matching mockup with table and detail drawer', async 
   await page.goto('/inbox');
   await page.waitForLoadState('networkidle');
 
-  // Click on Leads nav item
+  // Check Leads tab initially on empty state
   const leadsNav = page.locator('button:has-text("Leads")');
   await expect(leadsNav).toBeVisible();
   await leadsNav.click();
 
-  // Verify Leads header
-  const leadsTitle = page.locator('h1:has-text("Leads")');
-  await expect(leadsTitle).toBeVisible();
+  // Verify Leads header and 0 count
+  await expect(page.locator('h1:has-text("Leads")')).toBeVisible();
+  await expect(page.locator('text=No leads in this view')).toBeVisible();
 
-  // Verify stage tabs are present
-  await expect(page.locator('button:has-text("All Leads")')).toBeVisible();
-  await expect(page.locator('button:has-text("New Lead")').first()).toBeVisible();
-  await expect(page.locator('button:has-text("Contacted")').first()).toBeVisible();
-  await expect(page.locator('button:has-text("Follow-up")').first()).toBeVisible();
-  await expect(page.locator('button:has-text("Interested")').first()).toBeVisible();
-  await expect(page.locator('button:has-text("Converted")').first()).toBeVisible();
+  // Send a real inbound message via Simulate Studio
+  const simulateNav = page.getByRole('button', { name: 'Simulate DEV' });
+  await simulateNav.click();
+  await expect(page.locator('h1:has-text("Customer Simulation Studio")')).toBeVisible();
 
-  // Verify Table headers
-  await expect(page.locator('text=Lead').first()).toBeVisible();
-  await expect(page.locator('text=Channel').first()).toBeVisible();
-  await expect(page.locator('text=Lead State').first()).toBeVisible();
-  await expect(page.locator('text=Assigned to').first()).toBeVisible();
-  await expect(page.locator('text=Last Message').first()).toBeVisible();
+  const presetBtn = page.locator('button:has-text("Hi! Do you have any weekend slots available?")');
+  await presetBtn.click();
+  await expect(page.locator('text=Inbound message sent to What Funnel')).toBeVisible({ timeout: 10000 });
 
-  // Verify Sarah Johnson row and details drawer
-  await expect(page.locator('text=Sarah Johnson').first()).toBeVisible();
-  await expect(page.locator('text=AI Summary').first()).toBeVisible();
-  await expect(page.locator('text=Balayage').first()).toBeVisible();
+  // Now go back to Leads tab
+  await leadsNav.click();
 
-  // Take screenshot of the Leads Tab UI
+  // Verify that real lead Alice Test appears
+  await expect(page.locator('text=Alice Test').first()).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('text=New Lead').first()).toBeVisible();
+
+  // Click on the lead row
+  await page.locator('text=Alice Test').first().click();
+
+  // Verify Right Detail Drawer with real lead data
+  await expect(page.locator('h2:has-text("Alice Test")')).toBeVisible();
+  await expect(page.locator('text=AI Summary')).toBeVisible();
+
+  // Add a tag
+  const addTagBtn = page.locator('button[title="Add tag"]');
+  await addTagBtn.click();
+  await page.fill('input[placeholder="Tag name..."]', 'VIP-Client');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.locator('text=VIP-Client')).toBeVisible({ timeout: 5000 });
+
+  // Add a note
+  const addNoteBtn = page.locator('button:has-text("+ Add note")');
+  await addNoteBtn.click();
+  await page.fill('textarea[placeholder="Add an internal note about this lead..."]', 'Customer prefers Saturday afternoon.');
+  await page.locator('button:has-text("Save")').click();
+  await expect(page.locator('text=Customer prefers Saturday afternoon.')).toBeVisible({ timeout: 5000 });
+
+  // Take screenshot of real Leads Tab UI
   await page.screenshot({ path: 'test-results/leads-tab-screenshot.png' });
 });
+
 
