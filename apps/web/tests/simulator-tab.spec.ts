@@ -7,10 +7,10 @@ test('left sidebar Simulate tab opens full Customer Simulation Studio and simula
   const email = `sim-left-${Date.now()}@e2e.local`;
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
-  await expect(page.locator('h1:has-text("What Funnel")')).toBeVisible({ timeout: 15000 });
-  await page.fill('#accountName', 'What Funnel Studio Demo');
-  await page.fill('#email', email);
-  await page.fill('#password', 'E2ePassword99!');
+  await expect(page.getByRole('heading', { name: 'Create workspace', exact: true })).toBeVisible({ timeout: 15000 });
+  await page.fill('#account-name-input', 'What Funnel Studio Demo');
+  await page.fill('#signup-email-input', email);
+  await page.fill('#signup-password-input', 'E2ePassword99!');
   await page.click('button[type="submit"]');
 
   // Wait for onboarding
@@ -65,10 +65,10 @@ test('simulating Telegram chat sends native webhook and displays Telegram channe
   const email = `sim-tg-${Date.now()}@e2e.local`;
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
-  await expect(page.locator('h1:has-text("What Funnel")')).toBeVisible({ timeout: 15000 });
-  await page.fill('#accountName', 'Telegram Sim Test Studio');
-  await page.fill('#email', email);
-  await page.fill('#password', 'E2ePassword99!');
+  await expect(page.getByRole('heading', { name: 'Create workspace', exact: true })).toBeVisible({ timeout: 15000 });
+  await page.fill('#account-name-input', 'Telegram Sim Test Studio');
+  await page.fill('#signup-email-input', email);
+  await page.fill('#signup-password-input', 'E2ePassword99!');
   await page.click('button[type="submit"]');
 
   // Wait for onboarding
@@ -109,4 +109,3 @@ test('simulating Telegram chat sends native webhook and displays Telegram channe
   // Check that the header shows Telegram
   await expect(page.locator('p:has-text("Telegram")').first()).toBeVisible({ timeout: 5000 });
 });
-

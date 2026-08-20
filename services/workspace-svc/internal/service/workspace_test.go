@@ -112,6 +112,28 @@ func TestAIProviderConfig_RoundTrip(t *testing.T) {
 	assert.NotContains(t, *storedRaw, "sk-test-12345", "API key must not appear in plaintext in the database")
 }
 
+func TestDeleteAccount_CascadesTenantData(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+	accountID, _ := setupTestTenant(t, pool, "Delete Account", "delete@example.com")
+
+	_, err := pool.Exec(ctx, `INSERT INTO invite_tokens (token, account_id, email, role) VALUES ('delete-account-token', $1, 'invite@example.com', 'member')`, accountID)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.DeleteAccount(ctx, accountID))
+
+	var accounts, users, invites int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE id = $1`, accountID).Scan(&accounts))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE account_id = $1`, accountID).Scan(&users))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM invite_tokens WHERE account_id = $1`, accountID).Scan(&invites))
+	assert.Zero(t, accounts)
+	assert.Zero(t, users)
+	assert.Zero(t, invites)
+}
+
 // ---------------------------------------------------------------------------
 // User management — Stage 5
 // ---------------------------------------------------------------------------

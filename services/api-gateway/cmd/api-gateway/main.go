@@ -8,6 +8,7 @@
 //   /onboarding/*     → workspace-svc
 //   /users/*          → workspace-svc
 //   /channels/*       → conversation-svc
+//   /bridge-connections/* → conversation-svc
 //   /conversations/*  → conversation-svc
 //   /leads/*          → conversation-svc
 //   /ws               → notification-svc (WebSocket)
@@ -94,6 +95,9 @@ func main() {
 
 	// Proxy /channels/* → conversation-svc
 	r.PathPrefix("/channels").Handler(proxy(conversationBase, logger))
+
+	// Proxy guided bridge connection setup → conversation-svc
+	r.PathPrefix("/bridge-connections").Handler(proxy(conversationBase, logger))
 
 	// Proxy /conversations/* → conversation-svc
 	r.PathPrefix("/conversations").Handler(proxy(conversationBase, logger))
@@ -398,4 +402,3 @@ func kbProxy(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 		io.Copy(w, resp.Body)
 	})
 }
-

@@ -67,16 +67,23 @@ func (s *Service) StartBridgeConnection(ctx context.Context, accountID uuid.UUID
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		if existing.State == "failed" || existing.State == "cancelled" {
+		if existing.State == "failed" {
 			return s.restartBridgeConnection(ctx, existing)
 		}
-		return existing, nil
+		if existing.State != "cancelled" {
+			return existing, nil
+		}
+		// Disconnect revokes the old Matrix access token. A cancelled connection
+		// therefore cannot be restarted safely; continue below to provision an
+		// entirely new bridge identity for this new setup attempt.
 	}
 	if err != nil && !isNoRows(err) {
 		return nil, fmt.Errorf("find existing connection: %w", err)
 	}
 
-	username := "wf_" + strings.ReplaceAll(accountID.String(), "-", "")[:16] + "_" + spec.Name
+	// Each setup attempt owns a separate least-privilege Matrix identity. This
+	// avoids reusing a token that was deliberately revoked on disconnect.
+	username := "wf_" + strings.ReplaceAll(accountID.String(), "-", "")[:16] + "_" + spec.Name + "_" + uuid.NewString()[:8]
 	creds, err := matrixadapter.ProvisionUser(ctx, s.bridgeConfig.Provisioning, username)
 	if err != nil {
 		return nil, err

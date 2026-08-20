@@ -59,6 +59,47 @@ func (svc *Service) GetAccount(ctx context.Context, accountID uuid.UUID) (*types
 	return a, nil
 }
 
+// DeleteAccount removes an account root. All tenant-owned data is removed by
+// the database's ON DELETE CASCADE constraints.
+func (svc *Service) DeleteAccount(ctx context.Context, accountID uuid.UUID) error {
+	command, err := svc.pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return fmt.Errorf("account not found")
+	}
+	return nil
+}
+
+// UpdateAccountName changes the workspace name and records the administrative action.
+func (svc *Service) UpdateAccountName(ctx context.Context, accountID, actorID uuid.UUID, name string) error {
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	_, err = tx.Exec(ctx, `UPDATE accounts SET name = $1 WHERE id = $2`, name, accountID)
+	if err != nil {
+		return fmt.Errorf("update account name: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      "account.name_updated",
+		TargetType:  audit.TargetAccount,
+		TargetID:    &accountID,
+		Metadata:    map[string]any{"name": name},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 // UpdateAccountSettings updates the non-sensitive settings JSONB column.
 func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorID uuid.UUID, settings map[string]any) error {
 	raw, err := json.Marshal(settings)

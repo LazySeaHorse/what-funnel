@@ -88,24 +88,23 @@ test('leads tab UI renders real database leads with table and detail drawer', as
 
   // Verify Right Detail Drawer with real lead data
   await expect(page.locator('h2:has-text("Alice Test")')).toBeVisible();
-  await expect(page.locator('text=AI Summary')).toBeVisible();
+  await expect(page.getByText('Contact info', { exact: true })).toBeVisible();
 
   // Add a tag
   const addTagBtn = page.locator('button[title="Add tag"]');
   await addTagBtn.click();
-  await page.fill('input[placeholder="Tag name..."]', 'VIP-Client');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByLabel('Tag name').fill('VIP-Client');
+  await page.getByRole('button', { name: 'Save tag' }).click();
   await expect(page.locator('text=VIP-Client')).toBeVisible({ timeout: 5000 });
 
   // Add a note
-  const addNoteBtn = page.locator('button:has-text("+ Add note")');
+  await page.getByRole('complementary').getByRole('button', { name: 'Notes', exact: true }).click();
+  const addNoteBtn = page.getByRole('complementary').getByRole('button', { name: '+ Add note', exact: true });
   await addNoteBtn.click();
-  await page.fill('textarea[placeholder="Add an internal note about this lead..."]', 'Customer prefers Saturday afternoon.');
-  await page.locator('button:has-text("Save")').click();
+  await page.fill('textarea[placeholder="Add an internal note..."]', 'Customer prefers Saturday afternoon.');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('text=Customer prefers Saturday afternoon.')).toBeVisible({ timeout: 5000 });
 
   // Take screenshot of real Leads Tab UI
   await page.screenshot({ path: 'test-results/leads-tab-screenshot.png' });
 });
-
-

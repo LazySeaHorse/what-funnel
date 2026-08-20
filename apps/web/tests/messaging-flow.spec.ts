@@ -6,10 +6,10 @@ test('sending messages in inbox and simulator tabs renders correctly in both vie
   // Sign up fresh account
   const email = `msg-flow-${Date.now()}@e2e.local`;
   await page.goto('/signup');
-  await page.fill('#accountName', 'Realtime Sync Studio');
-  await page.fill('#email', email);
-  await page.fill('#password', 'E2ePassword99!');
-  await page.click('input[value="full_workspace"]');
+  await page.fill('#account-name-input', 'Realtime Sync Studio');
+  await page.fill('#signup-email-input', email);
+  await page.fill('#signup-password-input', 'E2ePassword99!');
+  await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
   await page.click('button[type="submit"]');
 
   await page.waitForURL('**/onboarding/**', { timeout: 20000 });

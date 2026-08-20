@@ -22,6 +22,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -52,6 +53,8 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 
 	// Account
 	r.Handle("/workspace/account", auth(http.HandlerFunc(h.GetAccount))).Methods(http.MethodGet)
+	r.Handle("/workspace/account", auth(admin(http.HandlerFunc(h.UpdateAccountName)))).Methods(http.MethodPatch)
+	r.Handle("/workspace/account", auth(admin(http.HandlerFunc(h.DeleteAccount)))).Methods(http.MethodDelete)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
@@ -90,6 +93,59 @@ func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, account)
+}
+
+func (h *Handler) UpdateAccountName(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "workspace name is required")
+		return
+	}
+	if err := h.svc.UpdateAccountName(r.Context(), accountID, actorID, name); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// DeleteAccount permanently removes the current admin's account and all tenant data.
+// The database foreign keys cascade through tenant-owned records.
+func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+
+	var body struct {
+		Confirmation string `json:"confirmation"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	account, err := h.svc.GetAccount(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if body.Confirmation != account.Name {
+		writeError(w, http.StatusBadRequest, "workspace name confirmation does not match")
+		return
+	}
+	if err := h.svc.DeleteAccount(r.Context(), accountID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {

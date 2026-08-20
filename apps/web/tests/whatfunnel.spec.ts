@@ -17,7 +17,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 // @ts-ignore
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -42,8 +42,11 @@ function injectInboundMessage(opts: {
     Message: { ContentType: 'text', Text: opts.text, ExternalMessageID: `msg-${Date.now()}` },
     Timestamp: new Date().toISOString(),
   };
-  const escaped = JSON.stringify(payload).replace(/'/g, `'"'"'`);
-  execSync(`redis-cli xadd messages.inbound '*' payload '${escaped}'`);
+  execFileSync(
+    'docker',
+    ['compose', 'exec', '-T', 'redis', 'redis-cli', 'XADD', 'messages.inbound', '*', 'payload', JSON.stringify(payload)],
+    { cwd: '../..', stdio: 'ignore' }
+  );
 }
 
 /**
@@ -52,36 +55,42 @@ function injectInboundMessage(opts: {
  */
 async function signupViaPage(page: Page, email: string, businessName: string) {
   await page.goto('/signup');
-  await expect(page.locator('h1:has-text("What Funnel")')).toBeVisible({ timeout: 15000 });
-  await page.fill('#accountName', businessName);
-  await page.fill('#email', email);
-  await page.fill('#password', PASSWORD);
-  await page.click('input[value="full_workspace"]');
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('heading', { name: 'Create workspace', exact: true })).toBeVisible({ timeout: 15000 });
+  await page.fill('#account-name-input', businessName);
+  await page.fill('#signup-email-input', email);
+  await page.fill('#signup-password-input', PASSWORD);
+  await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
   await page.click('button[type="submit"]');
   await page.waitForURL('**/onboarding/**', { timeout: 20000 });
 }
 
 /**
- * Complete the entire onboarding wizard (steps 2-9), skipping optional steps.
+ * Complete the current six-step onboarding wizard and arrive at the inbox.
  * Returns when on /inbox.
  */
 async function completeOnboarding(page: Page) {
-  await page.waitForURL('**/onboarding/2', { timeout: 20000 });
-  await page.click('.mode-card:has-text("Full lead workspace")');
+  await page.waitForURL('**/onboarding/1', { timeout: 20000 });
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.waitForURL('**/onboarding/2', { timeout: 15000 });
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL('**/onboarding/3', { timeout: 15000 });
-  await page.click('.biz-tile:has-text("Home Services")');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL('**/onboarding/4', { timeout: 15000 });
-  await page.click('button.skip-link');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL('**/onboarding/5', { timeout: 15000 });
-  await page.click('button.skip-link');
+  const skipKnowledge = page.getByRole('button', { name: 'Skip', exact: true });
+  if (await skipKnowledge.isVisible()) {
+    await skipKnowledge.click();
+  } else {
+    await page.getByRole('button', { name: 'Organize with AI', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Structured Knowledge', exact: true })).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  }
   await page.waitForURL('**/onboarding/6', { timeout: 15000 });
-  await page.click('button:has-text("Continue")');
+  await page.getByRole('button', { name: 'Complete setup', exact: true }).click();
   await page.waitForURL('**/onboarding/7', { timeout: 15000 });
-  await page.click('button:has-text("Accept and adjust later")');
-  await page.waitForURL('**/onboarding/8', { timeout: 15000 });
-  await page.click('button.skip-link');
-  await page.waitForURL('**/onboarding/9', { timeout: 15000 });
-  await page.click('button:has-text("Go to Inbox")');
+  await page.getByRole('button', { name: 'Go to Inbox', exact: true }).click();
   await page.waitForURL('**/inbox', { timeout: 15000 });
 }
 
@@ -89,38 +98,66 @@ async function completeOnboarding(page: Page) {
 async function loginViaPage(page: Page, email: string) {
   await page.goto('/login');
   await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
-  await page.fill('#email', email);
-  await page.fill('#password', PASSWORD);
+  await page.fill('#email-input', email);
+  await page.fill('#password-input', PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL('**/inbox', { timeout: 15000 });
 }
 
 /**
- * Create a channel via the Settings > Channels UI.
- * Returns the channel UUID from the POST /channels API response.
+ * Start a provider connection via the Settings > Channels UI.
+ * Returns the created channel UUID from the bridge-connection response.
  */
 async function createChannel(page: Page): Promise<string> {
-  await page.goto('/settings/channels');
-  // Wait for page to fully load (onMount fires async auth check)
-  await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
+  await page.goto('/inbox?tab=settings');
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 15000 });
+  await page.getByRole('tab', { name: 'Channels', exact: true }).click();
 
-  const channelRespPromise = page.waitForResponse(
-    (resp) => resp.url().includes('/channels') && resp.request().method() === 'POST',
+  const connectionResponsePromise = page.waitForResponse(
+    (resp) => resp.url().includes('/bridge-connections') && resp.request().method() === 'POST',
   );
-  await page.click('button:has-text("+ Connect Channel")');
-  await expect(page.locator('.modal-card')).toBeVisible({ timeout: 5000 });
-  await page.click('button[type="submit"]:has-text("Connect")');
-  const channelResp = await channelRespPromise;
-  const data = await channelResp.json();
-  const channelId = data.id as string;
+  await page.getByRole('button', { name: 'Connect channel' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
+  await expect(dialog).toBeVisible({ timeout: 5000 });
+  await dialog.getByRole('combobox', { name: 'Channel' }).selectOption('whatsapp');
+  await dialog.getByRole('button', { name: 'Continue' }).click();
+  const connectionResponse = await connectionResponsePromise;
+  expect(connectionResponse.status()).toBe(201);
+  const channelId = (await connectionResponse.json()).channel_id as string;
   expect(channelId).toBeTruthy();
-
-  // Demo auto-resolves to connected after ~6s
-  await expect(page.locator('.success-box')).toBeVisible({ timeout: 15000 });
-  // Modal closes automatically
-  await expect(page.locator('.modal-backdrop')).not.toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('dialog', { name: 'Connect WhatsApp' })).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Close channel dialog' }).click();
 
   return channelId;
+}
+
+/** Create an authenticated Matrix mock channel for outbound-message tests.
+ * Bridge setup is covered separately; a synthetic inbound thread is not a real
+ * Matrix room and therefore cannot be used to exercise an actual bridge send.
+ */
+async function createMockMatrixChannel(page: Page): Promise<string> {
+  const response = await page.evaluate(async () => {
+    const result = await fetch('/api-gateway/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        type: 'matrix_whatsapp',
+        bridge_identity: '@whatsappbot:mock',
+        bridge_credentials: {
+          homeserver_url: 'mock',
+          user_id: '@whatfunnel-e2e:mock',
+          access_token: 'mock-token'
+        }
+      })
+    });
+    return { status: result.status, body: await result.json() };
+  });
+
+  expect(response.status).toBe(201);
+  expect(response.body.id).toBeTruthy();
+  return response.body.id as string;
 }
 
 // ─── Suite 1: Auth & Session ──────────────────────────────────────────────────
@@ -129,11 +166,12 @@ test.describe('1. Auth & Session', () => {
 
   test('1.1 Signup creates account and auto-advances to onboarding', async ({ page }) => {
     await page.goto('/signup');
-    await expect(page.locator('h1:has-text("What Funnel")')).toBeVisible({ timeout: 15000 });
-    await page.fill('#accountName', 'Auth Test Business');
-    await page.fill('#email', uniqueEmail('auth1'));
-    await page.fill('#password', PASSWORD);
-    await page.click('input[value="full_workspace"]');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Create workspace', exact: true })).toBeVisible({ timeout: 15000 });
+    await page.fill('#account-name-input', 'Auth Test Business');
+    await page.fill('#signup-email-input', uniqueEmail('auth1'));
+    await page.fill('#signup-password-input', PASSWORD);
+    await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
     await page.click('button[type="submit"]');
     await page.waitForURL('**/onboarding/**', { timeout: 20000 });
     expect(page.url()).toContain('/onboarding');
@@ -143,7 +181,8 @@ test.describe('1. Auth & Session', () => {
     const email = uniqueEmail('auth2');
     await signupViaPage(page, email, 'Login Test Biz');
     await completeOnboarding(page);
-    await page.click('button.logout-btn');
+    await page.getByRole('button', { name: 'Toggle workspace menu' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
     await page.waitForURL('**/login', { timeout: 10000 });
     await loginViaPage(page, email);
     expect(page.url()).toContain('/inbox');
@@ -152,8 +191,8 @@ test.describe('1. Auth & Session', () => {
   test('1.3 Login with wrong credentials stays on /login', async ({ page }) => {
     await page.goto('/login');
     await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
-    await page.fill('#email', 'nobody-fake@does-not-exist.local');
-    await page.fill('#password', 'wrongpassword');
+    await page.fill('#email-input', 'nobody-fake@does-not-exist.local');
+    await page.fill('#password-input', 'wrongpassword');
     await page.click('button[type="submit"]');
     await page.waitForTimeout(2500);
     expect(page.url()).toContain('/login');
@@ -177,43 +216,42 @@ test.describe('2. Onboarding Flow', () => {
     await expect(page.locator('.conversation-list')).toBeVisible({ timeout: 10000 });
   });
 
-  test('2.2 Step 2 shows both product mode cards', async ({ page }) => {
+  test('2.2 Step 1 collects business details', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('ob2'), 'Mode Test Biz');
-    await page.waitForURL('**/onboarding/2', { timeout: 20000 });
-    await expect(page.locator('.mode-card:has-text("Automated replies only")')).toBeVisible();
-    await expect(page.locator('.mode-card:has-text("Full lead workspace")')).toBeVisible();
-    await expect(page.locator('.recommended-badge')).toBeVisible();
+    await page.waitForURL('**/onboarding/1', { timeout: 20000 });
+    await expect(page.getByRole('heading', { name: 'Let’s start with your business', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Business name')).toHaveValue('Mode Test Biz');
+    await expect(page.getByLabel('Business type')).toBeVisible();
+    await expect(page.getByLabel('Time zone')).toBeVisible();
   });
 
-  test('2.3 Step 3 shows business type tiles', async ({ page }) => {
+  test('2.3 Step 2 presents available messaging channels', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('ob3'), 'Biz Type Test');
-    await page.waitForURL('**/onboarding/2', { timeout: 20000 });
-    await page.click('.mode-card:has-text("Full lead workspace")');
-    await page.waitForURL('**/onboarding/3', { timeout: 15000 });
-    await expect(page.locator('.biz-tile:has-text("Home Services")')).toBeVisible();
-    await expect(page.locator('.biz-tile:has-text("Salon")')).toBeVisible();
-    await expect(page.locator('.biz-tile:has-text("Tutoring")')).toBeVisible();
+    await page.waitForURL('**/onboarding/1', { timeout: 20000 });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.waitForURL('**/onboarding/2', { timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Connect your channels', exact: true })).toBeVisible();
+    await expect(page.getByText('WhatsApp', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Connect' }).first()).toBeVisible();
   });
 
-  test('2.4 Step 9 Done screen — Go to Inbox CTA navigates to inbox', async ({ page }) => {
+  test('2.4 Setup complete screen sends the user to the inbox', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('ob9'), 'Done Screen Test');
     await completeOnboarding(page);
     await expect(page.locator('.conversation-list')).toBeVisible({ timeout: 10000 });
   });
 
-  test('2.5 Step 6 shows Reply Mode cards', async ({ page }) => {
+  test('2.5 Step 4 offers the current AI assistant modes', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('ob6'), 'Reply Mode Test');
-    await page.waitForURL('**/onboarding/2', { timeout: 20000 });
-    await page.click('.mode-card:has-text("Full lead workspace")');
-    await page.waitForURL('**/onboarding/3', { timeout: 15000 });
-    await page.click('.biz-tile:has-text("Home Services")');
-    await page.waitForURL('**/onboarding/4', { timeout: 15000 });
-    await page.click('button.skip-link');
-    await page.waitForURL('**/onboarding/5', { timeout: 15000 });
-    await page.click('button.skip-link');
-    await page.waitForURL('**/onboarding/6', { timeout: 15000 });
-    await expect(page.locator('.mode-card:has-text("Review before it sends")')).toBeVisible();
-    await expect(page.locator('.mode-card:has-text("Send automatically once confident")')).toBeVisible();
+    await page.waitForURL('**/onboarding/1', { timeout: 20000 });
+    for (const step of [2, 3, 4]) {
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await page.waitForURL(`**/onboarding/${step}`, { timeout: 15000 });
+    }
+    await expect(page.getByRole('heading', { name: 'Meet your AI Assistant', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Auto answer when confident/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Suggest replies only/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Manual only/ })).toBeVisible();
   });
 
 });
@@ -232,57 +270,40 @@ test.describe('3. Channel Management', () => {
     await page.close();
   });
 
-  test('3.1 Settings > Channels page loads', async ({ page }) => {
+  test('3.1 In-app Settings opens the Channels section', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
-    await page.goto('/settings/channels');
-    await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
+    await page.goto('/inbox?tab=settings');
+    await page.getByRole('tab', { name: 'Channels', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Connected channels', exact: true })).toBeVisible({ timeout: 15000 });
   });
 
-  test('3.2 Connect Channel modal opens with identity and credentials fields', async ({ page }) => {
+  test('3.2 Connect Channel dialog exposes a provider selector', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
-    await page.goto('/settings/channels');
-    await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
-    await page.click('button:has-text("+ Connect Channel")');
-    await expect(page.locator('.modal-card')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('#identity')).toBeVisible();
-    await expect(page.locator('#credentials')).toBeVisible();
+    await page.goto('/inbox?tab=settings');
+    await page.getByRole('tab', { name: 'Channels', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect channel' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await expect(dialog.getByRole('combobox', { name: 'Channel' })).toBeVisible();
+    await expect(dialog.getByText(/Connection credentials remain server-side/)).toBeVisible();
   });
 
-  test('3.3 Creating a channel: form → QR scanning → success', async ({ page }) => {
+  test('3.3 Creating a channel updates the settings list', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
-    await page.goto('/settings/channels');
-    await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
-
-    const respPromise = page.waitForResponse(
-      (r) => r.url().includes('/channels') && r.request().method() === 'POST',
-    );
-    await page.click('button:has-text("+ Connect Channel")');
-    await expect(page.locator('.modal-card')).toBeVisible({ timeout: 5000 });
-    await page.click('button[type="submit"]:has-text("Connect")');
-    const resp = await respPromise;
-    expect((await resp.json()).id).toBeTruthy();
-
-    await expect(page.locator('.qr-container')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.success-box')).toBeVisible({ timeout: 15000 });
+    const channelID = await createChannel(page);
+    expect(channelID).toBeTruthy();
+    await expect(page.getByText('WhatsApp', { exact: true }).first()).toBeVisible({ timeout: 5000 });
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(page.getByText('No channels connected yet.', { exact: true })).toBeVisible({ timeout: 5000 });
   });
 
-  test('3.4 Created channel appears in list with status indicator', async ({ page }) => {
+  test('3.4 Disconnecting a channel returns the view to its empty state', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
     await createChannel(page);
-    await expect(page.locator('.channel-card')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.channel-card .status-indicator')).toBeVisible();
-  });
-
-  test('3.5 Channel type badge shows the channel type', async ({ page }) => {
-    await loginViaPage(page, suiteEmail);
-    await page.goto('/settings/channels');
-    await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
-    // If no channels yet, create one
-    const existing = await page.locator('.channel-card').count();
-    if (existing === 0) {
-      await createChannel(page);
-    }
-    await expect(page.locator('.channel-type-badge').first()).toBeVisible({ timeout: 5000 });
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(page.getByText('No channels connected yet.', { exact: true })).toBeVisible({ timeout: 5000 });
   });
 
 });
@@ -350,7 +371,7 @@ test.describe('4. Inbound Message Flow (Demo Mode)', () => {
     const item = page.locator(`.convo-item:has-text("${displayName}")`);
     await expect(item).toBeVisible({ timeout: 20000 });
     await item.click();
-    await expect(page.locator('.message-row:not(.outbound)')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.message-row:not(.outbound)').first()).toBeVisible({ timeout: 10000 });
   });
 
 });
@@ -366,7 +387,7 @@ test.describe('5. Outbound Messaging', () => {
     const page = await browser.newPage();
     await signupViaPage(page, suiteEmail, 'Outbound Test Biz');
     await completeOnboarding(page);
-    channelId = await createChannel(page);
+    channelId = await createMockMatrixChannel(page);
     await page.close();
   });
 
@@ -385,7 +406,11 @@ test.describe('5. Outbound Messaging', () => {
     await loginAndOpenConvo(page, `ReplySend-${Date.now()}`, 'What are your hours?');
     const reply = 'We are open Mon–Fri, 9am to 5pm!';
     await page.fill('.compose-input', reply);
+    const sendResponse = page.waitForResponse((response) =>
+      response.url().includes('/internal/conversations/') && response.url().endsWith('/send') && response.request().method() === 'POST',
+    );
     await page.click('button.send-btn');
+    expect((await sendResponse).status()).toBe(200);
     await expect(page.locator(`.msg-text:has-text("${reply}")`)).toBeVisible({ timeout: 10000 });
   });
 
@@ -447,66 +472,57 @@ test.describe('6. Lead Tracking (Full Workspace)', () => {
   }
 
   async function ensureLeadStarted(page: Page) {
-    const btn = page.locator('button.start-lead-btn');
-    if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await btn.click();
-      await expect(page.locator('select.state-select')).toBeVisible({ timeout: 8000 });
-    }
+    await expect(page.getByRole('button', { name: 'Change lead state' })).toBeVisible({ timeout: 8000 });
   }
 
   test('6.1 Lead panel visible when conversation open in full_workspace', async ({ page }) => {
     await openFreshLeadConvo(page);
-    await expect(page.locator('.lead-panel-title:has-text("Lead Profile")')).toBeVisible();
+    await expect(page.locator('.lead-panel').getByText('Lead State', { exact: true })).toBeVisible();
   });
 
-  test('6.2 Can start tracking a lead', async ({ page }) => {
+  test('6.2 Lead state control is available for a new conversation', async ({ page }) => {
     await openFreshLeadConvo(page);
     await ensureLeadStarted(page);
-    await expect(page.locator('select.state-select')).toBeVisible({ timeout: 5000 });
   });
 
   test('6.3 Can add a note to a lead', async ({ page }) => {
     await openFreshLeadConvo(page);
     await ensureLeadStarted(page);
     const note = `Playwright note ${Date.now()}`;
-    await page.fill('.note-textarea', note);
-    await page.click('button.add-note-btn:has-text("Save Note")');
-    await expect(page.locator(`.note-body:has-text("${note}")`)).toBeVisible({ timeout: 8000 });
+    await page.getByRole('button', { name: 'Internal Note' }).click();
+    await page.getByPlaceholder('Add an internal note visible only to your team...').fill(note);
+    await page.getByRole('button', { name: 'Post Internal Note' }).click();
+    await expect(page.locator('.lead-panel .note-item').filter({ hasText: note }).last()).toBeVisible({ timeout: 8000 });
   });
 
   test('6.4 Can add a tag to a lead', async ({ page }) => {
     await openFreshLeadConvo(page);
     await ensureLeadStarted(page);
     const tag = `e2e-${Date.now()}`;
-    await page.fill('.tag-input', tag);
-    await page.click('button.add-tag-btn');
-    await expect(page.locator(`.lead-tag:has-text("${tag}")`)).toBeVisible({ timeout: 8000 });
+    await page.getByTitle('Add tag').click();
+    await page.getByRole('textbox', { name: 'Tag name' }).fill(tag);
+    await page.getByRole('button', { name: 'Save tag' }).click();
+    await expect(page.locator('.lead-panel').getByText(tag, { exact: true })).toBeVisible({ timeout: 8000 });
   });
 
   test('6.5 Can change lead pipeline state', async ({ page }) => {
     await openFreshLeadConvo(page);
     await ensureLeadStarted(page);
-    const sel = page.locator('select.state-select');
-    await expect(sel).toBeVisible({ timeout: 5000 });
-    const opts = await sel.locator('option').all();
-    if (opts.length >= 2) {
-      await sel.selectOption(await opts[1].getAttribute('value') as string);
-      await page.waitForTimeout(1500);
-      await expect(sel).toBeVisible({ timeout: 5000 });
-    }
+    await page.getByRole('button', { name: 'Change lead state' }).click();
+    const options = page.locator('button[aria-label^="Set lead state to "]');
+    expect(await options.count()).toBeGreaterThan(1);
+    const nextState = await options.nth(1).getAttribute('aria-label');
+    await options.nth(1).click();
+    await expect(page.getByRole('button', { name: 'Change lead state' })).toContainText((nextState || '').replace('Set lead state to ', '').toLowerCase());
   });
 
   test('6.6 History tab shows entries after a state change', async ({ page }) => {
     await openFreshLeadConvo(page);
     await ensureLeadStarted(page);
-    const sel = page.locator('select.state-select');
-    const opts = await sel.locator('option').all();
-    if (opts.length >= 2) {
-      await sel.selectOption(await opts[1].getAttribute('value') as string);
-      await page.waitForTimeout(1500);
-    }
-    await page.click('button.panel-tab-btn:has-text("History")');
-    await expect(page.locator('.history-timeline, .empty-timeline-state')).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Change lead state' }).click();
+    await page.locator('button[aria-label^="Set lead state to "]').nth(1).click();
+    await page.getByRole('button', { name: 'Activity' }).click();
+    await expect(page.locator('.lead-panel').getByText(/Stage changed to|No state history recorded yet/).first()).toBeVisible({ timeout: 8000 });
   });
 
 });
@@ -555,21 +571,21 @@ test.describe('7. Inbox Filters & Navigation', () => {
 
   test('7.5 Settings nav link navigates to settings', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
-    await page.click('a.nav-btn:has-text("Settings")');
-    await page.waitForURL('**/settings/**', { timeout: 10000 });
-    expect(page.url()).toMatch(/\/settings\//);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 10_000 });
   });
 
   test('7.6 Logout button redirects to /login', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
-    await page.click('button.logout-btn:has-text("Logout")');
+    await page.getByRole('button', { name: 'Toggle workspace menu' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
     await page.waitForURL('**/login', { timeout: 10000 });
     expect(page.url()).toContain('/login');
   });
 
 });
 
-// ─── Suite 8: Settings Pages ──────────────────────────────────────────────────
+// ─── Suite 8: In-app Settings ─────────────────────────────────────────────────
 
 test.describe('8. Settings Pages', () => {
   let suiteEmail = '';
@@ -582,42 +598,24 @@ test.describe('8. Settings Pages', () => {
     await page.close();
   });
 
-  async function loginAndGoto(page: Page, path: string) {
+  async function loginAndOpenSettings(page: Page) {
     await loginViaPage(page, suiteEmail);
-    await page.goto(path);
-    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 10_000 });
   }
 
-  test('8.1 Account settings page renders', async ({ page }) => {
-    await loginAndGoto(page, '/settings/account');
-    await expect(page.locator('.settings-content, h1')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('8.2 Channels settings page renders', async ({ page }) => {
-    await loginAndGoto(page, '/settings/channels');
-    await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
-  });
-
-  test('8.3 Users settings page renders', async ({ page }) => {
-    await loginAndGoto(page, '/settings/users');
-    await expect(page.locator('.settings-content, h1')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('8.4 Pipeline settings page renders', async ({ page }) => {
-    await loginAndGoto(page, '/settings/pipeline');
-    await expect(page.locator('.settings-content, h1')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('8.5 Knowledge base settings page renders', async ({ page }) => {
-    await loginAndGoto(page, '/settings/knowledge-base');
-    await expect(page.locator('.settings-content, h1')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('8.6 Settings sidebar nav links are present', async ({ page }) => {
-    await loginAndGoto(page, '/settings/channels');
-    await expect(page.locator('.settings-sidebar')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('a:has-text("← Back to Inbox")')).toBeVisible();
-    await expect(page.locator('a:has-text("Channels")')).toBeVisible();
+  test('8.1 Admin can navigate every current settings section', async ({ page }) => {
+    await loginAndOpenSettings(page);
+    for (const [tab, heading] of [
+      ['General', 'General'],
+      ['Business profile', 'Business profile'],
+      ['Users & permissions', 'Users & permissions'],
+      ['Channels', 'Connected channels'],
+      [/Lead pipeline/, 'Lead pipeline']
+    ]) {
+      await page.getByRole('tab', { name: tab, exact: true }).click();
+      await expect(page.getByRole('tabpanel').getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    }
   });
 
 });
@@ -681,17 +679,18 @@ test.describe('9. WebSocket Realtime Push', () => {
 
 test.describe('10. RBAC — Admin vs Member', () => {
 
-  test('10.1 Admin sees Settings nav link in the inbox sidebar', async ({ page }) => {
+  test('10.1 Admin sees the in-app Settings control in the inbox sidebar', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('rbac1'), 'RBAC Admin Biz');
     await completeOnboarding(page);
-    await expect(page.locator('a.nav-btn:has-text("Settings")')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible({ timeout: 10000 });
   });
 
-  test('10.2 Admin can access /settings/channels without redirect', async ({ page }) => {
+  test('10.2 Admin can open the Channels section without leaving the inbox shell', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('rbac2'), 'RBAC Channel Biz');
     await completeOnboarding(page);
-    await page.goto('/settings/channels');
-    await expect(page.locator('h1:has-text("Connected Channels")')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Channels', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Connected channels', exact: true })).toBeVisible({ timeout: 15000 });
   });
 
 });
