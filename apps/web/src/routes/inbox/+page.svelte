@@ -579,9 +579,17 @@
 	const aiSuggestionText =
 		'Great choice! ✨ We have a few slots on Saturday and Sunday for manicure and haircut. Would you like me to share the available times?';
 
+	let showAiSuggestion = $state(true);
+
 	function useAISuggestion() {
 		messageInput = aiSuggestionText;
 		handleSendMessage();
+	}
+
+	function handleBackToConversations() {
+		inbox.activeConvoID = null;
+		inbox.activeConvo = null;
+		inbox.messages = [];
 	}
 
 	// ─── Knowledge Tab State ───────────────────────────────────────────────────
@@ -748,8 +756,8 @@
 
 <div class="flex h-screen w-full bg-slate-50 overflow-hidden text-slate-800 font-sans">
 	
-	<!-- ================= LEFT MAIN NAVIGATION ================= -->
-	<aside class="relative w-56 flex flex-col justify-between p-4 bg-transparent shrink-0 overflow-hidden">
+	<!-- ================= LEFT MAIN NAVIGATION (Desktop) ================= -->
+	<aside class="hidden lg:flex relative w-56 flex-col justify-between p-4 bg-transparent shrink-0 overflow-hidden">
 		<!-- Bottom Hero Illustration (anchored to bottom, full width, fading to background at top and bottom) -->
 		<div class="absolute bottom-0 left-0 right-0 w-full pointer-events-none select-none z-0 overflow-hidden">
 			<img
@@ -896,10 +904,10 @@
 	</aside>
 
 	<!-- ================= MAIN CONTAINER (WHITE CANVAS EXTENDING TO EDGES) ================= -->
-	<main class="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white border-l border-slate-200/80">
+	<main class="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white lg:border-l border-slate-200/80">
 		
-		<!-- --- Global Top Bar (Matches leads-tab.webp) --- -->
-		<header class="h-16 px-6 sm:px-8 border-b border-slate-100 flex items-center justify-between shrink-0">
+		<!-- --- Global Top Bar (Desktop) --- -->
+		<header class="hidden lg:flex h-16 px-6 sm:px-8 border-b border-slate-100 items-center justify-between shrink-0">
 			<!-- Search Bar -->
 			<div class="relative w-80 sm:w-96">
 				<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -958,11 +966,11 @@
 			<div class="flex-1 flex overflow-hidden min-h-0 h-full">
 				
 				<!-- ================= COLUMN 1: INBOX CONVERSATION LIST ================= -->
-				<div class="w-[300px] xl:w-[320px] border-r border-slate-100 flex flex-col shrink-0 bg-white min-h-0 h-full">
+				<div class="{inbox.activeConvo ? 'hidden lg:flex' : 'flex'} w-full lg:w-[300px] xl:w-[320px] border-r border-slate-100 flex-col shrink-0 bg-white min-h-0 h-full pb-16 lg:pb-0">
 					<!-- Header & Filter Pills -->
 					<div class="p-4 pb-3 border-b border-slate-100 space-y-3">
 						<div class="flex items-center justify-between">
-							<h1 class="text-lg font-medium text-slate-900 tracking-tight">Inbox</h1>
+							<h1 class="text-xl lg:text-lg font-medium text-slate-900 tracking-tight">Inbox</h1>
 							<button title="Filter options" class="text-slate-400 hover:text-slate-600 p-1">
 								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 									<path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -970,11 +978,26 @@
 							</button>
 						</div>
 
+						<!-- Search bar (matching mobile mock) -->
+						<div class="relative w-full">
+							<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+								</svg>
+							</span>
+							<input
+								type="text"
+								bind:value={searchQuery}
+								placeholder="Search conversations"
+								class="w-full h-9 pl-9 pr-8 bg-slate-50 text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 transition"
+							/>
+						</div>
+
 						<!-- Tabs: All / Unassigned / Mine -->
-						<div class="flex items-center gap-1.5 text-xs">
+						<div class="flex items-center gap-1.5 text-xs overflow-x-auto pb-0.5">
 							<button
 								onclick={() => changeFilter('all')}
-								class="tab-btn px-3 py-1 rounded-full font-medium flex items-center gap-1.5 transition {inbox.filter === 'all' ? 'bg-blue-50 text-blue-600 border border-blue-200/60' : 'text-slate-500 hover:bg-slate-100'}"
+								class="tab-btn px-3 py-1 rounded-full font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 {inbox.filter === 'all' ? 'bg-blue-50 text-blue-600 border border-blue-200/60 active' : 'text-slate-500 hover:bg-slate-100'}"
 							>
 								<span>All</span>
 								<span class="bg-blue-600 text-white text-[10px] font-medium px-1.5 py-0.2 rounded-full">{countAll}</span>
@@ -982,7 +1005,7 @@
 
 							<button
 								onclick={() => changeFilter('unassigned')}
-								class="tab-btn px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 transition {inbox.filter === 'unassigned' ? 'bg-blue-50 text-blue-600 border border-blue-200/60' : 'text-slate-500 hover:bg-slate-100'}"
+								class="tab-btn px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 {inbox.filter === 'unassigned' ? 'bg-blue-50 text-blue-600 border border-blue-200/60 active' : 'text-slate-500 hover:bg-slate-100'}"
 							>
 								<span>Unassigned</span>
 								<span class="text-slate-400 text-[11px]">{countUnassigned}</span>
@@ -990,20 +1013,12 @@
 
 							<button
 								onclick={() => changeFilter('mine')}
-								class="tab-btn px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 transition {inbox.filter === 'mine' ? 'bg-blue-50 text-blue-600 border border-blue-200/60' : 'text-slate-500 hover:bg-slate-100'}"
+								class="tab-btn px-2.5 py-1 rounded-full font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 {inbox.filter === 'mine' ? 'bg-blue-50 text-blue-600 border border-blue-200/60 active' : 'text-slate-500 hover:bg-slate-100'}"
 							>
 								<span>Mine</span>
 								<span class="text-slate-400 text-[11px]">{countMine}</span>
 							</button>
 						</div>
-
-						<!-- Secondary Filter Button -->
-						<button class="flex items-center gap-1.5 text-xs font-medium text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 transition">
-							<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-							</svg>
-							<span>Filters</span>
-						</button>
 					</div>
 
 					<!-- Conversation List Items -->
@@ -1077,7 +1092,7 @@
 				</div>
 
 				<!-- ================= COLUMN 2: ACTIVE CHAT AREA ================= -->
-				<div class="flex-1 flex flex-col bg-slate-50 border-r border-slate-100 min-h-0 overflow-hidden">
+				<div class="{inbox.activeConvo ? 'flex' : 'hidden lg:flex'} flex-1 flex-col bg-slate-50 border-r border-slate-100 min-h-0 overflow-hidden w-full">
 					{#if !inbox.activeConvo}
 						<div class="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
 							<div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -1089,9 +1104,20 @@
 							<p class="text-xs text-slate-400 max-w-xs">Pick a chat from the inbox on the left to view messages and respond.</p>
 						</div>
 					{:else}
-						<!-- Chat Top Header -->
-						<div class="h-16 px-6 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
-							<div class="flex items-center gap-3 min-w-0">
+						<!-- Chat Top Header (with back button on mobile matching mock) -->
+						<div class="h-16 px-4 sm:px-6 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+							<div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+								<button
+									type="button"
+									class="lg:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-900 rounded-lg active:bg-slate-100 transition cursor-pointer shrink-0"
+									onclick={handleBackToConversations}
+									aria-label="Back to conversations"
+								>
+									<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+									</svg>
+								</button>
+
 								<UserAvatar
 									name={getContactName(inbox.activeConvo)}
 									avatar={inbox.activeConvo.contact?.avatar_url}
@@ -1100,7 +1126,7 @@
 								/>
 								<div class="min-w-0">
 									<h2 class="font-medium text-sm text-slate-900 leading-tight whitespace-nowrap truncate">{getContactName(inbox.activeConvo)}</h2>
-									<p class="text-xs text-slate-400 leading-tight whitespace-nowrap truncate">{getContactHandle(inbox.activeConvo)}</p>
+									<p class="text-xs text-slate-400 leading-tight whitespace-nowrap truncate">{getContactHandle(inbox.activeConvo) || getChannelLabel(inbox.activeConvo.channel_type || inbox.activeConvo.channel?.type)}</p>
 								</div>
 							</div>
 
@@ -1147,7 +1173,7 @@
 						</div>
 
 						<!-- Message Stream -->
-						<div bind:this={messageContainer} class="flex-1 p-6 overflow-y-auto space-y-4">
+						<div bind:this={messageContainer} class="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
 							<!-- Date Separator -->
 							<div class="flex justify-center my-2">
 								<span class="text-[11px] font-medium text-slate-400 bg-slate-100/60 px-3 py-0.5 rounded-full">Messages</span>
@@ -1190,12 +1216,45 @@
 							{/if}
 						</div>
 
-						<!-- --- Chat Composer & AI Suggestion --- -->
-						<div class="p-4 bg-white border-t border-slate-100 shrink-0">
+						<!-- --- Chat Composer & AI Suggestion (matching mock) --- -->
+						<div class="p-3 sm:p-4 bg-white border-t border-slate-100 shrink-0">
+							{#if showAiSuggestion && replyTab === 'reply'}
+								<!-- AI Suggested Response Box (floating above composer matching mock) -->
+								<div class="mb-3 p-3 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1.5 relative">
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-1.5 text-xs font-medium text-blue-700">
+											<svg class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
+												<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
+											</svg>
+											<span>AI reply suggestion</span>
+										</div>
+										<button
+											type="button"
+											onclick={() => showAiSuggestion = false}
+											class="text-slate-400 hover:text-slate-600 p-0.5 text-xs"
+											aria-label="Dismiss suggestion"
+										>
+											✕
+										</button>
+									</div>
+									<div class="text-xs text-slate-700 leading-snug">
+										{aiSuggestionText}
+									</div>
+									<div class="flex justify-end pt-1">
+										<button
+											type="button"
+											onclick={useAISuggestion}
+											class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition shadow-2xs cursor-pointer"
+										>
+											Use this
+										</button>
+									</div>
+								</div>
+							{/if}
+
 							<div class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden">
-								
 								<!-- Tabs: Reply | Internal Note -->
-								<div class="flex items-center gap-6 px-4 pt-3 border-b border-slate-100 text-xs font-medium">
+								<div class="flex items-center gap-6 px-4 pt-2.5 border-b border-slate-100 text-xs font-medium">
 									<button
 										onclick={() => replyTab = 'reply'}
 										class="pb-2 transition {replyTab === 'reply' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
@@ -1211,44 +1270,18 @@
 								</div>
 
 								{#if replyTab === 'reply'}
-									<!-- AI Suggested Response Box -->
-									<div class="m-3 p-3.5 rounded-xl bg-blue-50/40 border border-blue-100 flex items-start justify-between gap-3">
-										<div class="space-y-1">
-											<div class="flex items-center gap-1.5 text-xs font-medium text-blue-600">
-												<svg class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
-												</svg>
-												<span>AI Suggested</span>
-											</div>
-											<div class="text-xs text-slate-700 leading-snug">
-												<div class="font-medium flex items-center gap-1">
-													Great choice! ✨
-												</div>
-												<div class="text-slate-600 text-[11.5px] mt-0.5">
-													We have a few slots available. Would you like me to share the schedule details?
-												</div>
-											</div>
-										</div>
-										<button
-											onclick={useAISuggestion}
-											class="shrink-0 px-3 py-1.5 bg-white text-blue-600 text-xs font-medium rounded-lg border border-blue-200 hover:bg-blue-50 transition"
-										>
-											Use this reply
-										</button>
-									</div>
-
 									<!-- Text Input Area -->
-									<div class="px-4 py-2">
+									<div class="px-4 py-2.5">
 										<input
 											type="text"
 											bind:value={messageInput}
 											onkeydown={handleKeydown}
-											placeholder="Type your message..."
-											class="compose-input w-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
+											placeholder="Type a message..."
+											class="compose-input w-full text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
 										/>
 									</div>
 
-									<!-- Bottom Toolbar & Split Send Button -->
+									<!-- Bottom Toolbar & Send Button (matching mock) -->
 									<div class="flex items-center justify-between px-3 py-2 border-t border-slate-100/60 bg-slate-50/40">
 										<!-- Left icon tools -->
 										<div class="flex items-center gap-1 text-slate-400">
@@ -1267,7 +1300,7 @@
 													<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
 												</svg>
 											</button>
-													<button title="Quick automation" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+											<button title="Quick automation" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
 												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 													<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
 												</svg>
@@ -1275,13 +1308,13 @@
 										</div>
 
 										<!-- Right Action: Circular Send button -->
-									<button
-										onclick={handleSendMessage}
-										disabled={!messageInput.trim() || !inbox.activeConvoID}
-										class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-40"
-										aria-label="Send message"
+										<button
+											onclick={handleSendMessage}
+											disabled={!messageInput.trim() || !inbox.activeConvoID}
+											class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-full flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-40 shadow-xs cursor-pointer"
+											aria-label="Send message"
 										>
-											<svg class="w-4 h-4 rotate-45 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+											<svg class="w-4 h-4 rotate-45 -mt-0.5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
 												<path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
 											</svg>
 										</button>
@@ -1311,7 +1344,7 @@
 				</div>
 
 				<!-- ================= COLUMN 3: RIGHT DETAILS & AI SUMMARY ================= -->
-				<div class="lead-panel w-[300px] xl:w-[320px] bg-white flex flex-col shrink-0 overflow-y-auto min-h-0 h-full">
+				<div class="lead-panel hidden lg:flex w-[300px] xl:w-[320px] bg-white flex-col shrink-0 overflow-y-auto min-h-0 h-full">
 					<!-- Header Tabs: Lead / Details / Activity -->
 					<div class="flex items-center justify-around border-b border-slate-100 text-xs font-medium text-slate-400 pt-3 px-2">
 						<button
@@ -1889,9 +1922,87 @@
 
 		{:else if selectedNav === 'settings'}
 			<!-- ================= SETTINGS VIEW ================= -->
-			<SettingsView {inbox} {workspace} initialSection="general" onNavigate={(tab) => selectedNav = tab as any} />
+			<div class="flex-1 flex flex-col min-h-0 overflow-y-auto pb-16 lg:pb-0">
+				<SettingsView {inbox} {workspace} initialSection="general" onNavigate={(tab) => selectedNav = tab as any} />
+			</div>
 		{/if}
 
 	</main>
+
+	<!-- ================= MOBILE BOTTOM NAVIGATION (Matches mock) ================= -->
+	{#if !inbox.activeConvo || selectedNav !== 'inbox'}
+		<nav class="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 py-1.5 px-2 flex items-center justify-around">
+			<!-- 1. Inbox -->
+			<a
+				href="#inbox"
+				role="button"
+				onclick={(e) => { e.preventDefault(); selectedNav = 'inbox'; handleBackToConversations(); }}
+				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'inbox' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
+			>
+				<div class="relative">
+					<svg class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+					</svg>
+					{#if countUnassigned > 0}
+						<span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-600"></span>
+					{/if}
+				</div>
+				<span class="text-[11px] mt-0.5">Inbox</span>
+			</a>
+
+			<!-- 2. Leads -->
+			<a
+				href="#leads"
+				role="button"
+				onclick={(e) => { e.preventDefault(); selectedNav = 'leads'; }}
+				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'leads' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
+			>
+				<svg class="w-5 h-5 {selectedNav === 'leads' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+				</svg>
+				<span class="text-[11px] mt-0.5">Leads</span>
+			</a>
+
+			<!-- 3. Automate -->
+			<a
+				href="#automate"
+				role="button"
+				onclick={(e) => { e.preventDefault(); selectedNav = 'automation'; }}
+				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'automation' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
+			>
+				<svg class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+				</svg>
+				<span class="text-[11px] mt-0.5">Automate</span>
+			</a>
+
+			<!-- 4. Knowledge -->
+			<a
+				href="#knowledge"
+				role="button"
+				onclick={(e) => { e.preventDefault(); selectedNav = 'knowledge'; void loadKnowledgeTab(); }}
+				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'knowledge' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
+			>
+				<svg class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+				</svg>
+				<span class="text-[11px] mt-0.5">Knowledge</span>
+			</a>
+
+			<!-- 5. Settings -->
+			<a
+				href="#settings"
+				role="button"
+				onclick={(e) => { e.preventDefault(); selectedNav = 'settings'; }}
+				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'settings' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
+			>
+				<svg class="w-5 h-5 {selectedNav === 'settings' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+					<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+				</svg>
+				<span class="text-[11px] mt-0.5">Settings</span>
+			</a>
+		</nav>
+	{/if}
 
 </div>

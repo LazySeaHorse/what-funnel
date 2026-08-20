@@ -13,7 +13,7 @@
 	} = $props();
 </script>
 
-<div class="w-full lg:w-80 xl:w-96 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
+<div class="hidden lg:flex w-full lg:w-80 xl:w-96 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200/80 flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
 	<div class="relative z-10">
 		<BrandLogo class="mb-8" />
 		{#if stepNum === 7}
@@ -35,7 +35,7 @@
 	</div>
 </div>
 
-<div class="w-full lg:w-56 p-6 lg:py-10 lg:px-6 border-b lg:border-b-0 lg:border-r border-slate-100 bg-white shrink-0 flex flex-col justify-start">
+<div class="hidden lg:flex w-full lg:w-56 p-6 lg:py-10 lg:px-6 border-b lg:border-b-0 lg:border-r border-slate-100 bg-white shrink-0 flex-col justify-start">
 	<div class="flex lg:flex-col gap-3 sm:gap-6 overflow-x-auto lg:overflow-x-visible">
 		{#each stepItems as item}
 			{@const isActive = item.num === stepNum}

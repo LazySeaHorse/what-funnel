@@ -114,7 +114,8 @@ export class InboxState {
 	}
 	
 	async sendMessage(text: string) {
-		if (!this.activeConvoID || !text.trim()) return;
+		const convoID = this.activeConvoID || this.pendingConvoID;
+		if (!convoID || !text.trim()) return;
 		try {
 			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
 			const body: any = {
@@ -125,7 +126,7 @@ export class InboxState {
 			if (senderUserId) {
 				body.sender_user_id = senderUserId;
 			}
-			const res = await apiRequest(`/internal/conversations/${this.activeConvoID}/send`, {
+			const res = await apiRequest(`/internal/conversations/${convoID}/send`, {
 				method: 'POST',
 				body
 			});

@@ -40,8 +40,8 @@
 	<title>Create Account — What Funnel</title>
 </svelte:head>
 
-<div class="wf-page flex items-center justify-center p-4 selection:bg-blue-100 selection:text-blue-900 sm:p-8 lg:p-12">
-	<div class="w-full max-w-[1360px] mx-auto relative">
+<div class="wf-page min-h-screen flex flex-col justify-between p-4 pt-6 pb-0 sm:p-8 lg:p-12 selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
+	<div class="w-full max-w-[1360px] mx-auto relative flex-1 flex flex-col justify-between lg:justify-center">
 		
 		{#if toastMessage}
 			<div class="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all">
@@ -53,10 +53,10 @@
 			</div>
 		{/if}
 
-		<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+		<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center flex-1">
 			
-			<!-- Left Column: Brand, Headline, 3D Hero Image -->
-			<div class="lg:col-span-7 flex flex-col justify-between h-full relative">
+			<!-- Left Column: Brand, Headline, 3D Hero Image (Desktop only) -->
+			<div class="hidden lg:flex lg:col-span-7 flex-col justify-between h-full relative">
 				
 				<!-- Top Content -->
 				<div class="pt-6 sm:pt-10 lg:pt-12">
@@ -113,14 +113,19 @@
 
 			</div>
 
-			<!-- Right Column: Create Account Card -->
-			<div class="lg:col-span-5 flex justify-center lg:justify-end items-center">
-				<div class="wf-card w-full max-w-[460px] p-7 sm:p-9">
+			<!-- Right Column: Create Account Card (Mobile & Desktop) -->
+			<div class="lg:col-span-5 flex flex-col justify-start lg:justify-center items-center lg:items-end w-full">
+				<!-- Mobile Brand Header -->
+				<div class="lg:hidden flex flex-col items-center text-center mb-4 pt-1">
+					<BrandLogo size="md" />
+				</div>
+
+				<div class="wf-card w-full max-w-[460px] p-6 sm:p-9 shadow-sm sm:shadow-xs">
 					
-					<!-- Form Header -->
-					<div>
+					<!-- Form Header (Centered on mobile) -->
+					<div class="text-center lg:text-left">
 						<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Create workspace</h2>
-						<p class="text-slate-500 text-sm mt-1">Get started with your new account</p>
+						<p class="text-slate-500 text-sm mt-1 font-normal">Get started with your new account</p>
 					</div>
 
 					<!-- Error alert -->
@@ -302,8 +307,20 @@
 					</div>
 
 				</div>
+
 			</div>
 
 		</div>
 	</div>
+
+	<!-- Mobile Bottom Hero Illustration (Moved to the very bottom of the screen) -->
+	<div class="lg:hidden w-[calc(100%+2rem)] -mx-4 mt-auto pointer-events-none select-none flex items-end justify-center overflow-hidden leading-none z-0">
+		<img
+			src={heroImage}
+			alt="What Funnel Dashboard & Customer Experience in 3D"
+			class="w-full h-auto max-h-[260px] sm:max-h-[320px] object-cover object-bottom block"
+			loading="eager"
+		/>
+	</div>
+
 </div>

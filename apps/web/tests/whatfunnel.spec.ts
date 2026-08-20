@@ -556,7 +556,7 @@ test.describe('7. Inbox Filters & Navigation', () => {
 
   test('7.3 Clicking a filter tab changes the active state', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
-    await expect(page.locator('button.tab-btn')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button.tab-btn').first()).toBeVisible({ timeout: 10000 });
     await page.click('button.tab-btn:has-text("Unassigned")');
     await expect(page.locator('button.tab-btn.active:has-text("Unassigned")')).toBeVisible({ timeout: 3000 });
   });
@@ -631,7 +631,7 @@ test.describe('9. WebSocket Realtime Push', () => {
     const page = await browser.newPage();
     await signupViaPage(page, suiteEmail, 'WS Test Biz');
     await completeOnboarding(page);
-    channelId = await createChannel(page);
+    channelId = await createMockMatrixChannel(page);
     await page.close();
   });
 

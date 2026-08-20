@@ -129,6 +129,8 @@ FAQs:
 		}
 		if (stepNum > 1) {
 			goToStep(stepNum - 1);
+		} else {
+			goto('/login');
 		}
 	}
 
@@ -321,29 +323,58 @@ FAQs:
 </svelte:head>
 
 {#if stepNum >= 1 && stepNum <= 7}
-	<!-- FULL-SCREEN 3-COLUMN ONBOARDING INTERFACE (Pure Tailwind) -->
-	<div class="min-h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-x-hidden font-sans text-slate-800 antialiased">
+	<!-- FULL-SCREEN ONBOARDING INTERFACE (Pure Tailwind) -->
+	<div class="h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-hidden font-sans text-slate-800 antialiased relative">
 		
 		<OnboardingChrome stepNum={stepNum} stepItems={STEP_ITEMS} onStep={goToStep} />
 
 		<!-- Right Main Form Content Column: Takes Up Full Remaining Width -->
-		<div class="flex-1 p-6 sm:p-10 lg:p-12 overflow-y-auto bg-white flex flex-col justify-between min-h-0">
-			<div class="w-full flex flex-col min-h-full justify-between">
+		<div class="flex-1 relative overflow-y-auto bg-white flex flex-col justify-between min-h-0 p-5 sm:p-10 lg:p-12 pb-24 sm:pb-8">
+			<div class="w-full flex flex-col min-h-full justify-between relative z-10">
 				<div class="w-full">
+					<!-- Mobile Top Bar: Back Button & Step Progress Stepper (matching mobile mock) -->
+					<div class="lg:hidden flex items-center justify-between pb-4 mb-5 border-b border-slate-100">
+						<button
+							type="button"
+							class="p-2 -ml-2 text-slate-500 hover:text-slate-900 rounded-lg active:bg-slate-100 transition cursor-pointer"
+							onclick={handleBack}
+							aria-label="Go back"
+						>
+							<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M15 18l-6-6 6-6" />
+							</svg>
+						</button>
+
+						{#if stepNum <= 6}
+							<div class="flex items-center gap-1.5" aria-label={`Step ${stepNum} of 6`}>
+								{#each Array(6) as _, idx}
+									{@const s = idx + 1}
+									<div class="h-1.5 rounded-full transition-all duration-200 {s === stepNum ? 'w-5 bg-blue-600' : s < stepNum ? 'w-2.5 bg-blue-600' : 'w-2 bg-slate-200'}"></div>
+								{/each}
+							</div>
+						{:else}
+							<div class="text-xs font-medium text-slate-500">Setup Complete</div>
+						{/if}
+
+						<div class="w-9"></div>
+					</div>
+
 					<!-- STEP 1: BUSINESS INFO -->
 					{#if stepNum === 1}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 1 of 6</div>
-						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">This helps us personalize your workspace.</p>
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 1 of 6</div>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
+							<p class="text-sm text-slate-500 font-normal">This helps us personalize your workspace.</p>
+						</div>
 
-						<div class="space-y-5 w-full">
+						<div class="space-y-5 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 							<div>
 								<label for="business-name" class="block text-xs font-medium text-slate-700 mb-1.5">Business name</label>
 								<input
 									id="business-name"
 									type="text"
 									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-normal"
-									placeholder="e.g. Your business name"
+									placeholder="e.g. Glow Hair Studio"
 									bind:value={s1BusinessName}
 								/>
 							</div>
@@ -391,15 +422,17 @@ FAQs:
 
 					<!-- STEP 2: CHANNELS -->
 					{:else if stepNum === 2}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 6</div>
-						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">Bring all your customer conversations into one place. Each connection is completed in workspace settings.</p>
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 6</div>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
+							<p class="text-sm text-slate-500 font-normal">Bring all your conversations into one place.</p>
+						</div>
 
-						<div class="space-y-3 w-full">
+						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 							{#each channels as ch}
-								<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition">
+								<div class="flex items-center justify-between p-3.5 sm:p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition">
 									<div class="flex items-center gap-3">
-										<div class="w-9 h-9 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center">
+										<div class="w-9 h-9 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
 											<Icon name={ch.icon} size={20} color={ch.color} />
 										</div>
 										<span class="text-sm font-medium text-slate-800">{ch.name}</span>
@@ -409,29 +442,53 @@ FAQs:
 										{#if ch.connected}
 											<button type="button" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium cursor-pointer" onclick={() => toggleChannel(ch)}>
 												<Icon name="check" size={14} color="#10B981" />
-											<span>Connected</span>
-										</button>
-									{:else}
-										<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => toggleChannel(ch)}>
-											Set up
+												<span>Connected</span>
+											</button>
+										{:else}
+											<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => toggleChannel(ch)}>
+												Connect
 											</button>
 										{/if}
 									</div>
 								</div>
 							{/each}
+
+							<!-- Web Chat coming soon item (matching mock) -->
+							<div class="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/50 border border-slate-200/60 rounded-xl opacity-75">
+								<div class="flex items-center gap-3">
+									<div class="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 text-slate-400">
+										<Icon name="chat" size={18} color="currentColor" />
+									</div>
+									<span class="text-sm font-medium text-slate-600">Web Chat</span>
+								</div>
+								<span class="px-2.5 py-1 text-[11px] font-medium text-slate-400 bg-slate-100 rounded-lg">Coming soon</span>
+							</div>
+
+							<p class="text-xs text-slate-400 text-center lg:text-left pt-2">You can connect more later.</p>
 						</div>
 
 					<!-- STEP 3: LEAD PIPELINE -->
 					{:else if stepNum === 3}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 3 of 6</div>
-						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">Create the stages your leads will go through.</p>
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 3 of 6</div>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
+							<p class="text-sm text-slate-500 font-normal">Create the stages your leads will go through.</p>
+						</div>
 
-						<div class="space-y-3 w-full">
-							<div class="space-y-2 w-full">
+						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
+							<div class="space-y-2.5 w-full">
 								{#each pipelineStages as stage, i}
-									<div class="flex items-center gap-2.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl w-full">
-										<div class="w-2.5 h-2.5 rounded-full shrink-0 ml-1" style="background-color: {stage.color};"></div>
+									<div class="flex items-center gap-2.5 p-2 sm:p-2.5 bg-slate-50/80 border border-slate-200 rounded-xl w-full">
+										<!-- Drag grip dots icon (matching mock) -->
+										<div class="grid grid-cols-2 gap-0.5 text-slate-300 shrink-0 ml-1.5">
+											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
+											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
+											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
+											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
+											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
+											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
+										</div>
+										<div class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: {stage.color};"></div>
 										<input
 											type="text"
 											class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none font-normal"
@@ -451,7 +508,7 @@ FAQs:
 								{/each}
 							</div>
 
-							<button type="button" class="mt-2 flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer" onclick={addStage}>
+							<button type="button" class="mt-2 flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed" onclick={addStage}>
 								<Icon name="plus" size={14} color="currentColor" />
 								<span>Add another stage</span>
 							</button>
@@ -459,11 +516,13 @@ FAQs:
 
 					<!-- STEP 4: AI ASSISTANT -->
 					{:else if stepNum === 4}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 4 of 6</div>
-						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Meet your AI Assistant</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">How would you like your assistant to handle conversations?</p>
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 4 of 6</div>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Meet your AI Assistant</h2>
+							<p class="text-sm text-slate-500 font-normal">How should your assistant handle conversations?</p>
+						</div>
 
-						<div class="space-y-3 w-full">
+						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 							<!-- Option 1: Auto answer -->
 							<button
 								type="button"
@@ -482,7 +541,7 @@ FAQs:
 										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will answer customer questions automatically when confidence is high.</p>
 									</div>
 								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 {s4AiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s4AiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
 									{#if s4AiMode === 'auto_answer'}
 										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
 									{/if}
@@ -504,7 +563,7 @@ FAQs:
 										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will draft suggested responses for your team to review and dispatch.</p>
 									</div>
 								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 {s4AiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s4AiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
 									{#if s4AiMode === 'suggest_only'}
 										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
 									{/if}
@@ -526,7 +585,7 @@ FAQs:
 										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will not send messages automatically. All replies are composed manually.</p>
 									</div>
 								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 {s4AiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s4AiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
 									{#if s4AiMode === 'manual'}
 										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
 									{/if}
@@ -536,13 +595,15 @@ FAQs:
 
 					<!-- STEP 5: KNOWLEDGE BASE -->
 					{:else if stepNum === 5}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 5 of 6</div>
-						{#if s5Status === 'input'}
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 5 of 6</div>
 							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Teach your AI assistant</h2>
-							<p class="text-sm text-slate-500 mb-6 font-normal">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
+							<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
+						</div>
 
-							<div class="space-y-4 w-full">
-								<div class="flex flex-wrap items-center gap-2">
+						{#if s5Status === 'input'}
+							<div class="space-y-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
+								<div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
 									<span class="text-xs font-medium text-slate-500">Quick templates:</span>
 									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Services & Pricing', '- Standard service: $50\n- Premium package: $120')}>
 										+ Pricing
@@ -571,7 +632,7 @@ FAQs:
 									<Icon name="sparkles" size={24} color="currentColor" />
 								</div>
 								<h2 class="text-xl font-medium text-slate-900">Organizing your knowledge...</h2>
-								<p class="text-xs sm:text-sm text-slate-500 max-w-sm font-normal">
+								<p class="text-xs sm:text-sm text-slate-500 max-w-sm lg:max-w-none font-normal">
 									Structuring raw business notes into categorized concepts and FAQ patterns.
 								</p>
 
@@ -585,7 +646,7 @@ FAQs:
 							</div>
 
 						{:else if s5Status === 'results'}
-							<div class="flex items-center justify-between mb-4 w-full">
+							<div class="flex items-center justify-between mb-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 								<div>
 									<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Structured Knowledge</h2>
 									<p class="text-sm text-slate-500 font-normal">Concepts inferred from your business notes:</p>
@@ -595,7 +656,7 @@ FAQs:
 								</button>
 							</div>
 
-							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 								{#each s5Concepts as concept}
 									<div class="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
 										<div class="flex items-center justify-between">
@@ -610,11 +671,13 @@ FAQs:
 
 					<!-- STEP 6: REVIEW AND FINISH -->
 					{:else if stepNum === 6}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 6 of 6</div>
-						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">Here’s a summary of your workspace setup.</p>
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 6 of 6</div>
+							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
+							<p class="text-sm text-slate-500 font-normal">Here’s a summary of your workspace setup.</p>
+						</div>
 
-						<div class="space-y-3 w-full">
+						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 							<!-- Business -->
 							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 								<div class="flex items-center gap-3">
@@ -623,7 +686,7 @@ FAQs:
 									</div>
 									<div>
 										<div class="text-[11px] font-medium text-slate-400 uppercase">Business</div>
-									<div class="text-sm font-medium text-slate-900">{s1BusinessName || 'Your workspace'}</div>
+										<div class="text-sm font-medium text-slate-900">{s1BusinessName || 'Your workspace'}</div>
 									</div>
 								</div>
 								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(1)}>Edit</button>
@@ -688,38 +751,42 @@ FAQs:
 
 					<!-- STEP 7: ALL SET! READY TO GO -->
 					{:else if stepNum === 7}
-						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup Complete</div>
-						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">All set! You’re ready to go</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">Your workspace is configured and ready. Start managing customer conversations and capturing leads.</p>
-
-						<div class="space-y-3 w-full">
-							<div class="p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-3.5">
-								<div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
-									<Icon name="check" size={18} color="#FFFFFF" strokeWidth={2.5} />
-								</div>
-								<div>
-									<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
-									<div class="text-xs text-slate-500 font-normal mt-0.5">Your business profile, channels, and reply preferences are active.</div>
-								</div>
+						<div class="flex flex-col items-center lg:items-start text-center lg:text-left max-w-lg lg:max-w-none mx-auto lg:mx-0 pb-6 sm:py-2">
+							<!-- 3D Mascot / Happy illustration: Full width on mobile only with linear edge fades (hidden on desktop) -->
+							<div
+								class="lg:hidden w-[calc(100%+2.5rem)] -mx-5 -mt-2 mb-6 flex items-center justify-center overflow-hidden"
+								style="-webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent), linear-gradient(to right, transparent, black 28%, black 72%, transparent); -webkit-mask-composite: source-in; mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent), linear-gradient(to right, transparent, black 28%, black 72%, transparent); mask-composite: intersect;"
+							>
+								<img
+									src="/images/onboarding-happy.webp"
+									alt="Workspace Ready Mascot"
+									class="w-full max-h-64 object-contain"
+								/>
 							</div>
 
-							<div class="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
-								<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-									<Icon name="chat" size={18} color="currentColor" />
-								</div>
-								<div>
-									<div class="text-sm font-medium text-slate-900">Omni-Channel Inbox</div>
-									<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from WhatsApp, Instagram, Messenger, and Telegram in one unified view.</div>
-								</div>
-							</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup Complete</div>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-2">You’re all set! 🎉</h2>
+							<p class="text-sm text-slate-500 mb-8 font-normal leading-relaxed max-w-md lg:max-w-none">Your workspace is configured and ready to go. Let’s start converting conversations into customers.</p>
 
-							<div class="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
-								<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-									<Icon name="bot" size={18} color="currentColor" />
+							<div class="space-y-3 w-full text-left">
+								<div class="p-3.5 sm:p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-3.5">
+									<div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+										<Icon name="check" size={18} color="#FFFFFF" strokeWidth={2.5} />
+									</div>
+									<div>
+										<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
+										<div class="text-xs text-slate-500 font-normal mt-0.5">Your business profile, channels, and reply preferences are active.</div>
+									</div>
 								</div>
-								<div>
-									<div class="text-sm font-medium text-slate-900">AI Co-pilot & Auto Answers</div>
-									<div class="text-xs text-slate-500 font-normal mt-0.5">Answers customer queries and generates reply drafts tailored to your business rules.</div>
+
+								<div class="p-3.5 sm:p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
+									<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+										<Icon name="chat" size={18} color="currentColor" />
+									</div>
+									<div>
+										<div class="text-sm font-medium text-slate-900">Omni-Channel Inbox</div>
+										<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from WhatsApp, Instagram, Messenger, and Telegram.</div>
+									</div>
 								</div>
 							</div>
 						</div>
