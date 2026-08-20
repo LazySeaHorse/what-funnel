@@ -10,7 +10,7 @@
 	}: {
 		name?: string;
 		avatar?: string;
-		size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+		size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 		channel?: string;
 		class?: string;
 	} = $props();
@@ -25,7 +25,7 @@
 		'bg-emerald-100 text-emerald-700',
 		'bg-amber-100 text-amber-700',
 		'bg-rose-100 text-rose-700',
-		'bg-cyan-100 text-cyan-700'
+		'bg-sky-100 text-sky-700'
 	];
 
 	function getDeterministicBg(str: string): string {
@@ -43,8 +43,9 @@
 		xs: 'w-5 h-5 text-[10px]',
 		sm: 'w-6 h-6 text-xs',
 		md: 'w-8 h-8 text-xs',
-		lg: 'w-10 h-10 text-sm font-semibold',
-		xl: 'w-12 h-12 text-base font-semibold'
+		lg: 'w-9 h-9 text-xs font-semibold',
+		xl: 'w-12 h-12 text-base font-semibold',
+		'2xl': 'w-14 h-14 text-base font-semibold'
 	};
 </script>
 

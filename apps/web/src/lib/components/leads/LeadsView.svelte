@@ -67,8 +67,8 @@
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 h-full overflow-hidden bg-white">
-	<!-- Top Sub-Header: Filter Chips -->
-	<div class="px-6 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+	<!-- Top Sub-Header: Filter Pills/Cards -->
+	<div class="px-6 pb-3 flex items-center justify-between shrink-0 bg-white">
 		<LeadStageFilters
 			{activeFilter}
 			{counts}
@@ -106,4 +106,3 @@
 		{/if}
 	</div>
 </div>
-
