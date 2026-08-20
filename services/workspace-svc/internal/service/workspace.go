@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -152,14 +151,7 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 		return fmt.Errorf("query account details: %w", err)
 	}
 
-	var settings map[string]any
-	if len(settingsBytes) > 0 {
-		if err := json.Unmarshal(settingsBytes, &settings); err != nil {
-			settings = make(map[string]any)
-		}
-	} else {
-		settings = make(map[string]any)
-	}
+	settings := parseSettings(settingsBytes)
 
 	if newMode == "chatbot_only" {
 		settings["lead_tracking_enabled"] = false
@@ -347,12 +339,12 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Verify target user belongs to this account
-	var count int
+	// Verify target user belongs to this account.
+	var exists bool
 	err = tx.QueryRow(ctx,
-		`SELECT COUNT(*) FROM users WHERE id = $1 AND account_id = $2`, targetUserID, accountID).
-		Scan(&count)
-	if err != nil || count == 0 {
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
+		Scan(&exists)
+	if err != nil || !exists {
 		return fmt.Errorf("user not found in account")
 	}
 
@@ -572,16 +564,8 @@ func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID u
 		return fmt.Errorf("lookup account settings: %w", err)
 	}
 
-	var settings struct {
-		AllowMemberReplyModeOverride bool `json:"allow_member_reply_mode_override"`
-	}
-	// default is true if key is missing/null
-	settings.AllowMemberReplyModeOverride = true
-	if len(settingsBytes) > 0 {
-		_ = json.Unmarshal(settingsBytes, &settings)
-	}
-
-	if !settings.AllowMemberReplyModeOverride {
+	// default is true when the key is absent
+	if !boolSetting(parseSettings(settingsBytes), "allow_member_reply_mode_override", true) {
 		return fmt.Errorf("member reply mode overrides are not allowed by the administrator")
 	}
 
@@ -687,31 +671,8 @@ func (svc *Service) PatchOnboardingStatus(ctx context.Context, accountID uuid.UU
 	}
 
 	// Parse outer settings
-	var settings map[string]any
-	if len(settingsRaw) > 0 {
-		if err := json.Unmarshal(settingsRaw, &settings); err != nil {
-			settings = make(map[string]any)
-		}
-	} else {
-		settings = make(map[string]any)
-	}
-
-	// Parse the nested onboarding block
-	state := &OnboardingState{
-		CompletedSteps: []string{},
-		SkippedSteps:   []string{},
-	}
-	if raw, ok := settings["onboarding"]; ok {
-		if rawBytes, err := json.Marshal(raw); err == nil {
-			_ = json.Unmarshal(rawBytes, state)
-		}
-	}
-	if state.CompletedSteps == nil {
-		state.CompletedSteps = []string{}
-	}
-	if state.SkippedSteps == nil {
-		state.SkippedSteps = []string{}
-	}
+	settings := parseSettings(settingsRaw)
+	state := parseOnboardingState(settings)
 
 	switch action {
 	case "complete":
@@ -755,17 +716,10 @@ func (svc *Service) PatchOnboardingStatus(ctx context.Context, accountID uuid.UU
 	return tx.Commit(ctx)
 }
 
-// GetOnboardingTemplates returns all business templates sorted by type name.
+// GetOnboardingTemplates returns all business templates in stable sorted order.
 // Pure in-memory; no database access.
 func (svc *Service) GetOnboardingTemplates() []onboarding.BusinessTemplate {
-	out := make([]onboarding.BusinessTemplate, 0, len(onboarding.Templates))
-	for _, t := range onboarding.Templates {
-		out = append(out, t)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Type < out[j].Type
-	})
-	return out
+	return onboarding.SortedTemplates
 }
 
 // ApplyOnboardingTemplate applies a business-type template to the account.
@@ -794,29 +748,13 @@ func (svc *Service) ApplyOnboardingTemplate(ctx context.Context, accountID, acto
 		return fmt.Errorf("read settings: %w", err)
 	}
 
-	var settings map[string]any
-	if len(settingsRaw) > 0 {
-		if err := json.Unmarshal(settingsRaw, &settings); err != nil {
-			settings = make(map[string]any)
-		}
-	} else {
-		settings = make(map[string]any)
-	}
+	settings := parseSettings(settingsRaw)
 
 	// Merge summary_schema into settings
 	settings["summary_schema"] = tmpl.SummarySchema
 
 	// Update onboarding.business_type
-	onboardingRaw, _ := settings["onboarding"]
-	var onboardingMap map[string]any
-	if onboardingRaw != nil {
-		if rawBytes, err := json.Marshal(onboardingRaw); err == nil {
-			_ = json.Unmarshal(rawBytes, &onboardingMap)
-		}
-	}
-	if onboardingMap == nil {
-		onboardingMap = make(map[string]any)
-	}
+	onboardingMap := parseSettings(marshalAny(settings["onboarding"]))
 	onboardingMap["business_type"] = businessType
 	settings["onboarding"] = onboardingMap
 
@@ -906,4 +844,69 @@ func removeItem(slice []string, item string) []string {
 		out = []string{}
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Settings helpers
+// ---------------------------------------------------------------------------
+
+// parseSettings safely unmarshals an accounts.settings JSONB blob into a
+// map[string]any. If the bytes are empty or unparseable it returns an empty
+// map so callers never need to nil-check or branch on length.
+func parseSettings(raw []byte) map[string]any {
+	out := make(map[string]any)
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &out) // silently ignore corrupt JSON
+	}
+	return out
+}
+
+// parseOnboardingState extracts the "onboarding" sub-key from a parsed
+// settings map and returns it as an *OnboardingState with non-nil slices.
+func parseOnboardingState(settings map[string]any) *OnboardingState {
+	state := &OnboardingState{
+		CompletedSteps: []string{},
+		SkippedSteps:   []string{},
+	}
+	raw, ok := settings["onboarding"]
+	if !ok || raw == nil {
+		return state
+	}
+	if b, err := json.Marshal(raw); err == nil {
+		_ = json.Unmarshal(b, state)
+	}
+	if state.CompletedSteps == nil {
+		state.CompletedSteps = []string{}
+	}
+	if state.SkippedSteps == nil {
+		state.SkippedSteps = []string{}
+	}
+	return state
+}
+
+// boolSetting reads a boolean key from a parsed settings map. If the key is
+// absent or not a bool, defaultVal is returned.
+func boolSetting(settings map[string]any, key string, defaultVal bool) bool {
+	v, ok := settings[key]
+	if !ok {
+		return defaultVal
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return defaultVal
+	}
+	return b
+}
+
+// marshalAny round-trips an any value through JSON to produce []byte suitable
+// for parseSettings. Returns nil (which parseSettings handles gracefully) on error.
+func marshalAny(v any) []byte {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
 }

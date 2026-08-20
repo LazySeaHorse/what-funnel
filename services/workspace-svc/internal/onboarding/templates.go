@@ -2,7 +2,12 @@
 // Templates are pure in-memory configuration — no database access required.
 package onboarding
 
-import "github.com/whatfunnel/whatfunnel/packages/go-common/types"
+import (
+	"sort"
+
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+)
+
 
 // KBPrompt is a knowledge-base question shown during onboarding.
 type KBPrompt struct {
@@ -134,4 +139,19 @@ var Templates = map[string]BusinessTemplate{
 			{ID: "faq", Label: "What do customers often ask?", Placeholder: "Your most common questions and answers..."},
 		},
 	},
+}
+
+// SortedTemplates is Templates as a slice sorted by Type, computed once at
+// package init time. Use this instead of iterating Templates directly when a
+// stable, sorted list is needed — avoids a per-call map iteration + sort.
+var SortedTemplates []BusinessTemplate
+
+func init() {
+	SortedTemplates = make([]BusinessTemplate, 0, len(Templates))
+	for _, t := range Templates {
+		SortedTemplates = append(SortedTemplates, t)
+	}
+	sort.Slice(SortedTemplates, func(i, j int) bool {
+		return SortedTemplates[i].Type < SortedTemplates[j].Type
+	})
 }

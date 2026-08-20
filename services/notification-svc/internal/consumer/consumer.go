@@ -30,61 +30,29 @@ func NewConsumer(pool *pgxpool.Pool, ps *pubsub.Client, hub *server.Hub, logger 
 }
 
 func (c *Consumer) Start(ctx context.Context, consumerName string) {
-	go func() {
-		c.logger.Info("starting conversation.updated stream consumer")
-		err := c.ps.Consume(ctx, "conversation.updated", "notification-svc", consumerName, c.handleConversationUpdated)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("conversation.updated consumer failed", "error", err)
-		}
-	}()
+	streams := []struct {
+		name    string
+		handler func(context.Context, string, []byte) error
+	}{
+		{"conversation.updated", c.handleConversationUpdated},
+		{"conversation.assigned", c.handleConversationAssigned},
+		{"channel.status_changed", c.handleChannelStatusChanged},
+		{"lead.state_changed", c.handleLeadStateChanged},
+		{"ai.reply_ready", c.handleAIReplyReady},
+		{"automation_suggestion.created", c.handleAutomationSuggestionCreated},
+		{"conversation.summary_updated", c.handleConversationSummaryUpdated},
+	}
 
-	go func() {
-		c.logger.Info("starting conversation.assigned stream consumer")
-		err := c.ps.Consume(ctx, "conversation.assigned", "notification-svc", consumerName, c.handleConversationAssigned)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("conversation.assigned consumer failed", "error", err)
-		}
-	}()
-
-	go func() {
-		c.logger.Info("starting channel.status_changed stream consumer")
-		err := c.ps.Consume(ctx, "channel.status_changed", "notification-svc", consumerName, c.handleChannelStatusChanged)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("channel.status_changed consumer failed", "error", err)
-		}
-	}()
-
-	go func() {
-		c.logger.Info("starting lead.state_changed stream consumer")
-		err := c.ps.Consume(ctx, "lead.state_changed", "notification-svc", consumerName, c.handleLeadStateChanged)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("lead.state_changed consumer failed", "error", err)
-		}
-	}()
-
-	go func() {
-		c.logger.Info("starting ai.reply_ready stream consumer")
-		err := c.ps.Consume(ctx, "ai.reply_ready", "notification-svc", consumerName, c.handleAIReplyReady)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("ai.reply_ready consumer failed", "error", err)
-		}
-	}()
-
-	go func() {
-		c.logger.Info("starting automation_suggestion.created stream consumer")
-		err := c.ps.Consume(ctx, "automation_suggestion.created", "notification-svc", consumerName, c.handleAutomationSuggestionCreated)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("automation_suggestion.created consumer failed", "error", err)
-		}
-	}()
-
-	go func() {
-		c.logger.Info("starting conversation.summary_updated stream consumer")
-		err := c.ps.Consume(ctx, "conversation.summary_updated", "notification-svc", consumerName, c.handleConversationSummaryUpdated)
-		if err != nil && ctx.Err() == nil {
-			c.logger.Error("conversation.summary_updated consumer failed", "error", err)
-		}
-	}()
+	for _, s := range streams {
+		stream := s
+		go func() {
+			c.logger.Info("starting stream consumer", "stream", stream.name)
+			err := c.ps.Consume(ctx, stream.name, "notification-svc", consumerName, stream.handler)
+			if err != nil && ctx.Err() == nil {
+				c.logger.Error("stream consumer failed", "stream", stream.name, "error", err)
+			}
+		}()
+	}
 }
 
 func (c *Consumer) HandleConversationUpdatedForTest(ctx context.Context, id string, payload []byte) error {
