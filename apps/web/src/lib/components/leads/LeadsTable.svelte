@@ -13,7 +13,7 @@
 		onToggleAllCheckboxes = () => {}
 	}: {
 		leads: any[];
-		totalLeadsCount: number;
+		totalLeadsCount?: number;
 		selectedLeadId: string | null;
 		selectedRowIds: string[];
 		onSelectLead: (lead: any) => void;
@@ -21,8 +21,40 @@
 		onToggleAllCheckboxes: (e: MouseEvent) => void;
 	} = $props();
 
+	let pageSize = $state(10);
+	let currentPage = $state(1);
+
+	const totalPages = $derived(Math.max(1, Math.ceil(leads.length / pageSize)));
+	const startIndex = $derived(leads.length === 0 ? 0 : (currentPage - 1) * pageSize);
+	const endIndex = $derived(Math.min(leads.length, startIndex + pageSize));
+	const paginatedLeads = $derived(leads.slice(startIndex, endIndex));
+	const showingStart = $derived(leads.length === 0 ? 0 : startIndex + 1);
+	const showingEnd = $derived(endIndex);
+
+	$effect(() => {
+		if (currentPage > totalPages) {
+			currentPage = Math.max(1, totalPages);
+		}
+	});
+
+	function getPageNumbers(current: number, total: number): (number | '...')[] {
+		if (total <= 1) return [1];
+		if (total <= 5) {
+			return Array.from({ length: total }, (_, i) => i + 1);
+		}
+		if (current <= 3) {
+			return [1, 2, 3, 4, '...', total];
+		}
+		if (current >= total - 2) {
+			return [1, '...', total - 3, total - 2, total - 1, total];
+		}
+		return [1, '...', current - 1, current, current + 1, '...', total];
+	}
+
+	const pageNumbers = $derived(getPageNumbers(currentPage, totalPages));
+
 	const allChecked = $derived(
-		leads.length > 0 && selectedRowIds.length === leads.length
+		paginatedLeads.length > 0 && paginatedLeads.every((l) => selectedRowIds.includes(l.id))
 	);
 </script>
 
@@ -52,7 +84,7 @@
 
 	<!-- Table Rows List -->
 	<div class="flex-1 overflow-y-auto min-h-0 px-3 py-1 space-y-1">
-		{#each leads as lead (lead.id)}
+		{#each paginatedLeads as lead (lead.id)}
 			{@const isSelected = selectedLeadId === lead.id}
 			{@const isChecked = selectedRowIds.includes(lead.id)}
 			<div
@@ -135,22 +167,41 @@
 	<!-- Table Footer Pagination -->
 	<div class="px-6 py-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 shrink-0 select-none">
 		<div class="tabular-nums text-slate-500">
-			Showing {leads.length > 0 ? 1 : 0} to {leads.length} of {totalLeadsCount} leads
+			Showing {showingStart} to {showingEnd} of {leads.length} leads
 		</div>
 
 		<div class="flex items-center gap-3">
 			<div class="flex items-center gap-1">
-				<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 cursor-pointer" aria-label="Previous page">
+				<button
+					class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+					aria-label="Previous page"
+					disabled={currentPage <= 1}
+					onclick={() => { if (currentPage > 1) currentPage--; }}
+				>
 					<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
 					</svg>
 				</button>
-				<button class="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 font-medium flex items-center justify-center cursor-pointer">1</button>
-				<button class="w-7 h-7 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center justify-center cursor-pointer">2</button>
-				<button class="w-7 h-7 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center justify-center cursor-pointer">3</button>
-				<span class="px-1 text-slate-400 text-xs">...</span>
-				<button class="w-7 h-7 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center justify-center cursor-pointer">13</button>
-				<button class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 cursor-pointer" aria-label="Next page">
+
+				{#each pageNumbers as p}
+					{#if p === '...'}
+						<span class="px-1 text-slate-400 text-xs">...</span>
+					{:else}
+						<button
+							class="w-7 h-7 rounded-lg font-medium flex items-center justify-center transition-colors cursor-pointer {p === currentPage ? 'bg-blue-50 border border-blue-200 text-blue-600' : 'hover:bg-slate-50 text-slate-600'}"
+							onclick={() => { currentPage = p; }}
+						>
+							{p}
+						</button>
+					{/if}
+				{/each}
+
+				<button
+					class="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+					aria-label="Next page"
+					disabled={currentPage >= totalPages}
+					onclick={() => { if (currentPage < totalPages) currentPage++; }}
+				>
 					<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
 					</svg>
@@ -158,12 +209,16 @@
 			</div>
 
 			<div class="flex items-center gap-1.5 pl-2">
-				<button class="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 cursor-pointer">
-					<span>10 / page</span>
-					<svg class="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-					</svg>
-				</button>
+				<select
+					bind:value={pageSize}
+					onchange={() => { currentPage = 1; }}
+					class="px-2 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 bg-white hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+				>
+					<option value={10}>10 / page</option>
+					<option value={25}>25 / page</option>
+					<option value={50}>50 / page</option>
+					<option value={100}>100 / page</option>
+				</select>
 			</div>
 		</div>
 	</div>
