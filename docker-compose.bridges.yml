@@ -1,0 +1,58 @@
+# Optional mautrix bridges for Telegram, Instagram, and Messenger.
+#
+# First generate each bridge's real config.yaml and registration.yaml with:
+#   make bridge-bootstrap BRIDGE=telegram TELEGRAM_API_ID=... TELEGRAM_API_HASH=...
+#   make bridge-bootstrap BRIDGE=messenger
+#   make bridge-bootstrap BRIDGE=instagram
+#
+# Then start the complete bridge set with:
+#   make bridges-up
+#
+# Generated bridge files are intentionally gitignored: they contain appservice
+# tokens and persistent session state. matrix-init copies the generated
+# registrations into Synapse before it starts.
+
+services:
+  conversation-svc:
+    environment:
+      MATRIX_TELEGRAM_BRIDGE_IDENTITY: "@telegrambot:localhost"
+      MATRIX_INSTAGRAM_BRIDGE_IDENTITY: "@instagrambot:localhost"
+      MATRIX_MESSENGER_BRIDGE_IDENTITY: "@messengerbot:localhost"
+
+  mautrix-telegram:
+    image: dock.mau.dev/mautrix/telegram:v26.07
+    container_name: whatfunnel-mautrix-telegram
+    volumes:
+      - ./adapters/matrix-mautrix/bridges/telegram:/data
+    depends_on:
+      synapse:
+        condition: service_started
+      matrix-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  mautrix-messenger:
+    image: dock.mau.dev/mautrix/meta:v26.07
+    container_name: whatfunnel-mautrix-messenger
+    volumes:
+      - ./adapters/matrix-mautrix/bridges/messenger:/data
+    depends_on:
+      synapse:
+        condition: service_started
+      matrix-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  mautrix-instagram:
+    # Instagram was split from mautrix-meta in v26.07. The project publishes
+    # it from the same image repository with the `ig-` tag prefix.
+    image: dock.mau.dev/mautrix/meta:ig-v26.07
+    container_name: whatfunnel-mautrix-instagram
+    volumes:
+      - ./adapters/matrix-mautrix/bridges/instagram:/data
+    depends_on:
+      synapse:
+        condition: service_started
+      matrix-init:
+        condition: service_completed_successfully
+    restart: unless-stopped

@@ -237,11 +237,27 @@ services:
       - synapse_data:/synapse
       - mautrix_whatsapp_data:/whatsapp
       - ./adapters/matrix-mautrix/config:/config:ro
+      - ./adapters/matrix-mautrix/bridges:/bridges:ro
     command: >
       sh -c "
       echo 'Initializing Matrix and WhatsApp bridge configurations...';
       mkdir -p /synapse /whatsapp;
-      cp /config/homeserver.yaml /synapse/homeserver.yaml;
+      {
+        while IFS= read -r line; do
+          if [ \"$$line\" = '# APP_SERVICE_CONFIG_FILES' ]; then
+            echo 'app_service_config_files:';
+            echo '  - /data/whatsapp-registration.yaml';
+            for bridge in telegram messenger instagram; do
+              if [ -f \"/bridges/$$bridge/registration.yaml\" ]; then
+                cp \"/bridges/$$bridge/registration.yaml\" \"/synapse/$$bridge-registration.yaml\";
+                echo \"  - /data/$$bridge-registration.yaml\";
+              fi;
+            done;
+          else
+            echo \"$$line\";
+          fi;
+        done < /config/homeserver.yaml;
+      } > /synapse/homeserver.yaml;
       cp /config/whatsapp-registration.yaml /synapse/whatsapp-registration.yaml;
       cp /config/localhost.log.config /synapse/localhost.log.config;
       chown -R 991:991 /synapse;

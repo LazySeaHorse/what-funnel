@@ -30,22 +30,32 @@ MATRIX_REGISTRATION_SHARED_SECRET=<synapse registration_shared_secret>
 MATRIX_WHATSAPP_BRIDGE_IDENTITY=@whatsappbot:example.com
 MATRIX_TELEGRAM_BRIDGE_IDENTITY=@telegrambot:example.com
 MATRIX_INSTAGRAM_BRIDGE_IDENTITY=@instagrambot:example.com
-MATRIX_MESSENGER_BRIDGE_IDENTITY=@facebookbot:example.com
+MATRIX_MESSENGER_BRIDGE_IDENTITY=@messengerbot:example.com
 ```
 
 Each configured bot must be backed by a running, registered bridge on the same
-homeserver. The local compose reference currently provisions WhatsApp only, so
-the other three identity variables are intentionally empty until their mautrix
-containers and Synapse appservice registrations are deployed.
+homeserver. The base local compose stack provisions WhatsApp; the optional
+`docker-compose.bridges.yml` deployment adds Telegram, Instagram and Messenger.
+Bootstrap each one before it is started:
 
-For each additional bridge, generate its registration with the matching
-mautrix image, add that registration file to Synapse's
-`app_service_config_files`, and configure its generated `config.yaml` with the
-Synapse address, domain, database, and bridge bot identity. Keep a separate
-database and registration file for every bridge.
+```bash
+make bridge-bootstrap BRIDGE=telegram TELEGRAM_API_ID=... TELEGRAM_API_HASH=...
+make bridge-bootstrap BRIDGE=messenger
+make bridge-bootstrap BRIDGE=instagram
+make bridges-up
+```
 
-Telegram also needs its own `api_id` and `api_hash` from Telegram. These API
-keys enable the bridge client but do not grant it access to user accounts.
+Bootstrap generates separate bridge configs and appservice registrations under
+`adapters/matrix-mautrix/bridges/`. `matrix-init` copies their registrations
+into Synapse's `app_service_config_files` before Synapse starts. Those files
+are intentionally ignored by Git because they contain appservice tokens and
+persistent bridge state. The optional compose file sets the matching bot IDs:
+`@telegrambot:localhost`, `@instagrambot:localhost`, and
+`@messengerbot:localhost`.
+
+Telegram also needs its own `api_id` and `api_hash` from
+`my.telegram.org/apps`. These API keys enable the bridge client but do not
+grant it access to user accounts.
 
 ## Meta-session handling
 

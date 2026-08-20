@@ -1,6 +1,26 @@
-# Matrix/mautrix Channel Adapter for WhatsApp
+# Matrix/mautrix Channel Adapter
 
-This adapter connects What Funnel to a Matrix homeserver (Synapse) and listens to events from the `mautrix-whatsapp` bridge. It normalizes events (such as text, images, video, audio, files, locations, reactions, and contact cards) into standard format messages and publishes them to Redis Streams. It also handles outbound sending.
+This adapter connects What Funnel to a Matrix homeserver (Synapse) and listens
+to mautrix bridge events. It normalizes events (such as text, images, video,
+audio, files, locations, reactions, and contact cards) into standard format
+messages and publishes them to Redis Streams. It also handles outbound sending.
+
+The base local stack runs WhatsApp. Telegram, Instagram, and Messenger are
+first-class optional bridges. Generate their real configs and appservice
+registrations before starting them:
+
+```bash
+make bridge-bootstrap BRIDGE=telegram TELEGRAM_API_ID=... TELEGRAM_API_HASH=...
+make bridge-bootstrap BRIDGE=messenger
+make bridge-bootstrap BRIDGE=instagram
+make bridges-up
+```
+
+The bootstrap writes each bridge to `adapters/matrix-mautrix/bridges/<name>`.
+Those directories are intentionally ignored because they contain appservice
+tokens and durable bridge state. It configures separate appservice IDs, bot
+users, ports and data directories, then generates the registration that Synapse
+uses. Do not hand-author or share registration tokens.
 
 ## Synapse & Bridge Configuration
 

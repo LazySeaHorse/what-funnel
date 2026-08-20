@@ -37,5 +37,4 @@ trusted_key_servers:
 
 
 # vim:ft=yaml
-app_service_config_files:
-  - "/data/whatsapp-registration.yaml"
+# APP_SERVICE_CONFIG_FILES
