@@ -2,14 +2,13 @@
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
 	import heroImage from '$lib/assets/sign-in-hero.webp';
+	import BrandLogo from '$lib/components/BrandLogo.svelte';
 
 	let email = $state('');
 	let password = $state('');
-	let rememberMe = $state(false);
 	let showPassword = $state(false);
 	let error = $state('');
 	let loading = $state(false);
-	let toastMessage = $state('');
 
 	async function handleLogin(e: Event) {
 		e.preventDefault();
@@ -28,31 +27,15 @@
 		}
 	}
 
-	function handleSocialLogin(provider: string) {
-		toastMessage = `${provider} authentication is coming soon. Please sign in with your email and password.`;
-		setTimeout(() => {
-			toastMessage = '';
-		}, 4000);
-	}
 </script>
 
 <svelte:head>
 	<title>Sign In — What Funnel</title>
 </svelte:head>
 
-<div class="min-h-[100dvh] w-full bg-[#F9FAFC] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
+<div class="wf-page flex items-center justify-center p-4 selection:bg-blue-100 selection:text-blue-900 sm:p-8 lg:p-12">
 	<div class="w-full max-w-[1360px] mx-auto relative">
 		
-		{#if toastMessage}
-			<div class="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all">
-				<svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-				</svg>
-				<span>{toastMessage}</span>
-				<button type="button" onclick={() => toastMessage = ''} class="ml-2 text-slate-400 hover:text-white" aria-label="Close notification">×</button>
-			</div>
-		{/if}
-
 		<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
 			
 			<!-- Left Column: Brand, Headline, 3D Hero Image -->
@@ -62,16 +45,7 @@
 				<div class="pt-6 sm:pt-10 lg:pt-12">
 					<!-- Top Bar: Brand Logo & Decorative Dots -->
 					<div class="flex items-center justify-between">
-						<div class="flex items-center gap-3">
-							<!-- What Funnel Platform Logo -->
-							<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-								<rect width="36" height="36" rx="10" fill="#0057D0" />
-								<circle cx="14" cy="14" r="3" fill="white" />
-								<circle cx="22" cy="18" r="4.5" fill="white" />
-								<circle cx="14" cy="23" r="2.5" fill="white" />
-							</svg>
-							<span class="text-2xl font-medium text-slate-900 tracking-tight">what funnel</span>
-						</div>
+						<BrandLogo size="lg" />
 
 						<!-- Decorative 4x3 Dot Matrix -->
 						<div class="hidden sm:grid grid-cols-4 gap-2 w-fit opacity-40 pr-4">
@@ -124,7 +98,7 @@
 
 			<!-- Right Column: Sign In Card -->
 			<div class="lg:col-span-5 flex justify-center lg:justify-end items-center">
-				<div class="w-full max-w-[440px] bg-white rounded-2xl border border-slate-200 shadow-sm p-7 sm:p-9">
+				<div class="wf-card w-full max-w-[440px] p-7 sm:p-9">
 					
 					<!-- Form Header -->
 					<div>
@@ -134,7 +108,7 @@
 
 					<!-- Error alert -->
 					{#if error}
-						<div class="mt-5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs sm:text-sm flex items-start gap-2.5 leading-relaxed">
+						<div class="wf-alert-error mt-5 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed sm:text-sm">
 							<svg class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
 								<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
 							</svg>
@@ -161,7 +135,7 @@
 									placeholder="you@email.com"
 									required
 									disabled={loading}
-									class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+									class="wf-input py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-400"
 								/>
 							</div>
 						</div>
@@ -183,7 +157,7 @@
 									placeholder="Enter your password"
 									required
 									disabled={loading}
-									class="w-full pl-10 pr-11 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+									class="wf-input py-2.5 pl-10 pr-11 text-sm placeholder:text-slate-400"
 								/>
 								<button
 									type="button"
@@ -206,26 +180,11 @@
 							</div>
 						</div>
 
-						<!-- Remember Me & Forgot Password -->
-						<div class="flex items-center justify-between pt-1">
-							<label class="flex items-center gap-2 cursor-pointer">
-								<input
-									type="checkbox"
-									bind:checked={rememberMe}
-									class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-200 accent-blue-600 cursor-pointer"
-								/>
-								<span class="text-xs sm:text-sm text-slate-500 font-normal">Remember me</span>
-							</label>
-							<a href="#forgot" onclick={(e) => { e.preventDefault(); toastMessage = 'Password reset instructions have been dispatched to your email.'; }} class="text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors">
-								Forgot password?
-							</a>
-						</div>
-
 						<!-- Submit Button -->
 						<button
 							type="submit"
 							disabled={loading}
-							class="w-full mt-2 py-3 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm active:scale-[0.99] transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+							class="wf-button-primary mt-2 w-full py-3 text-sm hover:shadow-sm"
 						>
 							{#if loading}
 								<svg class="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
@@ -238,46 +197,6 @@
 							{/if}
 						</button>
 					</form>
-
-					<!-- Divider -->
-					<div class="relative flex py-5 items-center">
-						<div class="flex-grow border-t border-slate-200"></div>
-						<span class="flex-shrink mx-3 text-xs text-slate-400 font-normal">or continue with</span>
-						<div class="flex-grow border-t border-slate-200"></div>
-					</div>
-
-					<!-- Social Login Buttons -->
-					<div class="space-y-3">
-						<!-- Continue with Google -->
-						<button
-							type="button"
-							onclick={() => handleSocialLogin('Google')}
-							class="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-medium text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-xs"
-						>
-							<svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-								<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-								<path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-								<path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-								<path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-							</svg>
-							<span>Continue with Google</span>
-						</button>
-
-						<!-- Continue with Microsoft -->
-						<button
-							type="button"
-							onclick={() => handleSocialLogin('Microsoft')}
-							class="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-medium text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-xs"
-						>
-							<svg class="w-4 h-4 shrink-0" viewBox="0 0 21 21">
-								<rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-								<rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-								<rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-								<rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-							</svg>
-							<span>Continue with Microsoft</span>
-						</button>
-					</div>
 
 					<!-- Bottom Create Account Link -->
 					<div class="mt-8 text-center text-xs sm:text-sm text-slate-500">

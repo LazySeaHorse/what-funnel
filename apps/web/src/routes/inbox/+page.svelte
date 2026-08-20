@@ -3,13 +3,17 @@
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
 	import { InboxState } from '$lib/store.svelte';
+	import { WorkspaceState } from '$lib/workspace.svelte';
+	import BrandLogo from '$lib/components/BrandLogo.svelte';
 	import CustomerSimulator from '$lib/CustomerSimulator.svelte';
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
 	import LeadStateBadge from '$lib/components/LeadStateBadge.svelte';
 	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import LeadsView from '$lib/components/leads/LeadsView.svelte';
+	import SettingsView from '$lib/components/settings/SettingsView.svelte';
 
 	const inbox = new InboxState();
+	const workspace = new WorkspaceState();
 
 	// Navigation state
 	let selectedNav = $state<'inbox' | 'leads' | 'automation' | 'knowledge' | 'contacts' | 'simulate' | 'settings'>('inbox');
@@ -37,6 +41,22 @@
 	let history = $state<any[]>([]);
 	let loadingNotes = $state(false);
 	let isTyping = $state(false);
+
+	$effect(() => {
+		const account = workspace.account;
+		if (account) {
+			accountName = account.name || 'What Funnel Workspace';
+			productMode = account.product_mode || 'full_workspace';
+			try {
+				const parsed = account.settings ? JSON.parse(atob(account.settings)) : {};
+				leadTrackingEnabled = productMode !== 'chatbot_only' && parsed.lead_tracking_enabled !== false;
+			} catch (err) {
+				console.error('Failed to parse account settings', err);
+				leadTrackingEnabled = productMode !== 'chatbot_only';
+			}
+		}
+		pipelineStates = workspace.pipeline?.states || [];
+	});
 
 	// Setup banner
 	const SKIPPED_STEP_NAMES: Record<string, { label: string; step: number }> = {
@@ -125,16 +145,6 @@
 				lastMessage: getSnippet(c) || 'No messages yet',
 				updatedAt: formatTime(c.last_message_at || c.created_at) || 'Just now',
 				tags: c.lead?.tags || [],
-				aiSummary: {
-					bullets: [
-						`Channel: ${getChannelLabel(channelType)}`,
-						`Contact: ${getContactName(c)} (${getContactHandle(c) || 'No handle'})`,
-						`Status: ${stInfo.label}`
-					],
-					suggestedNextStep: stKey === 'new'
-						? 'Review incoming message and respond to prospect.'
-						: 'Check latest customer messages and follow up.'
-				},
 				contactInfo: [
 					{
 						type: channel === 'whatsapp' ? 'phone' : 'instagram',
@@ -329,53 +339,27 @@
 					goto('/login');
 					return;
 				}
+				workspace.users = inbox.users;
+				void workspace.loadCore(inbox.currentUser).catch((err) => console.error('Failed to load workspace data', err));
+				void loadSetupBanner();
+
+				if (typeof window !== 'undefined') {
+					const urlParams = new URLSearchParams(window.location.search);
+					const tabParam = urlParams.get('tab');
+					if (tabParam && ['inbox', 'leads', 'automation', 'knowledge', 'contacts', 'simulate', 'settings'].includes(tabParam)) {
+						selectedNav = tabParam as any;
+					}
+				}
 
 				// Select first conversation if none selected
 				if (inbox.conversations.length > 0 && !inbox.activeConvoID) {
 					await selectConvo(inbox.conversations[0].id);
 				}
-
-				// Fetch workspace account details
-				const account = await apiRequest('/workspace/account');
-				if (account) {
-					accountName = account.name || 'What Funnel Workspace';
-					productMode = account.product_mode || 'full_workspace';
-					if (account.settings) {
-						try {
-							const decoded = atob(account.settings);
-							const parsed = JSON.parse(decoded);
-							leadTrackingEnabled = parsed.lead_tracking_enabled !== false;
-						} catch (e) {
-							console.error('Failed to parse account settings', e);
-						}
-					}
-					if (productMode === 'chatbot_only') {
-						leadTrackingEnabled = false;
-					}
+				if (inbox.currentUser.role === 'admin') {
+					// Warm the Settings-only channel data after the first conversation is
+					// ready, so entering Settings normally needs no network round trip.
+					void workspace.loadSettings(inbox.currentUser).catch((err) => console.error('Failed to prefetch settings', err));
 				}
-
-				// Fetch pipeline states
-				const pipelines = await apiRequest('/workspace/pipelines');
-				if (pipelines && pipelines.length > 0) {
-					pipelineStates = pipelines[0].states || [];
-				}
-
-				// Onboarding banner check
-				try {
-					const dismissed = sessionStorage.getItem('setup-banner-dismissed');
-					if (!dismissed) {
-						const onboarding = await apiRequest('/onboarding/status');
-						if (onboarding?.completed_at && onboarding?.skipped_steps?.length > 0) {
-							const skipped = (onboarding.skipped_steps as string[])
-								.filter((k: string) => k in SKIPPED_STEP_NAMES)
-								.map((k: string) => SKIPPED_STEP_NAMES[k]);
-							if (skipped.length > 0) {
-								bannerSkippedSteps = skipped;
-								showSetupBanner = true;
-							}
-						}
-					}
-				} catch (_) {}
 			} catch (err) {
 				goto('/login');
 			}
@@ -386,6 +370,23 @@
 			window.removeEventListener('dev-message-sent', handleDevMessageSent);
 		};
 	});
+
+	async function loadSetupBanner() {
+		try {
+			if (sessionStorage.getItem('setup-banner-dismissed')) return;
+			const onboarding = await apiRequest('/onboarding/status');
+			if (!onboarding?.completed_at || !onboarding.skipped_steps?.length) return;
+			const skipped = (onboarding.skipped_steps as string[])
+				.filter((key: string) => key in SKIPPED_STEP_NAMES)
+				.map((key: string) => SKIPPED_STEP_NAMES[key]);
+			if (skipped.length > 0) {
+				bannerSkippedSteps = skipped;
+				showSetupBanner = true;
+			}
+		} catch (_) {
+			// The setup banner is optional and should never delay the inbox.
+		}
+	}
 
 	function parseMessageContent(content: any): Record<string, any> {
 		if (!content) return {};
@@ -664,10 +665,17 @@
 	let kbExpandedPattern = $state<string | null>(null);
 	let kbMiningTriggerLoading = $state(false);
 	let kbMiningTriggerResult = $state<{ messages_scanned?: number; clusters_found?: number; suggestions_created?: number } | null>(null);
+	let kbLoaded = $state(false);
+	let kbLoadPromise: Promise<void> | null = null;
 
-	async function loadKnowledgeTab() {
-		kbLoading = true;
-		try {
+	async function loadKnowledgeTab(refresh = false) {
+		if (kbLoaded && !refresh) return;
+		if (kbLoadPromise) return kbLoadPromise;
+
+		// Existing knowledge remains visible during refreshes. The only blocking
+		// state is a genuinely uncached first visit.
+		kbLoading = !kbLoaded;
+		kbLoadPromise = (async () => {
 			const [conceptsRes, patternsRes, suggestionsRes, miningRes] = await Promise.allSettled([
 				apiRequest('/kb/concepts'),
 				apiRequest('/kb/patterns'),
@@ -678,16 +686,20 @@
 			if (patternsRes.status === 'fulfilled') kbPatterns = patternsRes.value?.patterns ?? [];
 			if (suggestionsRes.status === 'fulfilled') kbSuggestions = suggestionsRes.value?.suggestions ?? [];
 			if (miningRes.status === 'fulfilled') kbLastRun = miningRes.value?.last_run ?? null;
-		} catch (err) {
+			kbLoaded = true;
+		})().catch((err) => {
 			console.error('Failed to load knowledge tab', err);
-		} finally {
+		}).finally(() => {
 			kbLoading = false;
-		}
+			kbLoadPromise = null;
+		});
+
+		return kbLoadPromise;
 	}
 
 	$effect(() => {
 		if (selectedNav === 'knowledge') {
-			loadKnowledgeTab();
+			void loadKnowledgeTab();
 		}
 	});
 
@@ -743,7 +755,7 @@
 				body: { reviewed_by: inbox.currentUser?.user_id || inbox.currentUser?.id || '' }
 			});
 			kbSuggestions = kbSuggestions.filter((s) => s.id !== id);
-			await loadKnowledgeTab();
+			await loadKnowledgeTab(true);
 		} catch (err) {
 			console.error(err);
 		}
@@ -767,7 +779,7 @@
 		try {
 			const res = await apiRequest('/kb/mine/trigger', { method: 'POST' });
 			kbMiningTriggerResult = res;
-			await loadKnowledgeTab();
+			await loadKnowledgeTab(true);
 		} catch (err) {
 			console.error(err);
 		} finally {
@@ -801,7 +813,7 @@
 	<title>What Funnel - Omni Channel Lead Management</title>
 </svelte:head>
 
-<div class="flex h-screen w-full bg-[#F9FAFC] overflow-hidden text-slate-800 font-sans">
+<div class="flex h-screen w-full bg-slate-50 overflow-hidden text-slate-800 font-sans">
 	
 	<!-- ================= LEFT MAIN NAVIGATION ================= -->
 	<aside class="relative w-56 flex flex-col justify-between p-4 bg-transparent shrink-0 overflow-hidden">
@@ -816,15 +828,10 @@
 		</div>
 
 		<div class="relative z-10">
-			<!-- Logo: What Funnel Platform (Icon only) -->
-			<div class="flex items-center px-2 pt-1 pb-6 cursor-pointer" onclick={() => selectedNav = 'inbox'}>
-				<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-					<rect width="36" height="36" rx="10" fill="#0057D0" />
-					<circle cx="14" cy="14" r="3" fill="white" />
-					<circle cx="22" cy="18" r="4.5" fill="white" />
-					<circle cx="14" cy="23" r="2.5" fill="white" />
-				</svg>
-			</div>
+			<!-- What Funnel logo -->
+			<button type="button" class="px-2 pt-1 pb-6" onclick={() => selectedNav = 'inbox'} aria-label="Go to inbox">
+				<BrandLogo size="sm" />
+			</button>
 
 			<!-- Nav links -->
 			<nav class="space-y-1">
@@ -864,6 +871,8 @@
 				<!-- Knowledge -->
 				<button
 					onclick={() => selectedNav = 'knowledge'}
+					onmouseenter={() => { void loadKnowledgeTab(); }}
+					onfocus={() => { void loadKnowledgeTab(); }}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'knowledge' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
 					<svg class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -914,10 +923,14 @@
 		<!-- User Workspace Card -->
 		<div class="relative z-10 space-y-3">
 			<!-- Workspace Switcher Pill -->
-			<div
-				class="relative flex items-center justify-between p-2.5 bg-white/90 backdrop-blur-xs rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition"
+			<div class="relative">
+				<button
+					type="button"
+					class="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white/90 p-2.5 text-left transition hover:bg-slate-50"
 				onclick={() => showWorkspaceDropdown = !showWorkspaceDropdown}
-			>
+					aria-expanded={showWorkspaceDropdown}
+					aria-label="Toggle workspace menu"
+				>
 				<div class="flex items-center gap-3">
 					<div class="w-8 h-8 rounded-xl bg-blue-600 text-white font-medium flex items-center justify-center text-sm">
 						{accountName.charAt(0).toUpperCase()}
@@ -930,6 +943,7 @@
 				<svg class="w-4 h-4 text-slate-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
 				</svg>
+				</button>
 
 				{#if showWorkspaceDropdown}
 					<div class="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl border border-slate-200 py-1.5 z-50">
@@ -951,10 +965,10 @@
 	<!-- ================= MAIN CONTAINER (WHITE CANVAS EXTENDING TO EDGES) ================= -->
 	<main class="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white border-l border-slate-200/80">
 		
-		<!-- --- Global Top Bar --- -->
-		<header class="h-14 px-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+		<!-- --- Global Top Bar (Matches leads-tab.webp) --- -->
+		<header class="h-16 px-6 sm:px-8 border-b border-slate-100 flex items-center justify-between shrink-0">
 			<!-- Search Bar -->
-			<div class="relative w-80">
+			<div class="relative w-80 sm:w-96">
 				<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
 					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -963,32 +977,44 @@
 				<input
 					type="text"
 					bind:value={searchQuery}
-					placeholder="Search conversations..."
-					class="w-full pl-10 pr-12 py-2 bg-slate-50 text-xs text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 focus:bg-white cursor-text transition"
+					placeholder={selectedNav === 'settings' ? 'Search settings...' : selectedNav === 'knowledge' ? 'Search knowledge...' : selectedNav === 'leads' ? 'Search leads...' : selectedNav === 'automation' ? 'Search anything...' : 'Search conversations...'}
+					class="w-full h-10 pl-10 pr-10 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 cursor-text transition"
 				/>
 				<span class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-					<kbd class="text-[11px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">⌘ K</kbd>
+					<kbd class="text-[11px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">/</kbd>
 				</span>
 			</div>
 
 			<!-- Right Controls -->
 			<div class="flex items-center gap-3">
-				<!-- AI Auto-reply Toggle Dropdown -->
+				<!-- AI Auto-reply Toggle (Outline only, matching height) -->
 				<button
 					onclick={() => aiAutoReplyEnabled = !aiAutoReplyEnabled}
-					class="flex items-center gap-2 px-3.5 py-1.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer transition"
+					class="h-10 flex items-center gap-2.5 px-3.5 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer transition"
 				>
-					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}"></span>
-					<span class="text-slate-600">AI Auto-reply</span>
-					<span class="{aiAutoReplyEnabled ? 'text-emerald-600' : 'text-slate-400'} font-medium">{aiAutoReplyEnabled ? 'ON' : 'OFF'}</span>
+					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+					<span class="text-slate-700">AI Auto-reply</span>
+					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {aiAutoReplyEnabled ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'}">
+						{aiAutoReplyEnabled ? 'ON' : 'OFF'}
+					</span>
 					<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
 					</svg>
 				</button>
 
-				<!-- User avatar -->
-				<div class="w-8 h-8 rounded-full overflow-hidden ring-2 ring-slate-100 cursor-pointer bg-blue-600 text-white flex items-center justify-center font-medium text-xs">
-					{inbox.currentUser?.email ? inbox.currentUser.email.charAt(0).toUpperCase() : 'U'}
+				<!-- User Name & Title Box (Outline only, matching height) -->
+				<div class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
+					<div class="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 border border-blue-100/80 flex items-center justify-center text-xs font-medium shrink-0">
+						{(inbox.currentUser?.name || inbox.currentUser?.email || 'U').charAt(0).toUpperCase()}
+					</div>
+					<div class="flex flex-col">
+						<span class="text-xs font-medium text-slate-800 leading-tight">
+							{inbox.currentUser?.name || inbox.currentUser?.email?.split('@')[0] || 'User'}
+						</span>
+						<span class="text-[10px] text-slate-400 font-medium capitalize leading-tight">
+							{inbox.currentUser?.role || 'Member'}
+						</span>
+					</div>
 				</div>
 			</div>
 		</header>
@@ -1061,7 +1087,7 @@
 							</div>
 						{:else}
 							{#each filteredConversations as item (item.id)}
-								{@const isSelected = inbox.activeConvoID === item.id}
+									{@const isSelected = (inbox.pendingConvoID || inbox.activeConvoID) === item.id}
 								{@const contactName = getContactName(item)}
 								{@const snippet = getSnippet(item)}
 								{@const timeStr = formatTime(item.last_message_at || item.created_at)}
@@ -1118,7 +1144,7 @@
 				</div>
 
 				<!-- ================= COLUMN 2: ACTIVE CHAT AREA ================= -->
-				<div class="flex-1 flex flex-col bg-[#F9FAFC] border-r border-slate-100 min-h-0 overflow-hidden">
+				<div class="flex-1 flex flex-col bg-slate-50 border-r border-slate-100 min-h-0 overflow-hidden">
 					{#if !inbox.activeConvo}
 						<div class="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
 							<div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -1316,9 +1342,11 @@
 										</div>
 
 										<!-- Right Action: Circular Send button -->
-										<button
-											onclick={handleSendMessage}
-											class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center transition"
+									<button
+										onclick={handleSendMessage}
+										disabled={!messageInput.trim() || !inbox.activeConvoID}
+										class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-40"
+										aria-label="Send message"
 										>
 											<svg class="w-4 h-4 rotate-45 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
 												<path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1386,6 +1414,7 @@
 								<button
 									type="button"
 									onclick={() => showLeadStateDropdown = !showLeadStateDropdown}
+									aria-label="Change lead state"
 									class="lead-state-badge w-full flex items-center justify-between p-2.5 bg-amber-50/60 rounded-xl border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition text-left"
 								>
 									<div class="flex items-center gap-2">
@@ -1402,6 +1431,7 @@
 										{#each (pipelineStates.length > 0 ? pipelineStates : [{ key: 'new', label: 'New Lead' }, { key: 'interested', label: 'Interested' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'quoted', label: 'Quoted' }, { key: 'closed_won', label: 'Closed Won' }]) as stateOption}
 											<button
 												onclick={() => updateLeadState(stateOption.key || stateOption.label)}
+												aria-label={`Set lead state to ${stateOption.label || stateOption.key}`}
 												class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 text-slate-700 flex items-center gap-2"
 											>
 												<span class="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -1455,11 +1485,12 @@
 											<input
 												type="text"
 												bind:value={newTagText}
+												aria-label="Tag name"
 												onkeydown={(e) => { if (e.key === 'Enter') addTag(); }}
 												placeholder="Tag..."
 												class="w-20 px-2 py-0.5 text-xs border border-purple-200 rounded-lg focus:outline-none"
 											/>
-											<button onclick={addTag} class="text-xs font-medium text-blue-600 px-1">✓</button>
+											<button onclick={addTag} aria-label="Save tag" class="text-xs font-medium text-blue-600 px-1">✓</button>
 										</div>
 									{:else}
 										<button
@@ -1484,7 +1515,7 @@
 									<div class="space-y-2">
 										{#each notes as note}
 											<div class="note-item p-3 rounded-2xl bg-white border border-slate-200/80 text-xs text-slate-600 leading-relaxed">
-												{note.text}
+												{note.body}
 												<div class="text-[10px] text-slate-400 mt-1">{formatTime(note.created_at)}</div>
 											</div>
 										{/each}
@@ -1569,7 +1600,7 @@
 				<!-- Top Header Row: Title & Actions -->
 				<div class="px-6 pt-5 pb-3 flex items-center justify-between shrink-0 bg-white">
 					<div class="flex items-center gap-4">
-						<h1 class="text-2xl font-bold text-slate-900 tracking-tight">Leads</h1>
+						<h1 class="text-2xl font-medium text-slate-900 tracking-tight">Leads</h1>
 					</div>
 
 					<div class="flex items-center gap-2.5 relative">
@@ -1993,27 +2024,7 @@
 
 		{:else if selectedNav === 'settings'}
 			<!-- ================= SETTINGS VIEW ================= -->
-			<div class="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
-				<div>
-					<h1 class="text-xl font-medium text-slate-900 tracking-tight">Workspace Settings</h1>
-					<p class="text-xs text-slate-500">Configure your business profile, channels, and team permissions</p>
-				</div>
-
-				<div class="max-w-2xl space-y-5 text-xs">
-					<div class="space-y-1.5">
-						<label for="settingsWorkspaceName" class="font-medium text-slate-700">Workspace Name</label>
-						<input id="settingsWorkspaceName" type="text" bind:value={accountName} class="w-full p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500" />
-					</div>
-
-					<div class="space-y-1.5">
-						<span class="font-medium text-slate-700">Account Details</span>
-						<div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-							<div class="text-slate-700 font-medium">Logged in as: {inbox.currentUser?.email}</div>
-							<div class="text-slate-500">Role: <span class="capitalize font-medium">{inbox.currentUser?.role}</span></div>
-						</div>
-					</div>
-				</div>
-			</div>
+			<SettingsView {inbox} {workspace} initialSection="general" onNavigate={(tab) => selectedNav = tab as any} />
 		{/if}
 
 	</main>

@@ -135,6 +135,10 @@
 		<line x1="5" y1="12" x2="19" y2="12" />
 		<polyline points="12 5 19 12 12 19" />
 
+	{:else if name === 'chevron-right'}
+		<!-- Chevron right -->
+		<polyline points="9 18 15 12 9 6" />
+
 	{:else if name === 'arrow-left'}
 		<!-- Arrow left -->
 		<line x1="19" y1="12" x2="5" y2="12" />
@@ -211,7 +215,7 @@
 		<circle cx="9" cy="18" r="1.5" fill={color} />
 		<circle cx="15" cy="18" r="1.5" fill={color} />
 
-	{:else if name === 'dialogues' || name === 'logo-dots'}
+	{:else if name === 'what-funnel' || name === 'logo-dots'}
 		<!-- 4 rounded dots logo -->
 		<circle cx="7" cy="8" r="3" fill={color} />
 		<circle cx="17" cy="8" r="3" fill={color} />

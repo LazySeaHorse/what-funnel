@@ -49,7 +49,7 @@
 
 	const availableStates = $derived(pipelineStates.length > 0 ? pipelineStates : defaultStates);
 	const channelName = $derived(
-		lead.channel ? lead.channel.charAt(0).toUpperCase() + lead.channel.slice(1) : 'Instagram'
+		lead.channel ? lead.channel.charAt(0).toUpperCase() + lead.channel.slice(1) : 'Unknown channel'
 	);
 
 	function submitTag() {
@@ -76,7 +76,7 @@
 	<div class="px-5 pt-4 pb-2 flex items-center justify-between">
 		<button
 			onclick={() => onOpenChat(lead.convoId)}
-			class="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0057D0] hover:bg-blue-700 text-white rounded-xl text-xs font-medium transition cursor-pointer shadow-xs"
+			class="wf-button-primary px-3.5 py-1.5"
 		>
 			<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
 				<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -107,8 +107,8 @@
 
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center justify-between">
-				<h2 class="font-semibold text-sm text-slate-900 leading-tight truncate">{lead.name}</h2>
-				<button class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+				<h2 class="font-medium text-sm text-slate-900 leading-tight truncate">{lead.name}</h2>
+				<button class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer" aria-label="More options for {lead.name}">
 					<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
 						<circle cx="12" cy="5" r="1.5" />
 						<circle cx="12" cy="12" r="1.5" />
@@ -129,7 +129,7 @@
 			{@const isActive = activeTab === tab.key}
 			<button
 				onclick={() => activeTab = tab.key as typeof activeTab}
-				class="pb-2.5 px-1.5 transition cursor-pointer {isActive ? 'text-blue-600 font-semibold border-b-2 border-blue-600' : 'hover:text-slate-700'}"
+				class="pb-2.5 px-1.5 transition cursor-pointer {isActive ? 'text-blue-600 font-medium border-b-2 border-blue-600' : 'hover:text-slate-700'}"
 			>
 				{tab.label}
 			</button>
@@ -206,20 +206,21 @@
 			<div class="space-y-1.5">
 				<span class="font-medium text-slate-700">Tags</span>
 				<div class="flex flex-wrap items-center gap-1.5">
-					{#each (lead.tags && lead.tags.length > 0 ? lead.tags : ['Balayage', 'Haircut', 'Weekend']) as tag}
-						<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F4F5FF] text-[#5551FF] text-xs font-medium border border-[#E0E2FF]">
+					{#each lead.tags || [] as tag}
+						<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-violet-50 text-violet-600 text-xs font-medium border border-violet-200">
 							{tag}
-							<button onclick={() => onRemoveTag(tag)} aria-label="Remove tag {tag}" class="text-[#5551FF]/60 hover:text-[#5551FF] cursor-pointer">×</button>
+							<button onclick={() => onRemoveTag(tag)} aria-label="Remove tag {tag}" class="text-violet-600/60 hover:text-violet-600 cursor-pointer">×</button>
 						</span>
 					{/each}
 					{#if showTagInput}
 						<input
+							aria-label="Tag name"
 							bind:value={tagInputText}
 							onkeydown={(e) => e.key === 'Enter' && submitTag()}
 							placeholder="Tag..."
 							class="w-20 px-2 py-1 text-xs border border-blue-200 rounded-lg focus:outline-none"
 						/>
-						<button onclick={submitTag} class="text-xs font-medium text-blue-600 px-1 cursor-pointer">✓</button>
+						<button aria-label="Save tag" onclick={submitTag} class="text-xs font-medium text-blue-600 px-1 cursor-pointer">✓</button>
 					{:else}
 						<button
 							onclick={() => showTagInput = true}
@@ -233,39 +234,23 @@
 				</div>
 			</div>
 
-			<!-- AI Summary Section -->
-			<div class="space-y-1.5">
-				<div class="flex items-center gap-1 font-medium text-slate-700">
-					<span>AI Summary</span>
-					<span class="text-blue-500">✨</span>
-				</div>
-				<div class="bg-[#F8FAFC] border border-slate-100 rounded-xl p-3.5 space-y-2 text-slate-600 leading-relaxed">
-					<p>Interested in balayage and haircut.</p>
-					<p>Prefers weekend appointments.</p>
-					<p>First asked about availability.</p>
-
-					<div class="border-t border-slate-200/60 pt-2 mt-2">
-						<div class="text-blue-600 font-medium">Suggested next step</div>
-						<div class="text-slate-600 mt-0.5">Share available time slots and pricing.</div>
-					</div>
-				</div>
-			</div>
-
 			<!-- Notes Section -->
 			<div class="space-y-1.5">
 				<div class="flex items-center justify-between">
 					<span class="font-medium text-slate-700">Notes</span>
 				</div>
-				<div class="bg-[#F8FAFC] border border-slate-100 rounded-xl p-3.5 flex items-start justify-between gap-2">
-					<div class="text-slate-600 leading-relaxed flex-1">
-						{notes.length > 0 ? (notes[0].body || notes[0].text) : 'Mentioned she has an event next week. Prefers natural tones.'}
+				{#if notes.length > 0}
+					<div class="bg-slate-50 border border-slate-100 rounded-xl p-3.5 flex items-start justify-between gap-2">
+						<div class="text-slate-600 leading-relaxed flex-1">{notes[0].body || notes[0].text}</div>
+						<button onclick={() => showAddNoteInput = !showAddNoteInput} class="text-slate-400 hover:text-slate-600 shrink-0 p-0.5 cursor-pointer" title="Edit note" aria-label="Edit note">
+							<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+							</svg>
+						</button>
 					</div>
-					<button onclick={() => showAddNoteInput = !showAddNoteInput} class="text-slate-400 hover:text-slate-600 shrink-0 p-0.5 cursor-pointer" title="Edit note">
-						<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-						</svg>
-					</button>
-				</div>
+				{:else}
+					<p class="rounded-xl border border-slate-100 bg-slate-50 p-3.5 text-slate-400">No notes yet.</p>
+				{/if}
 				{#if showAddNoteInput}
 					<div class="p-3 bg-slate-50 rounded-xl space-y-2">
 						<textarea
@@ -287,33 +272,22 @@
 				<span class="font-medium text-slate-700">Contact info</span>
 				
 				<div class="space-y-1.5">
-					<!-- Channel Row 1 -->
-					<div class="flex items-center justify-between p-2.5 bg-[#F8FAFC] border border-slate-100 rounded-xl">
+					{#each lead.contactInfo || [] as contact}
+					<div class="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
 						<div class="flex items-center gap-2 min-w-0">
 							<ChannelBadge channel={lead.channel} size="xs" showTooltip={false} />
-							<span class="text-slate-700 font-medium truncate">@{lead.handle ? lead.handle.replace(/^@/, '') : 'sarahj_18'}</span>
+							<span class="text-slate-700 font-medium truncate">{contact.value}</span>
 						</div>
 						<div class="flex items-center gap-1 text-slate-400 text-[11px]">
-							<span class="capitalize">{channelName}</span>
+							<span>{contact.label}</span>
 							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
 							</svg>
 						</div>
 					</div>
-
-					<!-- Channel Row 2 -->
-					<div class="flex items-center justify-between p-2.5 bg-[#F8FAFC] border border-slate-100 rounded-xl">
-						<div class="flex items-center gap-2 min-w-0">
-							<ChannelBadge channel="whatsapp" size="xs" showTooltip={false} />
-							<span class="text-slate-700 font-medium truncate">+94 77 123 4567</span>
-						</div>
-						<div class="flex items-center gap-1 text-slate-400 text-[11px]">
-							<span>WhatsApp</span>
-							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-							</svg>
-						</div>
-					</div>
+					{:else}
+						<p class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-slate-400">No contact identity available.</p>
+					{/each}
 				</div>
 			</div>
 

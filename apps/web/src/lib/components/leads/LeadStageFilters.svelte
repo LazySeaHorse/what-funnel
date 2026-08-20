@@ -40,7 +40,7 @@
 		<button
 			type="button"
 			onclick={() => onSelectFilter(st.key)}
-			class="relative flex flex-col justify-between min-w-[108px] h-[58px] px-3.5 py-2.5 rounded-xl text-left transition cursor-pointer select-none shrink-0 {isActive ? 'bg-[#F4F8FE] border border-blue-200/90 shadow-xs' : 'bg-white border border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50 shadow-[0_1px_2px_rgba(0,0,0,0.02)]'}"
+			class="relative flex flex-col justify-between min-w-[108px] h-[58px] px-3.5 py-2.5 rounded-xl text-left transition cursor-pointer select-none shrink-0 {isActive ? 'bg-blue-50 border border-blue-200/90 shadow-xs' : 'bg-white border border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50 shadow-xs'}"
 		>
 			<div class="flex items-center gap-1.5 text-xs font-medium {isActive ? 'text-blue-600' : 'text-slate-700'}">
 				{#if st.dot}
@@ -48,7 +48,7 @@
 				{/if}
 				<span class="truncate">{st.label}</span>
 			</div>
-			<div class="text-xs font-semibold tabular-nums {isActive ? 'text-blue-600' : 'text-slate-800'}">
+			<div class="text-xs font-medium tabular-nums {isActive ? 'text-blue-600' : 'text-slate-800'}">
 				{count}
 			</div>
 
@@ -58,13 +58,4 @@
 		</button>
 	{/each}
 
-	<a
-		href="/settings/pipeline"
-		class="flex items-center justify-center gap-1.5 min-w-[100px] h-[58px] px-3.5 py-2.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-xs font-medium text-slate-600 transition cursor-pointer shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
-	>
-		<svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-			<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-		</svg>
-		<span>Add view</span>
-	</a>
 </div>

@@ -43,9 +43,9 @@
 		xs: 'w-5 h-5 text-[10px]',
 		sm: 'w-6 h-6 text-xs',
 		md: 'w-8 h-8 text-xs',
-		lg: 'w-9 h-9 text-xs font-semibold',
-		xl: 'w-12 h-12 text-base font-semibold',
-		'2xl': 'w-14 h-14 text-base font-semibold'
+		lg: 'w-9 h-9 text-xs font-medium',
+		xl: 'w-12 h-12 text-base font-medium',
+		'2xl': 'w-14 h-14 text-base font-medium'
 	};
 </script>
 

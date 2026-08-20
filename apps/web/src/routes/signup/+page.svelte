@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
 	import heroImage from '$lib/assets/sign-in-hero.webp';
+	import BrandLogo from '$lib/components/BrandLogo.svelte';
 
 	let accountName = $state('');
 	let email = $state('');
@@ -39,7 +40,7 @@
 	<title>Create Account — What Funnel</title>
 </svelte:head>
 
-<div class="min-h-[100dvh] w-full bg-[#F9FAFC] flex items-center justify-center p-4 sm:p-8 lg:p-12 font-sans antialiased text-slate-800 selection:bg-blue-100 selection:text-blue-900">
+<div class="wf-page flex items-center justify-center p-4 selection:bg-blue-100 selection:text-blue-900 sm:p-8 lg:p-12">
 	<div class="w-full max-w-[1360px] mx-auto relative">
 		
 		{#if toastMessage}
@@ -61,16 +62,7 @@
 				<div class="pt-6 sm:pt-10 lg:pt-12">
 					<!-- Top Bar: Brand Logo & Decorative Dots -->
 					<div class="flex items-center justify-between">
-						<div class="flex items-center gap-3">
-							<!-- What Funnel Platform Logo -->
-							<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-								<rect width="36" height="36" rx="10" fill="#0057D0" />
-								<circle cx="14" cy="14" r="3" fill="white" />
-								<circle cx="22" cy="18" r="4.5" fill="white" />
-								<circle cx="14" cy="23" r="2.5" fill="white" />
-							</svg>
-							<span class="text-2xl font-medium text-slate-900 tracking-tight">what funnel</span>
-						</div>
+						<BrandLogo size="lg" />
 
 						<!-- Decorative 4x3 Dot Matrix -->
 						<div class="hidden sm:grid grid-cols-4 gap-2 w-fit opacity-40 pr-4">
@@ -123,7 +115,7 @@
 
 			<!-- Right Column: Create Account Card -->
 			<div class="lg:col-span-5 flex justify-center lg:justify-end items-center">
-				<div class="w-full max-w-[460px] bg-white rounded-2xl border border-slate-200 shadow-sm p-7 sm:p-9">
+				<div class="wf-card w-full max-w-[460px] p-7 sm:p-9">
 					
 					<!-- Form Header -->
 					<div>
@@ -133,7 +125,7 @@
 
 					<!-- Error alert -->
 					{#if error}
-						<div class="mt-5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs sm:text-sm flex items-start gap-2.5 leading-relaxed">
+						<div class="wf-alert-error mt-5 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed sm:text-sm">
 							<svg class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
 								<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
 							</svg>
@@ -160,7 +152,7 @@
 									placeholder="Acme Corp"
 									required
 									disabled={loading}
-									class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+									class="wf-input py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-400"
 								/>
 							</div>
 						</div>
@@ -182,7 +174,7 @@
 									placeholder="you@email.com"
 									required
 									disabled={loading}
-									class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+									class="wf-input py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-400"
 								/>
 							</div>
 						</div>
@@ -205,7 +197,7 @@
 									required
 									minlength={8}
 									disabled={loading}
-									class="w-full pl-10 pr-11 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+									class="wf-input py-2.5 pl-10 pr-11 text-sm placeholder:text-slate-400"
 								/>
 								<button
 									type="button"
@@ -290,7 +282,7 @@
 						<button
 							type="submit"
 							disabled={loading}
-							class="w-full mt-4 py-3 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm active:scale-[0.99] transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+							class="wf-button-primary mt-4 w-full py-3 text-sm hover:shadow-sm"
 						>
 							{#if loading}
 								<svg class="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">

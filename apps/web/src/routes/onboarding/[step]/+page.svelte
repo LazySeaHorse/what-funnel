@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
+	import BrandLogo from '$lib/components/BrandLogo.svelte';
 
 	// Step number from route: 1..7
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
@@ -23,7 +24,7 @@
 	];
 
 	// Step 1: Business info
-	let s1BusinessName = $state('Glow Hair Studio');
+	let s1BusinessName = $state('');
 	let s1BusinessType = $state('Salon / Beauty');
 	let s1Timezone = $state('(GMT+05:30) Asia / Colombo');
 
@@ -34,8 +35,6 @@
 		{ id: 'messenger', name: 'Facebook Messenger', type: 'matrix_messenger', icon: 'messenger', connected: false, color: '#0084FF' },
 		{ id: 'telegram', name: 'Telegram', type: 'matrix_telegram', icon: 'telegram', connected: false, color: '#229ED9' }
 	]);
-	let qrModalOpen = $state(false);
-	let qrChannelConnecting = $state('');
 
 	// Step 3: Lead pipeline
 	let pipelineStages = $state([
@@ -277,19 +276,10 @@ FAQs:
 		}
 	}
 
-	async function toggleChannel(ch: any) {
-		if (ch.id === 'whatsapp' && !ch.connected) {
-			qrChannelConnecting = 'WhatsApp';
-			qrModalOpen = true;
-		} else {
-			ch.connected = !ch.connected;
-		}
-	}
-
-	function confirmQRConnect() {
-		const wa = channels.find(c => c.id === 'whatsapp');
-		if (wa) wa.connected = true;
-		qrModalOpen = false;
+	function toggleChannel(_ch: any) {
+		// The guided bridge flow lives in workspace settings. Do not create a
+		// local-only "connected" state during onboarding.
+		goto('/inbox?tab=settings');
 	}
 
 	function addStage() {
@@ -334,19 +324,11 @@ FAQs:
 	<div class="min-h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-x-hidden font-sans text-slate-800 antialiased">
 		
 		<!-- Left Column: Brand, Headline, Bottom-Anchored Illustration -->
-		<div class="w-full lg:w-80 xl:w-96 bg-[#F9FAFC] border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
+		<div class="w-full lg:w-80 xl:w-96 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
 			<!-- Top content above background graphic -->
 			<div class="relative z-10">
 				<!-- Logo -->
-				<div class="flex items-center gap-3 mb-8">
-					<svg class="w-9 h-9 shrink-0" viewBox="0 0 36 36" fill="none">
-						<rect width="36" height="36" rx="10" fill="#0057D0" />
-						<circle cx="14" cy="14" r="3" fill="white" />
-						<circle cx="22" cy="18" r="4.5" fill="white" />
-						<circle cx="14" cy="23" r="2.5" fill="white" />
-					</svg>
-					<span class="text-xl font-medium text-slate-900 tracking-tight">what funnel</span>
-				</div>
+				<BrandLogo class="mb-8" />
 
 				<!-- Headline & Subtext -->
 				{#if stepNum === 7}
@@ -439,7 +421,7 @@ FAQs:
 									id="business-name"
 									type="text"
 									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-normal"
-									placeholder="e.g. Glow Hair Studio"
+									placeholder="e.g. Your business name"
 									bind:value={s1BusinessName}
 								/>
 							</div>
@@ -489,7 +471,7 @@ FAQs:
 					{:else if stepNum === 2}
 						<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 6</div>
 						<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
-						<p class="text-sm text-slate-500 mb-8 font-normal">Bring all your customer conversations into one place.</p>
+						<p class="text-sm text-slate-500 mb-8 font-normal">Bring all your customer conversations into one place. Each connection is completed in workspace settings.</p>
 
 						<div class="space-y-3 w-full">
 							{#each channels as ch}
@@ -505,11 +487,11 @@ FAQs:
 										{#if ch.connected}
 											<button type="button" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium cursor-pointer" onclick={() => toggleChannel(ch)}>
 												<Icon name="check" size={14} color="#10B981" />
-												<span>Connected</span>
-											</button>
-										{:else}
-											<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => toggleChannel(ch)}>
-												Connect
+											<span>Connected</span>
+										</button>
+									{:else}
+										<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => toggleChannel(ch)}>
+											Set up
 											</button>
 										{/if}
 									</div>
@@ -719,7 +701,7 @@ FAQs:
 									</div>
 									<div>
 										<div class="text-[11px] font-medium text-slate-400 uppercase">Business</div>
-										<div class="text-sm font-medium text-slate-900">{s1BusinessName || 'Glow Hair Studio'}</div>
+									<div class="text-sm font-medium text-slate-900">{s1BusinessName || 'Your workspace'}</div>
 									</div>
 								</div>
 								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(1)}>Edit</button>
@@ -883,70 +865,6 @@ FAQs:
 				{#if error}
 					<div class="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
 				{/if}
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- WHATSAPP QR CONNECT MODAL (Pure Tailwind) -->
-{#if qrModalOpen}
-	<div
-		class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
-		onclick={() => qrModalOpen = false}
-		onkeydown={(e) => { if (e.key === 'Escape') qrModalOpen = false; }}
-		tabindex="0"
-		role="button"
-		aria-label="Close modal backdrop"
-	>
-		<div
-			class="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6 space-y-5"
-			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}
-			tabindex="-1"
-			role="dialog"
-			aria-modal="true"
-		>
-			<div>
-				<h3 class="text-lg font-medium text-slate-900">Connect WhatsApp</h3>
-				<p class="text-xs text-slate-500 mt-1 font-normal">
-					Open WhatsApp on your phone → Linked Devices → Link a Device, then scan this QR code.
-				</p>
-			</div>
-
-			<div class="w-44 h-44 mx-auto p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-center">
-				<svg viewBox="0 0 160 160" width="140" height="140">
-					<rect width="160" height="160" fill="#FFFFFF" rx="8" />
-					<rect x="15" y="15" width="40" height="40" fill="#1E293B" rx="4" />
-					<rect x="23" y="23" width="24" height="24" fill="#FFFFFF" rx="2" />
-					<rect x="29" y="29" width="12" height="12" fill="#1E293B" rx="1" />
-					<rect x="105" y="15" width="40" height="40" fill="#1E293B" rx="4" />
-					<rect x="113" y="23" width="24" height="24" fill="#FFFFFF" rx="2" />
-					<rect x="119" y="29" width="12" height="12" fill="#1E293B" rx="1" />
-					<rect x="15" y="105" width="40" height="40" fill="#1E293B" rx="4" />
-					<rect x="23" y="113" width="24" height="24" fill="#FFFFFF" rx="2" />
-					<rect x="29" y="119" width="12" height="12" fill="#1E293B" rx="1" />
-					<rect x="65" y="15" width="10" height="10" fill="#1E293B" />
-					<rect x="85" y="15" width="10" height="20" fill="#1E293B" />
-					<rect x="65" y="35" width="20" height="10" fill="#1E293B" />
-					<rect x="15" y="65" width="20" height="10" fill="#1E293B" />
-					<rect x="45" y="65" width="10" height="20" fill="#1E293B" />
-					<rect x="65" y="65" width="30" height="30" fill="#1E293B" />
-					<rect x="105" y="65" width="20" height="10" fill="#1E293B" />
-					<rect x="135" y="65" width="10" height="20" fill="#1E293B" />
-					<rect x="65" y="105" width="10" height="30" fill="#1E293B" />
-					<rect x="85" y="115" width="20" height="10" fill="#1E293B" />
-					<rect x="115" y="95" width="30" height="20" fill="#1E293B" />
-					<rect x="125" y="125" width="20" height="20" fill="#1E293B" />
-				</svg>
-			</div>
-
-			<div class="flex items-center justify-end gap-2 pt-2">
-				<button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition cursor-pointer" onclick={() => qrModalOpen = false}>
-					Cancel
-				</button>
-				<button type="button" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium shadow-xs transition cursor-pointer" onclick={confirmQRConnect}>
-					Simulate Connected
-				</button>
 			</div>
 		</div>
 	</div>

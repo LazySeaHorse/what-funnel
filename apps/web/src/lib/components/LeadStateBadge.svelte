@@ -12,12 +12,12 @@
 	} = $props();
 
 	const stateConfig: Record<string, { label: string; bg: string; dot: string }> = {
-		new: { label: 'New Lead', bg: 'bg-[#FEF9E7] text-[#D97706] border-[#FDE68A]/60', dot: 'bg-amber-400' },
-		contacted: { label: 'Contacted', bg: 'bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]/60', dot: 'bg-blue-500' },
-		follow_up: { label: 'Follow-up', bg: 'bg-[#FAF5FF] text-[#7E22CE] border-[#E9D5FF]/60', dot: 'bg-purple-500' },
-		interested: { label: 'Interested', bg: 'bg-[#ECFDF5] text-[#047857] border-[#A7F3D0]/60', dot: 'bg-emerald-500' },
-		converted: { label: 'Converted', bg: 'bg-[#ECFDF5] text-[#047857] border-[#A7F3D0]/60', dot: 'bg-emerald-500' },
-		closed_won: { label: 'Converted', bg: 'bg-[#ECFDF5] text-[#047857] border-[#A7F3D0]/60', dot: 'bg-emerald-500' }
+		new: { label: 'New Lead', bg: 'bg-amber-50 text-amber-700 border-amber-200/60', dot: 'bg-amber-400' },
+		contacted: { label: 'Contacted', bg: 'bg-blue-50 text-blue-700 border-blue-200/60', dot: 'bg-blue-500' },
+		follow_up: { label: 'Follow-up', bg: 'bg-purple-50 text-purple-700 border-purple-200/60', dot: 'bg-purple-500' },
+		interested: { label: 'Interested', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', dot: 'bg-emerald-500' },
+		converted: { label: 'Converted', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', dot: 'bg-emerald-500' },
+		closed_won: { label: 'Converted', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', dot: 'bg-emerald-500' }
 	};
 
 	const currentInfo = $derived(

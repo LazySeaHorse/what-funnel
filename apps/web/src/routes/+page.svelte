@@ -51,8 +51,8 @@
 	});
 </script>
 
-<div class="min-h-[100dvh] w-full bg-[#F9FAFC] flex items-center justify-center p-4 font-sans text-slate-800 antialiased">
-	<div class="bg-white rounded-2xl border border-slate-200 shadow-xs p-8 flex flex-col items-center gap-4 text-center">
+<div class="wf-page flex items-center justify-center p-4">
+	<div class="wf-card flex flex-col items-center gap-4 p-8 text-center">
 		<div class="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
 			<Icon name="bot" size={22} color="currentColor" />
 		</div>

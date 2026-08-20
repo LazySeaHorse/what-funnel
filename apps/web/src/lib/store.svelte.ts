@@ -3,6 +3,7 @@ import { apiRequest } from '$lib/api';
 export class InboxState {
 	conversations = $state<any[]>([]);
 	activeConvoID = $state<string | null>(null);
+	pendingConvoID = $state<string | null>(null);
 	activeConvo = $state<any | null>(null);
 	messages = $state<any[]>([]);
 	nextCursor = $state<string | null>(null);
@@ -14,21 +15,28 @@ export class InboxState {
 	wsStatus = $state<'connecting' | 'connected' | 'disconnected'>('disconnected');
 	ws: WebSocket | null = null;
 	reconnectAttempts = 0;
+	private conversationRequest: AbortController | null = null;
+	private conversationRequestVersion = 0;
 	
 	async init() {
 		try {
 			this.currentUser = await apiRequest('/auth/me');
 			if (this.currentUser.role === 'admin') {
 				this.filter = 'all';
-				this.users = await apiRequest('/workspace/users').catch(() => []);
 			} else {
 				this.filter = 'mine';
 			}
-			await this.loadConversations();
+			const requests: Promise<void>[] = [this.loadConversations()];
+			if (this.currentUser.role === 'admin') requests.push(this.loadUsers());
+			await Promise.all(requests);
 			this.connectWS();
 		} catch (err) {
 			console.error('Failed to init inbox', err);
 		}
+	}
+
+	private async loadUsers() {
+		this.users = await apiRequest('/workspace/users').catch(() => []);
 	}
 	
 	async loadConversations() {
@@ -37,36 +45,62 @@ export class InboxState {
 			if (this.stateFilter) {
 				url += `&state=${this.stateFilter}`;
 			}
-			this.conversations = await apiRequest(url);
+			const conversations = await apiRequest(url);
+			this.conversations = Array.isArray(conversations) ? conversations : [];
 		} catch (err) {
 			console.error(err);
 		}
 	}
 	
 	async selectConversation(convoID: string) {
-		this.activeConvoID = convoID;
-		this.messages = [];
-		this.nextCursor = null;
-		
+		if (convoID === this.activeConvoID && !this.pendingConvoID) return;
+
+		// Keep the existing conversation rendered until the replacement is complete.
+		// This avoids a blank pane on slow connections and prevents late responses
+		// from overwriting a newer selection.
+		this.conversationRequest?.abort();
+		const controller = new AbortController();
+		this.conversationRequest = controller;
+		const requestVersion = ++this.conversationRequestVersion;
+		this.pendingConvoID = convoID;
+
 		try {
-			this.activeConvo = await apiRequest(`/conversations/${convoID}`);
-			await this.loadMessages(true);
-			await apiRequest(`/conversations/${convoID}/read`, { method: 'POST' });
+			const [conversation, messageResponse] = await Promise.all([
+				apiRequest(`/conversations/${convoID}`, { signal: controller.signal }),
+				apiRequest(`/conversations/${convoID}/messages?limit=20`, { signal: controller.signal })
+			]);
+			if (requestVersion !== this.conversationRequestVersion) return;
+
+			this.activeConvoID = convoID;
+			this.activeConvo = conversation;
+			this.messages = (messageResponse?.messages ?? []).reverse();
+			this.nextCursor = messageResponse?.next_cursor ?? null;
+
+			void apiRequest(`/conversations/${convoID}/read`, { method: 'POST' }).catch((err) => console.error(err));
 			const index = this.conversations.findIndex(c => c.id === convoID);
 			if (index !== -1) {
 				this.conversations[index].unread = false;
 			}
 		} catch (err) {
-			console.error(err);
+			if (!(err instanceof DOMException && err.name === 'AbortError')) {
+				console.error(err);
+			}
+		} finally {
+			if (requestVersion === this.conversationRequestVersion) {
+				this.pendingConvoID = null;
+				this.conversationRequest = null;
+			}
 		}
 	}
 	
 	async loadMessages(reset = false) {
 		if (!this.activeConvoID) return;
+		const conversationID = this.activeConvoID;
 		try {
-			const url = `/conversations/${this.activeConvoID}/messages?limit=20` + 
+			const url = `/conversations/${conversationID}/messages?limit=20` +
 				(this.nextCursor && !reset ? `&before=${this.nextCursor}` : '');
 			const res = await apiRequest(url);
+			if (conversationID !== this.activeConvoID) return;
 			if (reset) {
 				this.messages = res.messages.reverse();
 			} else {

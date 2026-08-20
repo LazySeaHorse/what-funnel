@@ -60,7 +60,7 @@
 				tabindex="0"
 				onclick={() => onSelectLead(lead)}
 				onkeydown={(e) => { if (e.key === 'Enter') onSelectLead(lead); }}
-				class="grid grid-cols-[40px_minmax(180px,2.4fr)_75px_125px_110px_minmax(160px,2fr)_85px] px-3 py-2.5 items-center text-xs transition cursor-pointer rounded-xl {isSelected ? 'bg-[#F4F8FE] border border-blue-200/90' : 'bg-white hover:bg-slate-50/70 border border-transparent'}"
+				class="grid grid-cols-[40px_minmax(180px,2.4fr)_75px_125px_110px_minmax(160px,2fr)_85px] px-3 py-2.5 items-center text-xs transition cursor-pointer rounded-xl {isSelected ? 'bg-blue-50 border border-blue-200/90' : 'bg-white hover:bg-slate-50/70 border border-transparent'}"
 			>
 				<!-- Checkbox -->
 				<div class="flex items-center justify-center" onclick={(e) => e.stopPropagation()} role="presentation">
@@ -76,7 +76,7 @@
 				<div class="flex items-center gap-3 pr-2 min-w-0">
 					<UserAvatar name={lead.name} avatar={lead.avatar} size="lg" />
 					<div class="min-w-0 flex-1">
-						<div class="font-semibold text-slate-900 truncate leading-tight">{lead.name}</div>
+						<div class="font-medium text-slate-900 truncate leading-tight">{lead.name}</div>
 						<div class="text-[11px] text-slate-400 truncate leading-tight mt-0.5">{lead.lastMessage}</div>
 					</div>
 				</div>
@@ -126,7 +126,7 @@
 						<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
 					</svg>
 				</div>
-				<div class="text-sm font-semibold text-slate-800">No leads in this view</div>
+				<div class="text-sm font-medium text-slate-800">No leads in this view</div>
 				<div class="text-xs text-slate-400 mt-1 max-w-sm">Leads are automatically created as incoming inquiries arrive across your connected channels.</div>
 			</div>
 		{/if}
@@ -145,7 +145,7 @@
 						<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
 					</svg>
 				</button>
-				<button class="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 font-semibold flex items-center justify-center cursor-pointer">1</button>
+				<button class="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 font-medium flex items-center justify-center cursor-pointer">1</button>
 				<button class="w-7 h-7 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center justify-center cursor-pointer">2</button>
 				<button class="w-7 h-7 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center justify-center cursor-pointer">3</button>
 				<span class="px-1 text-slate-400 text-xs">...</span>
