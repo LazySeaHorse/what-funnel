@@ -4,6 +4,14 @@ A chatbot automation layer + lead management workspace that connects to existing
 
 ---
 
+## Screenshots
+
+| Inbox | Sign In | Onboarding |
+|:---:|:---:|:---:|
+| [![inbox.webp](https://i.postimg.cc/MTnSTDbk/inbox.webp)](https://postimg.cc/47RM2pSw) | [![sign-in.webp](https://i.postimg.cc/W1SLwKXK/sign-in.webp)](https://postimg.cc/SnXvyZ07) | [![onboarding-(6).webp](https://i.postimg.cc/76GFDLwL/onboarding-(6).webp)](https://postimg.cc/62Kjft7s) |
+
+---
+
 ## Architecture Overview
 
 ```
