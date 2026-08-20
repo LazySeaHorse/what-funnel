@@ -3,11 +3,16 @@ package matrix
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,9 +21,27 @@ import (
 
 // Credentials holds session keys needed to connect to Synapse.
 type Credentials struct {
-	HomeserverURL string `json:"homeserver_url"`
-	UserID        string `json:"user_id"`
-	AccessToken   string `json:"access_token"`
+	HomeserverURL    string `json:"homeserver_url"`
+	UserID           string `json:"user_id"`
+	AccessToken      string `json:"access_token"`
+	ManagementRoomID string `json:"management_room_id,omitempty"`
+}
+
+// ProvisioningConfig is held only in service configuration. Never serialize it
+// to a channel record or return it from an API.
+type ProvisioningConfig struct {
+	HomeserverURL            string
+	ServerName               string
+	RegistrationSharedSecret string
+}
+
+// BridgeMessage is a safe, normalized view of a bridge management event.
+type BridgeMessage struct {
+	EventID  string
+	Sender   string
+	Type     string
+	Body     string
+	MediaURL string
 }
 
 // Adapter implements types.ChannelAdapter for Matrix client-server API.
@@ -60,6 +83,15 @@ func (a *Adapter) Configure(channelID string, creds Credentials) {
 	if ctx != nil && publishInbound != nil && publishExternalOutbound != nil {
 		go a.syncLoop(ctx, channelID, publishInbound, publishExternalOutbound)
 	}
+}
+
+// Remove forgets a channel's Matrix token and stops any future sync iteration
+// after the current request completes. Call this after a bridge logout.
+func (a *Adapter) Remove(channelID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.creds, channelID)
+	delete(a.status, channelID)
 }
 
 // Status returns the current status of a channel.
@@ -188,6 +220,202 @@ func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID s
 	return result.EventID, nil
 }
 
+// ProvisionUser creates a least-privilege Matrix user for one channel using
+// Synapse's shared-secret registration API. Conversation Service encrypts the
+// returned access token before it is written to Postgres.
+func ProvisionUser(ctx context.Context, cfg ProvisioningConfig, username string) (Credentials, error) {
+	if cfg.HomeserverURL == "" || cfg.ServerName == "" || cfg.RegistrationSharedSecret == "" {
+		return Credentials{}, fmt.Errorf("Matrix bridge provisioning is not configured")
+	}
+	base := strings.TrimRight(cfg.HomeserverURL, "/")
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/_synapse/admin/v1/register", nil)
+	if err != nil {
+		return Credentials{}, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return Credentials{}, fmt.Errorf("request Matrix registration nonce: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return Credentials{}, fmt.Errorf("request Matrix registration nonce: %s", strings.TrimSpace(string(body)))
+	}
+	var nonceResponse struct {
+		Nonce string `json:"nonce"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&nonceResponse); err != nil || nonceResponse.Nonce == "" {
+		if err == nil {
+			err = fmt.Errorf("empty nonce")
+		}
+		return Credentials{}, fmt.Errorf("decode Matrix registration nonce: %w", err)
+	}
+	passwordBytes := make([]byte, 32)
+	if _, err := rand.Read(passwordBytes); err != nil {
+		return Credentials{}, fmt.Errorf("generate Matrix user password: %w", err)
+	}
+	password := base64.RawURLEncoding.EncodeToString(passwordBytes)
+	payload, _ := json.Marshal(map[string]any{"nonce": nonceResponse.Nonce, "username": username, "password": password, "admin": false, "mac": registrationMAC(cfg.RegistrationSharedSecret, nonceResponse.Nonce, username, password)})
+	req, err = http.NewRequestWithContext(ctx, http.MethodPost, base+"/_synapse/admin/v1/register", bytes.NewReader(payload))
+	if err != nil {
+		return Credentials{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil {
+		return Credentials{}, fmt.Errorf("register Matrix bridge user: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return Credentials{}, fmt.Errorf("register Matrix bridge user: %s", strings.TrimSpace(string(body)))
+	}
+	var registered struct {
+		UserID      string `json:"user_id"`
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&registered); err != nil {
+		return Credentials{}, fmt.Errorf("decode Matrix bridge registration: %w", err)
+	}
+	if registered.UserID == "" || registered.AccessToken == "" {
+		return Credentials{}, fmt.Errorf("Matrix registration did not return a user access token")
+	}
+	return Credentials{HomeserverURL: base, UserID: registered.UserID, AccessToken: registered.AccessToken}, nil
+}
+
+func registrationMAC(secret, nonce, username, password string) string {
+	mac := hmac.New(sha1.New, []byte(secret))
+	for i, value := range []string{nonce, username, password, "notadmin"} {
+		if i > 0 {
+			_, _ = mac.Write([]byte{0})
+		}
+		_, _ = mac.Write([]byte(value))
+	}
+	return fmt.Sprintf("%x", mac.Sum(nil))
+}
+
+// CreateManagementRoom starts the private control room used to speak to one
+// mautrix bridge bot. It is not considered a customer conversation.
+func (a *Adapter) CreateManagementRoom(ctx context.Context, creds Credentials, bridgeIdentity string) (string, error) {
+	payload, _ := json.Marshal(map[string]any{"invite": []string{bridgeIdentity}, "is_direct": true, "preset": "trusted_private_chat", "name": "WhatFunnel channel setup"})
+	endpoint := strings.TrimRight(creds.HomeserverURL, "/") + "/_matrix/client/v3/createRoom"
+	var result struct {
+		RoomID string `json:"room_id"`
+	}
+	if err := a.matrixJSON(ctx, creds, http.MethodPost, endpoint, payload, &result); err != nil {
+		return "", fmt.Errorf("create bridge management room: %w", err)
+	}
+	if result.RoomID == "" {
+		return "", fmt.Errorf("Matrix did not return a management room")
+	}
+	return result.RoomID, nil
+}
+
+// SendManagementCommand posts a command to a mautrix management room.
+func (a *Adapter) SendManagementCommand(ctx context.Context, creds Credentials, roomID, command string) (string, error) {
+	txID := fmt.Sprintf("wf-setup-%d", time.Now().UnixNano())
+	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(roomID), url.PathEscape(txID))
+	payload, _ := json.Marshal(map[string]string{"msgtype": "m.text", "body": command})
+	var result struct {
+		EventID string `json:"event_id"`
+	}
+	if err := a.matrixJSON(ctx, creds, http.MethodPut, endpoint, payload, &result); err != nil {
+		return "", fmt.Errorf("send bridge command: %w", err)
+	}
+	return result.EventID, nil
+}
+
+// ReadManagementMessages reads recent bridge replies without exposing the
+// Matrix access token to the browser.
+func (a *Adapter) ReadManagementMessages(ctx context.Context, creds Credentials, roomID string) ([]BridgeMessage, error) {
+	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=b&limit=30", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(roomID))
+	var result struct {
+		Chunk []struct {
+			EventID string         `json:"event_id"`
+			Sender  string         `json:"sender"`
+			Type    string         `json:"type"`
+			Content map[string]any `json:"content"`
+		} `json:"chunk"`
+	}
+	if err := a.matrixJSON(ctx, creds, http.MethodGet, endpoint, nil, &result); err != nil {
+		return nil, fmt.Errorf("read bridge management messages: %w", err)
+	}
+	messages := make([]BridgeMessage, 0, len(result.Chunk))
+	for _, event := range result.Chunk {
+		body, _ := event.Content["body"].(string)
+		mediaURL, _ := event.Content["url"].(string)
+		messages = append(messages, BridgeMessage{EventID: event.EventID, Sender: event.Sender, Type: event.Type, Body: body, MediaURL: mediaURL})
+	}
+	return messages, nil
+}
+
+// DownloadMedia retrieves a bridge-issued QR image using the server-side
+// Matrix token. The token itself is never sent to the browser.
+func (a *Adapter) DownloadMedia(ctx context.Context, creds Credentials, mxcURL string) ([]byte, string, error) {
+	parsed, err := url.Parse(mxcURL)
+	if err != nil || parsed.Scheme != "mxc" || parsed.Host == "" || strings.Trim(parsed.Path, "/") == "" {
+		return nil, "", fmt.Errorf("invalid Matrix media URL")
+	}
+	mediaID := strings.Trim(parsed.Path, "/")
+	endpoint := fmt.Sprintf("%s/_matrix/media/v3/download/%s/%s", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(parsed.Host), url.PathEscape(mediaID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+creds.AccessToken)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("download Matrix media: %s", strings.TrimSpace(string(body)))
+	}
+	limited := io.LimitReader(resp.Body, 2*1024*1024+1)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(body) > 2*1024*1024 {
+		return nil, "", fmt.Errorf("bridge QR image exceeds 2 MiB")
+	}
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/png"
+	}
+	return body, contentType, nil
+}
+
+func (a *Adapter) matrixJSON(ctx context.Context, creds Credentials, method, endpoint string, body []byte, target any) error {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+creds.AccessToken)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Matrix response %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	if target != nil {
+		return json.NewDecoder(resp.Body).Decode(target)
+	}
+	return nil
+}
+
 func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) {
 	a.mu.RLock()
 	creds, exists := a.creds[channelID]
@@ -214,6 +442,12 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 			a.SetStatus(channelID, "disconnected", "Context cancelled")
 			return
 		default:
+		}
+		a.mu.RLock()
+		_, configured := a.creds[channelID]
+		a.mu.RUnlock()
+		if !configured {
+			return
 		}
 
 		syncURL := fmt.Sprintf("%s/_matrix/client/v3/sync?timeout=30000", creds.HomeserverURL)
@@ -277,6 +511,9 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 		since = syncResp.NextBatch
 
 		for roomID, roomData := range syncResp.Rooms.Join {
+			if roomID == creds.ManagementRoomID {
+				continue
+			}
 			for _, ev := range roomData.Timeline.Events {
 				if ev.Sender == creds.UserID {
 					a.mu.RLock()

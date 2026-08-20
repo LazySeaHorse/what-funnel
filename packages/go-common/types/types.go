@@ -9,13 +9,27 @@ import (
 
 // Account is the root tenant boundary. One business per account.
 type Account struct {
-	ID                uuid.UUID  `json:"id" db:"id"`
-	Name              string     `json:"name" db:"name"`
-	Plan              string     `json:"plan" db:"plan"`
-	ProductMode       string     `json:"product_mode" db:"product_mode"`
-	AIProviderConfig  []byte     `json:"-" db:"ai_provider_config"` // encrypted; never serialised to JSON directly
-	Settings          []byte     `json:"settings" db:"settings"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	ID               uuid.UUID `json:"id" db:"id"`
+	Name             string    `json:"name" db:"name"`
+	Plan             string    `json:"plan" db:"plan"`
+	ProductMode      string    `json:"product_mode" db:"product_mode"`
+	AIProviderConfig []byte    `json:"-" db:"ai_provider_config"` // encrypted; never serialised to JSON directly
+	Settings         []byte    `json:"settings" db:"settings"`
+	CreatedAt        time.Time `json:"created_at" db:"created_at"`
+}
+
+// BridgeConnection is the setup lifecycle for a mautrix-backed channel. It
+// intentionally contains no Matrix access token or third-party session data.
+type BridgeConnection struct {
+	ChannelID        uuid.UUID `json:"channel_id" db:"channel_id"`
+	AccountID        uuid.UUID `json:"account_id" db:"account_id"`
+	Platform         string    `json:"platform" db:"platform"`
+	BridgeIdentity   string    `json:"bridge_identity" db:"bridge_identity"`
+	ManagementRoomID string    `json:"management_room_id,omitempty" db:"management_room_id"`
+	State            string    `json:"state" db:"state"`
+	Detail           string    `json:"detail,omitempty" db:"detail"`
+	CreatedAt        time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // User belongs to exactly one account and has a role: admin or member.
@@ -82,14 +96,14 @@ type LeadNote struct {
 
 // LeadStateHistory is the history of state changes for a lead.
 type LeadStateHistory struct {
-	ID        uuid.UUID  `json:"id" db:"id"`
-	AccountID uuid.UUID  `json:"account_id" db:"account_id"`
-	LeadID    uuid.UUID  `json:"lead_id" db:"lead_id"`
-	FromState *string    `json:"from_state" db:"from_state"`
-	ToState   string     `json:"to_state" db:"to_state"`
-	ChangedBy *uuid.UUID `json:"changed_by" db:"changed_by"`
+	ID         uuid.UUID  `json:"id" db:"id"`
+	AccountID  uuid.UUID  `json:"account_id" db:"account_id"`
+	LeadID     uuid.UUID  `json:"lead_id" db:"lead_id"`
+	FromState  *string    `json:"from_state" db:"from_state"`
+	ToState    string     `json:"to_state" db:"to_state"`
+	ChangedBy  *uuid.UUID `json:"changed_by" db:"changed_by"`
 	ActorEmail string     `json:"actor_email,omitempty"`
-	ChangedAt time.Time  `json:"changed_at" db:"changed_at"`
+	ChangedAt  time.Time  `json:"changed_at" db:"changed_at"`
 }
 
 // InviteToken holds a pending user invite.
@@ -132,14 +146,14 @@ var DefaultPipelineStates = []PipelineState{
 
 // Channel represents a connected messaging surface.
 type Channel struct {
-	ID                uuid.UUID  `json:"id" db:"id"`
-	AccountID         uuid.UUID  `json:"account_id" db:"account_id"`
-	Type              string     `json:"type" db:"type"`
-	BridgeIdentity    *string    `json:"bridge_identity" db:"bridge_identity"`
-	BridgeCredentials []byte     `json:"-" db:"bridge_credentials"` // encrypted bytes
-	Status            string     `json:"status" db:"status"`
-	StatusDetail      *string    `json:"status_detail" db:"status_detail"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	ID                uuid.UUID `json:"id" db:"id"`
+	AccountID         uuid.UUID `json:"account_id" db:"account_id"`
+	Type              string    `json:"type" db:"type"`
+	BridgeIdentity    *string   `json:"bridge_identity" db:"bridge_identity"`
+	BridgeCredentials []byte    `json:"-" db:"bridge_credentials"` // encrypted bytes
+	Status            string    `json:"status" db:"status"`
+	StatusDetail      *string   `json:"status_detail" db:"status_detail"`
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 }
 
 // Contact represents a remote identity on a channel.
@@ -170,24 +184,24 @@ type Conversation struct {
 // ConversationListItem is a list item representing a conversation with unread status and last message preview.
 type ConversationListItem struct {
 	Conversation
-	Unread             bool      `json:"unread"`
-	LastMessagePreview *Message  `json:"last_message_preview"` // Nullable
-	ContactName        *string   `json:"contact_name"`
-	ContactAvatarURL   *string   `json:"contact_avatar_url"`
-	ChannelType        *string   `json:"channel_type,omitempty"`
-	Lead               *Lead     `json:"lead"` // Nullable
+	Unread             bool     `json:"unread"`
+	LastMessagePreview *Message `json:"last_message_preview"` // Nullable
+	ContactName        *string  `json:"contact_name"`
+	ContactAvatarURL   *string  `json:"contact_avatar_url"`
+	ChannelType        *string  `json:"channel_type,omitempty"`
+	Lead               *Lead    `json:"lead"` // Nullable
 }
 
 // Message is an individual message in a conversation.
 type Message struct {
-	ID                uuid.UUID  `json:"id" db:"id"`
-	AccountID         uuid.UUID  `json:"account_id" db:"account_id"`
-	ConversationID    uuid.UUID  `json:"conversation_id" db:"conversation_id"`
-	Direction         string     `json:"direction" db:"direction"`
-	SenderType        string     `json:"sender_type" db:"sender_type"`
-	SenderUserID      *uuid.UUID `json:"sender_user_id" db:"sender_user_id"`
+	ID                uuid.UUID       `json:"id" db:"id"`
+	AccountID         uuid.UUID       `json:"account_id" db:"account_id"`
+	ConversationID    uuid.UUID       `json:"conversation_id" db:"conversation_id"`
+	Direction         string          `json:"direction" db:"direction"`
+	SenderType        string          `json:"sender_type" db:"sender_type"`
+	SenderUserID      *uuid.UUID      `json:"sender_user_id" db:"sender_user_id"`
 	ContentType       string          `json:"content_type" db:"content_type"`
 	Content           json.RawMessage `json:"content" db:"content"` // JSONB payload
 	ExternalMessageID *string         `json:"external_message_id" db:"external_message_id"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
 }

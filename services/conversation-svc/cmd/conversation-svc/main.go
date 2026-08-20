@@ -61,6 +61,19 @@ func main() {
 
 	// 4. Initialize Service and Session Store
 	svc := service.New(pool, cipher, psClient)
+	svc.ConfigureBridgeConnections(service.BridgeConnectionConfig{
+		Provisioning: matrixadapter.ProvisioningConfig{
+			HomeserverURL:            cfg.MatrixHomeserverURL,
+			ServerName:               cfg.MatrixServerName,
+			RegistrationSharedSecret: cfg.MatrixRegistrationSharedSecret,
+		},
+		BridgeIdentities: map[string]string{
+			"whatsapp":  cfg.MatrixWhatsAppBridgeIdentity,
+			"telegram":  cfg.MatrixTelegramBridgeIdentity,
+			"instagram": cfg.MatrixInstagramBridgeIdentity,
+			"messenger": cfg.MatrixMessengerBridgeIdentity,
+		},
+	})
 	sess := session.New(pool, cfg.SessionSecret)
 
 	// 5. Initialize and Register Matrix Adapter

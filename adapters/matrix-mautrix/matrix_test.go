@@ -7,6 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestRegistrationMACUsesSynapseSharedSecretFormat(t *testing.T) {
+	assert.Equal(t,
+		"2d26005ec6579eb9293b5aeb2a3eefd4427fa361",
+		registrationMAC("registration-secret", "nonce-123", "wf_test", "password-123"),
+	)
+}
+
 func TestMatrixAdapter_NormalizeEvent(t *testing.T) {
 	adapter := New()
 

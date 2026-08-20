@@ -52,6 +52,7 @@ Sign up at `/signup` — the onboarding wizard walks you through the rest.
 * **Real-time Event Broadcasting:** WebSocket events are dispatched dynamically based on tenant identity and conversation visibility settings.
 * **Invited User Signup:** Dynamic invite token creation by Admins and full token-redemption member registration during signup.
 * **Dynamic Adapters & Mocking:** Dynamic channel creation and decryption of credentials. Integrated mock homeserver bypass for robust testing.
+* **Guided Bridge Connections:** WhatsApp, Telegram, Instagram, and Messenger have explicit bridge setup states instead of simulated connections. See [bridge connection deployment](docs/BRIDGE_CONNECTIONS.md).
 * **SvelteKit Desktop Web App:** Bento-style inbox UI featuring list search, cursor-pagination, 7 inline message types, reaction bubble parsing, QR code WhatsApp setup, and user role administration.
 
 ---

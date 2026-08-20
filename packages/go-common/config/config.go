@@ -15,18 +15,34 @@ type Config struct {
 	RedisURL      string
 	Port          string
 	LogLevel      string
+	// Matrix connection control is deliberately server-only. The shared secret
+	// is used solely to create an isolated Matrix puppet user per channel.
+	MatrixHomeserverURL            string
+	MatrixServerName               string
+	MatrixRegistrationSharedSecret string
+	MatrixWhatsAppBridgeIdentity   string
+	MatrixTelegramBridgeIdentity   string
+	MatrixInstagramBridgeIdentity  string
+	MatrixMessengerBridgeIdentity  string
 }
 
 // Load reads configuration from environment variables, returning an error if
 // any required variable is missing.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		SessionSecret: os.Getenv("SESSION_SECRET"),
-		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
-		RedisURL:      os.Getenv("REDIS_URL"),
-		Port:          os.Getenv("PORT"),
-		LogLevel:      os.Getenv("LOG_LEVEL"),
+		DatabaseURL:                    os.Getenv("DATABASE_URL"),
+		SessionSecret:                  os.Getenv("SESSION_SECRET"),
+		EncryptionKey:                  os.Getenv("ENCRYPTION_KEY"),
+		RedisURL:                       os.Getenv("REDIS_URL"),
+		Port:                           os.Getenv("PORT"),
+		LogLevel:                       os.Getenv("LOG_LEVEL"),
+		MatrixHomeserverURL:            os.Getenv("MATRIX_HOMESERVER_URL"),
+		MatrixServerName:               os.Getenv("MATRIX_SERVER_NAME"),
+		MatrixRegistrationSharedSecret: os.Getenv("MATRIX_REGISTRATION_SHARED_SECRET"),
+		MatrixWhatsAppBridgeIdentity:   os.Getenv("MATRIX_WHATSAPP_BRIDGE_IDENTITY"),
+		MatrixTelegramBridgeIdentity:   os.Getenv("MATRIX_TELEGRAM_BRIDGE_IDENTITY"),
+		MatrixInstagramBridgeIdentity:  os.Getenv("MATRIX_INSTAGRAM_BRIDGE_IDENTITY"),
+		MatrixMessengerBridgeIdentity:  os.Getenv("MATRIX_MESSENGER_BRIDGE_IDENTITY"),
 	}
 
 	if cfg.DatabaseURL == "" {

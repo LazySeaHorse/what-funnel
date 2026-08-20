@@ -28,11 +28,12 @@ type ConversationUpdatedEvent struct {
 }
 
 type Service struct {
-	pool      *pgxpool.Pool
-	cipher    *crypto.Cipher
-	pubsub    *pubsub.Client
-	adapters  map[string]types.ChannelAdapter
-	adaptersMu sync.RWMutex
+	pool         *pgxpool.Pool
+	cipher       *crypto.Cipher
+	pubsub       *pubsub.Client
+	adapters     map[string]types.ChannelAdapter
+	adaptersMu   sync.RWMutex
+	bridgeConfig BridgeConnectionConfig
 }
 
 func New(pool *pgxpool.Pool, cipher *crypto.Cipher, pubsub *pubsub.Client) *Service {
@@ -679,7 +680,7 @@ func (s *Service) CreateChannel(ctx context.Context, accountID uuid.UUID, channe
 		Type:              channelType,
 		BridgeIdentity:    bridgeIdentity,
 		BridgeCredentials: encryptedCreds,
-		Status:            "disconnected",
+		Status:            "pending",
 	}
 
 	err = tx.QueryRow(ctx, `
@@ -775,12 +776,15 @@ func (s *Service) ListChannels(ctx context.Context, accountID uuid.UUID) ([]*typ
 			return nil, err
 		}
 
-		// Dynamically query adapter status and update
-		if adapter, err := s.GetAdapter(ch.Type); err == nil {
-			status := adapter.Status(ch.ID.String())
-			ch.Status = status.Status
-			ch.StatusDetail = &status.Detail
-			_, _ = s.pool.Exec(ctx, `UPDATE channels SET status = $1, status_detail = $2 WHERE id = $3`, status.Status, status.Detail, ch.ID)
+		// A user-disconnected channel must remain disconnected. Polling its adapter
+		// would otherwise overwrite that explicit state with a stale connection status.
+		if ch.Status != "disconnected" && ch.Status != "pending" {
+			if adapter, err := s.GetAdapter(ch.Type); err == nil {
+				status := adapter.Status(ch.ID.String())
+				ch.Status = status.Status
+				ch.StatusDetail = &status.Detail
+				_, _ = s.pool.Exec(ctx, `UPDATE channels SET status = $1, status_detail = $2 WHERE id = $3`, status.Status, status.Detail, ch.ID)
+			}
 		}
 
 		channels = append(channels, ch)
@@ -788,8 +792,30 @@ func (s *Service) ListChannels(ctx context.Context, accountID uuid.UUID) ([]*typ
 	return channels, rows.Err()
 }
 
-// DisconnectChannel updates channel status to disconnected and clears credentials if requested.
+// DisconnectChannel logs out of the remote bridge before revoking the locally
+// stored Matrix access token. A failed remote logout leaves the channel intact
+// so an administrator can retry instead of silently retaining a live session.
 func (s *Service) DisconnectChannel(ctx context.Context, accountID, channelID uuid.UUID) error {
+	var connection *types.BridgeConnection
+	if candidate, err := s.GetBridgeConnection(ctx, accountID, channelID, false); err == nil {
+		connection = candidate
+		creds, err := s.channelMatrixCredentials(ctx, accountID, channelID)
+		if err != nil {
+			return fmt.Errorf("load bridge credentials for logout: %w", err)
+		}
+		spec, err := s.bridgePlatform(connection.Platform)
+		if err != nil {
+			return err
+		}
+		adapter, err := s.matrixAdapterFor(spec.ChannelType)
+		if err != nil {
+			return err
+		}
+		if _, err := adapter.SendManagementCommand(ctx, creds, connection.ManagementRoomID, "logout"); err != nil {
+			return fmt.Errorf("log out of %s bridge: %w", connection.Platform, err)
+		}
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -808,7 +834,7 @@ func (s *Service) DisconnectChannel(ctx context.Context, accountID, channelID uu
 
 	_, err = tx.Exec(ctx, `
 		UPDATE channels
-		SET status = 'disconnected', status_detail = 'Disconnected by admin'
+		SET status = 'disconnected', status_detail = 'Disconnected by admin', bridge_credentials = NULL
 		WHERE id = $1 AND account_id = $2
 	`, channelID, accountID)
 	if err != nil {
@@ -827,7 +853,18 @@ func (s *Service) DisconnectChannel(ctx context.Context, accountID, channelID uu
 		return fmt.Errorf("write audit log: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if connection != nil {
+		if _, err := tx.Exec(ctx, `UPDATE channel_connections SET state = 'cancelled', detail = 'Disconnected by admin', updated_at = NOW() WHERE channel_id = $1`, channelID); err != nil {
+			return fmt.Errorf("cancel bridge connection: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if matrix, err := s.matrixAdapterFor(typeName); err == nil {
+		matrix.Remove(channelID.String())
+	}
+	return nil
 }
 
 // GetChannelStatus reflects live Status from the adapter.
@@ -930,7 +967,7 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 	for rows.Next() {
 		item := &types.ConversationListItem{}
 		var lastReadAt *time.Time
-		
+
 		// Message fields (nullable fields parsed manually)
 		var msgID *uuid.UUID
 		var msgDirection *string
@@ -1771,5 +1808,3 @@ func (s *Service) PubSub() *pubsub.Client {
 func (s *Service) Pool() *pgxpool.Pool {
 	return s.pool
 }
-
-
