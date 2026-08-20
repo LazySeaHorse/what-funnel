@@ -5,6 +5,8 @@
 	import type { WorkspaceState } from '$lib/workspace.svelte';
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
 	import PipelineSettings from './PipelineSettings.svelte';
+	import SettingsSidebar from './SettingsSidebar.svelte';
+	import SettingsInfoPanel from './SettingsInfoPanel.svelte';
 
 	let {
 		inbox,
@@ -404,75 +406,7 @@
 		<!-- 3-Column Layout: Subnav | Active Section Content | Right Info Cards -->
 		<div class="grid grid-cols-12 gap-8 items-start">
 
-		<!-- ================= SUB-NAVIGATION (LEFT) ================= -->
-		<div class="col-span-12 md:col-span-3 lg:col-span-2">
-			<div class="space-y-1" role="tablist" aria-label="Workspace settings sections">
-				<button
-					onclick={() => activeSection = 'general'}
-					role="tab"
-					aria-selected={activeSection === 'general'}
-					aria-controls="settings-panel-general"
-					class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'general' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"
-				>
-					<svg class="w-4 h-4 {activeSection === 'general' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-					</svg>
-					<span>General</span>
-				</button>
-
-				<button
-					onclick={() => activeSection = 'business_profile'}
-					role="tab"
-					aria-selected={activeSection === 'business_profile'}
-					aria-controls="settings-panel-business-profile"
-					class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'business_profile' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"
-				>
-					<svg class="w-4 h-4 {activeSection === 'business_profile' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-					</svg>
-					<span>Business profile</span>
-				</button>
-
-				<button
-					onclick={() => activeSection = 'users_permissions'}
-					role="tab"
-					aria-selected={activeSection === 'users_permissions'}
-					aria-controls="settings-panel-users-permissions"
-					class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'users_permissions' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"
-				>
-					<svg class="w-4 h-4 {activeSection === 'users_permissions' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-					</svg>
-					<span>Users & permissions</span>
-				</button>
-
-					<button
-						onclick={() => activeSection = 'channels'}
-					role="tab"
-					aria-selected={activeSection === 'channels'}
-					aria-controls="settings-panel-channels"
-					class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'channels' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"
-				>
-					<svg class="w-4 h-4 {activeSection === 'channels' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-					</svg>
-						<span>Channels</span>
-					</button>
-
-					{#if productMode === 'full_workspace'}
-						<button
-							onclick={() => activeSection = 'pipeline'}
-							role="tab"
-							aria-selected={activeSection === 'pipeline'}
-							aria-controls="settings-panel-pipeline"
-							class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'pipeline' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"
-						>
-							<span class="w-4 text-center">⌁</span>
-							<span>Lead pipeline</span>
-						</button>
-					{/if}
-			</div>
-		</div>
+		<SettingsSidebar bind:activeSection {productMode} />
 
 		<!-- ================= CENTER CONTENT PANEL ================= -->
 		<div
@@ -763,94 +697,14 @@
 
 		</div>
 
-		<!-- ================= RIGHT INFO COLUMN ================= -->
-		<div class="col-span-12 lg:col-span-4 space-y-5">
-
-			<!-- Card 1: Workspace plan -->
-			<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs space-y-4">
-				<div class="flex items-center justify-between">
-					<span class="text-xs font-medium text-slate-700">Workspace plan</span>
-				</div>
-
-				<div class="flex items-center justify-between">
-					<span class="text-sm font-medium text-slate-900">{currentPlan}</span>
-					<button
-						onclick={() => showPlanModal = true}
-						class="text-xs font-medium text-blue-600 bg-white hover:bg-blue-50/80 border border-slate-200 hover:border-blue-200 rounded-lg px-3 py-1 transition cursor-pointer"
-					>
-						Manage
-					</button>
-				</div>
-
-				<!-- Feature Checkmarks -->
-				<div class="space-y-2 text-xs text-slate-600 pt-1">
-					<div class="flex items-center gap-2">
-						<svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-						</svg>
-						<span>AI Auto-reply</span>
-					</div>
-
-					<div class="flex items-center gap-2">
-						<svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-						</svg>
-						<span>Unlimited channels</span>
-					</div>
-
-					<div class="flex items-center gap-2">
-						<svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-						</svg>
-						<span>Team members: 10</span>
-					</div>
-
-					<div class="flex items-center gap-2">
-						<svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-						</svg>
-						<span>Advanced automation</span>
-					</div>
-				</div>
-			</div>
-
-			<!-- Card 2: Storage -->
-			<div class="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs space-y-3">
-				<span class="text-xs font-medium text-slate-700 block">Storage</span>
-
-				<div class="text-xs text-slate-600">
-					{storageUsedGB} GB of {storageTotalGB} GB used
-				</div>
-
-				<div class="space-y-1">
-					<div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-						<div class="h-full bg-blue-500 rounded-full" style="width: {storagePercent}%"></div>
-					</div>
-					<div class="text-[11px] text-slate-400 font-medium text-right">
-						{storagePercent}%
-					</div>
-				</div>
-			</div>
-
-			<!-- Card 3: Danger zone -->
-			<div class="bg-red-50 border border-red-100 rounded-2xl p-5 shadow-2xs space-y-3">
-				<span class="text-xs font-medium text-red-600 block">Danger zone</span>
-
-				<div class="flex items-center justify-between gap-3">
-					<div>
-						<div class="text-xs font-medium text-slate-900">Delete workspace</div>
-						<div class="text-[11px] text-slate-500">This action cannot be undone.</div>
-					</div>
-						<button
-							onclick={() => showDeleteModal = true}
-							class="text-xs font-medium text-red-600 bg-white border border-red-200 rounded-xl px-3.5 py-1.5 shadow-2xs hover:bg-red-50 shrink-0"
-					>
-						Delete
-					</button>
-				</div>
-			</div>
-
-		</div>
+		<SettingsInfoPanel
+			{currentPlan}
+			{storageUsedGB}
+			{storageTotalGB}
+			{storagePercent}
+			onManagePlan={() => showPlanModal = true}
+			onDelete={() => showDeleteModal = true}
+		/>
 
 	</div>
 

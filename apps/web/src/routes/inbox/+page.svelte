@@ -5,12 +5,14 @@
 	import { InboxState } from '$lib/store.svelte';
 	import { WorkspaceState } from '$lib/workspace.svelte';
 	import BrandLogo from '$lib/components/BrandLogo.svelte';
-	import CustomerSimulator from '$lib/CustomerSimulator.svelte';
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
 	import LeadStateBadge from '$lib/components/LeadStateBadge.svelte';
 	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import LeadsView from '$lib/components/leads/LeadsView.svelte';
 	import SettingsView from '$lib/components/settings/SettingsView.svelte';
+	import ContactsView from '$lib/components/inbox/ContactsView.svelte';
+	import SimulatorView from '$lib/components/inbox/SimulatorView.svelte';
+	import { formatTime, getChannelLabel, getContactHandle, getContactName, getSnippet, getTagColor, parseMessageContent } from '$lib/inbox/presentation';
 
 	const inbox = new InboxState();
 	const workspace = new WorkspaceState();
@@ -388,24 +390,6 @@
 		}
 	}
 
-	function parseMessageContent(content: any): Record<string, any> {
-		if (!content) return {};
-		if (typeof content === 'object') return content;
-		if (typeof content === 'string') {
-			try {
-				return JSON.parse(content);
-			} catch (e1) {
-				try {
-					const decoded = atob(content);
-					return JSON.parse(decoded);
-				} catch (e2) {
-					return { text: content };
-				}
-			}
-		}
-		return {};
-	}
-
 	// Derived list of displayable messages
 	let displayMessages = $derived.by(() => {
 		const msgs = inbox.messages;
@@ -494,57 +478,6 @@
 		if (messageContainer) {
 			messageContainer.scrollTop = messageContainer.scrollHeight;
 		}
-	}
-
-	function formatTime(timeStr?: string) {
-		if (!timeStr) return '';
-		const d = new Date(timeStr);
-		return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-	}
-
-	function getSnippet(convo: any): string {
-		const msg = convo.last_message_preview || convo.last_message;
-		if (!msg) return 'No messages yet';
-		const parsed = parseMessageContent(msg.content);
-		return parsed.text || parsed.caption || 'Message';
-	}
-
-	function getContactName(convo?: any): string {
-		if (!convo) return 'Select a conversation';
-		let name = convo.contact_name || convo.contact?.display_name || convo.display_name || convo.contact_display_name || convo.contact?.external_identity || 'Contact';
-		// Strip any trailing "(Platform)" or "(Instagram)" etc. from contact names
-		name = name.replace(/\s*\((Instagram|WhatsApp|Messenger|Telegram|Webchat|Direct|matrix_[a-z]+)\)$/i, '').trim();
-		return name;
-	}
-
-	function getContactHandle(convo?: any): string {
-		if (!convo) return '';
-		const channelName = getChannelLabel(convo.channel?.type || convo.channel_type);
-		let id = convo.contact?.external_identity || convo.external_identity || '';
-		if (id && !id.startsWith('@') && (convo.channel?.type?.includes('instagram') || convo.channel_type?.includes('instagram'))) {
-			id = `@${id}`;
-		}
-		return id ? `${channelName} • ${id}` : channelName;
-	}
-
-	function getChannelLabel(type?: string): string {
-		if (!type) return 'Direct';
-		if (type.includes('whatsapp')) return 'WhatsApp';
-		if (type.includes('instagram')) return 'Instagram';
-		if (type.includes('messenger')) return 'Messenger';
-		if (type.includes('telegram')) return 'Telegram';
-		if (type.includes('webchat')) return 'Webchat';
-		return type;
-	}
-
-	function getTagColor(stateKey?: string): string {
-		if (!stateKey) return 'bg-amber-50 text-amber-600';
-		const lower = stateKey.toLowerCase();
-		if (lower.includes('new')) return 'bg-amber-50 text-amber-600 border border-amber-200/80';
-		if (lower.includes('interest') || lower.includes('won')) return 'bg-emerald-50 text-emerald-600 border border-emerald-200/80';
-		if (lower.includes('follow')) return 'bg-purple-50 text-purple-600 border border-purple-200/80';
-		if (lower.includes('quote')) return 'bg-rose-50 text-rose-600 border border-rose-200/80';
-		return 'bg-blue-50 text-blue-600 border border-blue-200/80';
 	}
 
 	async function loadLeadDetails(leadId: string) {
@@ -1949,78 +1882,10 @@
 			</div>
 
 		{:else if selectedNav === 'contacts'}
-			<!-- ================= CONTACTS VIEW ================= -->
-			<div class="flex-1 flex flex-col overflow-hidden p-6 space-y-4">
-				<div class="flex items-center justify-between">
-					<div>
-						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Contacts Directory</h1>
-						<p class="text-xs text-slate-500">Omni-channel client directory</p>
-					</div>
-				</div>
-
-				<div class="flex-1 overflow-y-auto border border-slate-100 rounded-xl">
-					<table class="w-full text-left text-xs">
-						<thead class="bg-slate-50 text-slate-400 font-medium border-b border-slate-100">
-							<tr>
-								<th class="p-3">Name</th>
-								<th class="p-3">Channel</th>
-								<th class="p-3">Handle / Identity</th>
-								<th class="p-3">Lead State</th>
-								<th class="p-3">Last Active</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-slate-100">
-							{#each inbox.conversations as c}
-								<tr class="hover:bg-slate-50/60 cursor-pointer" onclick={() => { selectConvo(c.id); selectedNav = 'inbox'; }}>
-									<td class="p-3 font-medium text-slate-800">{getContactName(c)}</td>
-									<td class="p-3 capitalize font-medium text-slate-600">{getChannelLabel(c.channel_type || c.channel?.type)}</td>
-									<td class="p-3 text-slate-500">{c.contact?.external_identity || 'N/A'}</td>
-									<td class="p-3">
-										<span class="px-2 py-0.5 rounded-md font-medium text-[10px] {getTagColor(c.lead?.current_state_key)}">
-											{c.lead?.current_state_key || 'New'}
-										</span>
-									</td>
-									<td class="p-3 text-slate-400">{formatTime(c.last_message_at)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</div>
+			<ContactsView conversations={inbox.conversations} onOpenConversation={(id) => { void selectConvo(id); selectedNav = 'inbox'; }} />
 
 		{:else if selectedNav === 'simulate'}
-			<!-- ================= CUSTOMER SIMULATION STUDIO (DEV) ================= -->
-			<div class="flex-1 flex flex-col overflow-hidden p-6 space-y-4">
-				<div class="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
-					<div class="flex items-center gap-3">
-						<div class="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center font-medium text-lg">
-							📱
-						</div>
-						<div>
-							<div class="flex items-center gap-2">
-								<h1 class="text-xl font-medium text-slate-900 tracking-tight">Customer Simulation Studio</h1>
-								<span class="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-medium border border-purple-200">DEV MODE</span>
-							</div>
-							<p class="text-xs text-slate-500">Simulate incoming customer messages and test AI auto-replies across multiple channels</p>
-						</div>
-					</div>
-
-					<button
-						onclick={() => selectedNav = 'inbox'}
-						class="px-3.5 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 transition flex items-center gap-1.5"
-					>
-						<svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-						</svg>
-						<span>Back to Inbox</span>
-					</button>
-				</div>
-
-				<!-- Full Space Simulator View -->
-				<div class="flex-1 overflow-y-auto min-h-0 w-full">
-					<CustomerSimulator />
-				</div>
-			</div>
+			<SimulatorView onBack={() => selectedNav = 'inbox'} />
 
 		{:else if selectedNav === 'settings'}
 			<!-- ================= SETTINGS VIEW ================= -->

@@ -4,7 +4,8 @@
 	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
-	import BrandLogo from '$lib/components/BrandLogo.svelte';
+	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
+	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
 
 	// Step number from route: 1..7
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
@@ -323,86 +324,7 @@ FAQs:
 	<!-- FULL-SCREEN 3-COLUMN ONBOARDING INTERFACE (Pure Tailwind) -->
 	<div class="min-h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-x-hidden font-sans text-slate-800 antialiased">
 		
-		<!-- Left Column: Brand, Headline, Bottom-Anchored Illustration -->
-		<div class="w-full lg:w-80 xl:w-96 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200/80 flex flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
-			<!-- Top content above background graphic -->
-			<div class="relative z-10">
-				<!-- Logo -->
-				<BrandLogo class="mb-8" />
-
-				<!-- Headline & Subtext -->
-				{#if stepNum === 7}
-					<h1 class="text-2xl sm:text-3xl font-medium text-slate-900 leading-snug tracking-tight mb-3">
-						Workspace is<br />
-						<span class="text-blue-600">ready to go</span>
-					</h1>
-					<p class="text-sm text-slate-500 leading-relaxed mb-6 font-normal">
-						Your setup is complete and channels are connected.
-					</p>
-				{:else}
-					<h1 class="text-2xl sm:text-3xl font-medium text-slate-900 leading-snug tracking-tight mb-3">
-						Let’s set up<br />
-						<span class="text-blue-600">your workspace</span>
-					</h1>
-					<p class="text-sm text-slate-500 leading-relaxed mb-6 font-normal">
-						We’ll help you get everything ready step by step.
-					</p>
-				{/if}
-
-				<!-- Decorative Dot Matrix -->
-				<div class="hidden sm:grid grid-cols-4 gap-2 w-fit opacity-40 mb-6">
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-					<div class="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
-				</div>
-			</div>
-
-			<!-- Bottom-Anchored Full-Width Graphic Fading Towards Top -->
-			<div class="absolute inset-x-0 bottom-0 w-full overflow-hidden pointer-events-none flex flex-col justify-end">
-				<!-- Gradient Overlay Fading from Panel Background to Transparent -->
-				<div class="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#F9FAFC] via-[#F9FAFC]/60 to-transparent z-10 pointer-events-none"></div>
-				<img
-					src={stepNum === 7 ? '/images/onboarding-happy.webp' : '/images/onboarding-sidebar.webp'}
-					alt={stepNum === 7 ? 'Setup Complete Mascot' : 'Workspace Illustration'}
-					class="w-full h-auto max-h-80 object-cover object-bottom [mask-image:linear-gradient(to_bottom,transparent_0%,black_35%)]"
-				/>
-			</div>
-		</div>
-
-		<!-- Middle Column: Stepper Navigation -->
-		<div class="w-full lg:w-56 p-6 lg:py-10 lg:px-6 border-b lg:border-b-0 lg:border-r border-slate-100 bg-white shrink-0 flex flex-col justify-start">
-			<div class="flex lg:flex-col gap-3 sm:gap-6 overflow-x-auto lg:overflow-x-visible">
-				{#each STEP_ITEMS as item}
-					{@const isActive = (item.num === stepNum)}
-					{@const isDone = (item.num < stepNum || stepNum === 7)}
-					<button
-						type="button"
-						class="flex items-center gap-3 bg-transparent border-0 p-0 text-left cursor-pointer transition shrink-0 {isActive ? 'opacity-100' : isDone ? 'opacity-85' : 'opacity-50'}"
-						onclick={() => { if (item.num <= stepNum) goToStep(item.num); }}
-					>
-						<div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium shrink-0 transition-all {isActive ? 'bg-blue-600 text-white shadow-xs' : isDone ? 'bg-blue-600 text-white' : 'border border-slate-300 text-slate-400 bg-white'}">
-							{#if isDone}
-								<Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} />
-							{:else}
-								<span>{item.num}</span>
-							{/if}
-						</div>
-						<span class="text-xs sm:text-sm font-medium {isActive ? 'text-slate-900' : isDone ? 'text-slate-700' : 'text-slate-400'} whitespace-nowrap">
-							{item.label}
-						</span>
-					</button>
-				{/each}
-			</div>
-		</div>
+		<OnboardingChrome stepNum={stepNum} stepItems={STEP_ITEMS} onStep={goToStep} />
 
 		<!-- Right Main Form Content Column: Takes Up Full Remaining Width -->
 		<div class="flex-1 p-6 sm:p-10 lg:p-12 overflow-y-auto bg-white flex flex-col justify-between min-h-0">
@@ -804,63 +726,17 @@ FAQs:
 					{/if}
 				</div>
 
-				<!-- Action Footer Bar -->
-				{#if !(stepNum === 5 && s5Status === 'processing')}
-					<div class="pt-8 mt-6 border-t border-slate-100 flex items-center justify-between w-full">
-						{#if stepNum === 7}
-							<button
-								type="button"
-								class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer"
-								onclick={() => goto('/inbox?tour=true')}
-							>
-								Take a quick tour
-							</button>
-
-							<button
-								type="button"
-								class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer flex items-center gap-2"
-								onclick={() => goto('/inbox')}
-							>
-								<span>Go to Inbox</span>
-								<Icon name="chevron-right" size={14} color="#FFFFFF" />
-							</button>
-						{:else if stepNum > 1}
-							<button
-								type="button"
-								class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
-								onclick={handleBack}
-								disabled={submitting || s5Compiling}
-							>
-								Back
-							</button>
-						{:else}
-							<div></div>
-						{/if}
-
-						{#if stepNum < 7}
-							<button
-								type="button"
-								class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-								onclick={handleContinue}
-								disabled={submitting || s5Compiling}
-							>
-								{#if submitting || s5Compiling}
-									<span>Processing...</span>
-								{:else if stepNum === 5 && s5Status === 'input'}
-									{#if !s5RawText.trim()}
-										<span>Skip</span>
-									{:else}
-										<span>Organize with AI</span>
-									{/if}
-								{:else if stepNum === 6}
-									<span>Complete setup</span>
-								{:else}
-									<span>Continue</span>
-								{/if}
-							</button>
-						{/if}
-					</div>
-				{/if}
+				<OnboardingFooter
+					stepNum={stepNum}
+					kbStatus={s5Status}
+					rawText={s5RawText}
+					submitting={submitting}
+					compiling={s5Compiling}
+					onBack={handleBack}
+					onContinue={handleContinue}
+					onTour={() => goto('/inbox?tour=true')}
+					onInbox={() => goto('/inbox')}
+				/>
 
 				{#if error}
 					<div class="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
