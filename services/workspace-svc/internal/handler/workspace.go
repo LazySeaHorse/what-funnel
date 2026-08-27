@@ -4,6 +4,7 @@
 //
 //	GET    /workspace/account              — get account details
 //	PUT    /workspace/account/settings     — update account settings (admin)
+//	PATCH  /workspace/account/settings     — merge account settings (admin)
 //	PUT    /workspace/account/ai-config    — update AI provider config (admin)
 //
 //	GET    /workspace/users                — list users (admin)
@@ -56,6 +57,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account", auth(admin(http.HandlerFunc(h.UpdateAccountName)))).Methods(http.MethodPatch)
 	r.Handle("/workspace/account", auth(admin(http.HandlerFunc(h.DeleteAccount)))).Methods(http.MethodDelete)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
+	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.PatchSettings)))).Methods(http.MethodPatch)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 	r.Handle("/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
@@ -158,6 +160,26 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.UpdateAccountSettings(r.Context(), accountID, actorID, settings); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	var settings map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(settings) == 0 {
+		writeError(w, http.StatusBadRequest, "at least one setting is required")
+		return
+	}
+	if err := h.svc.MergeAccountSettings(r.Context(), accountID, actorID, settings); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

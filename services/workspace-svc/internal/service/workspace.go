@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -125,6 +126,44 @@ func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorI
 		TargetType: audit.TargetAccount,
 		TargetID:   &accountID,
 		Metadata:   map[string]any{},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// MergeAccountSettings atomically updates only the supplied top-level keys.
+// It is used by focused flows such as onboarding so unrelated preferences and
+// onboarding progress cannot be lost through a stale read-modify-write cycle.
+func (svc *Service) MergeAccountSettings(ctx context.Context, accountID, actorID uuid.UUID, patch map[string]any) error {
+	patchRaw, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal settings patch: %w", err)
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	result, err := tx.Exec(ctx, `UPDATE accounts SET settings = settings || $1::jsonb WHERE id = $2`, patchRaw, accountID)
+	if err != nil {
+		return fmt.Errorf("merge settings: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("account not found")
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      "account.settings_updated",
+		TargetType:  audit.TargetAccount,
+		TargetID:    &accountID,
+		Metadata:    map[string]any{"updated_keys": mapKeys(patch)},
 	}); err != nil {
 		return err
 	}
@@ -859,6 +898,15 @@ func parseSettings(raw []byte) map[string]any {
 		_ = json.Unmarshal(raw, &out) // silently ignore corrupt JSON
 	}
 	return out
+}
+
+func mapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // parseOnboardingState extracts the "onboarding" sub-key from a parsed

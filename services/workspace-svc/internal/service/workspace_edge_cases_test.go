@@ -106,6 +106,36 @@ func TestPatchOnboardingStatus_PreservesSettingsAndTransitions(t *testing.T) {
 	assert.Equal(t, "retained_val", currentSettings["custom_property"])
 }
 
+func TestMergeAccountSettings_PreservesOnboardingProgress(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "SettingsMerge", "settings_merge@example.com")
+	_, err := pool.Exec(ctx, `UPDATE accounts SET settings = '{"onboarding":{"completed_steps":["business_basics"]},"existing":"keep"}' WHERE id = $1`, accountID)
+	require.NoError(t, err)
+
+	err = svc.MergeAccountSettings(ctx, accountID, adminID, map[string]any{
+		"timezone":              "UTC",
+		"ai_reply_mode_default": "draft_only",
+	})
+	require.NoError(t, err)
+
+	var raw []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&raw))
+	var settings map[string]any
+	require.NoError(t, json.Unmarshal(raw, &settings))
+	assert.Equal(t, "keep", settings["existing"])
+	assert.Equal(t, "UTC", settings["timezone"])
+	assert.Equal(t, "draft_only", settings["ai_reply_mode_default"])
+
+	onboarding, ok := settings["onboarding"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"business_basics"}, onboarding["completed_steps"])
+}
+
 func TestUpdateUserReplyMode_SettingsEdgeCases(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

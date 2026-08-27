@@ -91,3 +91,51 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 		return json({});
 	});
 }
+
+export async function mockOnboardingApi(page: Page, failures: string[] = []) {
+	let accountName = 'Setup Studio';
+	let accountSettings: Record<string, unknown> = {};
+	let pipeline = {
+		id: 'pipeline-setup',
+		name: 'Default Pipeline',
+		states: [{ key: 'new', label: 'New lead', color: '#3B82F6' }]
+	};
+	const requests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
+
+	await page.route('**/api-gateway/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname.replace('/api-gateway', '');
+		const method = request.method();
+		const body = request.postDataJSON?.() as Record<string, unknown> | undefined;
+		requests.push({ path, method, body });
+
+		if (failures.includes(`${method} ${path}`)) {
+			return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Setup service is unavailable' }) });
+		}
+
+		const json = (value: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
+		if (path === '/auth/me') return json({ id: 'user-setup', role: 'admin' });
+		if (path === '/workspace/account') {
+			if (method === 'GET') return json({ id: 'account-setup', name: accountName, settings: encodeSettings(accountSettings) });
+			accountName = String(body?.name || accountName);
+			return json({ status: 'updated' });
+		}
+		if (path === '/workspace/account/settings' && method === 'PATCH') {
+			accountSettings = { ...accountSettings, ...body };
+			return json({ status: 'updated' });
+		}
+		if (path === '/workspace/pipelines' && method === 'GET') return json([pipeline]);
+		if (path === '/workspace/pipelines/pipeline-setup' && method === 'PUT') {
+			pipeline = { ...pipeline, name: String(body?.name || pipeline.name), states: Array.isArray(body?.states) ? body.states as typeof pipeline.states : pipeline.states };
+			return json({ status: 'updated' });
+		}
+		if (path === '/channels') return json([]);
+		if (path === '/onboarding/status') {
+			if (method === 'GET') return json({ completed_steps: [], skipped_steps: [], completed_at: null });
+			return json({ status: 'updated' });
+		}
+		return json({});
+	});
+
+	return { requests, getSettings: () => accountSettings, getPipeline: () => pipeline };
+}

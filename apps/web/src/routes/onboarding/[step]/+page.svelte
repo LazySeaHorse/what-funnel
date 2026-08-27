@@ -13,6 +13,7 @@
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state('');
+	let pipelineID = $state('');
 
 	// Stepper metadata
 	const STEP_ITEMS = [
@@ -73,6 +74,21 @@ FAQs:
 	let s5Compiling = $state(false);
 	let s5Error = $state('');
 
+	function parseAccountSettings(raw: unknown): Record<string, any> {
+		if (!raw) return {};
+		if (typeof raw === 'object') return raw as Record<string, any>;
+		if (typeof raw !== 'string') return {};
+		try {
+			return JSON.parse(atob(raw));
+		} catch {
+			try {
+				return JSON.parse(raw);
+			} catch {
+				return {};
+			}
+		}
+	}
+
 	// ─────────────────────────────────────────────────────────────
 	// Mount & Load initial data
 	// ─────────────────────────────────────────────────────────────
@@ -85,31 +101,32 @@ FAQs:
 		}
 
 		try {
-			const account = await apiRequest('/workspace/account').catch(() => null);
-			if (account) {
-				if (account.name) s1BusinessName = account.name;
-				if (account.settings?.business_type) s1BusinessType = account.settings.business_type;
-				if (account.settings?.timezone) s1Timezone = account.settings.timezone;
-				if (account.settings?.reply_mode === 'auto_send') s4AiMode = 'auto_answer';
-				else if (account.settings?.reply_mode === 'draft_only') s4AiMode = 'suggest_only';
-			}
+			const [account, pipelines] = await Promise.all([
+				apiRequest('/workspace/account'),
+				apiRequest('/workspace/pipelines')
+			]);
+			if (account.name) s1BusinessName = account.name;
+			const settings = parseAccountSettings(account.settings);
+			if (settings.business_type) s1BusinessType = settings.business_type;
+			if (settings.timezone) s1Timezone = settings.timezone;
+			if (settings.ai_enabled === false) s4AiMode = 'manual';
+			else if (settings.ai_reply_mode_default === 'auto_send') s4AiMode = 'auto_answer';
+			else if (settings.ai_reply_mode_default === 'draft_only') s4AiMode = 'suggest_only';
 
-			// Load channels
-			const chList = await apiRequest('/channels').catch(() => null);
+			const pipeline = Array.isArray(pipelines) ? pipelines[0] : null;
+			if (!pipeline?.id) throw new Error('Your default lead pipeline could not be loaded.');
+			pipelineID = pipeline.id;
+			if (Array.isArray(pipeline.states) && pipeline.states.length > 0) pipelineStages = pipeline.states;
+
+			const chList = await apiRequest('/channels');
 			if (Array.isArray(chList) && chList.length > 0) {
 				for (const c of chList) {
 					const found = channels.find((item) => item.type === c.type);
 					if (found) found.connected = (c.status === 'connected');
 				}
 			}
-
-			// Load pipeline
-			const pList = await apiRequest('/workspace/pipeline').catch(() => null);
-			if (pList?.states && Array.isArray(pList.states) && pList.states.length > 0) {
-				pipelineStages = pList.states;
-			}
-		} catch (e) {
-			// silent fallback
+		} catch (err: any) {
+			error = err?.message || 'We could not load your saved setup. Refresh and try again.';
 		} finally {
 			loading = false;
 		}
@@ -136,6 +153,10 @@ FAQs:
 
 	async function startCompilingKB() {
 		if (!s5RawText.trim()) {
+			await apiRequest('/onboarding/status', {
+				method: 'PATCH',
+				body: { step: 'kb_setup', action: 'skip' }
+			});
 			goToStep(6);
 			return;
 		}
@@ -150,45 +171,42 @@ FAQs:
 				body: { raw_text: s5RawText.trim() }
 			});
 
-			if (res?.added_concepts && res.added_concepts.length > 0) {
+			if (Array.isArray(res?.added_concepts) && res.added_concepts.length > 0) {
 				s5Concepts = res.added_concepts;
 			} else {
-				const fetched = await apiRequest('/api/kb/concepts').catch(() => null);
-				if (fetched?.concepts && fetched.concepts.length > 0) {
+				const fetched = await apiRequest('/api/kb/concepts');
+				if (Array.isArray(fetched?.concepts) && fetched.concepts.length > 0) {
 					s5Concepts = fetched.concepts;
 				} else {
-					s5Concepts = [
-						{ title: 'Core Services & Pricing', category: 'Services', tags: ['pricing', 'services'], body_markdown: 'Extracted service listings, pricing tiers, and packages from business notes.' },
-						{ title: 'Business Schedule & Location', category: 'Operations', tags: ['hours', 'location'], body_markdown: 'Extracted operating hours and location details for customer routing.' },
-						{ title: 'Booking & Customer Policies', category: 'Policies', tags: ['booking', 'policies'], body_markdown: 'Extracted appointment scheduling, cancellation, and deposit rules.' },
-						{ title: 'Common Customer FAQs', category: 'FAQs', tags: ['faq', 'support'], body_markdown: 'Extracted frequently asked answers, payment methods, and amenities.' }
-					];
+					throw new Error('The AI compiler returned no knowledge concepts. Check your AI provider settings and try again.');
 				}
 			}
 
 			await apiRequest('/onboarding/status', {
 				method: 'PATCH',
-				body: { step: 'knowledge_base', action: 'complete' }
-			}).catch(() => {});
+				body: { step: 'kb_setup', action: 'complete' }
+			});
 
 			s5Status = 'results';
 		} catch (err: any) {
-			s5Error = err?.message || 'Failed to process knowledge text.';
-			s5Concepts = [
-				{ title: 'Business Knowledge Overview', category: 'General', tags: ['knowledge'], body_markdown: s5RawText.trim() }
-			];
-			s5Status = 'results';
+			s5Error = err?.message || 'Failed to process knowledge text. Check your AI provider settings and try again.';
+			s5Concepts = [];
+			s5Status = 'input';
 		} finally {
 			s5Compiling = false;
 		}
 	}
 
 	async function skipWaitingToDashboard() {
-		await apiRequest('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'done', action: 'complete' }
-		}).catch(() => {});
-		goto('/inbox');
+		try {
+			await apiRequest('/onboarding/status', {
+				method: 'PATCH',
+				body: { step: 'done', action: 'complete' }
+			});
+			goto('/inbox');
+		} catch (err: any) {
+			s5Error = err?.message || 'Could not finish setup. Please try again.';
+		}
 	}
 
 	function appendTemplateChunk(label: string, text: string) {
@@ -202,60 +220,56 @@ FAQs:
 
 		try {
 			if (stepNum === 1) {
+				if (!s1BusinessName.trim()) throw new Error('Business name is required.');
 				await apiRequest('/workspace/account', {
 					method: 'PATCH',
-					body: {
-						name: s1BusinessName,
-						settings: {
-							business_type: s1BusinessType,
-							timezone: s1Timezone
-						}
-					}
-				}).catch(() => {});
+					body: { name: s1BusinessName.trim() }
+				});
+				await apiRequest('/workspace/account/settings', {
+					method: 'PATCH',
+					body: { business_type: s1BusinessType, timezone: s1Timezone }
+				});
 
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'business_basics', action: 'complete' }
-				}).catch(() => {});
+				});
 
 				goToStep(2);
 			} else if (stepNum === 2) {
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
-					body: { step: 'channel_connect', action: 'complete' }
-				}).catch(() => {});
+					body: { step: 'channel_connect', action: channels.some((channel) => channel.connected) ? 'complete' : 'skip' }
+				});
 
 				goToStep(3);
 			} else if (stepNum === 3) {
-				await apiRequest('/workspace/pipeline', {
+				if (!pipelineID) throw new Error('Your default lead pipeline is unavailable. Refresh and try again.');
+				await apiRequest(`/workspace/pipelines/${pipelineID}`, {
 					method: 'PUT',
 					body: {
 						name: 'Default Pipeline',
 						states: pipelineStages
 					}
-				}).catch(() => {});
+				});
 
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'pipeline_setup', action: 'complete' }
-				}).catch(() => {});
+				});
 
 				goToStep(4);
 			} else if (stepNum === 4) {
-				const replyMode = (s4AiMode === 'auto_answer') ? 'auto_send' : (s4AiMode === 'suggest_only' ? 'draft_only' : 'manual');
-				await apiRequest('/workspace/account', {
+				const replyMode = s4AiMode === 'auto_answer' ? 'auto_send' : 'draft_only';
+				await apiRequest('/workspace/account/settings', {
 					method: 'PATCH',
-					body: {
-						settings: {
-							reply_mode: replyMode
-						}
-					}
-				}).catch(() => {});
+					body: { ai_enabled: s4AiMode !== 'manual', ai_reply_mode_default: replyMode }
+				});
 
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'reply_mode', action: 'complete' }
-				}).catch(() => {});
+				});
 
 				goToStep(5);
 			} else if (stepNum === 5) {
@@ -267,8 +281,12 @@ FAQs:
 			} else if (stepNum === 6) {
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
+					body: { step: 'review_finish', action: 'complete' }
+				});
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
 					body: { step: 'done', action: 'complete' }
-				}).catch(() => {});
+				});
 
 				goToStep(7);
 			}

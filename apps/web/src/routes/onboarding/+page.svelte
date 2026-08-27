@@ -8,7 +8,7 @@
 		'channel_connect',
 		'pipeline_setup',
 		'reply_mode',
-		'preferences',
+		'kb_setup',
 		'review_finish'
 	];
 
@@ -17,7 +17,7 @@
 		channel_connect: 2,
 		pipeline_setup: 3,
 		reply_mode: 4,
-		preferences: 5,
+		kb_setup: 5,
 		review_finish: 6
 	};
 
