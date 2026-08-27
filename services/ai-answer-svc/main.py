@@ -89,7 +89,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
             pass
 
     ai_reply_mode_default = settings.get("ai_reply_mode_default", "draft_only")
-    ai_enabled = settings.get("ai_enabled", True)
+    ai_enabled = settings.get("ai_enabled", False)
     allow_member_reply_mode_override = settings.get("allow_member_reply_mode_override", True)
     ai_may_auto_answer_mixed_conversations = settings.get("ai_may_auto_answer_mixed_conversations", False)
 
