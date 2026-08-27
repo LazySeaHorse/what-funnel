@@ -26,6 +26,7 @@
 	let aiProviderConfigured = $state(false);
 	let aiProviderStatusLoaded = $state(false);
 	let messageInput = $state('');
+	let appliedAIReplyDraftID = $state<string | null>(null);
 	let internalNoteInput = $state('');
 	let messageContainer: HTMLDivElement | null = $state(null);
 
@@ -468,6 +469,7 @@
 	}
 
 	async function selectConvo(id: string) {
+		appliedAIReplyDraftID = null;
 		await inbox.selectConversation(id);
 		await tick();
 		scrollToBottom();
@@ -476,9 +478,10 @@
 	async function handleSendMessage() {
 		if (!messageInput.trim() || !inbox.activeConvoID) return;
 		const text = messageInput.trim();
+		const sent = await inbox.sendMessage(text, appliedAIReplyDraftID ?? undefined);
+		if (!sent) return;
 		messageInput = '';
-
-		await inbox.sendMessage(text);
+		appliedAIReplyDraftID = null;
 		await tick();
 		scrollToBottom();
 	}
@@ -592,20 +595,32 @@
 		}
 	}
 
-	const aiSuggestionText =
-		'Great choice! ✨ We have a few slots on Saturday and Sunday for manicure and haircut. Would you like me to share the available times?';
-
-	let showAiSuggestion = $state(true);
+	let activeAIReplyDraft = $derived(
+		inbox.activeConvoID ? inbox.replyDrafts[inbox.activeConvoID] ?? null : null
+	);
 
 	function useAISuggestion() {
-		messageInput = aiSuggestionText;
-		handleSendMessage();
+		if (!activeAIReplyDraft) return;
+		messageInput = activeAIReplyDraft.draft_text;
+		appliedAIReplyDraftID = activeAIReplyDraft.id;
+	}
+
+	async function dismissAISuggestion() {
+		if (!inbox.activeConvoID || !activeAIReplyDraft) return;
+		const draftID = activeAIReplyDraft.id;
+		try {
+			await inbox.dismissReplyDraft(inbox.activeConvoID, draftID);
+			if (appliedAIReplyDraftID === draftID) appliedAIReplyDraftID = null;
+		} catch (err) {
+			console.error('Failed to dismiss AI reply suggestion', err);
+		}
 	}
 
 	function handleBackToConversations() {
 		inbox.activeConvoID = null;
 		inbox.activeConvo = null;
 		inbox.messages = [];
+		appliedAIReplyDraftID = null;
 	}
 
 	// ─── Knowledge Tab State ───────────────────────────────────────────────────
@@ -1231,7 +1246,7 @@
 
 						<!-- --- Chat Composer & AI Suggestion (matching mock) --- -->
 						<div class="p-3 sm:p-4 bg-white border-t border-slate-100 shrink-0">
-							{#if showAiSuggestion && replyTab === 'reply'}
+							{#if activeAIReplyDraft && appliedAIReplyDraftID !== activeAIReplyDraft.id && replyTab === 'reply'}
 								<!-- AI Suggested Response Box (floating above composer matching mock) -->
 								<div class="mb-3 p-3 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1.5 relative">
 									<div class="flex items-center justify-between">
@@ -1240,19 +1255,19 @@
 												<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
 											</svg>
 											<span>AI reply suggestion</span>
-										</div>
-										<button
-											type="button"
-											onclick={() => showAiSuggestion = false}
-											class="text-slate-400 hover:text-slate-600 p-0.5 text-xs"
-											aria-label="Dismiss suggestion"
-										>
-											✕
-										</button>
 									</div>
-									<div class="text-xs text-slate-700 leading-snug">
-										{aiSuggestionText}
-									</div>
+									<button
+										type="button"
+										onclick={dismissAISuggestion}
+										class="text-slate-400 hover:text-slate-600 p-0.5 text-xs"
+										aria-label="Dismiss suggestion"
+									>
+										✕
+									</button>
+								</div>
+								<div class="text-xs text-slate-700 leading-snug">
+									{activeAIReplyDraft.draft_text}
+								</div>
 									<div class="flex justify-end pt-1">
 										<button
 											type="button"

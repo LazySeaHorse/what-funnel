@@ -182,6 +182,10 @@ ai_answer_events
   id, account_id, conversation_id, message_id, stage_matched (pattern|embedding|llm_grounded|none),
   confidence numeric, action (auto_sent|drafted|flagged_human), reply_message_id, created_at
 
+ai_reply_drafts
+  id, account_id, conversation_id, source_message_id, draft_text, stage_matched, confidence,
+  status (pending|used|dismissed|superseded), used_message_id, created_at, updated_at
+
 kb_concepts   -- OKF bundle, one row per concept file
   id, account_id, slug, type, title, tags text[], body_markdown, embedding vector(1536),
   source (owner_pasted|ai_compiled), created_at, updated_at
@@ -260,6 +264,7 @@ The core app never imports anything Matrix-specific outside `adapters/matrix-mau
 {
   "conversation_id": "...",
   "message_id": "...",
+  "draft_id": "...", // present when action=drafted
   "stage_matched": "pattern" | "embedding" | "llm_grounded" | "none",
   "confidence": 0.0,
   "answer_markdown": "...",
@@ -383,4 +388,3 @@ Cloud adds: managed Postgres, managed Redis, managed bridge fleet, backups, moni
 - Multi-business accounts
 - Custom roles beyond admin/member
 - PDF ingestion for KB
-

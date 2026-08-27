@@ -5,6 +5,10 @@ function encodeSettings(value: unknown) {
 	return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
 }
 
+function decodeSettings(value: string): Record<string, unknown> {
+	return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(value), (char) => char.charCodeAt(0))));
+}
+
 const settings = encodeSettings({
 	timezone: '(GMT+00:00) UTC',
 	language: 'English',
@@ -49,7 +53,9 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 			return json({ status: 'updated' });
 		}
 		if (path === '/workspace/account/settings') {
-			accountSettings = encodeSettings(body);
+			accountSettings = encodeSettings(request.method() === 'PATCH'
+				? { ...decodeSettings(accountSettings), ...body }
+				: body);
 			return json({ status: 'updated' });
 		}
 		if (path === '/workspace/account/product-mode') {

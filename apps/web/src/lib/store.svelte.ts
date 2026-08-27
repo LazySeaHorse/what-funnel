@@ -1,11 +1,24 @@
 import { apiRequest } from '$lib/api';
 
+export interface AIReplyDraft {
+	id: string;
+	conversation_id: string;
+	source_message_id: string;
+	draft_text: string;
+	stage_matched: 'pattern' | 'embedding' | 'llm_grounded';
+	confidence?: number;
+	status: 'pending';
+	created_at: string;
+	updated_at: string;
+}
+
 export class InboxState {
 	conversations = $state<any[]>([]);
 	activeConvoID = $state<string | null>(null);
 	pendingConvoID = $state<string | null>(null);
 	activeConvo = $state<any | null>(null);
 	messages = $state<any[]>([]);
+	replyDrafts = $state<Record<string, AIReplyDraft>>({});
 	nextCursor = $state<string | null>(null);
 	filter = $state<'all' | 'mine' | 'unassigned'>('mine');
 	stateFilter = $state<string>('');
@@ -65,9 +78,16 @@ export class InboxState {
 		this.pendingConvoID = convoID;
 
 		try {
-			const [conversation, messageResponse] = await Promise.all([
+			const [conversation, messageResponse, draftResponse] = await Promise.all([
 				apiRequest(`/conversations/${convoID}`, { signal: controller.signal }),
-				apiRequest(`/conversations/${convoID}/messages?limit=20`, { signal: controller.signal })
+				apiRequest(`/conversations/${convoID}/messages?limit=20`, { signal: controller.signal }),
+				apiRequest(`/conversations/${convoID}/reply-draft`, { signal: controller.signal })
+					.catch((err) => {
+						if (!(err instanceof DOMException && err.name === 'AbortError')) {
+							console.error('Failed to load AI reply draft', err);
+						}
+						return { draft: null };
+					})
 			]);
 			if (requestVersion !== this.conversationRequestVersion) return;
 
@@ -75,6 +95,7 @@ export class InboxState {
 			this.activeConvo = conversation;
 			this.messages = (messageResponse?.messages ?? []).reverse();
 			this.nextCursor = messageResponse?.next_cursor ?? null;
+			this.setReplyDraft(convoID, draftResponse?.draft ?? null);
 
 			void apiRequest(`/conversations/${convoID}/read`, { method: 'POST' }).catch((err) => console.error(err));
 			const index = this.conversations.findIndex(c => c.id === convoID);
@@ -90,6 +111,32 @@ export class InboxState {
 				this.pendingConvoID = null;
 				this.conversationRequest = null;
 			}
+		}
+	}
+
+	private setReplyDraft(conversationID: string, draft: AIReplyDraft | null) {
+		if (draft) {
+			this.replyDrafts = { ...this.replyDrafts, [conversationID]: draft };
+			return;
+		}
+		const { [conversationID]: _removed, ...remaining } = this.replyDrafts;
+		this.replyDrafts = remaining;
+	}
+
+	async loadReplyDraft(conversationID = this.activeConvoID) {
+		if (!conversationID) return;
+		try {
+			const response = await apiRequest(`/conversations/${conversationID}/reply-draft`);
+			this.setReplyDraft(conversationID, response?.draft ?? null);
+		} catch (err) {
+			console.error('Failed to load AI reply draft', err);
+		}
+	}
+
+	async dismissReplyDraft(conversationID: string, draftID: string) {
+		await apiRequest(`/conversations/${conversationID}/reply-draft/${draftID}/dismiss`, { method: 'POST' });
+		if (this.replyDrafts[conversationID]?.id === draftID) {
+			this.setReplyDraft(conversationID, null);
 		}
 	}
 	
@@ -113,9 +160,10 @@ export class InboxState {
 		}
 	}
 	
-	async sendMessage(text: string) {
+	async sendMessage(text: string, aiReplyDraftID?: string): Promise<boolean> {
 		const convoID = this.activeConvoID || this.pendingConvoID;
-		if (!convoID || !text.trim()) return;
+		if (!convoID || !text.trim()) return false;
+		const pendingDraftID = this.replyDrafts[convoID]?.id;
 		try {
 			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
 			const body: any = {
@@ -125,6 +173,9 @@ export class InboxState {
 			};
 			if (senderUserId) {
 				body.sender_user_id = senderUserId;
+			}
+			if (aiReplyDraftID) {
+				body.ai_reply_draft_id = aiReplyDraftID;
 			}
 			const res = await apiRequest(`/internal/conversations/${convoID}/send`, {
 				method: 'POST',
@@ -138,9 +189,14 @@ export class InboxState {
 				await this.loadMessages(true);
 			}
 			await this.loadConversations();
+			if (pendingDraftID && this.replyDrafts[convoID]?.id === pendingDraftID) {
+				this.setReplyDraft(convoID, null);
+			}
 			window.dispatchEvent(new CustomEvent('dev-message-sent'));
+			return true;
 		} catch (err) {
 			console.error('Failed to send message:', err);
+			return false;
 		}
 	}
 	
@@ -175,6 +231,7 @@ export class InboxState {
 			this.wsStatus = 'connected';
 			this.reconnectAttempts = 0;
 			console.log('WS connected');
+			void this.loadReplyDraft();
 		};
 		
 		this.ws.onmessage = async (e) => {
@@ -220,6 +277,30 @@ export class InboxState {
 					case 'channel.status_changed':
 						const channelEvent = new CustomEvent('channel-status-changed', { detail: event });
 						window.dispatchEvent(channelEvent);
+						break;
+
+					case 'ai.reply_ready':
+						if (event.action === 'drafted' && event.draft_id && event.draft_text) {
+							this.setReplyDraft(event.conversation_id, {
+								id: event.draft_id,
+								conversation_id: event.conversation_id,
+								source_message_id: event.message_id,
+								draft_text: event.draft_text,
+								stage_matched: event.stage_matched,
+								confidence: event.confidence,
+								status: 'pending',
+								created_at: new Date().toISOString(),
+								updated_at: new Date().toISOString()
+							});
+						} else if (event.action === 'auto_sent') {
+							this.setReplyDraft(event.conversation_id, null);
+						}
+						break;
+
+					case 'ai.reply_draft.updated':
+						if (event.draft_id && this.replyDrafts[event.conversation_id]?.id === event.draft_id) {
+							this.setReplyDraft(event.conversation_id, null);
+						}
 						break;
 				}
 			} catch (err) {

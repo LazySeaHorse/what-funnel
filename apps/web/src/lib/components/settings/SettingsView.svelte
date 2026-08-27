@@ -207,7 +207,7 @@
 			};
 
 			await apiRequest('/workspace/account/settings', {
-				method: 'PUT',
+				method: 'PATCH',
 				body: settingsPayload
 			});
 			await workspace?.refreshAccount();
