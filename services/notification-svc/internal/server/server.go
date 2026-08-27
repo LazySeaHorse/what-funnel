@@ -250,8 +250,11 @@ type WSAutomationSuggestionCreatedEvent struct {
 }
 
 type WSAIReplyReadyEvent struct {
-	Type           string `json:"type"`
-	ConversationID string `json:"conversation_id"`
-	MessageID      string `json:"message_id"`
-	AnswerMarkdown string `json:"answer_markdown"`
+	Type           string   `json:"type"`
+	ConversationID string   `json:"conversation_id"`
+	MessageID      string   `json:"message_id"`
+	DraftID        string   `json:"draft_id"`
+	DraftText      string   `json:"draft_text"`
+	StageMatched   string   `json:"stage_matched"`
+	Confidence     *float64 `json:"confidence"`
 }

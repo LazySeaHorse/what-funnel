@@ -39,6 +39,7 @@ func (c *Consumer) Start(ctx context.Context, consumerName string) {
 		{"channel.status_changed", c.handleChannelStatusChanged},
 		{"lead.state_changed", c.handleLeadStateChanged},
 		{"ai.reply_ready", c.handleAIReplyReady},
+		{"ai.reply_draft.updated", c.handleAIReplyDraftUpdated},
 		{"automation_suggestion.created", c.handleAutomationSuggestionCreated},
 		{"conversation.summary_updated", c.handleConversationSummaryUpdated},
 	}
@@ -258,6 +259,9 @@ func (c *Consumer) handleAIReplyReady(ctx context.Context, id string, payload []
 		Action         string    `json:"action"`
 		DraftText      string    `json:"draft_text"`
 		MessageID      uuid.UUID `json:"message_id"`
+		DraftID        uuid.UUID `json:"draft_id"`
+		StageMatched   string    `json:"stage_matched"`
+		Confidence     *float64  `json:"confidence"`
 	}
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		c.logger.Error("failed to unmarshal ai.reply_ready event", "error", err)
@@ -286,12 +290,50 @@ func (c *Consumer) handleAIReplyReady(ctx context.Context, id string, payload []
 		"action":          ev.Action,
 		"draft_text":      ev.DraftText,
 		"message_id":      ev.MessageID.String(),
+		"draft_id":        ev.DraftID.String(),
+		"stage_matched":   ev.StageMatched,
+		"confidence":      ev.Confidence,
 	}
 
 	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
 		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
 	})
 
+	return nil
+}
+
+func (c *Consumer) handleAIReplyDraftUpdated(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID      uuid.UUID  `json:"account_id"`
+		ConversationID uuid.UUID  `json:"conversation_id"`
+		DraftID        *uuid.UUID `json:"draft_id"`
+		Action         string     `json:"action"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal ai.reply_draft.updated event", "error", err)
+		return nil
+	}
+
+	var assignedUserIDs []uuid.UUID
+	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	var settingsBytes []byte
+	if err := c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes); err != nil {
+		return err
+	}
+
+	wsEvent := map[string]any{
+		"type": "ai.reply_draft.updated", "conversation_id": ev.ConversationID.String(),
+		"draft_id": ev.DraftID, "action": ev.Action,
+	}
+	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes))
+	})
 	return nil
 }
 

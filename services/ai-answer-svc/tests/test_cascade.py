@@ -41,11 +41,13 @@ async def test_rapidfuzz_matching():
         "content": json.dumps({"text": "do you do house calls?"})
     })
     mock_convo = MockRecord({
-        "ai_mode_active": True,
+        # Draft-only suggestions continue after a human has taken over.
+        "ai_mode_active": False,
         "assigned_user_ids": []
     })
     mock_account = MockRecord({
         "settings": json.dumps({
+            "ai_enabled": True,
             "ai_reply_mode_default": "draft_only",
             "allow_member_reply_mode_override": True
         })
@@ -77,27 +79,24 @@ async def test_rapidfuzz_matching():
         db_instance.fetchrow = mock_fetchrow
         db_instance.fetch = mock_fetch
         db_instance.execute = AsyncMock()
+        draft_id = uuid.uuid4()
+        db_instance.fetchval = AsyncMock(return_value=draft_id)
         db_instance.account_id = account_id
 
         await process_conversation_updated(data, db_pool, redis_client)
 
-        # Assertions
-        # 1. DB execute was called to log the event in ai_answer_events
-        db_instance.execute.assert_called_once()
-        args = db_instance.execute.call_args[0]
-        # First arg is SQL, second is params
+        # The draft and answer event are stored atomically.
+        db_instance.fetchval.assert_awaited_once()
+        args = db_instance.fetchval.call_args[0]
         params = args[1:]
-        
-        # SQL parameters for INSERT INTO ai_answer_events
-        # account_uuid, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
-        assert args[0].strip().startswith("INSERT INTO ai_answer_events")
+        assert "INSERT INTO ai_reply_drafts" in args[0]
+        assert "INSERT INTO ai_answer_events" in args[0]
         assert params[0] == account_id
         assert params[1] == convo_id
         assert params[2] == message_id
-        assert params[3] == "pattern"
-        assert params[4] == 1.0
-        assert params[5] == "drafted"
-        assert params[6] is None
+        assert params[3] == "Yes, we offer house calls."
+        assert params[4] == "pattern"
+        assert params[5] == 1.0
 
         # 2. Redis published the draft to the WebSocket queue
         redis_client.xadd.assert_called_once()
@@ -105,11 +104,12 @@ async def test_rapidfuzz_matching():
         assert redis_args[0] == "ai.reply_ready"
         payload = json.loads(redis_args[1]["payload"].decode("utf-8"))
         assert payload["action"] == "drafted"
+        assert payload["draft_id"] == str(draft_id)
         assert payload["draft_text"] == "Yes, we offer house calls."
 
 @pytest.mark.asyncio
 async def test_human_takeover_pauses_ai():
-    # Test that conversation.ai_mode_active = False and mixed_answering = False skips cascade
+    # Test that human takeover blocks auto-send when mixed answering is disabled.
     db_pool = MagicMock()
     redis_client = AsyncMock()
 
@@ -136,7 +136,8 @@ async def test_human_takeover_pauses_ai():
     # mixed conversations answering is False (default)
     mock_account = MockRecord({
         "settings": json.dumps({
-            "ai_reply_mode_default": "draft_only",
+            "ai_enabled": True,
+            "ai_reply_mode_default": "auto_send",
             "ai_may_auto_answer_mixed_conversations": False
         })
     })
@@ -159,15 +160,14 @@ async def test_human_takeover_pauses_ai():
         await process_conversation_updated(data, db_pool, redis_client)
 
         # AI Answer Event should be logged as flagged_human, stage_matched='none'
-        db_instance.execute.assert_called_once()
-        args = db_instance.execute.call_args[0]
+        db_instance.execute.assert_awaited_once()
+        args = db_instance.execute.call_args.args
         sql = args[0]
         assert "INSERT INTO ai_answer_events" in sql
         assert "'none'" in sql
         assert "'flagged_human'" in sql
 
-        # Redis should NOT be notified of any reply
-        redis_client.xadd.assert_not_called()
+        redis_client.xadd.assert_not_awaited()
 
 @pytest.mark.asyncio
 async def test_reply_mode_overrides():
@@ -197,6 +197,7 @@ async def test_reply_mode_overrides():
     })
     mock_account = MockRecord({
         "settings": json.dumps({
+            "ai_enabled": True,
             "ai_reply_mode_default": "draft_only", # Default is draft_only
             "allow_member_reply_mode_override": True # Allow member override
         })
@@ -243,15 +244,15 @@ async def test_reply_mode_overrides():
             await process_conversation_updated(data, db_pool, redis_client)
 
             # Action should resolve to auto_sent due to member override!
-            db_instance.execute.assert_called_once()
-            args = db_instance.execute.call_args[0]
+            db_instance.execute.assert_awaited_once()
+            args = db_instance.execute.call_args.args
             params = args[1:]
             assert params[5] == "auto_sent"
             assert params[6] is not None # reply_message_id populated
 
             # Redis should be notified of auto_sent
-            redis_client.xadd.assert_called_once()
-            redis_args = redis_client.xadd.call_args[0]
+            redis_client.xadd.assert_awaited_once()
+            redis_args = redis_client.xadd.call_args.args
             payload = json.loads(redis_args[1]["payload"].decode("utf-8"))
             assert payload["action"] == "auto_sent"
 

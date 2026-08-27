@@ -24,6 +24,26 @@ async def publish_redis_stream(redis_client, stream_name: str, payload: dict):
     await redis_client.xadd(stream_name, {"payload": serialized.encode("utf-8")})
     logger.debug(f"Published to stream {stream_name}: {payload}")
 
+async def supersede_pending_draft(db: ScopedDB, redis_client, account_id: uuid.UUID, conversation_id: uuid.UUID):
+    """Invalidate a stale draft and tell connected clients to remove it."""
+    draft = await db.fetchrow(
+        """
+        UPDATE ai_reply_drafts
+        SET status = 'superseded', updated_at = NOW()
+        WHERE account_id = $1 AND conversation_id = $2 AND status = 'pending'
+        RETURNING id
+        """,
+        account_id, conversation_id
+    )
+    if not draft:
+        return
+    await publish_redis_stream(redis_client, "ai.reply_draft.updated", {
+        "account_id": str(account_id),
+        "conversation_id": str(conversation_id),
+        "draft_id": str(draft["id"]),
+        "action": "superseded"
+    })
+
 async def process_conversation_updated(data: dict, db_pool, redis_client):
     account_id = data.get("account_id") or data.get("AccountID")
     conversation_id = data.get("conversation_id") or data.get("ConversationID")
@@ -93,7 +113,18 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     allow_member_reply_mode_override = settings.get("allow_member_reply_mode_override", True)
     ai_may_auto_answer_mixed_conversations = settings.get("ai_may_auto_answer_mixed_conversations", False)
 
+    effective_mode = ai_reply_mode_default
+    if allow_member_reply_mode_override and assigned_user_ids:
+        first_user_id = assigned_user_ids[0]
+        user_row = await db.fetchrow(
+            "SELECT reply_mode_override FROM users WHERE id = $1 AND account_id = $2",
+            first_user_id, account_uuid
+        )
+        if user_row and user_row["reply_mode_override"]:
+            effective_mode = user_row["reply_mode_override"]
+
     if not ai_enabled:
+        await supersede_pending_draft(db, redis_client, account_uuid, convo_uuid)
         await db.execute(
             """
             INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
@@ -106,8 +137,10 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
 
     # Human takeover pause check (§4)
     if not ai_mode_active:
-        if not ai_may_auto_answer_mixed_conversations:
-            # Cascade does not run at all. Log and return.
+        if effective_mode == "auto_send" and not ai_may_auto_answer_mixed_conversations:
+            # Human takeover blocks automatic sending. Draft-only mode still
+            # runs so the agent can continue receiving suggestions to review.
+            await supersede_pending_draft(db, redis_client, account_uuid, convo_uuid)
             await db.execute(
                 """
                 INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
@@ -248,18 +281,6 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
 
     # Determine candidate action
     if answer_markdown:
-        # Resolve effective reply mode
-        effective_mode = ai_reply_mode_default
-        if allow_member_reply_mode_override and assigned_user_ids:
-            # Query override of first assigned user
-            first_user_id = assigned_user_ids[0]
-            user_row = await db.fetchrow(
-                "SELECT reply_mode_override FROM users WHERE id = $1 AND account_id = $2",
-                first_user_id, account_uuid
-            )
-            if user_row and user_row["reply_mode_override"]:
-                effective_mode = user_row["reply_mode_override"]
-
         if effective_mode == "auto_send":
             action = "auto_sent"
         else:
@@ -347,14 +368,50 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
             logger.error(f"Failed to auto-send reply message for conversation {convo_uuid}: {e}")
             action = "flagged_human"
 
-    # Log to ai_answer_events
-    await db.execute(
-        """
-        INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        """,
-        account_uuid, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
-    )
+    draft_id = None
+    if action == "drafted":
+        # The advisory lock serializes competing draft generations for the same
+        # conversation. The CTE then supersedes the old draft, stores the new
+        # one, and writes the audit event atomically.
+        draft_id = await db.fetchval(
+            """
+            WITH draft_lock AS (
+                SELECT pg_advisory_xact_lock(hashtextextended($2::text, 0))
+            ), superseded AS (
+                UPDATE ai_reply_drafts
+                SET status = 'superseded', updated_at = NOW()
+                FROM draft_lock
+                WHERE account_id = $1 AND conversation_id = $2 AND status = 'pending'
+            ), new_draft AS (
+                INSERT INTO ai_reply_drafts (
+                    account_id, conversation_id, source_message_id, draft_text,
+                    stage_matched, confidence
+                )
+                SELECT $1, $2, $3, $4, $5, $6
+                FROM draft_lock
+                RETURNING id
+            ), logged_event AS (
+                INSERT INTO ai_answer_events (
+                    account_id, conversation_id, message_id, stage_matched,
+                    confidence, action, reply_message_id
+                )
+                SELECT $1, $2, $3, $5, $6, 'drafted', NULL
+                FROM new_draft
+            )
+            SELECT id FROM new_draft
+            """,
+            account_uuid, convo_uuid, msg_uuid, answer_markdown,
+            stage_matched, confidence
+        )
+    else:
+        await supersede_pending_draft(db, redis_client, account_uuid, convo_uuid)
+        await db.execute(
+            """
+            INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """,
+            account_uuid, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
+        )
 
     logger.info(f"Cascade finished for message {msg_uuid}. Action: {action}. Stage Matched: {stage_matched}")
 
@@ -364,9 +421,12 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
             "account_id": str(account_uuid),
             "conversation_id": str(convo_uuid),
             "action": action,
-            "message_id": str(reply_message_id) if reply_message_id else str(msg_uuid)
+            "message_id": str(reply_message_id) if reply_message_id else str(msg_uuid),
+            "stage_matched": stage_matched,
+            "confidence": confidence
         }
         if action == "drafted":
+            ws_payload["draft_id"] = str(draft_id)
             ws_payload["draft_text"] = answer_markdown
 
         await publish_redis_stream(redis_client, "ai.reply_ready", ws_payload)
