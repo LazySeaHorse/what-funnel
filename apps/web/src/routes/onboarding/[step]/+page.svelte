@@ -49,6 +49,11 @@
 
 	// Step 4: AI Assistant
 	let s4AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
+	let aiProviderConfigured = $state(false);
+	let aiProviderApiKey = $state('');
+	let aiProviderBaseURL = $state('https://api.openai.com/v1');
+	let aiCompletionModel = $state('gpt-4o-mini');
+	let aiEmbeddingModel = $state('text-embedding-3-small');
 
 	// Step 5: Knowledge Base
 	let s5RawText = $state(`Services & Pricing:
@@ -101,10 +106,12 @@ FAQs:
 		}
 
 		try {
-			const [account, pipelines] = await Promise.all([
+			const [account, pipelines, aiStatus] = await Promise.all([
 				apiRequest('/workspace/account'),
-				apiRequest('/workspace/pipelines')
+				apiRequest('/workspace/pipelines'),
+				apiRequest('/workspace/account/ai-config/status')
 			]);
+			aiProviderConfigured = aiStatus?.configured === true;
 			if (account.name) s1BusinessName = account.name;
 			const settings = parseAccountSettings(account.settings);
 			if (settings.business_type) s1BusinessType = settings.business_type;
@@ -261,6 +268,24 @@ FAQs:
 				goToStep(4);
 			} else if (stepNum === 4) {
 				const replyMode = s4AiMode === 'auto_answer' ? 'auto_send' : 'draft_only';
+				if (s4AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()) {
+					throw new Error('Add your AI provider API key, or choose Manual only.');
+				}
+				if (s4AiMode !== 'manual' && aiProviderApiKey.trim()) {
+					await apiRequest('/workspace/account/ai-config', {
+						method: 'PUT',
+						body: {
+							config: JSON.stringify({
+								api_key: aiProviderApiKey.trim(),
+								base_url: aiProviderBaseURL.trim(),
+								completion_model: aiCompletionModel.trim(),
+								embedding_model: aiEmbeddingModel.trim()
+							})
+						}
+					});
+					aiProviderConfigured = true;
+					aiProviderApiKey = '';
+				}
 				await apiRequest('/workspace/account/settings', {
 					method: 'PATCH',
 					body: { ai_enabled: s4AiMode !== 'manual', ai_reply_mode_default: replyMode }
@@ -530,6 +555,7 @@ FAQs:
 								<Icon name="plus" size={14} color="currentColor" />
 								<span>Add another stage</span>
 							</button>
+
 						</div>
 
 					<!-- STEP 4: AI ASSISTANT -->
@@ -609,6 +635,33 @@ FAQs:
 									{/if}
 								</div>
 							</button>
+
+							{#if s4AiMode !== 'manual'}
+								<div class="mt-4 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+									<div>
+										<div class="flex items-center justify-between gap-3">
+											<h3 class="text-sm font-medium text-slate-900">AI provider</h3>
+											{#if aiProviderConfigured}<span class="text-[11px] font-medium text-emerald-700">Configured</span>{/if}
+										</div>
+										<p class="mt-1 text-xs leading-relaxed text-slate-500">Credentials are encrypted before storage. What Funnel will not generate AI content until a provider is configured.</p>
+									</div>
+									<div class="space-y-1.5">
+										<label for="ai-provider-key" class="block text-xs font-medium text-slate-700">API key {aiProviderConfigured ? '(leave blank to keep current key)' : ''}</label>
+										<input id="ai-provider-key" type="password" autocomplete="new-password" bind:value={aiProviderApiKey} class="wf-input" placeholder={aiProviderConfigured ? 'Configured' : 'Required'} />
+										{#if !aiProviderConfigured && !aiProviderApiKey.trim()}
+											<p class="text-[11px] text-amber-700">Add your AI provider API key, or choose Manual only.</p>
+										{/if}
+									</div>
+									<div class="space-y-1.5">
+										<label for="ai-provider-url" class="block text-xs font-medium text-slate-700">OpenAI-compatible base URL</label>
+										<input id="ai-provider-url" type="url" bind:value={aiProviderBaseURL} class="wf-input" required />
+									</div>
+									<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+										<label class="space-y-1.5 text-xs font-medium text-slate-700">Completion model<input aria-label="Completion model" bind:value={aiCompletionModel} class="wf-input" required /></label>
+										<label class="space-y-1.5 text-xs font-medium text-slate-700">Embedding model<input aria-label="Embedding model" bind:value={aiEmbeddingModel} class="wf-input" required /></label>
+									</div>
+								</div>
+							{/if}
 						</div>
 
 					<!-- STEP 5: KNOWLEDGE BASE -->
@@ -817,6 +870,7 @@ FAQs:
 					rawText={s5RawText}
 					submitting={submitting}
 					compiling={s5Compiling}
+					continueDisabled={stepNum === 4 && s4AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()}
 					onBack={handleBack}
 					onContinue={handleContinue}
 					onTour={() => goto('/inbox?tour=true')}
@@ -824,7 +878,7 @@ FAQs:
 				/>
 
 				{#if error}
-					<div class="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
+					<div role="alert" class="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
 				{/if}
 			</div>
 		</div>

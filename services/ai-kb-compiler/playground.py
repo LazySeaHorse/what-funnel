@@ -18,7 +18,6 @@ logger = logging.getLogger("ai-kb-compiler.playground")
 router = APIRouter(prefix="/playground", tags=["playground"])
 
 PLAYGROUND_ACCOUNT_NAME = "WhatFunnel AI Playground"
-DEFAULT_API_KEY = "AIzaSyDHposTMMGjfF1egwfn-YpnDit1jEUvCN0"
 
 async def get_or_create_playground_account(db_pool):
     async with db_pool.acquire() as conn:
@@ -26,15 +25,20 @@ async def get_or_create_playground_account(db_pool):
         if not account_id:
             account_id = await conn.fetchval("INSERT INTO accounts (name, product_mode) VALUES ($1, 'chatbot_only') RETURNING id", PLAYGROUND_ACCOUNT_NAME)
         
-        # Ensure AI config is set with gemma-4-26b-a4b-it
-        api_config = {
-            "api_key": DEFAULT_API_KEY,
-            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-            "completion_model": "gemma-4-26b-a4b-it",
-            "embedding_model": "gemini-embedding-001"
-        }
-        enc = encrypt(get_key_bytes(app_config.APP_ENCRYPTION_KEY), json.dumps(api_config).encode("utf-8"))
-        await conn.execute("UPDATE accounts SET ai_provider_config = $1 WHERE id = $2", enc, account_id)
+        # Development playground credentials must be supplied explicitly. Never
+        # seed or overwrite provider keys from source code.
+        playground_api_key = os.getenv("PLAYGROUND_AI_API_KEY", "").strip()
+        if playground_api_key:
+            configured = await conn.fetchval("SELECT ai_provider_config IS NOT NULL FROM accounts WHERE id = $1", account_id)
+            if not configured:
+                api_config = {
+                    "api_key": playground_api_key,
+                    "base_url": os.getenv("PLAYGROUND_AI_BASE_URL", "https://api.openai.com/v1"),
+                    "completion_model": os.getenv("PLAYGROUND_AI_COMPLETION_MODEL", "gpt-4o-mini"),
+                    "embedding_model": os.getenv("PLAYGROUND_AI_EMBEDDING_MODEL", "text-embedding-3-small")
+                }
+                enc = encrypt(get_key_bytes(app_config.APP_ENCRYPTION_KEY), json.dumps(api_config).encode("utf-8"))
+                await conn.execute("UPDATE accounts SET ai_provider_config = $1 WHERE id = $2", enc, account_id)
 
         # Ensure a default channel exists
         ch_id = await conn.fetchval("SELECT id FROM channels WHERE account_id = $1 LIMIT 1", account_id)

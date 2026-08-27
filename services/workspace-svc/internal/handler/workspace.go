@@ -6,6 +6,7 @@
 //	PUT    /workspace/account/settings     — update account settings (admin)
 //	PATCH  /workspace/account/settings     — merge account settings (admin)
 //	PUT    /workspace/account/ai-config    — update AI provider config (admin)
+//	GET    /workspace/account/ai-config/status — report whether AI is configured
 //
 //	GET    /workspace/users                — list users (admin)
 //	POST   /workspace/users/invite         — invite a user (admin)
@@ -59,6 +60,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.PatchSettings)))).Methods(http.MethodPatch)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
+	r.Handle("/workspace/account/ai-config/status", auth(http.HandlerFunc(h.GetAIConfigStatus))).Methods(http.MethodGet)
 	r.Handle("/workspace/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 	r.Handle("/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 
@@ -197,11 +199,32 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	var config struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(body.Config), &config); err != nil {
+		writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
+		return
+	}
+	if strings.TrimSpace(config.APIKey) == "" {
+		writeError(w, http.StatusBadRequest, "AI provider API key is required")
+		return
+	}
 	if err := h.svc.UpdateAIProviderConfig(r.Context(), accountID, actorID, body.Config); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) GetAIConfigStatus(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	configured, err := h.svc.HasAIProviderConfig(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"configured": configured})
 }
 
 func (h *Handler) UpdateProductMode(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/Icon.svelte';
-	let { stepNum, kbStatus, rawText, submitting, compiling, onBack, onContinue, onTour, onInbox }:
-		{ stepNum: number; kbStatus: string; rawText: string; submitting: boolean; compiling: boolean; onBack: () => void; onContinue: () => void; onTour: () => void; onInbox: () => void } = $props();
+	let { stepNum, kbStatus, rawText, submitting, compiling, continueDisabled = false, onBack, onContinue, onTour, onInbox }:
+		{ stepNum: number; kbStatus: string; rawText: string; submitting: boolean; compiling: boolean; continueDisabled?: boolean; onBack: () => void; onContinue: () => void; onTour: () => void; onInbox: () => void } = $props();
 </script>
 
 {#if !(stepNum === 5 && kbStatus === 'processing')}
@@ -16,7 +16,7 @@
 				{/if}
 			</div>
 			{#if stepNum < 7}
-				<button type="button" class="ml-auto w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2" onclick={onContinue} disabled={submitting || compiling}>
+				<button type="button" class="ml-auto w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2" onclick={onContinue} disabled={submitting || compiling || continueDisabled}>
 					{#if submitting || compiling}<span>Processing...</span>{:else if stepNum === 5 && kbStatus === 'input'}<span>{rawText.trim() ? 'Organize with AI' : 'Skip'}</span>{:else if stepNum === 6}<span>Complete setup</span>{:else}<span>Continue</span>{/if}
 				</button>
 			{/if}

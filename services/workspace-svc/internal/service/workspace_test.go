@@ -90,12 +90,18 @@ func TestAIProviderConfig_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	accountID, userID := setupTestTenant(t, pool, "AI Config Account", "ai@example.com")
+	configured, err := svc.HasAIProviderConfig(ctx, accountID)
+	require.NoError(t, err)
+	assert.False(t, configured)
 
 	plaintext := `{"api_key":"sk-test-12345","base_url":"https://api.openai.com/v1"}`
 
 	// Store encrypted
-	err := svc.UpdateAIProviderConfig(ctx, accountID, userID, plaintext)
+	err = svc.UpdateAIProviderConfig(ctx, accountID, userID, plaintext)
 	require.NoError(t, err, "UpdateAIProviderConfig must not fail")
+	configured, err = svc.HasAIProviderConfig(ctx, accountID)
+	require.NoError(t, err)
+	assert.True(t, configured)
 
 	// Read back — must decrypt to original plaintext
 	recovered, err := svc.GetAIProviderConfig(ctx, accountID)

@@ -39,4 +39,19 @@ test.describe('onboarding persistence', () => {
 		await expect(page).toHaveURL(/\/onboarding\/1$/);
 		await expect(page.getByText('Setup service is unavailable', { exact: true })).toBeVisible();
 	});
+
+	test('requires a real provider configuration before enabling AI', async ({ page }) => {
+		const api = await mockOnboardingApi(page, [], false);
+		await page.goto('/onboarding/4');
+		await expect(page.getByLabel(/^API key/)).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
+		await expect(page.getByText('Add your AI provider API key, or choose Manual only.', { exact: true })).toBeVisible();
+		await page.getByLabel(/^API key/).fill('test-provider-key');
+		await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+
+		await expect(page).toHaveURL(/\/onboarding\/5$/);
+		expect(api.isAIConfigured()).toBe(true);
+		expect(api.requests).toContainEqual(expect.objectContaining({ path: '/workspace/account/ai-config', method: 'PUT' }));
+	});
 });

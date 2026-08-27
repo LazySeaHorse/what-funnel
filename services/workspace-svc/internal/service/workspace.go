@@ -281,6 +281,19 @@ func (svc *Service) GetAIProviderConfig(ctx context.Context, accountID uuid.UUID
 	return string(plain), nil
 }
 
+// HasAIProviderConfig reports configuration presence without exposing or
+// decrypting provider credentials.
+func (svc *Service) HasAIProviderConfig(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	var configured bool
+	err := svc.pool.QueryRow(ctx,
+		`SELECT ai_provider_config IS NOT NULL AND ai_provider_config <> '' FROM accounts WHERE id = $1`,
+		accountID).Scan(&configured)
+	if err != nil {
+		return false, fmt.Errorf("get ai provider status: %w", err)
+	}
+	return configured, nil
+}
+
 // -------------------------------------------------------------------------
 // Users
 // -------------------------------------------------------------------------

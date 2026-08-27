@@ -92,9 +92,10 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 	});
 }
 
-export async function mockOnboardingApi(page: Page, failures: string[] = []) {
+export async function mockOnboardingApi(page: Page, failures: string[] = [], configured = true) {
 	let accountName = 'Setup Studio';
 	let accountSettings: Record<string, unknown> = {};
+	let aiConfigured = configured;
 	let pipeline = {
 		id: 'pipeline-setup',
 		name: 'Default Pipeline',
@@ -124,6 +125,11 @@ export async function mockOnboardingApi(page: Page, failures: string[] = []) {
 			accountSettings = { ...accountSettings, ...body };
 			return json({ status: 'updated' });
 		}
+		if (path === '/workspace/account/ai-config/status') return json({ configured: aiConfigured });
+		if (path === '/workspace/account/ai-config' && method === 'PUT') {
+			aiConfigured = true;
+			return json({ status: 'updated' });
+		}
 		if (path === '/workspace/pipelines' && method === 'GET') return json([pipeline]);
 		if (path === '/workspace/pipelines/pipeline-setup' && method === 'PUT') {
 			pipeline = { ...pipeline, name: String(body?.name || pipeline.name), states: Array.isArray(body?.states) ? body.states as typeof pipeline.states : pipeline.states };
@@ -137,5 +143,5 @@ export async function mockOnboardingApi(page: Page, failures: string[] = []) {
 		return json({});
 	});
 
-	return { requests, getSettings: () => accountSettings, getPipeline: () => pipeline };
+	return { requests, getSettings: () => accountSettings, getPipeline: () => pipeline, isAIConfigured: () => aiConfigured };
 }

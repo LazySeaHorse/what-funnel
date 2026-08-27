@@ -2,13 +2,37 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from pydantic import BaseModel
 from fastapi import HTTPException
-from llm import embed, complete
+from llm import embed, complete, get_ai_config
 
 # Test Schema
 class MockConcept(BaseModel):
     title: str
     body: str
     tags: list[str]
+
+@pytest.mark.asyncio
+async def test_missing_provider_config_is_explicit():
+    db = MagicMock()
+    db.account_id = "account-without-provider"
+    db.fetchrow = AsyncMock(return_value=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_ai_config(db)
+
+    assert exc_info.value.status_code == 409
+    assert "not configured" in exc_info.value.detail
+
+@pytest.mark.asyncio
+async def test_local_provider_is_called_instead_of_mocked():
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = MagicMock(return_value={"data": [{"embedding": [0.2] * 1536}]})
+
+    with patch("httpx.AsyncClient.post", return_value=mock_response) as mock_post:
+        result = await embed("local-key", "http://localhost:11434/v1", "embed-model", "hello")
+
+    assert result[0] == 0.2
+    mock_post.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_embed_success():

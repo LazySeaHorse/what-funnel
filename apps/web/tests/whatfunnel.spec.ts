@@ -77,6 +77,8 @@ async function completeOnboarding(page: Page) {
   await page.waitForURL('**/onboarding/3', { timeout: 15000 });
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL('**/onboarding/4', { timeout: 15000 });
+  const providerKey = page.getByLabel(/^API key/);
+  if (await providerKey.isVisible()) await providerKey.fill('e2e-provider-key');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.waitForURL('**/onboarding/5', { timeout: 15000 });
   const skipKnowledge = page.getByRole('button', { name: 'Skip', exact: true });
