@@ -61,6 +61,8 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/conversations", auth(http.HandlerFunc(h.ListConversations))).Methods(http.MethodGet)
 	r.Handle("/conversations/{id}", auth(http.HandlerFunc(h.GetConversation))).Methods(http.MethodGet)
 	r.Handle("/conversations/{id}/messages", auth(http.HandlerFunc(h.GetConversationMessages))).Methods(http.MethodGet)
+	r.Handle("/conversations/{id}/reply-draft", auth(http.HandlerFunc(h.GetReplyDraft))).Methods(http.MethodGet)
+	r.Handle("/conversations/{id}/reply-draft/{draft_id}/dismiss", auth(http.HandlerFunc(h.DismissReplyDraft))).Methods(http.MethodPost)
 	r.Handle("/conversations/{id}/assign", auth(admin(http.HandlerFunc(h.AssignConversation)))).Methods(http.MethodPatch)
 	r.Handle("/conversations/{id}/read", auth(http.HandlerFunc(h.ReadConversation))).Methods(http.MethodPost)
 	r.Handle("/conversations/{id}/close", auth(http.HandlerFunc(h.CloseConversation))).Methods(http.MethodPost)
@@ -97,11 +99,12 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		ContentType  string `json:"content_type"`
-		Text         string `json:"text"`
-		MediaURL     string `json:"media_url"`
-		SenderType   string `json:"sender_type"`
-		SenderUserID string `json:"sender_user_id"`
+		ContentType    string `json:"content_type"`
+		Text           string `json:"text"`
+		MediaURL       string `json:"media_url"`
+		SenderType     string `json:"sender_type"`
+		SenderUserID   string `json:"sender_user_id"`
+		AIReplyDraftID string `json:"ai_reply_draft_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -123,13 +126,72 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		senderUserID = &uid
 	}
 
-	msg, err := h.svc.SendMessage(r.Context(), accountID, convoID, body.SenderType, senderUserID, body.ContentType, body.Text, body.MediaURL)
+	var aiReplyDraftID *uuid.UUID
+	if body.AIReplyDraftID != "" {
+		draftID, err := uuid.Parse(body.AIReplyDraftID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid ai_reply_draft_id")
+			return
+		}
+		aiReplyDraftID = &draftID
+	}
+
+	msg, err := h.svc.SendMessage(r.Context(), accountID, convoID, body.SenderType, senderUserID, body.ContentType, body.Text, body.MediaURL, aiReplyDraftID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, msg)
+}
+
+func (h *Handler) GetReplyDraft(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
+
+	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+	draft, err := h.svc.GetPendingReplyDraft(r.Context(), accountID, userID, conversationID, role)
+	if err != nil {
+		if err.Error() == "conversation not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"draft": draft})
+}
+
+func (h *Handler) DismissReplyDraft(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
+	vars := mux.Vars(r)
+
+	conversationID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+	draftID, err := uuid.Parse(vars["draft_id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid reply draft ID")
+		return
+	}
+	if err := h.svc.DismissReplyDraft(r.Context(), accountID, userID, conversationID, draftID, role); err != nil {
+		if err.Error() == "conversation not found" || err.Error() == "reply draft not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "dismissed"})
 }
 
 func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {

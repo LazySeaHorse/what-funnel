@@ -56,22 +56,22 @@ type conversationScanDest struct {
 	item       *types.ConversationListItem
 	lastReadAt *time.Time
 	// message fields
-	msgID         *uuid.UUID
-	msgDirection  *string
-	msgSenderType *string
-	msgSenderUID  *uuid.UUID
+	msgID          *uuid.UUID
+	msgDirection   *string
+	msgSenderType  *string
+	msgSenderUID   *uuid.UUID
 	msgContentType *string
-	msgContent    []byte
-	msgExternalID *string
-	msgCreatedAt  *time.Time
+	msgContent     []byte
+	msgExternalID  *string
+	msgCreatedAt   *time.Time
 	// lead fields
-	leadID        *uuid.UUID
+	leadID         *uuid.UUID
 	leadPipelineID *uuid.UUID
-	leadStateKey  *string
-	leadTags      []string
-	leadCreatedBy *uuid.UUID
-	leadCreatedAt *time.Time
-	leadUpdatedAt *time.Time
+	leadStateKey   *string
+	leadTags       []string
+	leadCreatedBy  *uuid.UUID
+	leadCreatedAt  *time.Time
+	leadUpdatedAt  *time.Time
 }
 
 // scanConversationRow scans one row from the shared SQL projection and
@@ -361,9 +361,12 @@ func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conve
 
 // SendMessage sends an outbound message via the registered adapter and records
 // it in the database within a single transaction.
-func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uuid.UUID, senderType string, senderUserID *uuid.UUID, contentType, text, mediaURL string) (*types.Message, error) {
+func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uuid.UUID, senderType string, senderUserID *uuid.UUID, contentType, text, mediaURL string, aiReplyDraftID *uuid.UUID) (*types.Message, error) {
 	if senderType != "human" && senderType != "ai" {
 		return nil, fmt.Errorf("invalid sender_type: %q", senderType)
+	}
+	if aiReplyDraftID != nil && senderType != "human" {
+		return nil, errors.New("AI reply drafts can only be used by a human sender")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -388,6 +391,22 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 			return nil, fmt.Errorf("conversation not found")
 		}
 		return nil, fmt.Errorf("lookup conversation details: %w", err)
+	}
+
+	if aiReplyDraftID != nil {
+		var lockedDraftID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT id
+			FROM ai_reply_drafts
+			WHERE id = $1 AND account_id = $2 AND conversation_id = $3 AND status = 'pending'
+			FOR UPDATE
+		`, *aiReplyDraftID, accountID, conversationID).Scan(&lockedDraftID)
+		if err == pgx.ErrNoRows {
+			return nil, errors.New("reply draft not found")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock AI reply draft: %w", err)
+		}
 	}
 
 	adapter, err := s.GetAdapter(channelType)
@@ -470,6 +489,34 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 		return nil, fmt.Errorf("update conversation details: %w", err)
 	}
 
+	var invalidatedDraftID *uuid.UUID
+	if senderType == "human" {
+		if aiReplyDraftID != nil {
+			_, err = tx.Exec(ctx, `
+				UPDATE ai_reply_drafts
+				SET status = 'used', used_message_id = $1, updated_at = NOW()
+				WHERE id = $2 AND account_id = $3 AND conversation_id = $4 AND status = 'pending'
+			`, msg.ID, *aiReplyDraftID, accountID, conversationID)
+			invalidatedDraftID = aiReplyDraftID
+		} else {
+			var draftID uuid.UUID
+			err = tx.QueryRow(ctx, `
+				UPDATE ai_reply_drafts
+				SET status = 'superseded', updated_at = NOW()
+				WHERE account_id = $1 AND conversation_id = $2 AND status = 'pending'
+				RETURNING id
+			`, accountID, conversationID).Scan(&draftID)
+			if err == pgx.ErrNoRows {
+				err = nil
+			} else if err == nil {
+				invalidatedDraftID = &draftID
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("update AI reply draft: %w", err)
+		}
+	}
+
 	aw := audit.NewWriterFromTx(tx)
 	if err = aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
@@ -496,6 +543,18 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 		MessageID:      msg.ID,
 	}); err != nil {
 		fmt.Printf("failed to publish conversation.updated for outbound send: %v\n", err)
+	}
+	if senderType == "human" && invalidatedDraftID != nil {
+		action := "superseded"
+		if aiReplyDraftID != nil {
+			action = "used"
+		}
+		if _, publishErr := s.pubsub.Publish(ctx, "ai.reply_draft.updated", AIReplyDraftUpdatedEvent{
+			AccountID: accountID, ConversationID: conversationID,
+			DraftID: invalidatedDraftID, Action: action,
+		}); publishErr != nil {
+			fmt.Printf("failed to publish AI reply draft update: %v\n", publishErr)
+		}
 	}
 
 	return msg, nil
@@ -529,4 +588,3 @@ func decodeCursor(cursorStr string) (time.Time, uuid.UUID, error) {
 	}
 	return t, id, nil
 }
-

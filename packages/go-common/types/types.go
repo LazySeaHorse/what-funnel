@@ -54,6 +54,21 @@ type AuditLog struct {
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 }
 
+// AIReplyDraft is the current persisted AI suggestion for a conversation.
+// Drafts are separate from messages because they have not been approved or
+// sent to the contact yet.
+type AIReplyDraft struct {
+	ID              uuid.UUID `json:"id" db:"id"`
+	ConversationID  uuid.UUID `json:"conversation_id" db:"conversation_id"`
+	SourceMessageID uuid.UUID `json:"source_message_id" db:"source_message_id"`
+	DraftText       string    `json:"draft_text" db:"draft_text"`
+	StageMatched    string    `json:"stage_matched" db:"stage_matched"`
+	Confidence      *float64  `json:"confidence,omitempty" db:"confidence"`
+	Status          string    `json:"status" db:"status"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+}
+
 // PipelineState is one state in a lead pipeline.
 type PipelineState struct {
 	Key   string `json:"key"`

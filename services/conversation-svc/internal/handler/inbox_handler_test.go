@@ -196,4 +196,48 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rr.Code)
 	}
+
+	var sourceMessageID, draftID uuid.UUID
+	err = pool.QueryRow(context.Background(), `
+		INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content)
+		VALUES ($1, $2, 'inbound', 'contact', 'text', '{"text":"Are you open?"}')
+		RETURNING id
+	`, accountID, convoID).Scan(&sourceMessageID)
+	require.NoError(t, err)
+	err = pool.QueryRow(context.Background(), `
+		INSERT INTO ai_reply_drafts (
+			account_id, conversation_id, source_message_id, draft_text, stage_matched, confidence
+		) VALUES ($1, $2, $3, 'Yes, we are open.', 'pattern', 1.0)
+		RETURNING id
+	`, accountID, convoID, sourceMessageID).Scan(&draftID)
+	require.NoError(t, err)
+
+	// 8. An assigned member can retrieve and dismiss the pending draft.
+	{
+		h := handler.New(svc, memberSess)
+		r := mux.NewRouter()
+		h.RegisterRoutes(r)
+
+		req, _ := http.NewRequest(http.MethodGet, "/conversations/"+convoID.String()+"/reply-draft", nil)
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+
+		var response struct {
+			Draft *types.AIReplyDraft `json:"draft"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+		require.NotNil(t, response.Draft)
+		assert.Equal(t, draftID, response.Draft.ID)
+		assert.Equal(t, "Yes, we are open.", response.Draft.DraftText)
+
+		req, _ = http.NewRequest(http.MethodPost, "/conversations/"+convoID.String()+"/reply-draft/"+draftID.String()+"/dismiss", nil)
+		rr = httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+	}
+
+	var draftStatus string
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT status FROM ai_reply_drafts WHERE id = $1`, draftID).Scan(&draftStatus))
+	assert.Equal(t, "dismissed", draftStatus)
 }

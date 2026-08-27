@@ -267,8 +267,25 @@ func TestSendMessage(t *testing.T) {
 	`, accountID, contactID, channelID).Scan(&convoID)
 	require.NoError(t, err)
 
+	var sourceMessageID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content)
+		VALUES ($1, $2, 'inbound', 'contact', 'text', '{"text":"Hello"}')
+		RETURNING id
+	`, accountID, convoID).Scan(&sourceMessageID)
+	require.NoError(t, err)
+
+	var draftID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO ai_reply_drafts (
+			account_id, conversation_id, source_message_id, draft_text, stage_matched, confidence
+		) VALUES ($1, $2, $3, 'Hello Alice from agent', 'pattern', 1.0)
+		RETURNING id
+	`, accountID, convoID, sourceMessageID).Scan(&draftID)
+	require.NoError(t, err)
+
 	// Send outbound message
-	msg, err := svc.SendMessage(ctx, accountID, convoID, "human", &userID, "text", "Hello Alice from agent", "")
+	msg, err := svc.SendMessage(ctx, accountID, convoID, "human", &userID, "text", "Hello Alice from agent", "", &draftID)
 	require.NoError(t, err)
 	require.NotNil(t, msg)
 
@@ -280,6 +297,14 @@ func TestSendMessage(t *testing.T) {
 	assert.Equal(t, "outbound", dbDirection)
 	assert.Equal(t, "human", dbSenderType)
 	assert.Equal(t, "text", dbContentType)
+
+	var draftStatus string
+	var usedMessageID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT status, used_message_id FROM ai_reply_drafts WHERE id = $1`, draftID).
+		Scan(&draftStatus, &usedMessageID)
+	require.NoError(t, err)
+	assert.Equal(t, "used", draftStatus)
+	assert.Equal(t, msg.ID, usedMessageID)
 
 	// Assert adapter SendMessage was called
 	sent := fakeAdapter.GetSentMessages()

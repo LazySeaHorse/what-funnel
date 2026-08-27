@@ -62,3 +62,12 @@ type ConversationAssignedEvent struct {
 	ConversationID  uuid.UUID   `json:"conversation_id"`
 	AssignedUserIDs []uuid.UUID `json:"assigned_user_ids"`
 }
+
+// AIReplyDraftUpdatedEvent clears or updates pending-draft state in connected
+// inbox clients after a draft is used, dismissed, or superseded.
+type AIReplyDraftUpdatedEvent struct {
+	AccountID      uuid.UUID  `json:"account_id"`
+	ConversationID uuid.UUID  `json:"conversation_id"`
+	DraftID        *uuid.UUID `json:"draft_id,omitempty"`
+	Action         string     `json:"action"`
+}
