@@ -22,7 +22,9 @@
 	let leadTab = $state<'lead' | 'details' | 'activity'>('lead');
 	let replyTab = $state<'reply' | 'note'>('reply');
 	let searchQuery = $state('');
-	let aiAutoReplyEnabled = $state(true);
+	let aiAutoReplyEnabled = $state(false);
+	let aiProviderConfigured = $state(false);
+	let aiProviderStatusLoaded = $state(false);
 	let messageInput = $state('');
 	let internalNoteInput = $state('');
 	let messageContainer: HTMLDivElement | null = $state(null);
@@ -52,9 +54,11 @@
 			try {
 				const parsed = account.settings ? JSON.parse(atob(account.settings)) : {};
 				leadTrackingEnabled = productMode !== 'chatbot_only' && parsed.lead_tracking_enabled !== false;
+				aiAutoReplyEnabled = parsed.ai_enabled === true;
 			} catch (err) {
 				console.error('Failed to parse account settings', err);
 				leadTrackingEnabled = productMode !== 'chatbot_only';
+				aiAutoReplyEnabled = false;
 			}
 		}
 		pipelineStates = workspace.pipeline?.states || [];
@@ -344,6 +348,7 @@
 				workspace.users = inbox.users;
 				void workspace.loadCore(inbox.currentUser).catch((err) => console.error('Failed to load workspace data', err));
 				void loadSetupBanner();
+				void loadAIProviderStatus();
 
 				if (typeof window !== 'undefined') {
 					const urlParams = new URLSearchParams(window.location.search);
@@ -387,6 +392,17 @@
 			}
 		} catch (_) {
 			// The setup banner is optional and should never delay the inbox.
+		}
+	}
+
+	async function loadAIProviderStatus() {
+		try {
+			const status = await apiRequest('/workspace/account/ai-config/status');
+			aiProviderConfigured = status?.configured === true;
+		} catch (_) {
+			aiProviderConfigured = false;
+		} finally {
+			aiProviderStatusLoaded = true;
 		}
 	}
 
@@ -928,20 +944,17 @@
 
 			<!-- Right Controls -->
 			<div class="flex items-center gap-3">
-				<!-- AI Auto-reply Toggle (Outline only, matching height) -->
-				<button
-					onclick={() => aiAutoReplyEnabled = !aiAutoReplyEnabled}
-					class="h-10 flex items-center gap-2.5 px-3.5 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer transition"
+				<!-- AI status reflects saved settings and provider configuration. -->
+				<div
+					class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-700"
+					title={!aiProviderStatusLoaded ? 'Checking AI configuration' : !aiProviderConfigured ? 'Configure an AI provider during onboarding before enabling auto-replies' : undefined}
 				>
-					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
 					<span class="text-slate-700">AI Auto-reply</span>
-					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {aiAutoReplyEnabled ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'}">
-						{aiAutoReplyEnabled ? 'ON' : 'OFF'}
+					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'}">
+						{!aiProviderStatusLoaded ? 'CHECKING' : aiAutoReplyEnabled && aiProviderConfigured ? 'ON' : 'OFF'}
 					</span>
-					<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-					</svg>
-				</button>
+				</div>
 
 				<!-- User Name & Title Box (Outline only, matching height) -->
 				<div class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
@@ -1673,9 +1686,17 @@
 									<p class="text-[11px] text-slate-400">Replies automatically to incoming customer questions</p>
 								</div>
 							</div>
-							<span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-medium">ACTIVE</span>
+							<span class="px-2 py-0.5 rounded-full text-[10px] font-medium {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}">
+								{!aiProviderStatusLoaded ? 'CHECKING' : aiAutoReplyEnabled && aiProviderConfigured ? 'ACTIVE' : !aiProviderConfigured ? 'NOT CONFIGURED' : 'OFF'}
+							</span>
 						</div>
-						<p class="text-xs text-slate-600">Uses your knowledge base and business hours to provide instant answers.</p>
+						<p class="text-xs text-slate-600">
+							{aiAutoReplyEnabled && aiProviderConfigured
+								? 'Uses your knowledge base to provide instant answers.'
+								: !aiProviderConfigured
+									? 'Connect an AI provider during onboarding before auto-replies can run.'
+									: 'Auto-replies are currently disabled in workspace settings.'}
+						</p>
 					</div>
 				</div>
 			</div>

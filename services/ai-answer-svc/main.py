@@ -89,8 +89,20 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
             pass
 
     ai_reply_mode_default = settings.get("ai_reply_mode_default", "draft_only")
+    ai_enabled = settings.get("ai_enabled", True)
     allow_member_reply_mode_override = settings.get("allow_member_reply_mode_override", True)
     ai_may_auto_answer_mixed_conversations = settings.get("ai_may_auto_answer_mixed_conversations", False)
+
+    if not ai_enabled:
+        await db.execute(
+            """
+            INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
+            VALUES ($1, $2, $3, 'none', NULL, 'flagged_human', NULL)
+            """,
+            account_uuid, convo_uuid, msg_uuid
+        )
+        logger.info(f"AI disabled for account {account_uuid}. Flagged conversation {convo_uuid} for a human.")
+        return
 
     # Human takeover pause check (§4)
     if not ai_mode_active:
