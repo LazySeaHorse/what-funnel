@@ -7,6 +7,7 @@
 		'business_basics',
 		'channel_connect',
 		'pipeline_setup',
+		'team_setup',
 		'reply_mode',
 		'kb_setup',
 		'review_finish'
@@ -16,9 +17,10 @@
 		business_basics: 1,
 		channel_connect: 2,
 		pipeline_setup: 3,
-		reply_mode: 4,
-		kb_setup: 5,
-		review_finish: 6
+		team_setup: 4,
+		reply_mode: 5,
+		kb_setup: 6,
+		review_finish: 7
 	};
 
 	onMount(async () => {
@@ -48,8 +50,8 @@
 				}
 			}
 
-			// All steps completed or skipped => go to step 7 (success)
-			goto('/onboarding/7');
+			// All steps completed or skipped => go to step 8 (success)
+			goto('/onboarding/8');
 		} catch (err) {
 			goto('/onboarding/1');
 		}

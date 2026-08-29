@@ -16,7 +16,7 @@
 <div class="hidden lg:flex w-full lg:w-80 xl:w-96 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200/80 flex-col justify-between shrink-0 p-6 lg:p-10 relative overflow-hidden min-h-[480px] lg:min-h-0">
 	<div class="relative z-10">
 		<BrandLogo class="mb-8" />
-		{#if stepNum === 7}
+		{#if stepNum === 8}
 			<h1 class="text-2xl sm:text-3xl font-medium text-slate-900 leading-snug tracking-tight mb-3">Workspace is<br /><span class="text-blue-600">ready to go</span></h1>
 			<p class="text-sm text-slate-500 leading-relaxed mb-6 font-normal">Your setup is complete and channels are connected.</p>
 		{:else}
@@ -31,7 +31,7 @@
 	</div>
 	<div class="absolute inset-x-0 bottom-0 w-full overflow-hidden pointer-events-none flex flex-col justify-end">
 		<div class="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#F9FAFC] via-[#F9FAFC]/60 to-transparent z-10 pointer-events-none"></div>
-		<img src={stepNum === 7 ? '/images/onboarding-happy.webp' : '/images/onboarding-sidebar.webp'} alt={stepNum === 7 ? 'Setup Complete Mascot' : 'Workspace Illustration'} class="w-full h-auto max-h-80 object-cover object-bottom [mask-image:linear-gradient(to_bottom,transparent_0%,black_35%)]" />
+		<img src={stepNum === 8 ? '/images/onboarding-happy.webp' : '/images/onboarding-sidebar.webp'} alt={stepNum === 8 ? 'Setup Complete Mascot' : 'Workspace Illustration'} class="w-full h-auto max-h-80 object-cover object-bottom [mask-image:linear-gradient(to_bottom,transparent_0%,black_35%)]" />
 	</div>
 </div>
 
@@ -39,7 +39,7 @@
 	<div class="flex lg:flex-col gap-3 sm:gap-6 overflow-x-auto lg:overflow-x-visible">
 		{#each stepItems as item}
 			{@const isActive = item.num === stepNum}
-			{@const isDone = item.num < stepNum || stepNum === 7}
+			{@const isDone = item.num < stepNum || stepNum === 8}
 			<button type="button" class="flex items-center gap-3 bg-transparent border-0 p-0 text-left cursor-pointer transition shrink-0 {isActive ? 'opacity-100' : isDone ? 'opacity-85' : 'opacity-50'}" onclick={() => { if (item.num <= stepNum) onStep(item.num); }}>
 				<div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium shrink-0 transition-all {isActive ? 'bg-blue-600 text-white shadow-xs' : isDone ? 'bg-blue-600 text-white' : 'border border-slate-300 text-slate-400 bg-white'}">
 					{#if isDone}<Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} />{:else}<span>{item.num}</span>{/if}

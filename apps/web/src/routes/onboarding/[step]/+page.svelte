@@ -7,7 +7,7 @@
 	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
 	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
 
-	// Step number from route: 1..7
+	// Step number from route: 1..8
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
 
 	let loading = $state(true);
@@ -15,14 +15,15 @@
 	let error = $state('');
 	let pipelineID = $state('');
 
-	// Stepper metadata
+	// Stepper metadata (7 total setup steps)
 	const STEP_ITEMS = [
 		{ num: 1, label: 'Business info' },
 		{ num: 2, label: 'Channels' },
 		{ num: 3, label: 'Lead setup' },
-		{ num: 4, label: 'AI Assistant' },
-		{ num: 5, label: 'Knowledge Base' },
-		{ num: 6, label: 'Review & Finish' }
+		{ num: 4, label: 'Team members' },
+		{ num: 5, label: 'AI Assistant' },
+		{ num: 6, label: 'Knowledge Base' },
+		{ num: 7, label: 'Review & Finish' }
 	];
 
 	// Step 1: Business info
@@ -47,21 +48,38 @@
 		{ key: 'converted', label: 'Converted', color: '#10B981' }
 	]);
 
-	// Step 4: AI Assistant
-	let s4AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
+	// Step 4: Team members & Workspace slug
+	let s4Slug = $state('');
+	let s4NewUsername = $state('');
+	let s4NewPassword = $state('');
+	let s4NewRole = $state<'agent' | 'manager'>('agent');
+	let s4Users = $state<Array<{ id: string; username: string; role: string; plaintextPassword?: string }>>([]);
+	let s4AddingUser = $state(false);
+	let s4UserError = $state('');
+	let s4CopiedPassId = $state<string | null>(null);
+
+	// Step 5: AI Assistant
+	let s5AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
 	let aiProviderConfigured = $state(false);
 	let aiProviderApiKey = $state('');
 	let aiProviderBaseURL = $state('https://api.openai.com/v1');
 	let aiCompletionModel = $state('gpt-4o-mini');
 	let aiEmbeddingModel = $state('text-embedding-3-small');
 
-	// Step 5: Knowledge Base
-	let s5RawText = $state('');
+	// Step 6: Knowledge Base
+	let s6RawText = $state('');
+	let s6Status = $state<'input' | 'processing' | 'results'>('input');
+	let s6Concepts = $state<Array<{ id?: string; title: string; type?: string; category?: string; tags?: string[]; body_markdown?: string; content?: string }>>([]);
+	let s6Compiling = $state(false);
+	let s6Error = $state('');
 
-	let s5Status = $state<'input' | 'processing' | 'results'>('input');
-	let s5Concepts = $state<Array<{ id?: string; title: string; type?: string; category?: string; tags?: string[]; body_markdown?: string; content?: string }>>([]);
-	let s5Compiling = $state(false);
-	let s5Error = $state('');
+	function slugify(name: string): string {
+		return name
+			.toLowerCase()
+			.trim()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '');
+	}
 
 	function parseAccountSettings(raw: unknown): Record<string, any> {
 		if (!raw) return {};
@@ -99,18 +117,39 @@
 			if (aiStatus?.base_url) aiProviderBaseURL = aiStatus.base_url;
 			if (aiStatus?.completion_model) aiCompletionModel = aiStatus.completion_model;
 			if (aiStatus?.embedding_model) aiEmbeddingModel = aiStatus.embedding_model;
-			if (account.name) s1BusinessName = account.name;
+			if (account.name) {
+				s1BusinessName = account.name;
+				if (!s4Slug) s4Slug = slugify(account.name);
+			}
 			const settings = parseAccountSettings(account.settings);
 			if (settings.business_type) s1BusinessType = settings.business_type;
 			if (settings.timezone) s1Timezone = settings.timezone;
-			if (settings.ai_enabled === false) s4AiMode = 'manual';
-			else if (settings.ai_reply_mode_default === 'auto_send') s4AiMode = 'auto_answer';
-			else if (settings.ai_reply_mode_default === 'draft_only') s4AiMode = 'suggest_only';
+			if (settings.ai_enabled === false) s5AiMode = 'manual';
+			else if (settings.ai_reply_mode_default === 'auto_send') s5AiMode = 'auto_answer';
+			else if (settings.ai_reply_mode_default === 'draft_only') s5AiMode = 'suggest_only';
 
 			const pipeline = Array.isArray(pipelines) ? pipelines[0] : null;
 			if (!pipeline?.id) throw new Error('Your default lead pipeline could not be loaded.');
 			pipelineID = pipeline.id;
 			if (Array.isArray(pipeline.states) && pipeline.states.length > 0) pipelineStages = pipeline.states;
+
+			try {
+				const slugData = await apiRequest('/workspace/account/slug');
+				if (slugData?.slug) s4Slug = slugData.slug;
+			} catch {}
+
+			try {
+				const userList = await apiRequest('/workspace/users');
+				if (Array.isArray(userList)) {
+					s4Users = userList
+						.filter((u: any) => u.username)
+						.map((u: any) => ({
+							id: u.id,
+							username: u.username,
+							role: u.role
+						}));
+				}
+			} catch {}
 
 			const chList = await apiRequest('/channels');
 			if (Array.isArray(chList) && chList.length > 0) {
@@ -134,8 +173,8 @@
 	}
 
 	function handleBack() {
-		if (stepNum === 5 && s5Status === 'results') {
-			s5Status = 'input';
+		if (stepNum === 6 && s6Status === 'results') {
+			s6Status = 'input';
 			return;
 		}
 		if (stepNum > 1) {
@@ -145,32 +184,99 @@
 		}
 	}
 
+	function generatePassword() {
+		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
+		let pass = '';
+		for (let i = 0; i < 12; i++) {
+			pass += chars.charAt(Math.floor(Math.random() * chars.length));
+		}
+		s4NewPassword = pass;
+	}
+
+	async function copyPassword(id: string, pass: string) {
+		try {
+			await navigator.clipboard.writeText(pass);
+			s4CopiedPassId = id;
+			setTimeout(() => {
+				if (s4CopiedPassId === id) s4CopiedPassId = null;
+			}, 2000);
+		} catch {}
+	}
+
+	async function addTeamMember() {
+		s4UserError = '';
+		if (!s4NewUsername.trim()) {
+			s4UserError = 'Username is required.';
+			return;
+		}
+		if (!s4NewPassword.trim()) {
+			s4UserError = 'Password is required.';
+			return;
+		}
+		s4AddingUser = true;
+		try {
+			const res = await apiRequest('/workspace/users', {
+				method: 'POST',
+				body: {
+					username: s4NewUsername.trim(),
+					password: s4NewPassword.trim(),
+					role: s4NewRole
+				}
+			});
+			s4Users = [
+				...s4Users,
+				{
+					id: res.id,
+					username: res.username || s4NewUsername.trim(),
+					role: res.role || s4NewRole,
+					plaintextPassword: res.password || s4NewPassword.trim()
+				}
+			];
+			s4NewUsername = '';
+			s4NewPassword = '';
+			s4NewRole = 'agent';
+		} catch (err: any) {
+			s4UserError = err?.message || 'Failed to add user.';
+		} finally {
+			s4AddingUser = false;
+		}
+	}
+
+	async function removeTeamMember(id: string) {
+		try {
+			await apiRequest(`/workspace/users/${id}`, { method: 'DELETE' });
+			s4Users = s4Users.filter(u => u.id !== id);
+		} catch (err: any) {
+			s4UserError = err?.message || 'Failed to remove user.';
+		}
+	}
+
 	async function startCompilingKB() {
-		if (!s5RawText.trim()) {
+		if (!s6RawText.trim()) {
 			await apiRequest('/onboarding/status', {
 				method: 'PATCH',
 				body: { step: 'kb_setup', action: 'skip' }
 			});
-			goToStep(6);
+			goToStep(7);
 			return;
 		}
 
-		s5Compiling = true;
-		s5Status = 'processing';
-		s5Error = '';
+		s6Compiling = true;
+		s6Status = 'processing';
+		s6Error = '';
 
 		try {
 			const res = await apiRequest('/api/kb/compile-paste', {
 				method: 'POST',
-				body: { raw_text: s5RawText.trim() }
+				body: { raw_text: s6RawText.trim() }
 			});
 
 			if (Array.isArray(res?.added_concepts) && res.added_concepts.length > 0) {
-				s5Concepts = res.added_concepts;
+				s6Concepts = res.added_concepts;
 			} else {
 				const fetched = await apiRequest('/api/kb/concepts');
 				if (Array.isArray(fetched?.concepts) && fetched.concepts.length > 0) {
-					s5Concepts = fetched.concepts;
+					s6Concepts = fetched.concepts;
 				} else {
 					throw new Error('The AI compiler returned no knowledge concepts. Check your AI provider settings and try again.');
 				}
@@ -181,13 +287,13 @@
 				body: { step: 'kb_setup', action: 'complete' }
 			});
 
-			s5Status = 'results';
+			s6Status = 'results';
 		} catch (err: any) {
-			s5Error = err?.message || 'Failed to process knowledge text. Check your AI provider settings and try again.';
-			s5Concepts = [];
-			s5Status = 'input';
+			s6Error = err?.message || 'Failed to process knowledge text. Check your AI provider settings and try again.';
+			s6Concepts = [];
+			s6Status = 'input';
 		} finally {
-			s5Compiling = false;
+			s6Compiling = false;
 		}
 	}
 
@@ -199,13 +305,13 @@
 			});
 			goto('/inbox');
 		} catch (err: any) {
-			s5Error = err?.message || 'Could not finish setup. Please try again.';
+			s6Error = err?.message || 'Could not finish setup. Please try again.';
 		}
 	}
 
 	function appendTemplateChunk(label: string, text: string) {
-		if (s5RawText.includes(label)) return;
-		s5RawText = s5RawText.trim() + `\n\n${label}:\n${text}`;
+		if (s6RawText.includes(label)) return;
+		s6RawText = s6RawText.trim() + `\n\n${label}:\n${text}`;
 	}
 
 	async function handleContinue() {
@@ -223,6 +329,10 @@
 					method: 'PATCH',
 					body: { business_type: s1BusinessType, timezone: s1Timezone }
 				});
+
+				if (!s4Slug) {
+					s4Slug = slugify(s1BusinessName);
+				}
 
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
@@ -254,11 +364,25 @@
 
 				goToStep(4);
 			} else if (stepNum === 4) {
-				const replyMode = s4AiMode === 'auto_answer' ? 'auto_send' : 'draft_only';
-				if (s4AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()) {
+				const effectiveSlug = s4Slug.trim() || slugify(s1BusinessName) || 'workspace';
+				await apiRequest('/workspace/account/slug', {
+					method: 'PUT',
+					body: { slug: effectiveSlug }
+				});
+				s4Slug = effectiveSlug;
+
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
+					body: { step: 'team_setup', action: s4Users.length > 0 ? 'complete' : 'skip' }
+				});
+
+				goToStep(5);
+			} else if (stepNum === 5) {
+				const replyMode = s5AiMode === 'auto_answer' ? 'auto_send' : 'draft_only';
+				if (s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()) {
 					throw new Error('Add your AI provider API key, or choose Manual only.');
 				}
-				if (s4AiMode !== 'manual') {
+				if (s5AiMode !== 'manual') {
 					await apiRequest('/workspace/account/ai-config', {
 						method: 'PUT',
 						body: {
@@ -275,7 +399,7 @@
 				}
 				await apiRequest('/workspace/account/settings', {
 					method: 'PATCH',
-					body: { ai_enabled: s4AiMode !== 'manual', ai_reply_mode_default: replyMode }
+					body: { ai_enabled: s5AiMode !== 'manual', ai_reply_mode_default: replyMode }
 				});
 
 				await apiRequest('/onboarding/status', {
@@ -283,14 +407,14 @@
 					body: { step: 'reply_mode', action: 'complete' }
 				});
 
-				goToStep(5);
-			} else if (stepNum === 5) {
-				if (s5Status === 'input') {
+				goToStep(6);
+			} else if (stepNum === 6) {
+				if (s6Status === 'input') {
 					await startCompilingKB();
 				} else {
-					goToStep(6);
+					goToStep(7);
 				}
-			} else if (stepNum === 6) {
+			} else if (stepNum === 7) {
 				await apiRequest('/onboarding/status', {
 					method: 'PATCH',
 					body: { step: 'review_finish', action: 'complete' }
@@ -300,7 +424,7 @@
 					body: { step: 'done', action: 'complete' }
 				});
 
-				goToStep(7);
+				goToStep(8);
 			}
 		} catch (err: any) {
 			error = err?.message || 'Failed to save step settings. Please try again.';
@@ -310,8 +434,6 @@
 	}
 
 	function toggleChannel(_ch: any) {
-		// The guided bridge flow lives in workspace settings. Do not create a
-		// local-only "connected" state during onboarding.
 		goto('/inbox?tab=settings');
 	}
 
@@ -335,14 +457,14 @@
 	});
 
 	let aiModeLabel = $derived(() => {
-		if (s4AiMode === 'auto_answer') return 'Auto answer when confident';
-		if (s4AiMode === 'suggest_only') return 'Suggest replies only';
+		if (s5AiMode === 'auto_answer') return 'Auto answer when confident';
+		if (s5AiMode === 'suggest_only') return 'Suggest replies only';
 		return 'Manual only';
 	});
 
 	let kbTopicsSummary = $derived(() => {
-		if (s5Concepts.length > 0) {
-			return `${s5Concepts.length} concepts organized by AI`;
+		if (s6Concepts.length > 0) {
+			return `${s6Concepts.length} concepts organized by AI`;
 		}
 		return 'Business information compiled';
 	});
@@ -352,7 +474,7 @@
 	<title>Onboarding — What Funnel</title>
 </svelte:head>
 
-{#if stepNum >= 1 && stepNum <= 7}
+{#if stepNum >= 1 && stepNum <= 8}
 	<!-- FULL-SCREEN ONBOARDING INTERFACE (Pure Tailwind) -->
 	<div class="h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-hidden font-sans text-slate-800 antialiased relative">
 		
@@ -362,7 +484,7 @@
 		<div class="flex-1 relative overflow-y-auto bg-white flex flex-col justify-between min-h-0 p-5 sm:p-10 lg:p-12 pb-24 sm:pb-8">
 			<div class="w-full flex flex-col min-h-full justify-between relative z-10">
 				<div class="w-full">
-					<!-- Mobile Top Bar: Back Button & Step Progress Stepper (matching mobile mock) -->
+					<!-- Mobile Top Bar: Back Button & Step Progress Stepper -->
 					<div class="lg:hidden flex items-center justify-between pb-4 mb-5 border-b border-slate-100">
 						<button
 							type="button"
@@ -375,9 +497,9 @@
 							</svg>
 						</button>
 
-						{#if stepNum <= 6}
-							<div class="flex items-center gap-1.5" aria-label={`Step ${stepNum} of 6`}>
-								{#each Array(6) as _, idx}
+						{#if stepNum <= 7}
+							<div class="flex items-center gap-1.5" aria-label={`Step ${stepNum} of 7`}>
+								{#each Array(7) as _, idx}
 									{@const s = idx + 1}
 									<div class="h-1.5 rounded-full transition-all duration-200 {s === stepNum ? 'w-5 bg-blue-600' : s < stepNum ? 'w-2.5 bg-blue-600' : 'w-2 bg-slate-200'}"></div>
 								{/each}
@@ -392,7 +514,7 @@
 					<!-- STEP 1: BUSINESS INFO -->
 					{#if stepNum === 1}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 1 of 6</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 1 of 7</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
 							<p class="text-sm text-slate-500 font-normal">This helps us personalize your workspace.</p>
 						</div>
@@ -454,7 +576,7 @@
 					<!-- STEP 2: CHANNELS -->
 					{:else if stepNum === 2}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 6</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 7</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
 							<p class="text-sm text-slate-500 font-normal">Bring all your conversations into one place.</p>
 						</div>
@@ -484,7 +606,7 @@
 								</div>
 							{/each}
 
-							<!-- Web Chat coming soon item (matching mock) -->
+							<!-- Web Chat coming soon item -->
 							<div class="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/50 border border-slate-200/60 rounded-xl opacity-75">
 								<div class="flex items-center gap-3">
 									<div class="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 text-slate-400">
@@ -501,7 +623,7 @@
 					<!-- STEP 3: LEAD PIPELINE -->
 					{:else if stepNum === 3}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 3 of 6</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 3 of 7</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
 							<p class="text-sm text-slate-500 font-normal">Create the stages your leads will go through.</p>
 						</div>
@@ -510,7 +632,6 @@
 							<div class="space-y-2.5 w-full">
 								{#each pipelineStages as stage, i}
 									<div class="flex items-center gap-2.5 p-2 sm:p-2.5 bg-slate-50/80 border border-slate-200 rounded-xl w-full">
-										<!-- Drag grip dots icon (matching mock) -->
 										<div class="grid grid-cols-2 gap-0.5 text-slate-300 shrink-0 ml-1.5">
 											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
 											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
@@ -543,13 +664,158 @@
 								<Icon name="plus" size={14} color="currentColor" />
 								<span>Add another stage</span>
 							</button>
-
 						</div>
 
-					<!-- STEP 4: AI ASSISTANT -->
+					<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
 					{:else if stepNum === 4}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 4 of 6</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 4 of 7</div>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Add your team members</h2>
+							<p class="text-sm text-slate-500 font-normal">Set your workspace login prefix and add team agents or managers.</p>
+						</div>
+
+						<div class="space-y-6 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
+							<!-- Workspace Slug Setup -->
+							<div class="p-4 sm:p-5 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-3">
+								<div class="flex items-center justify-between">
+									<label for="workspace-slug" class="block text-xs font-medium text-slate-900">Workspace login prefix (slug)</label>
+									<span class="text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">Common prefix</span>
+								</div>
+								<div class="relative">
+									<input
+										id="workspace-slug"
+										type="text"
+										class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+										placeholder="company-name"
+										bind:value={s4Slug}
+									/>
+								</div>
+								<p class="text-xs text-slate-500 font-normal">
+									Team members will log in using: <span class="font-mono font-medium text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">{s4Slug || 'your-company'}-[username]</span>
+								</p>
+							</div>
+
+							<!-- Add Team Member Form -->
+							<div class="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl space-y-4">
+								<h3 class="text-sm font-medium text-slate-900">Add a team member</h3>
+								
+								<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+									<div>
+										<label for="new-member-username" class="block text-xs font-medium text-slate-700 mb-1">Username</label>
+										<input
+											id="new-member-username"
+											type="text"
+											class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
+											placeholder="e.g. john"
+											bind:value={s4NewUsername}
+										/>
+									</div>
+
+									<div>
+										<div class="flex items-center justify-between mb-1">
+											<label for="new-member-password" class="block text-xs font-medium text-slate-700">Password</label>
+											<button type="button" class="text-[10px] text-blue-600 hover:underline cursor-pointer" onclick={generatePassword}>Generate</button>
+										</div>
+										<input
+											id="new-member-password"
+											type="text"
+											class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 font-mono placeholder:text-slate-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
+											placeholder="Password"
+											bind:value={s4NewPassword}
+										/>
+									</div>
+
+									<div>
+										<label for="new-member-role" class="block text-xs font-medium text-slate-700 mb-1">Role</label>
+										<div class="flex gap-2">
+											<select
+												id="new-member-role"
+												bind:value={s4NewRole}
+												class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none cursor-pointer"
+											>
+												<option value="agent">Agent</option>
+												<option value="manager">Manager</option>
+											</select>
+											<button
+												type="button"
+												class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-xl transition cursor-pointer disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+												onclick={addTeamMember}
+												disabled={s4AddingUser || !s4NewUsername.trim() || !s4NewPassword.trim()}
+											>
+												<Icon name="plus" size={14} color="#FFFFFF" />
+												<span>Add</span>
+											</button>
+										</div>
+									</div>
+								</div>
+
+								{#if s4UserError}
+									<p class="text-xs text-rose-600 font-medium">{s4UserError}</p>
+								{/if}
+							</div>
+
+							<!-- Created Members List -->
+							{#if s4Users.length > 0}
+								<div class="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white">
+									<div class="px-4 py-2.5 bg-slate-50/70 text-xs font-medium text-slate-500">
+										Added team members ({s4Users.length})
+									</div>
+									{#each s4Users as member}
+										<div class="p-3.5 sm:p-4 flex items-center justify-between gap-3">
+											<div class="flex items-center gap-3 min-w-0">
+												<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-xs shrink-0">
+													{member.username.charAt(0).toUpperCase()}
+												</div>
+												<div class="min-w-0">
+													<div class="font-medium text-xs sm:text-sm text-slate-900 truncate">
+														{member.username}
+													</div>
+													<div class="text-[11px] text-slate-400 font-mono">
+														{(s4Slug || 'prefix') + '-' + member.username}
+													</div>
+												</div>
+											</div>
+
+											<div class="flex items-center gap-2 shrink-0">
+												<span class="px-2 py-0.5 rounded-md text-[11px] font-medium {member.role === 'manager' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'} capitalize">
+													{member.role}
+												</span>
+
+												{#if member.plaintextPassword}
+													<button
+														type="button"
+														class="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-mono transition cursor-pointer"
+														onclick={() => copyPassword(member.id, member.plaintextPassword!)}
+														title="Copy login password"
+													>
+														<span>{member.plaintextPassword}</span>
+														<Icon name={s4CopiedPassId === member.id ? 'check' : 'copy'} size={12} color={s4CopiedPassId === member.id ? '#10B981' : '#64748B'} />
+													</button>
+												{/if}
+
+												<button
+													type="button"
+													class="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+													onclick={() => removeTeamMember(member.id)}
+													title="Remove user"
+												>
+													<Icon name="trash" size={14} color="currentColor" />
+												</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+
+							<p class="text-xs text-slate-400 text-center lg:text-left">
+								You can also add more agents or managers later in Settings.
+							</p>
+						</div>
+
+					<!-- STEP 5: AI ASSISTANT -->
+					{:else if stepNum === 5}
+						<div class="text-center lg:text-left mb-6">
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 5 of 7</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Meet your AI Assistant</h2>
 							<p class="text-sm text-slate-500 font-normal">How should your assistant handle conversations?</p>
 						</div>
@@ -558,11 +824,11 @@
 							<!-- Option 1: Auto answer -->
 							<button
 								type="button"
-								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s4AiMode === 'auto_answer' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-								onclick={() => s4AiMode = 'auto_answer'}
+								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s5AiMode === 'auto_answer' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
+								onclick={() => s5AiMode = 'auto_answer'}
 							>
 								<div class="flex items-start gap-3.5">
-									<div class="w-8 h-8 rounded-lg {s4AiMode === 'auto_answer' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+									<div class="w-8 h-8 rounded-lg {s5AiMode === 'auto_answer' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
 										<Icon name="bot" size={18} color="currentColor" />
 									</div>
 									<div>
@@ -573,8 +839,8 @@
 										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will answer customer questions automatically when confidence is high.</p>
 									</div>
 								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s4AiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
-									{#if s4AiMode === 'auto_answer'}
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s5AiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
+									{#if s5AiMode === 'auto_answer'}
 										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
 									{/if}
 								</div>
@@ -583,11 +849,11 @@
 							<!-- Option 2: Suggest replies only -->
 							<button
 								type="button"
-								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s4AiMode === 'suggest_only' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-								onclick={() => s4AiMode = 'suggest_only'}
+								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s5AiMode === 'suggest_only' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
+								onclick={() => s5AiMode = 'suggest_only'}
 							>
 								<div class="flex items-start gap-3.5">
-									<div class="w-8 h-8 rounded-lg {s4AiMode === 'suggest_only' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+									<div class="w-8 h-8 rounded-lg {s5AiMode === 'suggest_only' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
 										<Icon name="sparkles" size={18} color="currentColor" />
 									</div>
 									<div>
@@ -595,8 +861,8 @@
 										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will draft suggested responses for your team to review and dispatch.</p>
 									</div>
 								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s4AiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
-									{#if s4AiMode === 'suggest_only'}
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s5AiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
+									{#if s5AiMode === 'suggest_only'}
 										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
 									{/if}
 								</div>
@@ -605,11 +871,11 @@
 							<!-- Option 3: Manual only -->
 							<button
 								type="button"
-								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s4AiMode === 'manual' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-								onclick={() => s4AiMode = 'manual'}
+								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s5AiMode === 'manual' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
+								onclick={() => s5AiMode = 'manual'}
 							>
 								<div class="flex items-start gap-3.5">
-									<div class="w-8 h-8 rounded-lg {s4AiMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+									<div class="w-8 h-8 rounded-lg {s5AiMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
 										<Icon name="edit" size={18} color="currentColor" />
 									</div>
 									<div>
@@ -617,14 +883,14 @@
 										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will not send messages automatically. All replies are composed manually.</p>
 									</div>
 								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s4AiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
-									{#if s4AiMode === 'manual'}
+								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s5AiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
+									{#if s5AiMode === 'manual'}
 										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
 									{/if}
 								</div>
 							</button>
 
-							{#if s4AiMode !== 'manual'}
+							{#if s5AiMode !== 'manual'}
 								<div class="mt-4 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
 									<div>
 										<div class="flex items-center justify-between gap-3">
@@ -652,15 +918,15 @@
 							{/if}
 						</div>
 
-					<!-- STEP 5: KNOWLEDGE BASE -->
-					{:else if stepNum === 5}
+					<!-- STEP 6: KNOWLEDGE BASE -->
+					{:else if stepNum === 6}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 5 of 6</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 6 of 7</div>
 							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Teach your AI assistant</h2>
 							<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
 						</div>
 
-						{#if s5Status === 'input'}
+						{#if s6Status === 'input'}
 							<div class="space-y-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 								<div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
 									<span class="text-xs font-medium text-slate-500">Quick templates:</span>
@@ -681,11 +947,11 @@
 								<textarea
 									class="w-full h-52 p-4 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none leading-relaxed resize-none font-normal"
 									placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
-									bind:value={s5RawText}
+									bind:value={s6RawText}
 								></textarea>
 							</div>
 
-						{:else if s5Status === 'processing'}
+						{:else if s6Status === 'processing'}
 							<div class="py-12 flex flex-col items-center justify-center text-center space-y-4 w-full">
 								<div class="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
 									<Icon name="sparkles" size={24} color="currentColor" />
@@ -704,19 +970,19 @@
 								</button>
 							</div>
 
-						{:else if s5Status === 'results'}
+						{:else if s6Status === 'results'}
 							<div class="flex items-center justify-between mb-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 								<div>
 									<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Structured Knowledge</h2>
 									<p class="text-sm text-slate-500 font-normal">Concepts inferred from your business notes:</p>
 								</div>
-								<button type="button" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition" onclick={() => s5Status = 'input'}>
+								<button type="button" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition" onclick={() => s6Status = 'input'}>
 									Edit raw notes
 								</button>
 							</div>
 
 							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-								{#each s5Concepts as concept}
+								{#each s6Concepts as concept}
 									<div class="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
 										<div class="flex items-center justify-between">
 											<span class="text-xs font-medium text-slate-900">{concept.title || 'Knowledge Concept'}</span>
@@ -728,10 +994,10 @@
 							</div>
 						{/if}
 
-					<!-- STEP 6: REVIEW AND FINISH -->
-					{:else if stepNum === 6}
+					<!-- STEP 7: REVIEW AND FINISH -->
+					{:else if stepNum === 7}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 6 of 6</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 7 of 7</div>
 							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
 							<p class="text-sm text-slate-500 font-normal">Here’s a summary of your workspace setup.</p>
 						</div>
@@ -779,6 +1045,20 @@
 								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(3)}>Edit</button>
 							</div>
 
+							<!-- Team Members -->
+							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
+								<div class="flex items-center gap-3">
+									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+										<Icon name="users" size={16} color="currentColor" />
+									</div>
+									<div>
+										<div class="text-[11px] font-medium text-slate-400 uppercase">Team</div>
+										<div class="text-sm font-medium text-slate-900">{s4Users.length > 0 ? `${s4Users.length} team member(s) added (prefix: ${s4Slug || 'default'})` : `Prefix: ${s4Slug || 'default'} (no extra members)`}</div>
+									</div>
+								</div>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(4)}>Edit</button>
+							</div>
+
 							<!-- AI Assistant -->
 							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 								<div class="flex items-center gap-3">
@@ -790,7 +1070,7 @@
 										<div class="text-sm font-medium text-slate-900">{aiModeLabel()}</div>
 									</div>
 								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(4)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(5)}>Edit</button>
 							</div>
 
 							<!-- Knowledge Base -->
@@ -804,14 +1084,13 @@
 										<div class="text-sm font-medium text-slate-900">{kbTopicsSummary()}</div>
 									</div>
 								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(5)}>Edit</button>
+								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(6)}>Edit</button>
 							</div>
 						</div>
 
-					<!-- STEP 7: ALL SET! READY TO GO -->
-					{:else if stepNum === 7}
+					<!-- STEP 8: ALL SET! READY TO GO -->
+					{:else if stepNum === 8}
 						<div class="flex flex-col items-center lg:items-start text-center lg:text-left max-w-lg lg:max-w-none mx-auto lg:mx-0 pb-6 sm:py-2">
-							<!-- 3D Mascot / Happy illustration: Full width on mobile only with linear edge fades (hidden on desktop) -->
 							<div
 								class="lg:hidden w-[calc(100%+2.5rem)] -mx-5 -mt-2 mb-6 flex items-center justify-center overflow-hidden"
 								style="-webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent), linear-gradient(to right, transparent, black 28%, black 72%, transparent); -webkit-mask-composite: source-in; mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent), linear-gradient(to right, transparent, black 28%, black 72%, transparent); mask-composite: intersect;"
@@ -834,7 +1113,7 @@
 									</div>
 									<div>
 										<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
-										<div class="text-xs text-slate-500 font-normal mt-0.5">Your business profile, channels, and reply preferences are active.</div>
+										<div class="text-xs text-slate-500 font-normal mt-0.5">Your business profile, team, channels, and reply preferences are active.</div>
 									</div>
 								</div>
 
@@ -854,11 +1133,11 @@
 
 				<OnboardingFooter
 					stepNum={stepNum}
-					kbStatus={s5Status}
-					rawText={s5RawText}
+					kbStatus={s6Status}
+					rawText={s6RawText}
 					submitting={submitting}
-					compiling={s5Compiling}
-					continueDisabled={stepNum === 4 && s4AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()}
+					compiling={s6Compiling}
+					continueDisabled={stepNum === 5 && s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()}
 					onBack={handleBack}
 					onContinue={handleContinue}
 					onTour={() => goto('/inbox?tour=true')}

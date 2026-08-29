@@ -5,14 +5,13 @@
 	import Icon from '$lib/Icon.svelte';
 
 	const STEP_KEY_TO_NUM: Record<string, number> = {
-		signup: 1,
-		mode_selected: 2,
-		business_basics: 3,
-		channel_connect: 4,
-		kb_setup: 5,
-		reply_mode: 6,
-		pipeline_setup: 7,
-		team_invite: 8
+		business_basics: 1,
+		channel_connect: 2,
+		pipeline_setup: 3,
+		team_setup: 4,
+		reply_mode: 5,
+		kb_setup: 6,
+		review_finish: 7
 	};
 	const STEP_KEYS = Object.keys(STEP_KEY_TO_NUM);
 
@@ -43,7 +42,7 @@
 			}
 
 			// All done/skipped
-			goto('/onboarding/9');
+			goto('/onboarding/8');
 		} catch (_) {
 			// Onboarding endpoint not available — go to inbox
 			goto('/inbox');
