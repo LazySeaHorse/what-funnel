@@ -10,6 +10,7 @@
 	import BusinessInfoStep from '$lib/components/onboarding/BusinessInfoStep.svelte';
 	import ChannelsStep from '$lib/components/onboarding/ChannelsStep.svelte';
 	import PipelineStep from '$lib/components/onboarding/PipelineStep.svelte';
+	import TeamStep from '$lib/components/onboarding/TeamStep.svelte';
 
 	// Step number from route: 1..8
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
@@ -57,13 +58,8 @@
 
 	// Step 4: Team members & Workspace slug
 	let s4Slug = $state('');
-	let s4NewUsername = $state('');
-	let s4NewPassword = $state('');
-	let s4NewRole = $state<'agent' | 'manager'>('agent');
 	let s4Users = $state<Array<{ id: string; username: string; role: string; plaintextPassword?: string }>>([]);
-	let s4AddingUser = $state(false);
-	let s4UserError = $state('');
-	let s4CopiedPassId = $state<string | null>(null);
+
 
 	// Step 5: AI Assistant
 	let s5AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
@@ -195,72 +191,29 @@
 		}
 	}
 
-	function generatePassword() {
-		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-		let pass = '';
-		for (let i = 0; i < 12; i++) {
-			pass += chars.charAt(Math.floor(Math.random() * chars.length));
-		}
-		s4NewPassword = pass;
-	}
 
-	async function copyPassword(id: string, pass: string) {
-		try {
-			await navigator.clipboard.writeText(pass);
-			s4CopiedPassId = id;
-			setTimeout(() => {
-				if (s4CopiedPassId === id) s4CopiedPassId = null;
-			}, 2000);
-		} catch {}
-	}
 
-	async function addTeamMember() {
-		s4UserError = '';
-		if (!s4NewUsername.trim()) {
-			s4UserError = 'Username is required.';
-			return;
-		}
-		if (!s4NewPassword.trim()) {
-			s4UserError = 'Password is required.';
-			return;
-		}
-		s4AddingUser = true;
-		try {
-			const res = await apiRequest('/workspace/users', {
-				method: 'POST',
-				body: {
-					username: s4NewUsername.trim(),
-					password: s4NewPassword.trim(),
-					role: s4NewRole
-				}
-			});
-			s4Users = [
-				...s4Users,
-				{
-					id: res.id,
-					username: res.username || s4NewUsername.trim(),
-					role: res.role || s4NewRole,
-					plaintextPassword: res.password || s4NewPassword.trim()
-				}
-			];
-			s4NewUsername = '';
-			s4NewPassword = '';
-			s4NewRole = 'agent';
-		} catch (err: any) {
-			s4UserError = err?.message || 'Failed to add user.';
-		} finally {
-			s4AddingUser = false;
-		}
+	async function addTeamMember(username: string, password: string, role: 'agent' | 'manager') {
+		const res = await apiRequest('/workspace/users', {
+			method: 'POST',
+			body: { username, password, role }
+		});
+		s4Users = [
+			...s4Users,
+			{
+				id: res.id,
+				username: res.username || username,
+				role: res.role || role,
+				plaintextPassword: res.password || password
+			}
+		];
 	}
 
 	async function removeTeamMember(id: string) {
-		try {
-			await apiRequest(`/workspace/users/${id}`, { method: 'DELETE' });
-			s4Users = s4Users.filter(u => u.id !== id);
-		} catch (err: any) {
-			s4UserError = err?.message || 'Failed to remove user.';
-		}
+		await apiRequest(`/workspace/users/${id}`, { method: 'DELETE' });
+		s4Users = s4Users.filter(u => u.id !== id);
 	}
+
 
 	async function startCompilingKB() {
 		if (!s6RawText.trim()) {
@@ -521,150 +474,7 @@
 						<PipelineStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:stages={pipelineStages} />
 					<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
 					{:else if stepNum === 4}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Add your team members</h2>
-							<p class="text-sm text-slate-500 font-normal">Set your workspace login prefix and add team agents or managers.</p>
-						</div>
-
-						<div class="space-y-6 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-							<!-- Workspace Slug Setup -->
-							<div class="p-4 sm:p-5 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-3">
-								<div class="flex items-center justify-between">
-									<label for="workspace-slug" class="block text-xs font-medium text-slate-900">Workspace login prefix (slug)</label>
-									<span class="text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">Common prefix</span>
-								</div>
-								<div class="relative">
-									<input
-										id="workspace-slug"
-										type="text"
-										class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-										placeholder="company-name"
-										bind:value={s4Slug}
-									/>
-								</div>
-								<p class="text-xs text-slate-500 font-normal">
-									Team members will log in using: <span class="font-mono font-medium text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">{s4Slug || 'your-company'}-[username]</span>
-								</p>
-							</div>
-
-							<!-- Add Team Member Form -->
-							<div class="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl space-y-4">
-								<h3 class="text-sm font-medium text-slate-900">Add a team member</h3>
-								
-								<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-									<div>
-										<label for="new-member-username" class="block text-xs font-medium text-slate-700 mb-1">Username</label>
-										<input
-											id="new-member-username"
-											type="text"
-											class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
-											placeholder="e.g. john"
-											bind:value={s4NewUsername}
-										/>
-									</div>
-
-									<div>
-										<div class="flex items-center justify-between mb-1">
-											<label for="new-member-password" class="block text-xs font-medium text-slate-700">Password</label>
-											<button type="button" class="text-[10px] text-blue-600 hover:underline cursor-pointer" onclick={generatePassword}>Generate</button>
-										</div>
-										<input
-											id="new-member-password"
-											type="text"
-											class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 font-mono placeholder:text-slate-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
-											placeholder="Password"
-											bind:value={s4NewPassword}
-										/>
-									</div>
-
-									<div>
-										<label for="new-member-role" class="block text-xs font-medium text-slate-700 mb-1">Role</label>
-										<div class="flex gap-2">
-											<select
-												id="new-member-role"
-												bind:value={s4NewRole}
-												class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none cursor-pointer"
-											>
-												<option value="agent">Agent</option>
-												<option value="manager">Manager</option>
-											</select>
-											<button
-												type="button"
-												class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-xl transition cursor-pointer disabled:opacity-50 shrink-0 flex items-center gap-1.5"
-												onclick={addTeamMember}
-												disabled={s4AddingUser || !s4NewUsername.trim() || !s4NewPassword.trim()}
-											>
-												<Icon name="plus" size={14} color="#FFFFFF" />
-												<span>Add</span>
-											</button>
-										</div>
-									</div>
-								</div>
-
-								{#if s4UserError}
-									<p class="text-xs text-rose-600 font-medium">{s4UserError}</p>
-								{/if}
-							</div>
-
-							<!-- Created Members List -->
-							{#if s4Users.length > 0}
-								<div class="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white">
-									<div class="px-4 py-2.5 bg-slate-50/70 text-xs font-medium text-slate-500">
-										Added team members ({s4Users.length})
-									</div>
-									{#each s4Users as member}
-										<div class="p-3.5 sm:p-4 flex items-center justify-between gap-3">
-											<div class="flex items-center gap-3 min-w-0">
-												<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-xs shrink-0">
-													{member.username.charAt(0).toUpperCase()}
-												</div>
-												<div class="min-w-0">
-													<div class="font-medium text-xs sm:text-sm text-slate-900 truncate">
-														{member.username}
-													</div>
-													<div class="text-[11px] text-slate-400 font-mono">
-														{(s4Slug || 'prefix') + '-' + member.username}
-													</div>
-												</div>
-											</div>
-
-											<div class="flex items-center gap-2 shrink-0">
-												<span class="px-2 py-0.5 rounded-md text-[11px] font-medium {member.role === 'manager' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'} capitalize">
-													{member.role}
-												</span>
-
-												{#if member.plaintextPassword}
-													<button
-														type="button"
-														class="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-mono transition cursor-pointer"
-														onclick={() => copyPassword(member.id, member.plaintextPassword!)}
-														title="Copy login password"
-													>
-														<span>{member.plaintextPassword}</span>
-														<Icon name={s4CopiedPassId === member.id ? 'check' : 'copy'} size={12} color={s4CopiedPassId === member.id ? '#10B981' : '#64748B'} />
-													</button>
-												{/if}
-
-												<button
-													type="button"
-													class="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-													onclick={() => removeTeamMember(member.id)}
-													title="Remove user"
-												>
-													<Icon name="trash" size={14} color="currentColor" />
-												</button>
-											</div>
-										</div>
-									{/each}
-								</div>
-							{/if}
-
-							<p class="text-xs text-slate-400 text-center lg:text-left">
-								You can also add more agents or managers later in Settings.
-							</p>
-						</div>
-
+						<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
 					<!-- STEP 5: AI ASSISTANT -->
 					{:else if stepNum === 5}
 						<div class="text-center lg:text-left mb-6">
