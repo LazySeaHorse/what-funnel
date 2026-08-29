@@ -181,6 +181,9 @@
 	async function refreshAIProviderStatus() {
 		const status = await apiRequest('/workspace/account/ai-config/status');
 		aiProviderConfigured = status?.configured === true;
+		if (status?.base_url) aiProviderBaseURL = status.base_url;
+		if (status?.completion_model) aiCompletionModel = status.completion_model;
+		if (status?.embedding_model) aiEmbeddingModel = status.embedding_model;
 	}
 
 	function connectionForChannel(channelID: string) {
@@ -274,10 +277,8 @@
 	}
 
 	async function handleSaveAIProvider() {
-		if (!aiProviderApiKey.trim()) {
-			errorMsg = aiProviderConfigured
-				? 'Enter a new API key to replace the current provider configuration.'
-				: 'API key is required.';
+		if (!aiProviderConfigured && !aiProviderApiKey.trim()) {
+			errorMsg = 'API key is required.';
 			return;
 		}
 		if (!aiProviderBaseURL.trim() || !aiCompletionModel.trim() || !aiEmbeddingModel.trim()) {
@@ -721,7 +722,7 @@
 
 					{#if aiProviderConfigured}
 						<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-xs leading-relaxed text-emerald-800">
-							A provider is connected. For security, the saved key cannot be viewed. Enter a new key below only when you want to replace the full configuration.
+							A provider is connected. The saved key is write-only and will be retained unless you enter a replacement. The URL and model defaults can be edited independently.
 						</div>
 					{/if}
 
@@ -753,8 +754,8 @@
 					</div>
 
 					<div class="flex justify-end border-t border-slate-100 pt-5">
-						<button type="submit" disabled={savingAIProvider || !aiProviderApiKey.trim()} class="wf-button-primary px-5 py-2.5 disabled:cursor-not-allowed disabled:opacity-50">
-							{savingAIProvider ? 'Saving...' : aiProviderConfigured ? 'Replace configuration' : 'Save provider'}
+						<button type="submit" disabled={savingAIProvider || (!aiProviderConfigured && !aiProviderApiKey.trim())} class="wf-button-primary px-5 py-2.5 disabled:cursor-not-allowed disabled:opacity-50">
+							{savingAIProvider ? 'Saving...' : aiProviderConfigured ? 'Save changes' : 'Save provider'}
 						</button>
 					</div>
 				</form>

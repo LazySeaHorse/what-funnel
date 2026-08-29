@@ -96,6 +96,9 @@
 				apiRequest('/workspace/account/ai-config/status')
 			]);
 			aiProviderConfigured = aiStatus?.configured === true;
+			if (aiStatus?.base_url) aiProviderBaseURL = aiStatus.base_url;
+			if (aiStatus?.completion_model) aiCompletionModel = aiStatus.completion_model;
+			if (aiStatus?.embedding_model) aiEmbeddingModel = aiStatus.embedding_model;
 			if (account.name) s1BusinessName = account.name;
 			const settings = parseAccountSettings(account.settings);
 			if (settings.business_type) s1BusinessType = settings.business_type;
@@ -255,7 +258,7 @@
 				if (s4AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()) {
 					throw new Error('Add your AI provider API key, or choose Manual only.');
 				}
-				if (s4AiMode !== 'manual' && aiProviderApiKey.trim()) {
+				if (s4AiMode !== 'manual') {
 					await apiRequest('/workspace/account/ai-config', {
 						method: 'PUT',
 						body: {
