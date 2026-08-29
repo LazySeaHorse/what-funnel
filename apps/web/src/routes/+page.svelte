@@ -24,7 +24,10 @@
 		}
 
 		try {
-			const status = await apiRequest('/onboarding/status');
+			const [status, account] = await Promise.all([
+				apiRequest('/onboarding/status'),
+				apiRequest('/workspace/account')
+			]);
 
 			if (status?.completed_at) {
 				goto('/inbox');
@@ -33,9 +36,12 @@
 
 			const completed: string[] = status?.completed_steps ?? [];
 			const skipped: string[] = status?.skipped_steps ?? [];
+			const unavailableSteps = account?.product_mode === 'chatbot_only'
+				? new Set(['pipeline_setup', 'team_setup'])
+				: new Set<string>();
 
 			for (const key of STEP_KEYS) {
-				if (!completed.includes(key) && !skipped.includes(key)) {
+				if (!unavailableSteps.has(key) && !completed.includes(key) && !skipped.includes(key)) {
 					goto(`/onboarding/${STEP_KEY_TO_NUM[key]}`);
 					return;
 				}

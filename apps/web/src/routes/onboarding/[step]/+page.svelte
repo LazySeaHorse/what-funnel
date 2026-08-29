@@ -14,6 +14,7 @@
 	let submitting = $state(false);
 	let error = $state('');
 	let pipelineID = $state('');
+	let productMode = $state<'full_workspace' | 'chatbot_only'>('full_workspace');
 
 	// Stepper metadata (7 total setup steps)
 	const STEP_ITEMS = [
@@ -25,6 +26,8 @@
 		{ num: 6, label: 'Knowledge Base' },
 		{ num: 7, label: 'Review & Finish' }
 	];
+	let visibleStepItems = $derived(productMode === 'chatbot_only' ? STEP_ITEMS.filter((item) => item.num !== 3 && item.num !== 4) : STEP_ITEMS);
+	let displayStepNum = $derived(Math.max(1, visibleStepItems.findIndex((item) => item.num === stepNum) + 1));
 
 	// Step 1: Business info
 	let s1BusinessName = $state('');
@@ -108,9 +111,10 @@
 		}
 
 		try {
-			const [account, pipelines, aiStatus] = await Promise.all([
-				apiRequest('/workspace/account'),
-				apiRequest('/workspace/pipelines'),
+			const account = await apiRequest('/workspace/account');
+			productMode = account?.product_mode === 'chatbot_only' ? 'chatbot_only' : 'full_workspace';
+			const [pipelines, aiStatus] = await Promise.all([
+				productMode === 'full_workspace' ? apiRequest('/workspace/pipelines') : Promise.resolve([]),
 				apiRequest('/workspace/account/ai-config/status')
 			]);
 			aiProviderConfigured = aiStatus?.configured === true;
@@ -128,17 +132,19 @@
 			else if (settings.ai_reply_mode_default === 'auto_send') s5AiMode = 'auto_answer';
 			else if (settings.ai_reply_mode_default === 'draft_only') s5AiMode = 'suggest_only';
 
-			const pipeline = Array.isArray(pipelines) ? pipelines[0] : null;
-			if (!pipeline?.id) throw new Error('Your default lead pipeline could not be loaded.');
-			pipelineID = pipeline.id;
-			if (Array.isArray(pipeline.states) && pipeline.states.length > 0) pipelineStages = pipeline.states;
+			if (productMode === 'full_workspace') {
+				const pipeline = Array.isArray(pipelines) ? pipelines[0] : null;
+				if (!pipeline?.id) throw new Error('Your default lead pipeline could not be loaded.');
+				pipelineID = pipeline.id;
+				if (Array.isArray(pipeline.states) && pipeline.states.length > 0) pipelineStages = pipeline.states;
+			}
 
 			try {
 				const slugData = await apiRequest('/workspace/account/slug');
 				if (slugData?.slug) s4Slug = slugData.slug;
 			} catch {}
 
-			try {
+			if (productMode === 'full_workspace') try {
 				const userList = await apiRequest('/workspace/users');
 				if (Array.isArray(userList)) {
 					s4Users = userList
@@ -150,6 +156,12 @@
 						}));
 				}
 			} catch {}
+
+			if (productMode === 'chatbot_only' && (stepNum === 3 || stepNum === 4)) {
+				await skipWorkspaceOnlySteps();
+				goToStep(5);
+				return;
+			}
 
 			const chList = await apiRequest('/channels');
 			if (Array.isArray(chList) && chList.length > 0) {
@@ -169,7 +181,15 @@
 	// Step Handlers
 	// ─────────────────────────────────────────────────────────────
 	function goToStep(num: number) {
+		if (productMode === 'chatbot_only' && (num === 3 || num === 4)) num = 5;
 		goto(`/onboarding/${num}`);
+	}
+
+	async function skipWorkspaceOnlySteps() {
+		await Promise.all([
+			apiRequest('/onboarding/status', { method: 'PATCH', body: { step: 'pipeline_setup', action: 'skip' } }),
+			apiRequest('/onboarding/status', { method: 'PATCH', body: { step: 'team_setup', action: 'skip' } })
+		]);
 	}
 
 	function handleBack() {
@@ -177,7 +197,9 @@
 			s6Status = 'input';
 			return;
 		}
-		if (stepNum > 1) {
+		if (productMode === 'chatbot_only' && stepNum === 5) {
+			goToStep(2);
+		} else if (stepNum > 1) {
 			goToStep(stepNum - 1);
 		} else {
 			goto('/login');
@@ -346,7 +368,12 @@
 					body: { step: 'channel_connect', action: channels.some((channel) => channel.connected) ? 'complete' : 'skip' }
 				});
 
-				goToStep(3);
+				if (productMode === 'chatbot_only') {
+					await skipWorkspaceOnlySteps();
+					goToStep(5);
+				} else {
+					goToStep(3);
+				}
 			} else if (stepNum === 3) {
 				if (!pipelineID) throw new Error('Your default lead pipeline is unavailable. Refresh and try again.');
 				await apiRequest(`/workspace/pipelines/${pipelineID}`, {
@@ -478,7 +505,7 @@
 	<!-- FULL-SCREEN ONBOARDING INTERFACE (Pure Tailwind) -->
 	<div class="h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-hidden font-sans text-slate-800 antialiased relative">
 		
-		<OnboardingChrome stepNum={stepNum} stepItems={STEP_ITEMS} onStep={goToStep} />
+		<OnboardingChrome stepNum={stepNum} stepItems={visibleStepItems} onStep={goToStep} />
 
 		<!-- Right Main Form Content Column: Takes Up Full Remaining Width -->
 		<div class="flex-1 relative overflow-y-auto bg-white flex flex-col justify-between min-h-0 p-5 sm:p-10 lg:p-12 pb-24 sm:pb-8">
@@ -498,10 +525,9 @@
 						</button>
 
 						{#if stepNum <= 7}
-							<div class="flex items-center gap-1.5" aria-label={`Step ${stepNum} of 7`}>
-								{#each Array(7) as _, idx}
-									{@const s = idx + 1}
-									<div class="h-1.5 rounded-full transition-all duration-200 {s === stepNum ? 'w-5 bg-blue-600' : s < stepNum ? 'w-2.5 bg-blue-600' : 'w-2 bg-slate-200'}"></div>
+							<div class="flex items-center gap-1.5" aria-label={`Step ${displayStepNum} of ${visibleStepItems.length}`}>
+								{#each visibleStepItems as item, idx}
+									<div class="h-1.5 rounded-full transition-all duration-200 {item.num === stepNum ? 'w-5 bg-blue-600' : idx < displayStepNum - 1 ? 'w-2.5 bg-blue-600' : 'w-2 bg-slate-200'}"></div>
 								{/each}
 							</div>
 						{:else}
@@ -514,7 +540,7 @@
 					<!-- STEP 1: BUSINESS INFO -->
 					{#if stepNum === 1}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 1 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
 							<p class="text-sm text-slate-500 font-normal">This helps us personalize your workspace.</p>
 						</div>
@@ -576,7 +602,7 @@
 					<!-- STEP 2: CHANNELS -->
 					{:else if stepNum === 2}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 2 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
 							<p class="text-sm text-slate-500 font-normal">Bring all your conversations into one place.</p>
 						</div>
@@ -623,7 +649,7 @@
 					<!-- STEP 3: LEAD PIPELINE -->
 					{:else if stepNum === 3}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 3 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
 							<p class="text-sm text-slate-500 font-normal">Create the stages your leads will go through.</p>
 						</div>
@@ -669,7 +695,7 @@
 					<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
 					{:else if stepNum === 4}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 4 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Add your team members</h2>
 							<p class="text-sm text-slate-500 font-normal">Set your workspace login prefix and add team agents or managers.</p>
 						</div>
@@ -815,7 +841,7 @@
 					<!-- STEP 5: AI ASSISTANT -->
 					{:else if stepNum === 5}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 5 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Meet your AI Assistant</h2>
 							<p class="text-sm text-slate-500 font-normal">How should your assistant handle conversations?</p>
 						</div>
@@ -921,7 +947,7 @@
 					<!-- STEP 6: KNOWLEDGE BASE -->
 					{:else if stepNum === 6}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 6 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Teach your AI assistant</h2>
 							<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
 						</div>
@@ -997,7 +1023,7 @@
 					<!-- STEP 7: REVIEW AND FINISH -->
 					{:else if stepNum === 7}
 						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step 7 of 7</div>
+							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
 							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
 							<p class="text-sm text-slate-500 font-normal">Here’s a summary of your workspace setup.</p>
 						</div>
@@ -1031,6 +1057,7 @@
 								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(2)}>Edit</button>
 							</div>
 
+							{#if productMode === 'full_workspace'}
 							<!-- Lead Pipeline -->
 							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 								<div class="flex items-center gap-3">
@@ -1058,6 +1085,7 @@
 								</div>
 								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(4)}>Edit</button>
 							</div>
+							{/if}
 
 							<!-- AI Assistant -->
 							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
@@ -1104,7 +1132,7 @@
 
 							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup Complete</div>
 							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-2">You’re all set! 🎉</h2>
-							<p class="text-sm text-slate-500 mb-8 font-normal leading-relaxed max-w-md lg:max-w-none">Your workspace is configured and ready to go. Let’s start converting conversations into customers.</p>
+							<p class="text-sm text-slate-500 mb-8 font-normal leading-relaxed max-w-md lg:max-w-none">{productMode === 'chatbot_only' ? 'Your channels and AI assistant are ready to handle customer conversations.' : 'Your workspace is configured and ready to turn conversations into customers.'}</p>
 
 							<div class="space-y-3 w-full text-left">
 								<div class="p-3.5 sm:p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-3.5">
@@ -1113,7 +1141,7 @@
 									</div>
 									<div>
 										<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
-										<div class="text-xs text-slate-500 font-normal mt-0.5">Your business profile, team, channels, and reply preferences are active.</div>
+										<div class="text-xs text-slate-500 font-normal mt-0.5">{productMode === 'chatbot_only' ? 'Your business profile, channels, knowledge, and AI preferences are active.' : 'Your business profile, team, channels, and reply preferences are active.'}</div>
 									</div>
 								</div>
 
