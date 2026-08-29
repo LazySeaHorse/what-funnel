@@ -245,4 +245,65 @@ func (s *Service) DisconnectChannel(ctx context.Context, accountID, channelID uu
 	return nil
 }
 
+// ChannelWebhookCredentials represents decrypted webhook verification credentials for a channel.
+type ChannelWebhookCredentials struct {
+	AppSecret     string `json:"app_secret,omitempty"`
+	VerifyToken   string `json:"verify_token,omitempty"`
+	SecretToken   string `json:"secret_token,omitempty"`
+	WebhookSecret string `json:"webhook_secret,omitempty"`
+}
+
+// GetChannelWebhookCredentials retrieves and decrypts the credentials for a channel by ID.
+func (s *Service) GetChannelWebhookCredentials(ctx context.Context, channelID uuid.UUID) (*ChannelWebhookCredentials, *types.Channel, error) {
+	ch := &types.Channel{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, account_id, type, bridge_identity, bridge_credentials, status, status_detail, created_at
+		FROM channels
+		WHERE id = $1
+	`, channelID).Scan(
+		&ch.ID, &ch.AccountID, &ch.Type, &ch.BridgeIdentity,
+		&ch.BridgeCredentials, &ch.Status, &ch.StatusDetail, &ch.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, fmt.Errorf("channel not found")
+		}
+		return nil, nil, err
+	}
+
+	creds := &ChannelWebhookCredentials{}
+	if len(ch.BridgeCredentials) > 0 && s.cipher != nil {
+		decrypted, err := s.DecryptCredentials(ch.BridgeCredentials)
+		if err == nil && len(decrypted) > 0 {
+			plainCreds := decrypted
+			var maybeStr string
+			if json.Unmarshal(decrypted, &maybeStr) == nil {
+				plainCreds = []byte(maybeStr)
+			}
+			var rawMap map[string]any
+			if err := json.Unmarshal(plainCreds, &rawMap); err == nil {
+				if v, ok := rawMap["app_secret"].(string); ok {
+					creds.AppSecret = v
+				}
+				if v, ok := rawMap["secret"].(string); ok && creds.AppSecret == "" {
+					creds.AppSecret = v
+				}
+				if v, ok := rawMap["verify_token"].(string); ok {
+					creds.VerifyToken = v
+				}
+				if v, ok := rawMap["secret_token"].(string); ok {
+					creds.SecretToken = v
+				}
+				if v, ok := rawMap["webhook_secret"].(string); ok {
+					creds.WebhookSecret = v
+				}
+				if v, ok := rawMap["token"].(string); ok && creds.SecretToken == "" {
+					creds.SecretToken = v
+				}
+			}
+		}
+	}
+	return creds, ch, nil
+}
+
 
