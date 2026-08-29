@@ -100,6 +100,12 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 		ctx = withValue(ctx, types.ContextKeyAccountID, accountID)
 		ctx = withValue(ctx, types.ContextKeyUserRole, role)
 
+		if uStore, ok := m.store.(interface{ GetUsername(r *http.Request) (string, bool) }); ok {
+			if username, ok := uStore.GetUsername(r); ok && username != "" {
+				ctx = withValue(ctx, types.ContextKeyUsername, username)
+			}
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -125,9 +131,14 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin is a convenience wrapper for RequireRole(admin).
+// RequireManager is a convenience wrapper for RequireRole(manager).
+func RequireManager(next http.Handler) http.Handler {
+	return RequireRole(types.RoleManager)(next)
+}
+
+// RequireAdmin is an alias for RequireManager.
 func RequireAdmin(next http.Handler) http.Handler {
-	return RequireRole(types.RoleAdmin)(next)
+	return RequireManager(next)
 }
 
 // RequireProductMode rejects requests if the account's product mode is not in the allowed list.
@@ -175,6 +186,12 @@ func AccountIDFromContext(r *http.Request) (uuid.UUID, bool) {
 // UserIDFromContext extracts the user_id from the request context.
 func UserIDFromContext(r *http.Request) (uuid.UUID, bool) {
 	v, ok := r.Context().Value(types.ContextKeyUserID).(uuid.UUID)
+	return v, ok
+}
+
+// UsernameFromContext extracts the username from the request context.
+func UsernameFromContext(r *http.Request) (string, bool) {
+	v, ok := r.Context().Value(types.ContextKeyUsername).(string)
 	return v, ok
 }
 
