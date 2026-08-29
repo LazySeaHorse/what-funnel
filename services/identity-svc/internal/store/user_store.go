@@ -99,6 +99,9 @@ func (s *Store) Save(ctx context.Context, user ab.User) error {
 	if err != nil {
 		return fmt.Errorf("store: save user: %w", err)
 	}
+	_, _ = s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`,
+		u.ID.String())
 	return nil
 }
 

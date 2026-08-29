@@ -111,12 +111,12 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		return nil, fmt.Errorf("service: create account: %w", err)
 	}
 
-	// 2. Check email uniqueness within account if email provided
+	// 2. Check global email uniqueness across all accounts if email provided
 	if req.Email != "" {
 		var count int
 		_ = tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM users WHERE account_id = $1 AND email = $2`,
-			accountID, req.Email).Scan(&count)
+			`SELECT COUNT(*) FROM users WHERE email = $1`,
+			req.Email).Scan(&count)
 		if count > 0 {
 			return nil, fmt.Errorf("service: email already registered")
 		}

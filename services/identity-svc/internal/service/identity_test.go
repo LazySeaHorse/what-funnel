@@ -126,7 +126,7 @@ func TestSignup_ProductMode(t *testing.T) {
 	})
 }
 
-func TestSignup_DuplicateEmailSameAccount(t *testing.T) {
+func TestSignup_DuplicateEmailGlobal(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -135,16 +135,21 @@ func TestSignup_DuplicateEmailSameAccount(t *testing.T) {
 
 	email := uniqueEmail(t)
 	user, err := svc.Signup(ctx, service.SignupRequest{
-		AccountName: "Dupe Test Account",
+		AccountName: "Dupe Test Account 1",
 		Email:       email,
 		Password:    "password1",
 	})
 	require.NoError(t, err)
-
-	// Attempting a second signup with the SAME email on a new account
-	// is fine (separate tenants). The unique constraint is (account_id, email).
-	// This test just verifies the first signup worked.
 	assert.NotNil(t, user)
+
+	// Attempting a second signup with the SAME email on a different account must fail
+	_, err = svc.Signup(ctx, service.SignupRequest{
+		AccountName: "Dupe Test Account 2",
+		Email:       email,
+		Password:    "password2",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "email already registered")
 
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, user.AccountID)
