@@ -1,0 +1,357 @@
+# ===========================================================================
+# WhatFunnel — Hardened Production Deployment Stack
+# ===========================================================================
+# Usage:
+#   cp .env.example .env && vi .env   # Configure production secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+# ===========================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Web Ingress — Static Frontend SPA & API Reverse Proxy (Nginx)
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: whatfunnel-web-prod
+    ports:
+      - "${WEB_PORT:-80}:80"
+    networks:
+      - public_net
+      - backend_net
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API Gateway — reverse proxy, auth enforcement, routing
+  # ---------------------------------------------------------------------------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: whatfunnel-api-gateway-prod
+    environment:
+      IDENTITY_SVC_URL: http://identity-svc:8081
+      WORKSPACE_SVC_URL: http://workspace-svc:8082
+      CONVERSATION_SVC_URL: http://conversation-svc:8083
+      NOTIFICATION_SVC_URL: http://notification-svc:8084
+      AI_KB_COMPILER_URL: http://ai-kb-compiler:8085
+      SESSION_SECRET: ${SESSION_SECRET}
+      PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: production
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    networks:
+      - backend_net
+    depends_on:
+      - identity-svc
+      - workspace-svc
+      - notification-svc
+      - ai-kb-compiler
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Database — Postgres with pgvector extension (isolated data network)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: whatfunnel-postgres-prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis — Event Bus & Streams (isolated data network)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: whatfunnel-redis-prod
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - data_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Migrations — runs goose up before application services start
+  # ---------------------------------------------------------------------------
+  migrate:
+    build: ./packages/go-common/migrations
+    container_name: whatfunnel-migrate-prod
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      GOOSE_MIGRATION_DIR: /migrations
+    networks:
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Identity Service — auth, RBAC, audit log
+  # ---------------------------------------------------------------------------
+  identity-svc:
+    build:
+      context: .
+      dockerfile: services/identity-svc/Dockerfile
+    container_name: whatfunnel-identity-svc-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PORT: "8081"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: production
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Workspace Service — account, users, pipeline config
+  # ---------------------------------------------------------------------------
+  workspace-svc:
+    build:
+      context: .
+      dockerfile: services/workspace-svc/Dockerfile
+    container_name: whatfunnel-workspace-svc-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PORT: "8082"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: production
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Conversation Service — ingestion consumer, outbound API
+  # ---------------------------------------------------------------------------
+  conversation-svc:
+    build:
+      context: .
+      dockerfile: services/conversation-svc/Dockerfile
+    container_name: whatfunnel-conversation-svc-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis:6379
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PORT: "8083"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: production
+      MATRIX_HOMESERVER_URL: http://synapse:8008
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-localhost}
+      MATRIX_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET}
+      MATRIX_WHATSAPP_BRIDGE_IDENTITY: ${MATRIX_WHATSAPP_BRIDGE_IDENTITY:-@whatsappbot:localhost}
+      MATRIX_TELEGRAM_BRIDGE_IDENTITY: ${MATRIX_TELEGRAM_BRIDGE_IDENTITY:-}
+      MATRIX_INSTAGRAM_BRIDGE_IDENTITY: ${MATRIX_INSTAGRAM_BRIDGE_IDENTITY:-}
+      MATRIX_MESSENGER_BRIDGE_IDENTITY: ${MATRIX_MESSENGER_BRIDGE_IDENTITY:-}
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Notification Service — WebSocket push service
+  # ---------------------------------------------------------------------------
+  notification-svc:
+    build:
+      context: .
+      dockerfile: services/notification-svc/Dockerfile
+    container_name: whatfunnel-notification-svc-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis:6379
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PORT: "8084"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: production
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # AI Answer Service — cascade answer agent
+  # ---------------------------------------------------------------------------
+  ai-answer-svc:
+    build:
+      context: .
+      dockerfile: services/ai-answer-svc/Dockerfile
+    container_name: whatfunnel-ai-answer-svc-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis:6379
+      APP_ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SESSION_SECRET: ${SESSION_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: production
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # AI Knowledge Base Compiler
+  # ---------------------------------------------------------------------------
+  ai-kb-compiler:
+    build:
+      context: .
+      dockerfile: services/ai-kb-compiler/Dockerfile
+    container_name: whatfunnel-ai-kb-compiler-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis:6379
+      APP_ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PORT: "8085"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MINING_INTERVAL_HOURS: ${MINING_INTERVAL_HOURS:-6}
+      APP_ENV: production
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Synapse (Matrix Homeserver) & mautrix-whatsapp bridge
+  # ---------------------------------------------------------------------------
+  matrix-init:
+    image: alpine:latest
+    container_name: whatfunnel-matrix-init-prod
+    volumes:
+      - synapse_data:/synapse
+      - mautrix_whatsapp_data:/whatsapp
+      - ./adapters/matrix-mautrix/config:/config:ro
+      - ./adapters/matrix-mautrix/bridges:/bridges:ro
+    command: >
+      sh -c "
+      echo 'Initializing Matrix and WhatsApp bridge configurations...';
+      mkdir -p /synapse /whatsapp;
+      {
+        while IFS= read -r line; do
+          if [ \"$$line\" = '# APP_SERVICE_CONFIG_FILES' ]; then
+            echo 'app_service_config_files:';
+            echo '  - /data/whatsapp-registration.yaml';
+            for bridge in telegram messenger instagram; do
+              if [ -f \"/bridges/$$bridge/registration.yaml\" ]; then
+                cp \"/bridges/$$bridge/registration.yaml\" \"/synapse/$$bridge-registration.yaml\";
+                echo \"  - /data/$$bridge-registration.yaml\";
+              fi;
+            done;
+          else
+            echo \"$$line\";
+          fi;
+        done < /config/homeserver.yaml;
+      } > /synapse/homeserver.yaml;
+      cp /config/whatsapp-registration.yaml /synapse/whatsapp-registration.yaml;
+      cp /config/localhost.log.config /synapse/localhost.log.config;
+      chown -R 991:991 /synapse;
+      cp /config/config.yaml /whatsapp/config.yaml;
+      cp /config/whatsapp-registration.yaml /whatsapp/registration.yaml;
+      chown -R 1337:1337 /whatsapp;
+      echo 'Configurations initialized successfully.';
+      "
+    restart: "no"
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: whatfunnel-synapse-prod
+    volumes:
+      - synapse_data:/data
+    networks:
+      - backend_net
+    depends_on:
+      matrix-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  mautrix-whatsapp:
+    image: dock.mau.dev/mautrix/whatsapp:latest
+    container_name: whatfunnel-mautrix-whatsapp-prod
+    volumes:
+      - mautrix_whatsapp_data:/data
+    networks:
+      - backend_net
+    depends_on:
+      synapse:
+        condition: service_started
+      matrix-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+networks:
+  public_net:
+    driver: bridge
+  backend_net:
+    driver: bridge
+  data_net:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  synapse_data:
+  mautrix_whatsapp_data:

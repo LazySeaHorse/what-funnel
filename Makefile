@@ -46,6 +46,16 @@ logs: ## Tail logs from all services
 	docker compose logs -f
 
 # ---------------------------------------------------------------------------
+# Production stack
+# ---------------------------------------------------------------------------
+
+prod-up: ## Start hardened production stack (requires .env configured)
+	docker compose -f docker-compose.prod.yml up -d --build
+
+prod-down: ## Stop hardened production stack
+	docker compose -f docker-compose.prod.yml down
+
+# ---------------------------------------------------------------------------
 # Migrations
 # ---------------------------------------------------------------------------
 
