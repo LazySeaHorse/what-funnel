@@ -32,11 +32,12 @@ type BridgeConnection struct {
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// User belongs to exactly one account and has a role: admin or member.
+// User belongs to exactly one account and has a role: manager or agent.
 type User struct {
 	ID           uuid.UUID `json:"id" db:"id"`
 	AccountID    uuid.UUID `json:"account_id" db:"account_id"`
-	Email        string    `json:"email" db:"email"`
+	Email        string    `json:"email,omitempty" db:"email"`
+	Username     string    `json:"username,omitempty" db:"username"`
 	PasswordHash string    `json:"-" db:"password_hash"` // managed by authboss; never serialised
 	Role         string    `json:"role" db:"role"`
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
@@ -121,15 +122,6 @@ type LeadStateHistory struct {
 	ChangedAt  time.Time  `json:"changed_at" db:"changed_at"`
 }
 
-// InviteToken holds a pending user invite.
-type InviteToken struct {
-	Token     string    `json:"token"`
-	AccountID uuid.UUID `json:"account_id"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 // ContextKey is a typed key for values stored in request context.
 type ContextKey string
 
@@ -141,8 +133,10 @@ const (
 
 // Role constants.
 const (
-	RoleAdmin  = "admin"
-	RoleMember = "member"
+	RoleManager = "manager"
+	RoleAgent   = "agent"
+	RoleAdmin   = RoleManager
+	RoleMember  = RoleAgent
 )
 
 // Plan constants.
