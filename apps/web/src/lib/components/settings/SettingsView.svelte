@@ -31,6 +31,40 @@
 
 	let activeSection = $state<SettingsSection>('general');
 
+	type IntlWithTimeZones = typeof Intl & {
+		supportedValuesOf?: (key: 'timeZone') => string[];
+	};
+
+	const supportedTimeZones = (() => {
+		const zones = (Intl as IntlWithTimeZones).supportedValuesOf?.('timeZone') ?? [];
+		return ['UTC', ...zones.filter((zone) => zone !== 'UTC')];
+	})();
+
+	function normalizeGMTOffset(offset: string): string {
+		if (offset === 'GMT' || offset === 'UTC') return 'GMT+00:00';
+		const match = offset.match(/^(?:GMT|UTC)([+-])(\d{1,2})(?::(\d{2}))?$/);
+		if (!match) return offset;
+		return `GMT${match[1]}${match[2].padStart(2, '0')}:${match[3] ?? '00'}`;
+	}
+
+	function formatTimeZoneLabel(zone: string): string {
+		try {
+			const offset = new Intl.DateTimeFormat('en-US', {
+				timeZone: zone,
+				timeZoneName: 'shortOffset'
+			}).formatToParts(new Date()).find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
+			return `(${normalizeGMTOffset(offset)}) ${zone.replaceAll('_', ' ').replaceAll('/', ' / ')}`;
+		} catch {
+			return zone;
+		}
+	}
+
+	function normalizeSavedTimeZone(value: string): string {
+		if (value === 'UTC' || value.includes('UTC')) return 'UTC';
+		const compactValue = value.replace(/\s*\/\s*/g, '/');
+		return supportedTimeZones.find((zone) => compactValue.includes(zone)) ?? value;
+	}
+
 	// Form & state variables
 	let loading = $state(false);
 	let saving = $state(false);
@@ -113,7 +147,7 @@
 		if (!account.settings) return;
 		try {
 			const parsed = JSON.parse(atob(account.settings));
-			if (parsed.timezone) defaultTimeZone = parsed.timezone;
+			if (parsed.timezone) defaultTimeZone = normalizeSavedTimeZone(parsed.timezone);
 			if (parsed.language) language = parsed.language;
 			if (parsed.date_format) dateFormat = parsed.date_format;
 			if (parsed.time_format) timeFormat = parsed.time_format;
@@ -499,18 +533,12 @@
 									bind:value={defaultTimeZone}
 									class="wf-select"
 								>
-									<option value="UTC">UTC</option>
-									<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
-									<option value="(GMT+00:00) UTC">(GMT+00:00) UTC</option>
-									<option value="(GMT-08:00) America / Los_Angeles (PST)">(GMT-08:00) America / Los_Angeles (PST)</option>
-									<option value="(GMT-05:00) America / New_York (EST)">(GMT-05:00) America / New_York (EST)</option>
-									<option value="(GMT+01:00) Europe / London (BST)">(GMT+01:00) Europe / London (BST)</option>
-									<option value="(GMT+02:00) Europe / Paris (CEST)">(GMT+02:00) Europe / Paris (CEST)</option>
-									<option value="(GMT+04:00) Asia / Dubai (GST)">(GMT+04:00) Asia / Dubai (GST)</option>
-									<option value="(GMT+05:30) Asia / Kolkata (IST)">(GMT+05:30) Asia / Kolkata (IST)</option>
-									<option value="(GMT+08:00) Asia / Singapore (SGT)">(GMT+08:00) Asia / Singapore (SGT)</option>
-									<option value="(GMT+09:00) Asia / Tokyo (JST)">(GMT+09:00) Asia / Tokyo (JST)</option>
-									<option value="(GMT+10:00) Australia / Sydney (AEST)">(GMT+10:00) Australia / Sydney (AEST)</option>
+									{#if !supportedTimeZones.includes(defaultTimeZone)}
+										<option value={defaultTimeZone}>{formatTimeZoneLabel(defaultTimeZone)}</option>
+									{/if}
+									{#each supportedTimeZones as zone}
+										<option value={zone}>{formatTimeZoneLabel(zone)}</option>
+									{/each}
 								</select>
 								<div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
 									<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
