@@ -27,8 +27,8 @@
 
 	// Step 1: Business info
 	let s1BusinessName = $state('');
-	let s1BusinessType = $state('Salon / Beauty');
-	let s1Timezone = $state('(GMT+05:30) Asia / Colombo');
+	let s1BusinessType = $state('');
+	let s1Timezone = $state('(GMT+00:00) UTC');
 
 	// Step 2: Channels
 	let channels = $state([
@@ -56,23 +56,7 @@
 	let aiEmbeddingModel = $state('text-embedding-3-small');
 
 	// Step 5: Knowledge Base
-	let s5RawText = $state(`Services & Pricing:
-- Haircut & Styling: $50
-- Color & Full Highlights: $120
-- Deep Conditioning Treatment: $40
-
-Business Hours & Location:
-- Monday to Saturday: 9:00 AM – 6:00 PM
-- Sunday: Closed
-- Location: 123 Main Street, Suite 200
-
-Booking & Cancellation:
-- 24-hour notice required for cancellations
-- Walk-ins welcome based on availability
-
-FAQs:
-- Free customer parking is available on-site
-- We accept Cash, Credit Cards, and Apple Pay`);
+	let s5RawText = $state('');
 
 	let s5Status = $state<'input' | 'processing' | 'results'>('input');
 	let s5Concepts = $state<Array<{ id?: string; title: string; type?: string; category?: string; tags?: string[]; body_markdown?: string; content?: string }>>([]);
@@ -417,7 +401,7 @@ FAQs:
 									id="business-name"
 									type="text"
 									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-normal"
-									placeholder="e.g. Glow Hair Studio"
+									placeholder="Enter your business name"
 									bind:value={s1BusinessName}
 								/>
 							</div>
@@ -426,6 +410,7 @@ FAQs:
 								<label for="business-type" class="block text-xs font-medium text-slate-700 mb-1.5">Business type</label>
 								<div class="relative w-full">
 									<select id="business-type" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={s1BusinessType}>
+										<option value="" disabled>Select business type</option>
 										<option value="Salon / Beauty">Salon / Beauty</option>
 										<option value="Photography">Photography</option>
 										<option value="Tutoring / Education">Tutoring / Education</option>
@@ -446,8 +431,8 @@ FAQs:
 								<label for="timezone" class="block text-xs font-medium text-slate-700 mb-1.5">Time zone</label>
 								<div class="relative w-full">
 									<select id="timezone" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={s1Timezone}>
+										<option value="(GMT+00:00) UTC">(GMT+00:00) UTC</option>
 										<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
-										<option value="(GMT+00:00) UTC / London">(GMT+00:00) UTC / London</option>
 										<option value="(GMT-05:00) Eastern Time (US & Canada)">(GMT-05:00) Eastern Time (US & Canada)</option>
 										<option value="(GMT-08:00) Pacific Time (US & Canada)">(GMT-08:00) Pacific Time (US & Canada)</option>
 										<option value="(GMT+01:00) Paris / Berlin">(GMT+01:00) Paris / Berlin</option>
