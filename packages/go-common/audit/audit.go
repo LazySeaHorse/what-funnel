@@ -101,14 +101,16 @@ func (w *Writer) Write(ctx context.Context, e Entry) error {
 // ---------------------------------------------------------------------------
 
 const (
-	ActionAccountCreated  = "account.created"
-	ActionUserCreated     = "user.created"
-	ActionUserInvited     = "user.invited"
-	ActionUserRoleChanged = "user.role_changed"
-	ActionLogin           = "user.login"
-	ActionLogout          = "user.logout"
-	ActionPipelineCreated = "pipeline.created"
-	ActionPipelineUpdated = "pipeline.updated"
+	ActionAccountCreated     = "account.created"
+	ActionUserCreated        = "user.created"
+	ActionUserCreatedByAdmin = "user.created_by_admin"
+	ActionUserDeleted        = "user.deleted"
+	ActionUserPasswordReset  = "user.password_reset"
+	ActionUserRoleChanged    = "user.role_changed"
+	ActionLogin              = "user.login"
+	ActionLogout             = "user.logout"
+	ActionPipelineCreated    = "pipeline.created"
+	ActionPipelineUpdated    = "pipeline.updated"
 )
 
 // Target type constants.
