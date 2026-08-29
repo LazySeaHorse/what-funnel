@@ -1,7 +1,12 @@
 package webhooks
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,6 +14,53 @@ import (
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+var (
+	ErrMissingSignature = errors.New("missing webhook signature or secret header")
+	ErrInvalidSignature = errors.New("invalid webhook signature or secret token")
+	ErrInvalidChallenge = errors.New("invalid webhook verification challenge")
+)
+
+// VerifyMetaSignature validates the X-Hub-Signature-256 header from Meta (WhatsApp / Instagram / Messenger).
+func VerifyMetaSignature(rawBody []byte, headerSignature, appSecret string) error {
+	if headerSignature == "" || appSecret == "" {
+		return ErrMissingSignature
+	}
+
+	const prefix = "sha256="
+	if !strings.HasPrefix(headerSignature, prefix) {
+		return ErrInvalidSignature
+	}
+	receivedHex := strings.TrimPrefix(headerSignature, prefix)
+
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	mac.Write(rawBody)
+	expectedHex := hex.EncodeToString(mac.Sum(nil))
+
+	if subtle.ConstantTimeCompare([]byte(receivedHex), []byte(expectedHex)) != 1 {
+		return ErrInvalidSignature
+	}
+	return nil
+}
+
+// VerifyTelegramSecret validates the X-Telegram-Bot-Api-Secret-Token header.
+func VerifyTelegramSecret(headerSecret, expectedSecret string) error {
+	if headerSecret == "" || expectedSecret == "" {
+		return ErrMissingSignature
+	}
+	if subtle.ConstantTimeCompare([]byte(headerSecret), []byte(expectedSecret)) != 1 {
+		return ErrInvalidSignature
+	}
+	return nil
+}
+
+// VerifyMetaChallenge validates a GET verification handshake request from Meta Webhooks.
+func VerifyMetaChallenge(mode, verifyToken, expectedToken, challenge string) (string, error) {
+	if mode != "subscribe" || expectedToken == "" || subtle.ConstantTimeCompare([]byte(verifyToken), []byte(expectedToken)) != 1 {
+		return "", ErrInvalidChallenge
+	}
+	return challenge, nil
+}
 
 // Telegram Webhook structures
 type TelegramUpdate struct {

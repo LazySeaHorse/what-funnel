@@ -1,6 +1,9 @@
 package webhooks
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 )
 
@@ -124,5 +127,77 @@ func TestParseMetaWebhook(t *testing.T) {
 	}
 	if ev.Message.Text != "Hello Instagram" {
 		t.Errorf("expected text, got %s", ev.Message.Text)
+	}
+}
+
+func TestVerifyMetaSignature(t *testing.T) {
+	appSecret := "meta_test_secret_123"
+	payload := []byte(`{"entry":[{"id":"123"}]}`)
+
+	// Valid signature: HMAC-SHA256 of payload with appSecret
+	// echo -n '{"entry":[{"id":"123"}]}' | openssl dgst -sha256 -hmac "meta_test_secret_123"
+	// -> 8ea71ea68efbbce7e340c497491cf0eb2fe8e9aa5d7d3d1921316b24d77517c2
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	mac.Write(payload)
+	validSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	if err := VerifyMetaSignature(payload, validSig, appSecret); err != nil {
+		t.Fatalf("expected valid signature to pass, got: %v", err)
+	}
+
+	// Invalid signature
+	if err := VerifyMetaSignature(payload, "sha256=badhexsignature123456", appSecret); err == nil {
+		t.Fatal("expected invalid signature to fail")
+	}
+
+	// Missing prefix
+	if err := VerifyMetaSignature(payload, "badprefixsignature", appSecret); err == nil {
+		t.Fatal("expected signature without prefix to fail")
+	}
+
+	// Missing header
+	if err := VerifyMetaSignature(payload, "", appSecret); err == nil {
+		t.Fatal("expected empty header to fail")
+	}
+
+	// Empty secret
+	if err := VerifyMetaSignature(payload, validSig, ""); err == nil {
+		t.Fatal("expected empty secret to fail")
+	}
+}
+
+func TestVerifyTelegramSecret(t *testing.T) {
+	secret := "telegram_secret_token_xyz"
+
+	if err := VerifyTelegramSecret("telegram_secret_token_xyz", secret); err != nil {
+		t.Fatalf("expected valid secret to pass, got: %v", err)
+	}
+
+	if err := VerifyTelegramSecret("wrong_secret", secret); err == nil {
+		t.Fatal("expected wrong secret to fail")
+	}
+
+	if err := VerifyTelegramSecret("", secret); err == nil {
+		t.Fatal("expected empty header to fail")
+	}
+}
+
+func TestVerifyMetaChallenge(t *testing.T) {
+	expectedToken := "my_verify_token"
+	challenge := "challenge_code_123"
+
+	res, err := VerifyMetaChallenge("subscribe", "my_verify_token", expectedToken, challenge)
+	if err != nil || res != challenge {
+		t.Fatalf("expected challenge match, got res=%s, err=%v", res, err)
+	}
+
+	// Wrong token
+	if _, err := VerifyMetaChallenge("subscribe", "wrong_token", expectedToken, challenge); err == nil {
+		t.Fatal("expected wrong token to fail")
+	}
+
+	// Wrong mode
+	if _, err := VerifyMetaChallenge("other_mode", expectedToken, expectedToken, challenge); err == nil {
+		t.Fatal("expected wrong mode to fail")
 	}
 }
