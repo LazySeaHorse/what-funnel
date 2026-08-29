@@ -18,21 +18,21 @@ func TestCanSeeConversation(t *testing.T) {
 		unassignedVisible bool
 		want              bool
 	}{
-		// Admin cases (should always be true)
-		{"Admin - unassigned, setting false", RoleAdmin, userA, []uuid.UUID{}, false, true},
-		{"Admin - assigned to self, setting false", RoleAdmin, userA, []uuid.UUID{userA}, false, true},
-		{"Admin - assigned to other, setting false", RoleAdmin, userA, []uuid.UUID{userB}, false, true},
-		{"Admin - unassigned, setting true", RoleAdmin, userA, []uuid.UUID{}, true, true},
-		{"Admin - assigned to self, setting true", RoleAdmin, userA, []uuid.UUID{userA}, true, true},
-		{"Admin - assigned to other, setting true", RoleAdmin, userA, []uuid.UUID{userB}, true, true},
+		// Manager cases (should always be true)
+		{"Manager - unassigned, setting false", RoleManager, userA, []uuid.UUID{}, false, true},
+		{"Manager - assigned to self, setting false", RoleManager, userA, []uuid.UUID{userA}, false, true},
+		{"Manager - assigned to other, setting false", RoleManager, userA, []uuid.UUID{userB}, false, true},
+		{"Manager - unassigned, setting true", RoleManager, userA, []uuid.UUID{}, true, true},
+		{"Manager - assigned to self, setting true", RoleManager, userA, []uuid.UUID{userA}, true, true},
+		{"Manager - assigned to other, setting true", RoleManager, userA, []uuid.UUID{userB}, true, true},
 
-		// Member cases
-		{"Member - assigned to self, setting false", RoleMember, userA, []uuid.UUID{userA}, false, true},
-		{"Member - assigned to self, setting true", RoleMember, userA, []uuid.UUID{userA}, true, true},
-		{"Member - assigned to other, setting false", RoleMember, userA, []uuid.UUID{userB}, false, false},
-		{"Member - assigned to other, setting true", RoleMember, userA, []uuid.UUID{userB}, true, false},
-		{"Member - unassigned, setting true", RoleMember, userA, []uuid.UUID{}, true, true},
-		{"Member - unassigned, setting false", RoleMember, userA, []uuid.UUID{}, false, false},
+		// Agent cases
+		{"Agent - assigned to self, setting false", RoleAgent, userA, []uuid.UUID{userA}, false, true},
+		{"Agent - assigned to self, setting true", RoleAgent, userA, []uuid.UUID{userA}, true, true},
+		{"Agent - assigned to other, setting false", RoleAgent, userA, []uuid.UUID{userB}, false, false},
+		{"Agent - assigned to other, setting true", RoleAgent, userA, []uuid.UUID{userB}, true, false},
+		{"Agent - unassigned, setting true", RoleAgent, userA, []uuid.UUID{}, true, true},
+		{"Agent - unassigned, setting false", RoleAgent, userA, []uuid.UUID{}, false, false},
 	}
 
 	for _, tt := range tests {
@@ -40,6 +40,28 @@ func TestCanSeeConversation(t *testing.T) {
 			got := CanSeeConversation(tt.userRole, tt.userID, tt.assignedUserIDs, tt.unassignedVisible)
 			if got != tt.want {
 				t.Errorf("CanSeeConversation() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsLeadTrackingEnabledForProduct(t *testing.T) {
+	tests := []struct {
+		name        string
+		productMode string
+		settings    []byte
+		want        bool
+	}{
+		{"full workspace default", "full_workspace", nil, true},
+		{"full workspace disabled", "full_workspace", []byte(`{"lead_tracking_enabled": false}`), false},
+		{"chatbot legacy default", "chatbot_only", nil, false},
+		{"chatbot ignores enabled setting", "chatbot_only", []byte(`{"lead_tracking_enabled": true}`), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsLeadTrackingEnabledForProduct(tt.productMode, tt.settings); got != tt.want {
+				t.Fatalf("IsLeadTrackingEnabledForProduct() = %v, want %v", got, tt.want)
 			}
 		})
 	}

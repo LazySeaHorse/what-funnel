@@ -102,10 +102,11 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 	// 4.1 Auto-create Lead on new conversations when lead tracking is enabled.
 	if isNew {
 		var settingsRaw []byte
-		if err = tx.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsRaw); err != nil {
+		var productMode string
+		if err = tx.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&productMode, &settingsRaw); err != nil {
 			return fmt.Errorf("get account settings for auto-lead: %w", err)
 		}
-		if types.IsLeadTrackingEnabled(settingsRaw) {
+		if types.IsLeadTrackingEnabledForProduct(productMode, settingsRaw) {
 			var pipelineID uuid.UUID
 			var statesJSON []byte
 			err = tx.QueryRow(ctx, `SELECT id, states FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`, accountID).Scan(&pipelineID, &statesJSON)

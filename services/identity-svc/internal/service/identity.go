@@ -81,12 +81,20 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	var userID uuid.UUID
 	userRole := types.RoleManager
 
+	if req.ProductMode == "" {
+		req.ProductMode = "full_workspace"
+	}
+	if req.ProductMode != "full_workspace" && req.ProductMode != "chatbot_only" {
+		return nil, fmt.Errorf("invalid product mode: %s", req.ProductMode)
+	}
+
 	// 1. Create account with default settings
 	defaultSettings, err := json.Marshal(map[string]any{
 		"ai_enabled":                             true,
 		"ai_reply_mode_default":                  "draft_only",
 		"allow_member_reply_mode_override":       true,
 		"ai_may_auto_answer_mixed_conversations": false,
+		"lead_tracking_enabled":                  req.ProductMode == "full_workspace",
 		"summary_schema": []map[string]string{
 			{"key": "customer_wants", "label": "Customer Wants", "description": "What the customer is looking for"},
 			{"key": "preferred_timeframe", "label": "Preferred Timeframe", "description": "When the customer wants it"},
@@ -96,13 +104,6 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("service: marshal default settings: %w", err)
-	}
-
-	if req.ProductMode == "" {
-		req.ProductMode = "full_workspace"
-	}
-	if req.ProductMode != "full_workspace" && req.ProductMode != "chatbot_only" {
-		return nil, fmt.Errorf("invalid product mode: %s", req.ProductMode)
 	}
 
 	err = tx.QueryRow(ctx,
@@ -249,12 +250,12 @@ func (svc *Service) Logout(w http.ResponseWriter, r *http.Request) error {
 		if accountID != uuid.Nil && userID != uuid.Nil {
 			aw := audit.NewWriter(&pgxExecer{pool: svc.pool})
 			_ = aw.Write(r.Context(), audit.Entry{
-				AccountID:  accountID,
+				AccountID:   accountID,
 				ActorUserID: &userID,
-				Action:     audit.ActionLogout,
-				TargetType: audit.TargetUser,
-				TargetID:   &userID,
-				Metadata:   map[string]any{},
+				Action:      audit.ActionLogout,
+				TargetType:  audit.TargetUser,
+				TargetID:    &userID,
+				Metadata:    map[string]any{},
 			})
 		}
 	}

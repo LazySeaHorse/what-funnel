@@ -44,6 +44,13 @@ func IsLeadTrackingEnabled(settingsBytes []byte) bool {
 	return *settings.LeadTrackingEnabled
 }
 
+// IsLeadTrackingEnabledForProduct applies the product entitlement before the
+// workspace preference. Chatbot-only accounts never create lead records even
+// if legacy or malformed settings say otherwise.
+func IsLeadTrackingEnabledForProduct(productMode string, settingsBytes []byte) bool {
+	return productMode == "full_workspace" && IsLeadTrackingEnabled(settingsBytes)
+}
+
 // CanSeeConversation checks if a user is allowed to see a conversation based on the rules in §2:
 // - they are admin, or
 // - their user_id is in conversations.assigned_user_ids, or
