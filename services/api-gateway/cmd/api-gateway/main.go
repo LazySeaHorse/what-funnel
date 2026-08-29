@@ -362,8 +362,8 @@ func kbProxy(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		// 2. Enforce admin role
-		if authMe.Role != "admin" {
+		// 2. Enforce manager role
+		if authMe.Role != "manager" && authMe.Role != "admin" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprint(w, `{"error":"forbidden: insufficient role"}`)

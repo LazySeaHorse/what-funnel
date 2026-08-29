@@ -82,7 +82,7 @@ func buildRouter(t *testing.T, identityURL, kbURL string) http.Handler {
 // TestBareKBPathReturns404 verifies that /kb/* — the old broken prefix —
 // hits the catch-all 404 and is never forwarded to the KB compiler.
 func TestBareKBPathReturns404(t *testing.T) {
-	identitySrv := startFakeIdentity(t, true, "admin")
+	identitySrv := startFakeIdentity(t, true, "manager")
 	kbSrv, received := startFakeKB(t)
 	gw := httptest.NewServer(buildRouter(t, identitySrv.URL, kbSrv.URL))
 	t.Cleanup(gw.Close)
@@ -103,7 +103,7 @@ func TestBareKBPathReturns404(t *testing.T) {
 
 // TestAPIKBPathRoutesToKBCompiler verifies that /api/kb/* is forwarded after auth.
 func TestAPIKBPathRoutesToKBCompiler(t *testing.T) {
-	identitySrv := startFakeIdentity(t, true, "admin")
+	identitySrv := startFakeIdentity(t, true, "manager")
 	kbSrv, received := startFakeKB(t)
 	gw := httptest.NewServer(buildRouter(t, identitySrv.URL, kbSrv.URL))
 	t.Cleanup(gw.Close)
@@ -136,7 +136,7 @@ func TestPathRewrites(t *testing.T) {
 		{"/api/kb/mine/trigger", "/internal/kb/mine/trigger"},
 	}
 
-	identitySrv := startFakeIdentity(t, true, "admin")
+	identitySrv := startFakeIdentity(t, true, "manager")
 	kbSrv, received := startFakeKB(t)
 	gw := httptest.NewServer(buildRouter(t, identitySrv.URL, kbSrv.URL))
 	t.Cleanup(gw.Close)
@@ -161,7 +161,7 @@ func TestPathRewrites(t *testing.T) {
 
 // TestAPIKBRequiresAdmin verifies non-admin sessions are rejected with 403.
 func TestAPIKBRequiresAdmin(t *testing.T) {
-	identitySrv := startFakeIdentity(t, true, "member")
+	identitySrv := startFakeIdentity(t, true, "agent")
 	kbSrv, received := startFakeKB(t)
 	gw := httptest.NewServer(buildRouter(t, identitySrv.URL, kbSrv.URL))
 	t.Cleanup(gw.Close)
@@ -204,7 +204,7 @@ func TestAPIKBRequiresAuth(t *testing.T) {
 // TestKBProxyInjectsTenantHeaders verifies X-Account-ID and X-User-ID are
 // injected from the identity-svc response into the upstream request.
 func TestKBProxyInjectsTenantHeaders(t *testing.T) {
-	identitySrv := startFakeIdentity(t, true, "admin")
+	identitySrv := startFakeIdentity(t, true, "manager")
 
 	var gotAccountID, gotUserID string
 	kbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -246,7 +246,7 @@ func TestGatewayForwardsKBResponseShape(t *testing.T) {
 		"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"
 	}]}`
 
-	identitySrv := startFakeIdentity(t, true, "admin")
+	identitySrv := startFakeIdentity(t, true, "manager")
 	kbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, kbBody)
