@@ -12,9 +12,6 @@
 	let success = $state('');
 	let pipeline = $state<any>(null);
 	let states = $state<any[]>([]);
-	let newStateKey = $state('');
-	let newStateLabel = $state('');
-	let newStateColor = $state('#0B6E99');
 
 	onMount(loadPipeline);
 
@@ -49,20 +46,29 @@
 	}
 
 	function addState() {
-		const key = newStateKey.trim().toLowerCase().replace(/\s+/g, '_');
-		if (!key) {
-			error = 'A stage key is required.';
-			return;
-		}
-		if (states.some((state) => state.key === key)) {
-			error = 'Stage keys must be unique.';
-			return;
-		}
-		states = [...states, { key, label: newStateLabel.trim() || newStateKey.trim(), color: newStateColor }];
-		newStateKey = '';
-		newStateLabel = '';
-		newStateColor = '#0B6E99';
-		error = '';
+		const colors = ['#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'];
+		const nextKey = `stage_${Date.now()}_${states.length + 1}`;
+		states = [...states, { key: nextKey, label: 'New Stage', color: colors[states.length % colors.length] }];
+	}
+
+	function sanitizeStates(rawStates: any[]) {
+		const usedKeys = new Set<string>();
+		return rawStates.map((s, idx) => {
+			const slug = (s.label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+			const baseKey = slug || s.key || `stage_${idx + 1}`;
+			let key = baseKey;
+			let counter = 1;
+			while (usedKeys.has(key)) {
+				counter++;
+				key = `${baseKey}_${counter}`;
+			}
+			usedKeys.add(key);
+			return {
+				key,
+				label: (s.label || '').trim() || 'Stage',
+				color: s.color || '#3B82F6'
+			};
+		});
 	}
 
 	async function savePipeline() {
@@ -71,9 +77,10 @@
 		error = '';
 		success = '';
 		try {
+			const preparedStates = sanitizeStates(states);
 			await apiRequest(`/workspace/pipelines/${pipeline.id}`, {
 				method: 'PUT',
-				body: { name: pipeline.name, states }
+				body: { name: pipeline.name, states: preparedStates }
 			});
 			success = 'Pipeline saved.';
 			if (workspace) {
@@ -106,10 +113,10 @@
 		<p class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">No lead pipeline is configured.</p>
 	{:else}
 		<div class="space-y-2.5">
-			{#each states as state, index (state.key)}
-				<div class="flex items-center gap-3 rounded-xl border border-slate-200/90 bg-white p-3 shadow-2xs transition hover:border-slate-300">
+			{#each states as state, index (state.key || index)}
+				<div class="flex items-center gap-3 rounded-xl border border-slate-200/90 bg-white p-2.5 sm:p-3 shadow-2xs transition hover:border-slate-300">
 					<!-- Styled Color Swatch Picker -->
-					<div class="relative w-7 h-7 rounded-lg overflow-hidden border border-slate-200/80 shadow-2xs shrink-0 flex items-center justify-center bg-slate-50">
+					<div class="relative w-7 h-7 rounded-lg overflow-hidden border border-slate-200/80 shadow-2xs shrink-0 flex items-center justify-center bg-slate-50 cursor-pointer" title="Change color">
 						<span class="w-4 h-4 rounded-full border border-black/10 shadow-2xs" style="background-color: {state.color};"></span>
 						<input aria-label="{state.label} color" type="color" bind:value={state.color} class="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
 					</div>
@@ -119,12 +126,8 @@
 						aria-label="Stage label"
 						bind:value={state.label}
 						class="wf-input min-w-32 flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-900 border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100 font-normal transition"
+						placeholder="Stage name"
 					/>
-
-					<!-- Stage Key Badge -->
-					<span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-medium text-slate-400 bg-slate-100/80 border border-slate-200/60 shrink-0" title="Key: {state.key}">
-						{state.key}
-					</span>
 
 					<!-- Actions (Move up/down, Remove) -->
 					<div class="ml-auto flex items-center gap-1 shrink-0">
@@ -159,37 +162,17 @@
 			{/each}
 		</div>
 
-		<div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-3.5 sm:p-4 space-y-3">
-			<div class="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-				<Icon name="plus" size={13} color="currentColor" class="text-slate-400" />
-				<span>Add new stage</span>
-			</div>
-			<div class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2.5 items-center">
-				<input
-					bind:value={newStateKey}
-					placeholder="Stage key"
-					class="wf-input rounded-lg px-3 py-2 text-xs bg-white border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
-				/>
-				<input
-					bind:value={newStateLabel}
-					placeholder="Stage label"
-					class="wf-input rounded-lg px-3 py-2 text-xs bg-white border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
-				/>
-				<div class="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-white shadow-2xs shrink-0 flex items-center justify-center">
-					<span class="w-5 h-5 rounded-full border border-black/10 shadow-2xs" style="background-color: {newStateColor};"></span>
-					<input aria-label="New stage color" type="color" bind:value={newStateColor} class="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
-				</div>
-				<button
-					onclick={addState}
-					class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition shadow-2xs cursor-pointer"
-				>
-					<Icon name="plus" size={13} color="currentColor" />
-					<span>Add stage</span>
-				</button>
-			</div>
-		</div>
+		<!-- Add another stage button matching Onboarding -->
+		<button
+			type="button"
+			class="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed"
+			onclick={addState}
+		>
+			<Icon name="plus" size={14} color="currentColor" />
+			<span>Add another stage</span>
+		</button>
 
-		<div class="flex justify-end">
+		<div class="flex justify-end pt-2">
 			<button onclick={savePipeline} disabled={saving} class="wf-button-primary px-4 py-2.5">{saving ? 'Saving…' : 'Save pipeline'}</button>
 		</div>
 	{/if}

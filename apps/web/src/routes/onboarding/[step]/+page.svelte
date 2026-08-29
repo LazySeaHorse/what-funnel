@@ -316,11 +316,29 @@
 				}
 			} else if (stepNum === 3) {
 				if (!pipelineID) throw new Error('Your default lead pipeline is unavailable. Refresh and try again.');
+				const usedKeys = new Set<string>();
+				const sanitizedStages = pipelineStages.map((s, idx) => {
+					const slug = (s.label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+					const baseKey = slug || s.key || `stage_${idx + 1}`;
+					let key = baseKey;
+					let counter = 1;
+					while (usedKeys.has(key)) {
+						counter++;
+						key = `${baseKey}_${counter}`;
+					}
+					usedKeys.add(key);
+					return {
+						key,
+						label: (s.label || '').trim() || 'Stage',
+						color: s.color || '#3B82F6'
+					};
+				});
+
 				await apiRequest(`/workspace/pipelines/${pipelineID}`, {
 					method: 'PUT',
 					body: {
 						name: 'Default Pipeline',
-						states: pipelineStages
+						states: sanitizedStages
 					}
 				});
 
