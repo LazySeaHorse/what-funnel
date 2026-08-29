@@ -479,11 +479,35 @@ func TestUpdateUserReplyMode(t *testing.T) {
 	mode2 := "draft_only"
 	err = svc.UpdateUserReplyMode(ctx, accountID, adminID, &mode2)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "member reply mode overrides are not allowed")
+	assert.Contains(t, err.Error(), "agent reply mode overrides are not allowed")
 
 	// 3. Reset override to nil should also be rejected when disabled
 	err = svc.UpdateUserReplyMode(ctx, accountID, adminID, nil)
 	assert.Error(t, err)
+}
+
+func TestGetUserReplyMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, userID := setupTestTenant(t, pool, "ReplyModeTenant", "reply-mode@example.com")
+	preferences, err := svc.GetUserReplyMode(ctx, accountID, userID)
+	require.NoError(t, err)
+	assert.Nil(t, preferences.ReplyMode)
+	assert.Equal(t, "draft_only", preferences.WorkspaceDefault)
+	assert.Equal(t, "draft_only", preferences.EffectiveReplyMode)
+	assert.True(t, preferences.OverrideAllowed)
+
+	mode := "auto_send"
+	require.NoError(t, svc.UpdateUserReplyMode(ctx, accountID, userID, &mode))
+	preferences, err = svc.GetUserReplyMode(ctx, accountID, userID)
+	require.NoError(t, err)
+	require.NotNil(t, preferences.ReplyMode)
+	assert.Equal(t, "auto_send", *preferences.ReplyMode)
+	assert.Equal(t, "auto_send", preferences.EffectiveReplyMode)
 }
 
 func TestUpdateProductMode(t *testing.T) {

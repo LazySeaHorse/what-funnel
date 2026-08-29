@@ -166,7 +166,7 @@ func TestUpdateUserReplyMode_SettingsEdgeCases(t *testing.T) {
 
 	err = svc.UpdateUserReplyMode(ctx, accountID, adminID, &mode)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "member reply mode overrides are not allowed")
+	assert.Contains(t, err.Error(), "agent reply mode overrides are not allowed")
 
 	// Case 4: Explicitly true in settings -> allowed
 	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = '{"allow_member_reply_mode_override": true}' WHERE id = $1`, accountID)

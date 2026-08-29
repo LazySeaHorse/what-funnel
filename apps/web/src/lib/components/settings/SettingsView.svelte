@@ -144,6 +144,13 @@
 	let productMode = $state('full_workspace');
 	let leadTracking = $state(true);
 	let unassignedVisible = $state(true);
+	let canManageTeam = $derived(workspace?.capabilities.manageTeam ?? false);
+
+	$effect(() => {
+		if ((!canManageTeam && activeSection === 'users_permissions') || (productMode !== 'full_workspace' && activeSection === 'pipeline')) {
+			activeSection = 'general';
+		}
+	});
 
 	function closeModal() {
 		showAddUserModal = false;
@@ -282,8 +289,10 @@
 				business_address: businessAddress,
 				business_website: businessWebsite,
 				business_hours: businessHours,
-				lead_tracking_enabled: leadTracking,
-				unassigned_conversations_visible_to_members: unassignedVisible
+				...(productMode === 'full_workspace' ? {
+					lead_tracking_enabled: leadTracking,
+					unassigned_conversations_visible_to_members: unassignedVisible
+				} : {})
 			};
 
 			await apiRequest('/workspace/account/settings', {
@@ -655,7 +664,7 @@
 		<!-- 3-Column Layout: Subnav | Active Section Content | Right Info Cards -->
 		<div class="grid grid-cols-12 gap-8 items-start">
 
-		<SettingsSidebar bind:activeSection {productMode} />
+		<SettingsSidebar bind:activeSection {productMode} {canManageTeam} />
 
 		<!-- ================= CENTER CONTENT PANEL ================= -->
 		<div

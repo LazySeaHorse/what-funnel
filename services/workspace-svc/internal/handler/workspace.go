@@ -72,7 +72,9 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/users/{id}", auth(admin(http.HandlerFunc(h.DeleteUser)))).Methods(http.MethodDelete)
 	r.Handle("/workspace/users/{id}/password", auth(admin(http.HandlerFunc(h.ResetUserPassword)))).Methods(http.MethodPut)
 	r.Handle("/workspace/users/{id}/role", auth(admin(http.HandlerFunc(h.ChangeUserRole)))).Methods(http.MethodPut)
+	r.Handle("/workspace/users/me/reply-mode", auth(http.HandlerFunc(h.GetMyReplyMode))).Methods(http.MethodGet)
 	r.Handle("/workspace/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
+	r.Handle("/users/me/reply-mode", auth(http.HandlerFunc(h.GetMyReplyMode))).Methods(http.MethodGet)
 	r.Handle("/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
 
 	// Pipelines
@@ -318,7 +320,6 @@ func (h *Handler) UpdateProductMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-
 // -------------------------------------------------------------------------
 // User handlers
 // -------------------------------------------------------------------------
@@ -480,8 +481,8 @@ func (h *Handler) UpdatePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name   string                 `json:"name"`
-		States []types.PipelineState  `json:"states"`
+		Name   string                `json:"name"`
+		States []types.PipelineState `json:"states"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -504,6 +505,26 @@ func (h *Handler) UpdatePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) GetMyReplyMode(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+
+	preferences, err := h.svc.GetUserReplyMode(r.Context(), accountID, userID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, preferences)
 }
 
 func (h *Handler) UpdateMyReplyMode(w http.ResponseWriter, r *http.Request) {

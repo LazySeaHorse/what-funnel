@@ -10,6 +10,7 @@
 	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import LeadsView from '$lib/components/leads/LeadsView.svelte';
 	import SettingsView from '$lib/components/settings/SettingsView.svelte';
+	import PersonalPreferences from '$lib/components/settings/PersonalPreferences.svelte';
 	import ContactsView from '$lib/components/inbox/ContactsView.svelte';
 	import SimulatorView from '$lib/components/inbox/SimulatorView.svelte';
 	import { formatTime, getChannelLabel, getContactHandle, getContactName, getSnippet, getTagColor, parseMessageContent } from '$lib/inbox/presentation';
@@ -2255,7 +2256,11 @@
 		{:else if selectedNav === 'settings'}
 			<!-- ================= SETTINGS VIEW ================= -->
 			<div class="flex-1 flex flex-col min-h-0 overflow-y-auto pb-16 lg:pb-0">
-				<SettingsView {inbox} {workspace} initialSection="general" onNavigate={(tab) => selectedNav = tab as any} />
+				{#if capabilities.manageWorkspace}
+					<SettingsView {inbox} {workspace} initialSection="general" onNavigate={(tab) => selectedNav = tab as any} />
+				{:else}
+					<PersonalPreferences {inbox} {workspace} />
+				{/if}
 			</div>
 		{/if}
 

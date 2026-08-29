@@ -134,12 +134,12 @@ func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorI
 
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &actorID,
-		Action:     "account.settings_updated",
-		TargetType: audit.TargetAccount,
-		TargetID:   &accountID,
-		Metadata:   map[string]any{},
+		Action:      "account.settings_updated",
+		TargetType:  audit.TargetAccount,
+		TargetID:    &accountID,
+		Metadata:    map[string]any{},
 	}); err != nil {
 		return err
 	}
@@ -240,7 +240,6 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 	return tx.Commit(ctx)
 }
 
-
 // UpdateAIProviderConfig encrypts and stores the AI provider config.
 // The plaintext is never stored; only the AES-256-GCM ciphertext reaches Postgres.
 func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actorID uuid.UUID, plaintext string) error {
@@ -262,12 +261,12 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &actorID,
-		Action:     "account.ai_provider_config_updated",
-		TargetType: audit.TargetAccount,
-		TargetID:   &accountID,
-		Metadata:   map[string]any{"note": "encrypted value stored"},
+		Action:      "account.ai_provider_config_updated",
+		TargetType:  audit.TargetAccount,
+		TargetID:    &accountID,
+		Metadata:    map[string]any{"note": "encrypted value stored"},
 	}); err != nil {
 		return err
 	}
@@ -724,12 +723,12 @@ func (svc *Service) UpdatePipeline(ctx context.Context, accountID, actorID, pipe
 
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &actorID,
-		Action:     audit.ActionPipelineUpdated,
-		TargetType: audit.TargetPipeline,
-		TargetID:   &pipelineID,
-		Metadata:   map[string]any{"name": req.Name},
+		Action:      audit.ActionPipelineUpdated,
+		TargetType:  audit.TargetPipeline,
+		TargetID:    &pipelineID,
+		Metadata:    map[string]any{"name": req.Name},
 	}); err != nil {
 		return err
 	}
@@ -790,6 +789,44 @@ func (svc *Service) GetUserByID(ctx context.Context, accountID, userID uuid.UUID
 	return u, nil
 }
 
+type UserReplyModePreferences struct {
+	ReplyMode          *string `json:"reply_mode"`
+	WorkspaceDefault   string  `json:"workspace_default"`
+	EffectiveReplyMode string  `json:"effective_reply_mode"`
+	OverrideAllowed    bool    `json:"override_allowed"`
+}
+
+func (svc *Service) GetUserReplyMode(ctx context.Context, accountID, userID uuid.UUID) (*UserReplyModePreferences, error) {
+	var replyMode *string
+	var settingsBytes []byte
+	if err := svc.pool.QueryRow(ctx, `
+		SELECT u.reply_mode_override, a.settings
+		FROM users u
+		JOIN accounts a ON a.id = u.account_id
+		WHERE u.id = $1 AND u.account_id = $2
+	`, userID, accountID).Scan(&replyMode, &settingsBytes); err != nil {
+		return nil, fmt.Errorf("lookup user reply mode: %w", err)
+	}
+
+	settings := parseSettings(settingsBytes)
+	workspaceDefault, _ := settings["ai_reply_mode_default"].(string)
+	if workspaceDefault != "auto_send" && workspaceDefault != "draft_only" {
+		workspaceDefault = "draft_only"
+	}
+	overrideAllowed := boolSetting(settings, "allow_member_reply_mode_override", true)
+	effective := workspaceDefault
+	if overrideAllowed && replyMode != nil && (*replyMode == "auto_send" || *replyMode == "draft_only") {
+		effective = *replyMode
+	}
+
+	return &UserReplyModePreferences{
+		ReplyMode:          replyMode,
+		WorkspaceDefault:   workspaceDefault,
+		EffectiveReplyMode: effective,
+		OverrideAllowed:    overrideAllowed,
+	}, nil
+}
+
 func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID uuid.UUID, replyMode *string) error {
 	// 1. Fetch account settings to check if override is allowed
 	var settingsBytes []byte
@@ -800,7 +837,7 @@ func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID u
 
 	// default is true when the key is absent
 	if !boolSetting(parseSettings(settingsBytes), "allow_member_reply_mode_override", true) {
-		return fmt.Errorf("member reply mode overrides are not allowed by the administrator")
+		return fmt.Errorf("agent reply mode overrides are not allowed by the manager")
 	}
 
 	// 2. Update user override in DB
