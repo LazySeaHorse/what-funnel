@@ -62,16 +62,28 @@ func (svc *Service) GetAccount(ctx context.Context, accountID uuid.UUID) (*types
 }
 
 // DeleteAccount removes an account root. All tenant-owned data is removed by
-// the database's ON DELETE CASCADE constraints.
+// the database's ON DELETE CASCADE constraints, and all account sessions are revoked.
 func (svc *Service) DeleteAccount(ctx context.Context, accountID uuid.UUID) error {
-	command, err := svc.pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	command, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
 	if err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}
 	if command.RowsAffected() != 1 {
 		return fmt.Errorf("account not found")
 	}
-	return nil
+
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1`, accountID.String())
+	if err != nil {
+		return fmt.Errorf("revoke account sessions: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 // UpdateAccountName changes the workspace name and records the administrative action.
@@ -345,6 +357,14 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 	if req.Username == "" {
 		return nil, fmt.Errorf("username is required")
 	}
+	if len(req.Username) < 2 {
+		return nil, fmt.Errorf("username must be at least 2 characters")
+	}
+	for _, ch := range req.Username {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+			return nil, fmt.Errorf("username may only contain alphanumeric characters, hyphens, and underscores")
+		}
+	}
 	if req.Password == "" {
 		return nil, fmt.Errorf("password is required")
 	}
@@ -426,6 +446,12 @@ func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUs
 		return fmt.Errorf("delete user: %w", err)
 	}
 
+	// Revoke all existing sessions for targetUserID
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
@@ -441,7 +467,7 @@ func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUs
 	return tx.Commit(ctx)
 }
 
-// ResetUserPassword updates the password of targetUserID.
+// ResetUserPassword updates the password of targetUserID and revokes existing sessions.
 func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newPassword string) error {
 	if newPassword == "" {
 		return fmt.Errorf("password cannot be empty")
@@ -472,6 +498,12 @@ func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, t
 		return fmt.Errorf("update password: %w", err)
 	}
 
+	// Revoke all existing sessions for targetUserID
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
@@ -487,7 +519,7 @@ func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, t
 	return tx.Commit(ctx)
 }
 
-// ChangeUserRole updates the role of targetUserID within the given account.
+// ChangeUserRole updates the role of targetUserID within the given account and revokes old sessions.
 // Only manager callers may invoke this.
 func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newRole string) error {
 	if newRole != types.RoleManager && newRole != types.RoleAgent {
@@ -515,6 +547,12 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 		return fmt.Errorf("update role: %w", err)
 	}
 
+	// Revoke all existing sessions for targetUserID so old role privileges do not persist
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
@@ -535,6 +573,9 @@ func (svc *Service) SetAccountSlug(ctx context.Context, accountID, actorID uuid.
 	slug = strings.TrimSpace(strings.ToLower(slug))
 	if slug == "" {
 		return fmt.Errorf("slug cannot be empty")
+	}
+	if len(slug) < 2 {
+		return fmt.Errorf("slug must be at least 2 characters")
 	}
 	for _, ch := range slug {
 		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {

@@ -215,6 +215,26 @@ export class InboxState {
 			console.error(err);
 		}
 	}
+
+	async closeConversation(convoID?: string) {
+		const id = convoID || this.activeConvoID;
+		if (!id) return;
+		try {
+			await apiRequest(`/conversations/${id}/close`, { method: 'POST' });
+			if (this.activeConvo && this.activeConvo.id === id) {
+				this.activeConvo.status = 'closed';
+				this.activeConvo.ai_mode_active = true;
+			}
+			const index = this.conversations.findIndex(c => c.id === id);
+			if (index !== -1) {
+				this.conversations[index].status = 'closed';
+				this.conversations[index].ai_mode_active = true;
+			}
+			await this.loadConversations();
+		} catch (err) {
+			console.error('Failed to close conversation:', err);
+		}
+	}
 	
 	connectWS() {
 		if (this.ws) {

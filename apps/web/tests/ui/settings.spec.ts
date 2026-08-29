@@ -56,7 +56,7 @@ test.describe('in-app settings safety net', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByLabel('Workspace name')).toHaveValue(workspaceName);
-		await expect(page.getByLabel('Default time zone')).toHaveValue('(GMT+00:00) UTC');
+		await expect(page.getByLabel('Default time zone')).toHaveValue('UTC');
 	});
 
 	test('a failed save preserves edits and gives the user a recoverable error', async ({ page }) => {
@@ -69,20 +69,19 @@ test.describe('in-app settings safety net', () => {
 		await page.getByRole('button', { name: 'Save changes' }).click();
 
 		await expect(page.getByText('Settings service is unavailable', { exact: true })).toBeVisible();
-		await expect(page.getByLabel('Default time zone')).toHaveValue('(GMT+00:00) UTC');
+		await expect(page.getByLabel('Default time zone')).toHaveValue('UTC');
 	});
 
-	test('invite modal can be dismissed by keyboard without changing workspace state', async ({ page }) => {
+	test('add user modal can be dismissed by keyboard without changing workspace state', async ({ page }) => {
 		await openMockedSettings(page);
 		await page.getByRole('tab', { name: 'Users & permissions', exact: true }).click();
-		await page.getByRole('button', { name: 'Invite user' }).click();
+		await page.getByRole('button', { name: 'Add user' }).click();
 
-		const dialog = page.getByRole('dialog', { name: 'Invite Team Member' });
+		const dialog = page.getByRole('dialog', { name: 'Add Team Member' });
 		await expect(dialog).toBeVisible();
-		await page.getByLabel('Email Address').fill('new-member@example.test');
+		await page.getByLabel('Username').fill('newagent');
 		await page.keyboard.press('Escape');
 		await expect(dialog).not.toBeVisible();
-		await expect(page.getByText('Invitation sent', { exact: true })).not.toBeVisible();
 	});
 
 	test('channel connection dialog can be cancelled with Escape', async ({ page }) => {

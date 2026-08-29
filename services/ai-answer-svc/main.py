@@ -475,15 +475,15 @@ async def process_conversation_closed(data: dict, db_pool, redis_client):
         if elapsed >= 60.0 and msg_count_at_gen < current_message_count:
             should_regenerate = True
 
-    if not should_regenerate:
-        logger.info(f"Debounce conditions not met for conversation {convo_uuid}. Skipping summary generation.")
-        return
-
-    # Trigger resumption logic: set conversations.ai_mode_active = true
+    # Trigger resumption logic: ensure conversations.ai_mode_active = true
     await db.execute(
         "UPDATE conversations SET ai_mode_active = true WHERE id = $1 AND account_id = $2",
         convo_uuid, account_uuid
     )
+
+    if not should_regenerate:
+        logger.info(f"Debounce conditions not met for conversation {convo_uuid}. Skipping summary generation.")
+        return
 
     # 3. Generate summary
     # Fetch account summary_schema

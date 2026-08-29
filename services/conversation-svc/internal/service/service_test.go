@@ -556,3 +556,58 @@ func TestIngestExternalOutbound(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, aiModeActive)
 }
+
+func TestCloseConversation_Workflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+
+	accountID, userID := setupTestTenant(t, pool, "Close Convo Account")
+
+	// Create channel and contact
+	var channelID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO channels (account_id, type, status)
+		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+	`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	var contactID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO contacts (account_id, channel_id, external_identity, display_name)
+		VALUES ($1, $2, 'alice-close-test', 'Alice') RETURNING id
+	`, accountID, channelID).Scan(&contactID)
+	require.NoError(t, err)
+
+	// Create conversation that was taken over by human (ai_mode_active = false, status = 'open')
+	var convoID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO conversations (account_id, contact_id, channel_id, status, last_message_at, ai_mode_active)
+		VALUES ($1, $2, $3, 'open', NOW(), false) RETURNING id
+	`, accountID, contactID, channelID).Scan(&convoID)
+	require.NoError(t, err)
+
+	// Close the conversation
+	err = svc.CloseConversation(ctx, accountID, userID, convoID, "manager")
+	require.NoError(t, err)
+
+	// Verify conversation updated in DB: status = 'closed', ai_mode_active = true
+	var status string
+	var aiModeActive bool
+	err = pool.QueryRow(ctx, `SELECT status, ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&status, &aiModeActive)
+	require.NoError(t, err)
+	assert.Equal(t, "closed", status)
+	assert.True(t, aiModeActive, "ai_mode_active must be reset to true upon closing conversation")
+
+	// Verify audit log
+	var auditCount int
+	err = pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM audit_logs
+		WHERE account_id = $1 AND action = 'conversation.closed' AND target_id = $2
+	`, accountID, convoID).Scan(&auditCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, auditCount)
+}

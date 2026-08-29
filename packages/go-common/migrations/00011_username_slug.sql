@@ -10,10 +10,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
 
 -- Update existing data if any
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 UPDATE users SET role = 'manager' WHERE role = 'admin';
 UPDATE users SET role = 'agent' WHERE role = 'member';
-
-ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('manager', 'agent'));
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_account_id_username ON users (account_id, username) WHERE username IS NOT NULL;
@@ -40,10 +39,9 @@ CREATE INDEX IF NOT EXISTS idx_invite_tokens_account_id ON invite_tokens (accoun
 DROP INDEX IF EXISTS idx_users_username;
 DROP INDEX IF EXISTS idx_users_account_id_username;
 
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 UPDATE users SET role = 'admin' WHERE role = 'manager';
 UPDATE users SET role = 'member' WHERE role = 'agent';
-
-ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'member'));
 
 ALTER TABLE users DROP COLUMN IF EXISTS username;

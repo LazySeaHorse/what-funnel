@@ -766,3 +766,329 @@ func TestApplyTemplate_FullWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, templateAudit, "must have one onboarding.template_applied audit entry")
 }
+
+// ---------------------------------------------------------------------------
+// User Management & Slug Workflow tests
+// ---------------------------------------------------------------------------
+
+func TestCreateUser_Workflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "User Workflow Account", "manager_user@example.com")
+
+	// 1. Create agent user
+	res, err := svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "agent_john",
+		Password: "InitialPassword123!",
+		Role:     "agent",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "agent_john", res.Username)
+	assert.Equal(t, "agent", res.Role)
+	assert.Equal(t, "InitialPassword123!", res.PlaintextPassword)
+	assert.NotEmpty(t, res.ID)
+
+	// 2. Verify user in DB
+	var dbRole string
+	var dbPassHash string
+	err = pool.QueryRow(ctx, `SELECT role, password_hash FROM users WHERE id = $1 AND account_id = $2`, res.ID, accountID).Scan(&dbRole, &dbPassHash)
+	require.NoError(t, err)
+	assert.Equal(t, "agent", dbRole)
+	assert.NotEmpty(t, dbPassHash)
+	assert.NotEqual(t, "InitialPassword123!", dbPassHash, "password must be hashed")
+
+	// 3. Verify audit log
+	var auditCount int
+	err = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'user.created_by_admin'`,
+		accountID).Scan(&auditCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, auditCount)
+
+	// 4. List users contains the new user
+	users, err := svc.ListUsers(ctx, accountID)
+	require.NoError(t, err)
+	require.Len(t, users, 2) // manager + agent
+	var foundAgent bool
+	for _, u := range users {
+		if u.Username == "agent_john" {
+			foundAgent = true
+			assert.Equal(t, "agent", u.Role)
+		}
+	}
+	assert.True(t, foundAgent, "new user must appear in user list")
+}
+
+func TestCreateUser_ValidationErrors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "User Validation Account", "manager_val@example.com")
+
+	// Empty username
+	_, err := svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "",
+		Password: "Password123!",
+		Role:     "agent",
+	})
+	assert.Error(t, err, "empty username must fail")
+
+	// Invalid characters in username
+	_, err = svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "bad user name!",
+		Password: "Password123!",
+		Role:     "agent",
+	})
+	assert.Error(t, err, "invalid username characters must fail")
+
+	// Empty password
+	_, err = svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "valid_name",
+		Password: "",
+		Role:     "agent",
+	})
+	assert.Error(t, err, "empty password must fail")
+
+	// Invalid role
+	_, err = svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "valid_name",
+		Password: "Password123!",
+		Role:     "superadmin",
+	})
+	assert.Error(t, err, "invalid role must fail")
+
+	// Create valid user first
+	_, err = svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "dupe_name",
+		Password: "Password123!",
+		Role:     "agent",
+	})
+	require.NoError(t, err)
+
+	// Duplicate username in same account
+	_, err = svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "dupe_name",
+		Password: "Password456!",
+		Role:     "agent",
+	})
+	assert.Error(t, err, "duplicate username in same account must fail")
+}
+
+func TestDeleteUser_Workflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "Delete User Account", "manager_del@example.com")
+
+	// 1. Create agent user
+	res, err := svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "agent_to_delete",
+		Password: "Password123!",
+		Role:     "agent",
+	})
+	require.NoError(t, err)
+
+	// 2. Create channel, contact, and conversation assigned to agent
+	var channelID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`,
+		accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	var contactID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO contacts (account_id, channel_id, external_identity) VALUES ($1, $2, $3) RETURNING id`,
+		accountID, channelID, "contact-del-1").Scan(&contactID)
+	require.NoError(t, err)
+
+	var convoID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO conversations (account_id, contact_id, channel_id, status, assigned_user_ids)
+		 VALUES ($1, $2, $3, 'open', $4) RETURNING id`,
+		accountID, contactID, channelID, []uuid.UUID{res.ID}).Scan(&convoID)
+	require.NoError(t, err)
+
+	// 3. Attempt self-delete must fail
+	err = svc.DeleteUser(ctx, accountID, adminID, adminID)
+	assert.Error(t, err, "actor cannot delete themselves")
+
+	// Insert active session for agent
+	sessionData, _ := json.Marshal(map[string]string{
+		"user_id":    res.ID.String(),
+		"account_id": accountID.String(),
+		"role":       "agent",
+	})
+	_, err = pool.Exec(ctx, `INSERT INTO sessions (token, data, expiry) VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+		"test-session-delete-user", sessionData)
+	require.NoError(t, err)
+
+	// 4. Delete agent user
+	err = svc.DeleteUser(ctx, accountID, adminID, res.ID)
+	require.NoError(t, err)
+
+	// 5. Verify agent user row and session are gone
+	var userExists bool
+	err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, res.ID).Scan(&userExists)
+	require.NoError(t, err)
+	assert.False(t, userExists, "user row must be deleted")
+
+	var sessionCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE token = $1`, "test-session-delete-user").Scan(&sessionCount)
+	require.NoError(t, err)
+	assert.Equal(t, 0, sessionCount, "session must be revoked on delete user")
+
+	// 6. Verify conversation assigned_user_ids was unassigned
+	var assignedIDs []uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1`, convoID).Scan(&assignedIDs)
+	require.NoError(t, err)
+	assert.NotContains(t, assignedIDs, res.ID, "deleted user must be removed from assigned_user_ids")
+
+	// 7. Verify audit log
+	var auditCount int
+	err = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'user.deleted'`,
+		accountID).Scan(&auditCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, auditCount)
+}
+
+func TestResetUserPassword_Workflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "Reset Pass Account", "manager_pass@example.com")
+
+	// Create agent user
+	res, err := svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "agent_pass",
+		Password: "OldPassword123!",
+		Role:     "agent",
+	})
+	require.NoError(t, err)
+
+	var oldHash string
+	err = pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, res.ID).Scan(&oldHash)
+	require.NoError(t, err)
+
+	// Reset password
+	// First insert an active session for the agent user
+	sessionData, _ := json.Marshal(map[string]string{
+		"user_id":    res.ID.String(),
+		"account_id": accountID.String(),
+		"role":       "agent",
+	})
+	_, err = pool.Exec(ctx, `INSERT INTO sessions (token, data, expiry) VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+		"test-session-reset-pass", sessionData)
+	require.NoError(t, err)
+
+	err = svc.ResetUserPassword(ctx, accountID, adminID, res.ID, "NewPassword456!")
+	require.NoError(t, err)
+
+	var newHash string
+	err = pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, res.ID).Scan(&newHash)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, newHash)
+	assert.NotEqual(t, oldHash, newHash, "password hash must be changed after reset")
+
+	// Verify that the active session for the user was revoked
+	var sessionCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE token = $1`, "test-session-reset-pass").Scan(&sessionCount)
+	require.NoError(t, err)
+	assert.Equal(t, 0, sessionCount, "session must be revoked on password reset")
+}
+
+func TestAccountSlug_Workflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	account1, admin1 := setupTestTenant(t, pool, "Slug Account 1", "slug1@example.com")
+	account2, admin2 := setupTestTenant(t, pool, "Slug Account 2", "slug2@example.com")
+
+	// 1. Initial slug is empty
+	slug, err := svc.GetAccountSlug(ctx, account1)
+	require.NoError(t, err)
+	assert.Empty(t, slug)
+
+	// 2. Set valid slug
+	err = svc.SetAccountSlug(ctx, account1, admin1, "acme-corp")
+	require.NoError(t, err)
+
+	slug, err = svc.GetAccountSlug(ctx, account1)
+	require.NoError(t, err)
+	assert.Equal(t, "acme-corp", slug)
+
+	// 3. Invalid slug (uppercase, spaces, special chars)
+	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "Acme Corp!"))
+	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "a")) // too short (<2)
+	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, ""))  // empty
+
+	// 4. Duplicate slug on account2 fails (unique constraint)
+	assert.Error(t, svc.SetAccountSlug(ctx, account2, admin2, "acme-corp"))
+}
+
+func TestChangeUserRole_Workflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "Role Change Account", "manager_role@example.com")
+
+	res, err := svc.CreateUser(ctx, accountID, adminID, service.CreateUserRequest{
+		Username: "role_agent",
+		Password: "Password123!",
+		Role:     "agent",
+	})
+	require.NoError(t, err)
+
+	// Insert an active session for the user
+	sessionData, _ := json.Marshal(map[string]string{
+		"user_id":    res.ID.String(),
+		"account_id": accountID.String(),
+		"role":       "agent",
+	})
+	_, err = pool.Exec(ctx, `INSERT INTO sessions (token, data, expiry) VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+		"test-session-role-change", sessionData)
+	require.NoError(t, err)
+
+	// Promote agent to manager
+	err = svc.ChangeUserRole(ctx, accountID, adminID, res.ID, "manager")
+	require.NoError(t, err)
+
+	var role string
+	err = pool.QueryRow(ctx, `SELECT role FROM users WHERE id = $1`, res.ID).Scan(&role)
+	require.NoError(t, err)
+	assert.Equal(t, "manager", role)
+
+	// Verify that the active session for the user was revoked
+	var sessionCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE token = $1`, "test-session-role-change").Scan(&sessionCount)
+	require.NoError(t, err)
+	assert.Equal(t, 0, sessionCount, "session must be revoked on role change")
+
+	// Demote manager back to agent
+	err = svc.ChangeUserRole(ctx, accountID, adminID, res.ID, "agent")
+	require.NoError(t, err)
+
+	err = pool.QueryRow(ctx, `SELECT role FROM users WHERE id = $1`, res.ID).Scan(&role)
+	require.NoError(t, err)
+	assert.Equal(t, "agent", role)
+}

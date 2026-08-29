@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -200,6 +199,8 @@ func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "missing account")
 		return
 	}
+	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
 
 	vars := mux.Vars(r)
 	convoID, err := uuid.Parse(vars["id"])
@@ -208,15 +209,12 @@ func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Publish conversation.closed event to Redis
-	event := map[string]any{
-		"account_id":      accountID.String(),
-		"conversation_id": convoID.String(),
-		"closed_at":       time.Now().Format(time.RFC3339),
-	}
-	_, err = h.svc.PubSub().Publish(r.Context(), "conversation.closed", event)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to publish close event: "+err.Error())
+	if err := h.svc.CloseConversation(r.Context(), accountID, userID, convoID, role); err != nil {
+		if err.Error() == "conversation not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

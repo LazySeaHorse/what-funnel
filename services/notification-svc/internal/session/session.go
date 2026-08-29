@@ -102,3 +102,19 @@ func (s *Store) GetRole(r *http.Request) (string, bool) {
 	role, ok := data[sessionKeyRole]
 	return role, ok
 }
+
+// RevokeUserSessions deletes all active sessions for the given user.
+func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`,
+		userID.String())
+	return err
+}
+
+// RevokeAccountSessions deletes all active sessions for the given account.
+func (s *Store) RevokeAccountSessions(ctx context.Context, accountID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1`,
+		accountID.String())
+	return err
+}
