@@ -714,7 +714,7 @@
 					<div class="flex items-center justify-between">
 						<div>
 							<h2 class="text-base font-medium text-slate-900">Users & permissions</h2>
-							<p class="text-xs text-slate-500 mt-0.5">Manage team members and their workspace access</p>
+							<p class="text-xs text-slate-500 mt-0.5">Manage team members and their workspace access.</p>
 						</div>
 						<button
 							onclick={() => { userModalError = ''; generateNewUserPassword(); showAddUserModal = true; }}
@@ -730,14 +730,14 @@
 					<!-- Workspace Slug Box -->
 					<div class="p-4 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-2.5">
 						<div class="flex items-center justify-between">
-							<label for="settings-workspace-slug" class="text-xs font-medium text-slate-900">Workspace Login Prefix (Slug)</label>
+							<label for="settings-workspace-slug" class="text-xs font-medium text-slate-900">Workspace login prefix</label>
 							<button
 								type="button"
 								onclick={handleSaveSlug}
 								disabled={savingSlug}
 								class="px-3 py-1 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-medium text-slate-700 transition cursor-pointer disabled:opacity-50"
 							>
-								{savingSlug ? 'Saving...' : 'Update slug'}
+								{savingSlug ? 'Saving...' : 'Update prefix'}
 							</button>
 						</div>
 						<input
@@ -747,9 +747,14 @@
 							placeholder="company-prefix"
 							class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
 						/>
-						<p class="text-[11px] text-slate-500 font-normal">
-							Agents log in with: <span class="font-mono font-medium text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">{accountSlug || 'prefix'}-[username]</span>
-						</p>
+						<div class="space-y-1 text-[11px] text-slate-500 font-normal">
+							<p>
+								Team members log in with: <span class="font-mono font-medium text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">{accountSlug || 'prefix'}-[username]</span>
+							</p>
+							<p>
+								Agents only see their assigned leads. Managers see all workspace leads.
+							</p>
+						</div>
 					</div>
 
 					<!-- Team Users Table -->
@@ -904,7 +909,7 @@
 {#if showAddUserModal}
 	<div class="wf-modal-backdrop">
 		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="add-team-member-title">
-			<h3 id="add-team-member-title" class="text-sm font-medium text-slate-900">Add Team Member</h3>
+			<h3 id="add-team-member-title" class="text-sm font-medium text-slate-900">Add team member</h3>
 			<div class="space-y-3.5 text-xs">
 				<div class="space-y-1">
 					<label for="newUsernameInput" class="font-medium text-slate-700">Username</label>
@@ -913,7 +918,7 @@
 				</div>
 				<div class="space-y-1">
 					<div class="flex items-center justify-between">
-						<label for="newPasswordInput" class="font-medium text-slate-700">Initial Password</label>
+						<label for="newPasswordInput" class="font-medium text-slate-700">Initial password</label>
 						<button type="button" onclick={generateNewUserPassword} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
 					</div>
 					<input id="newPasswordInput" type="text" bind:value={newPassword} placeholder="Password" class="wf-input font-mono" />
@@ -934,7 +939,7 @@
 					Cancel
 				</button>
 				<button onclick={handleAddUser} disabled={addingUser || !newUsername.trim() || !newPassword.trim()} class="wf-button-primary disabled:opacity-50">
-					{addingUser ? 'Creating...' : 'Create User'}
+					{addingUser ? 'Saving...' : 'Add user'}
 				</button>
 			</div>
 		</div>
@@ -952,14 +957,14 @@
 					</svg>
 				</div>
 				<div>
-					<h3 id="user-credentials-title" class="text-sm font-medium text-slate-900">User Credentials</h3>
-					<p class="text-xs text-slate-500">Save these credentials now. The password will not be shown again.</p>
+					<h3 id="user-credentials-title" class="text-sm font-medium text-slate-900">User credentials</h3>
+					<p class="text-xs text-slate-500">Save these credentials now. The system does not show this password again.</p>
 				</div>
 			</div>
 
 			<div class="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
 				<div class="flex items-center justify-between">
-					<span class="text-slate-500 font-sans text-[11px]">Login Identifier:</span>
+					<span class="text-slate-500 font-sans text-[11px]">Login username:</span>
 					<span class="font-medium text-slate-900 font-mono">{accountSlug ? `${accountSlug}-${createdUserResult.username}` : createdUserResult.username}</span>
 				</div>
 				<div class="flex items-center justify-between">
@@ -981,10 +986,10 @@
 						onclick={() => copyPasswordText(`Login: ${accountSlug ? `${accountSlug}-${createdUserResult!.username}` : createdUserResult!.username}\nPassword: ${createdUserResult!.plaintextPassword}`)}
 						class="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
 					>
-						{copiedPassword ? 'Copied!' : 'Copy Credentials'}
+						{copiedPassword ? 'Copied!' : 'Copy credentials'}
 					</button>
 				{/if}
-				<button onclick={closeModal} class="wf-button-primary">
+				<button onclick={closeModal} class="wf-button-primary px-4 py-2">
 					Done
 				</button>
 			</div>
