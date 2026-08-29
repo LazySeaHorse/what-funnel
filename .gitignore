@@ -10,6 +10,9 @@ bin/
 *.test
 *.out
 
+# Workspace-local tool caches (used by Codex's read-only sandbox)
+/.cache/
+
 # Go workspace sum
 go.work.sum
 

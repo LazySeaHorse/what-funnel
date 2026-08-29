@@ -75,6 +75,41 @@ func main() {
 	}
 
 
+	handler := newRouter(aiKBCompilerBase, identityBase, workspaceBase, conversationBase, notificationBase, logger)
+
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      loggingMiddleware(logger)(handler),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  90 * time.Second,
+	}
+
+	go func() {
+		logger.Info("api-gateway listening", "port", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("shutdown error", "error", err)
+	}
+	logger.Info("api-gateway stopped")
+}
+
+// newRouter builds and returns the gateway mux. Extracted for testability.
+func newRouter(
+	aiKBCompilerBase, identityBase, workspaceBase, conversationBase, notificationBase *url.URL,
+	logger *slog.Logger,
+) http.Handler {
 	r := mux.NewRouter()
 
 	// Health check (local, not proxied)
@@ -121,7 +156,6 @@ func main() {
 	// Proxy /api/kb/* → ai-kb-compiler (admin-only)
 	r.PathPrefix("/api/kb/").Handler(kbProxy(aiKBCompilerBase, identityBase, logger))
 
-
 	// Catch-all 404
 	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -129,32 +163,7 @@ func main() {
 		fmt.Fprint(w, `{"error":"not found"}`)
 	})
 
-	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      loggingMiddleware(logger)(r),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  90 * time.Second,
-	}
-
-	go func() {
-		logger.Info("api-gateway listening", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("shutdown error", "error", err)
-	}
-	logger.Info("api-gateway stopped")
+	return r
 }
 
 // proxy returns an http.Handler that forwards requests to the given upstream base URL.

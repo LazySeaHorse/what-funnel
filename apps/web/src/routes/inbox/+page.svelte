@@ -650,14 +650,21 @@
 		kbLoading = !kbLoaded;
 		kbLoadPromise = (async () => {
 			const [conceptsRes, patternsRes, suggestionsRes, miningRes] = await Promise.allSettled([
-				apiRequest('/kb/concepts'),
-				apiRequest('/kb/patterns'),
-				apiRequest('/kb/suggestions?status_filter=pending'),
-				apiRequest('/kb/mining-runs/latest')
+				apiRequest('/api/kb/concepts'),
+				apiRequest('/api/kb/patterns'),
+				apiRequest('/api/kb/suggestions?status_filter=pending'),
+				apiRequest('/api/kb/mining-runs/latest')
 			]);
 			if (conceptsRes.status === 'fulfilled') kbConcepts = conceptsRes.value?.concepts ?? [];
 			if (patternsRes.status === 'fulfilled') kbPatterns = patternsRes.value?.patterns ?? [];
-			if (suggestionsRes.status === 'fulfilled') kbSuggestions = suggestionsRes.value?.suggestions ?? [];
+			if (suggestionsRes.status === 'fulfilled') {
+				kbSuggestions = (suggestionsRes.value?.suggestions ?? []).map((s: any) => {
+					const payload = typeof s.proposed_payload === 'string'
+						? JSON.parse(s.proposed_payload)
+						: (s.proposed_payload ?? {});
+					return { ...s, _payload: payload };
+				});
+			}
 			if (miningRes.status === 'fulfilled') kbLastRun = miningRes.value?.last_run ?? null;
 			kbLoaded = true;
 		})().catch((err) => {
@@ -679,7 +686,7 @@
 	async function kbDeleteConcept(id: string) {
 		if (!confirm('Delete this knowledge concept?')) return;
 		try {
-			await apiRequest(`/kb/concepts/${id}`, { method: 'DELETE' });
+			await apiRequest(`/api/kb/concepts/${id}`, { method: 'DELETE' });
 			kbConcepts = kbConcepts.filter((c) => c.id !== id);
 			if (kbExpandedConcept === id) kbExpandedConcept = null;
 		} catch (err) {
@@ -690,7 +697,7 @@
 	async function kbDeletePattern(id: string) {
 		if (!confirm('Delete this pattern?')) return;
 		try {
-			await apiRequest(`/kb/patterns/${id}`, { method: 'DELETE' });
+			await apiRequest(`/api/kb/patterns/${id}`, { method: 'DELETE' });
 			kbPatterns = kbPatterns.filter((p) => p.id !== id);
 			if (kbExpandedPattern === id) kbExpandedPattern = null;
 		} catch (err) {
@@ -703,7 +710,7 @@
 		kbPasting = true;
 		kbPasteResult = null;
 		try {
-			const res = await apiRequest('/kb/compile-paste', {
+			const res = await apiRequest('/api/kb/compile-paste', {
 				method: 'POST',
 				body: { raw_text: kbPasteText.trim() }
 			});
@@ -723,7 +730,7 @@
 
 	async function kbApproveSuggestion(id: string) {
 		try {
-			await apiRequest(`/kb/suggestions/${id}/approve`, {
+			await apiRequest(`/api/kb/suggestions/${id}/approve`, {
 				method: 'POST',
 				body: { reviewed_by: inbox.currentUser?.user_id || inbox.currentUser?.id || '' }
 			});
@@ -736,7 +743,7 @@
 
 	async function kbRejectSuggestion(id: string) {
 		try {
-			await apiRequest(`/kb/suggestions/${id}/reject`, {
+			await apiRequest(`/api/kb/suggestions/${id}/reject`, {
 				method: 'POST',
 				body: { reviewed_by: inbox.currentUser?.user_id || inbox.currentUser?.id || '' }
 			});
@@ -750,7 +757,7 @@
 		kbMiningTriggerLoading = true;
 		kbMiningTriggerResult = null;
 		try {
-			const res = await apiRequest('/kb/mine/trigger', { method: 'POST' });
+			const res = await apiRequest('/api/kb/mine/trigger', { method: 'POST' });
 			kbMiningTriggerResult = res;
 			await loadKnowledgeTab(true);
 		} catch (err) {
@@ -1844,16 +1851,15 @@
 											class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-50/60 transition"
 										>
 											<div class="flex items-center gap-2.5 min-w-0">
-												<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {kbTypeColor(concept.concept_type)}">
-													{kbTypeLabel(concept.concept_type)}
+												<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {kbTypeColor(concept.type)}">
+													{kbTypeLabel(concept.type)}
 												</span>
 												<span class="text-xs font-medium text-slate-800 truncate">{concept.title}</span>
-												{#if concept.source_type === 'paste'}
+												{#if concept.source === 'owner_pasted'}
 													<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
 												{/if}
 											</div>
 											<div class="flex items-center gap-2 shrink-0">
-												<span class="text-[10px] text-slate-400">conf {(concept.confidence * 100).toFixed(0)}%</span>
 												<svg class="w-3.5 h-3.5 text-slate-400 transition-transform {kbExpandedConcept === concept.id ? 'rotate-180' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 													<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
 												</svg>
@@ -1862,7 +1868,7 @@
 
 										{#if kbExpandedConcept === concept.id}
 											<div class="px-4 pb-4 pt-1 border-t border-slate-100 bg-slate-50/40 text-xs space-y-2">
-												<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">{concept.content}</div>
+												<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">{concept.body_markdown}</div>
 												<div class="flex items-center justify-between pt-2 text-[11px] text-slate-400 border-t border-slate-100">
 													<span>Added {kbFormatDate(concept.created_at)}</span>
 													<button
@@ -1895,13 +1901,15 @@
 							{#each kbPatterns as pattern (pattern.id)}
 								<div class="p-4 rounded-xl border border-slate-200/80 bg-white space-y-2">
 									<div class="flex items-center justify-between">
-										<span class="text-xs font-medium text-slate-800">{pattern.pattern_name}</span>
-										<span class="text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{pattern.frequency_count} inquiries</span>
+										<span class="text-xs font-medium text-slate-800">{pattern.canonical_question}</span>
 									</div>
-									<div class="text-xs text-slate-500">Representative query: <span class="italic text-slate-700">"{pattern.representative_query}"</span></div>
-									{#if pattern.intent}
-										<div class="text-[11px] text-slate-400">Intent: {pattern.intent}</div>
+									{#if pattern.trigger_phrases?.length}
+										<div class="text-[11px] text-slate-400">Triggers: {pattern.trigger_phrases.join(', ')}</div>
 									{/if}
+									<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{pattern.answer_markdown}</div>
+									<div class="flex justify-end pt-1 text-[11px]">
+										<button onclick={() => kbDeletePattern(pattern.id)} class="text-rose-500 hover:text-rose-700 transition">Delete</button>
+									</div>
 								</div>
 							{/each}
 						{/if}
@@ -1925,16 +1933,16 @@
 								<div class="p-4 rounded-xl border border-slate-200/80 bg-white space-y-2.5">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
-											<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {kbTypeColor(sugg.concept_type)}">
-												{kbTypeLabel(sugg.concept_type)}
+											<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {kbTypeColor(sugg._payload?.type ?? sugg.type)}">
+												{kbTypeLabel(sugg._payload?.type ?? sugg.type)}
 											</span>
-											<span class="text-xs font-medium text-slate-800">{sugg.title}</span>
+											<span class="text-xs font-medium text-slate-800">{sugg._payload?.title ?? sugg._payload?.canonical_question ?? '—'}</span>
 										</div>
-										<span class="text-[10px] text-slate-400">conf {(sugg.confidence * 100).toFixed(0)}%</span>
+										<span class="text-[10px] text-slate-400">conf {((sugg.confidence ?? 0) * 100).toFixed(0)}%</span>
 									</div>
-									<div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg leading-relaxed whitespace-pre-wrap">{sugg.content}</div>
+									<div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg leading-relaxed whitespace-pre-wrap">{sugg._payload?.body_markdown ?? sugg._payload?.answer_markdown ?? ''}</div>
 									<div class="flex items-center justify-between pt-1 text-xs">
-										<span class="text-[11px] text-slate-400">From {sugg.source_type}</span>
+										<span class="text-[11px] text-slate-400">{sugg.type?.replace(/_/g, ' ')}</span>
 										<div class="flex items-center gap-2">
 											<button
 												onclick={() => kbRejectSuggestion(sugg.id)}

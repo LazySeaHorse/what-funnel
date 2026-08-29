@@ -313,3 +313,149 @@ async def test_suggestion_approve_reject():
                     assert row_sugg_2["status"] == "rejected"
     finally:
         await teardown_test_data(pool, account_id)
+
+
+# ---------------------------------------------------------------------------
+# Response-shape contract tests
+# These tests assert the field names returned by each endpoint exactly match
+# what the frontend now reads after the fix. They are the regression guard
+# against field-name drift between backend and frontend.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_list_concepts_response_shape():
+    """list_concepts must return concepts with type/body_markdown/source,
+    NOT concept_type/content/source_type (the old phantom field names)."""
+    pool, account_id, user_id = await setup_test_data()
+    try:
+        async with pool.acquire() as conn:
+            concept_id = uuid.uuid4()
+            await conn.execute(
+                """
+                INSERT INTO kb_concepts (id, account_id, slug, type, title, body_markdown, source)
+                VALUES ($1, $2, 'shape-test-slug', 'faq', 'Shape Test', 'Body text here', 'owner_pasted')
+                """,
+                concept_id, account_id
+            )
+
+        with TestClient(app) as client:
+            resp = client.get(
+                "/internal/kb/concepts",
+                headers={"X-Account-ID": str(account_id)}
+            )
+            assert resp.status_code == 200
+            concepts = resp.json()["concepts"]
+            assert len(concepts) >= 1
+            c = next(x for x in concepts if x["id"] == str(concept_id))
+
+            # Fields the fixed frontend reads
+            assert c["type"] == "faq"
+            assert c["body_markdown"] == "Body text here"
+            assert c["source"] == "owner_pasted"
+            assert "title" in c
+            assert "slug" in c
+            assert "id" in c
+
+            # Phantom field names that no longer exist in the contract
+            assert "concept_type" not in c
+            assert "content" not in c
+            assert "source_type" not in c
+    finally:
+        await teardown_test_data(pool, account_id)
+
+
+@pytest.mark.asyncio
+async def test_list_patterns_response_shape():
+    """list_patterns must return patterns with canonical_question/answer_markdown/
+    trigger_phrases, NOT pattern_name/representative_query/frequency_count/intent."""
+    pool, account_id, user_id = await setup_test_data()
+    try:
+        async with pool.acquire() as conn:
+            pattern_id = uuid.uuid4()
+            await conn.execute(
+                """
+                INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_markdown)
+                VALUES ($1, $2, $3, 'What are your hours?', 'We are open 9am–5pm.')
+                """,
+                pattern_id, account_id, ["hours", "open", "schedule"]
+            )
+
+        with TestClient(app) as client:
+            resp = client.get(
+                "/internal/kb/patterns",
+                headers={"X-Account-ID": str(account_id)}
+            )
+            assert resp.status_code == 200
+            patterns = resp.json()["patterns"]
+            assert len(patterns) >= 1
+            p = next(x for x in patterns if x["id"] == str(pattern_id))
+
+            # Fields the fixed frontend reads
+            assert p["canonical_question"] == "What are your hours?"
+            assert p["answer_markdown"] == "We are open 9am–5pm."
+            assert isinstance(p["trigger_phrases"], list)
+            assert "id" in p
+
+            # Phantom field names that no longer exist in the contract
+            assert "pattern_name" not in p
+            assert "representative_query" not in p
+            assert "frequency_count" not in p
+            assert "intent" not in p
+    finally:
+        await teardown_test_data(pool, account_id)
+
+
+@pytest.mark.asyncio
+async def test_list_suggestions_response_shape():
+    """list_suggestions must return suggestions whose proposed_payload is a parseable
+    dict (not None), and whose top-level fields include type, confidence, and status.
+    The frontend normalises proposed_payload into _payload to read title/body_markdown."""
+    pool, account_id, user_id = await setup_test_data()
+    try:
+        sugg_id = uuid.uuid4()
+        proposed = {
+            "type": "faq",
+            "title": "Shape Test Concept",
+            "body_markdown": "Some body",
+            "tags": []
+        }
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO automation_suggestions (id, account_id, type, proposed_payload, confidence, status)
+                VALUES ($1, $2, 'new_kb_concept', $3, 0.85, 'pending')
+                """,
+                sugg_id, account_id, json.dumps(proposed)
+            )
+
+        with TestClient(app) as client:
+            resp = client.get(
+                "/internal/kb/suggestions?status_filter=pending",
+                headers={"X-Account-ID": str(account_id)}
+            )
+            assert resp.status_code == 200
+            suggestions = resp.json()["suggestions"]
+            assert len(suggestions) >= 1
+            s = next(x for x in suggestions if x["id"] == str(sugg_id))
+
+            # Top-level fields the fixed frontend reads
+            assert s["type"] == "new_kb_concept"
+            assert s["confidence"] == 0.85
+            assert s["status"] == "pending"
+
+            # proposed_payload must be present and parseable to recover title/body
+            raw_payload = s["proposed_payload"]
+            if isinstance(raw_payload, str):
+                payload = json.loads(raw_payload)
+            else:
+                payload = raw_payload
+            assert payload["title"] == "Shape Test Concept"
+            assert payload["body_markdown"] == "Some body"
+
+            # Phantom top-level fields the old frontend expected (but never existed)
+            assert "concept_type" not in s
+            assert "content" not in s
+            assert "source_type" not in s
+            assert "title" not in s  # title lives inside proposed_payload, not top-level
+    finally:
+        await teardown_test_data(pool, account_id)
