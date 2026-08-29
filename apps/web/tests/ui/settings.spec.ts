@@ -14,6 +14,7 @@ test.describe('in-app settings safety net', () => {
 		for (const section of [
 			['General', 'General'],
 			['Business profile', 'Business profile'],
+			['AI provider', 'AI provider'],
 			['Users & permissions', 'Users & permissions'],
 			['Channels', 'Connected channels'],
 			[/Lead pipeline/, 'Lead pipeline']
@@ -24,6 +25,23 @@ test.describe('in-app settings safety net', () => {
 			await expect(tab).toHaveAttribute('aria-selected', 'true');
 			await expect(page.getByRole('tabpanel').getByRole('heading', { name: heading, exact: true })).toBeVisible();
 		}
+	});
+
+	test('an admin can save a BYOK provider configuration without the key being displayed again', async ({ page }) => {
+		await openMockedSettings(page);
+		await page.getByRole('tab', { name: 'AI provider', exact: true }).click();
+
+		await expect(page.getByText('Not configured', { exact: true })).toBeVisible();
+		await page.getByLabel('API key', { exact: true }).fill('sk-test-private-key');
+		await page.getByLabel('OpenAI-compatible base URL').fill('https://provider.example.test/v1/');
+		await page.getByLabel('Completion model').fill('provider-chat-model');
+		await page.getByLabel('Embedding model').fill('provider-embedding-model');
+		await page.getByRole('button', { name: 'Save provider' }).click();
+
+		await expect(page.getByText('AI provider configuration saved.', { exact: true })).toBeVisible();
+		await expect(page.getByText('Configured', { exact: true })).toBeVisible();
+		await expect(page.getByLabel('New API key', { exact: true })).toHaveValue('');
+		await expect(page.getByText('sk-test-private-key')).not.toBeVisible();
 	});
 
 	test('general settings persist through a full page refresh', async ({ page }) => {

@@ -31,6 +31,7 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 	let channels: Array<{ id: string; type: string; status: string; bridge_identity?: string }> = [];
 	let bridgeConnections: Array<{ channel_id: string; platform: string; state: string; detail: string }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
+	let aiConfigured = false;
 
 	await page.route('**/api-gateway/**', async (route) => {
 		const request = route.request();
@@ -60,6 +61,11 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 		}
 		if (path === '/workspace/account/product-mode') {
 			productMode = String(body?.product_mode || productMode);
+			return json({ status: 'updated' });
+		}
+		if (path === '/workspace/account/ai-config/status') return json({ configured: aiConfigured });
+		if (path === '/workspace/account/ai-config' && request.method() === 'PUT') {
+			aiConfigured = true;
 			return json({ status: 'updated' });
 		}
 		if (path === '/workspace/users') return json(users);

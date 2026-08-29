@@ -24,6 +24,7 @@
 	type SettingsSection =
 		| 'general'
 		| 'business_profile'
+		| 'ai_provider'
 		| 'users_permissions'
 		| 'channels'
 		| 'pipeline';
@@ -50,6 +51,16 @@
 	let businessAddress = $state('');
 	let businessWebsite = $state('');
 	let businessHours = $state('');
+
+	// AI provider credentials are write-only. The API reports only whether a
+	// configuration exists, so an existing key is never returned to the browser.
+	let aiProviderConfigured = $state(false);
+	let aiProviderApiKey = $state('');
+	let aiProviderBaseURL = $state('https://api.openai.com/v1');
+	let aiCompletionModel = $state('gpt-4o-mini');
+	let aiEmbeddingModel = $state('text-embedding-3-small');
+	let showAIProviderKey = $state(false);
+	let savingAIProvider = $state(false);
 
 	// Plan & storage details
 	let currentPlan = $state('Pro Plan');
@@ -133,6 +144,11 @@
 		}
 	}
 
+	async function refreshAIProviderStatus() {
+		const status = await apiRequest('/workspace/account/ai-config/status');
+		aiProviderConfigured = status?.configured === true;
+	}
+
 	function connectionForChannel(channelID: string) {
 		return bridgeConnections.find((connection) => connection.channel_id === channelID);
 	}
@@ -146,7 +162,7 @@
 	}
 
 	onMount(async () => {
-		if (initialSection && ['general', 'business_profile', 'users_permissions', 'channels', 'pipeline'].includes(initialSection)) {
+		if (initialSection && ['general', 'business_profile', 'ai_provider', 'users_permissions', 'channels', 'pipeline'].includes(initialSection)) {
 			activeSection = initialSection as SettingsSection;
 		}
 
@@ -156,7 +172,7 @@
 				await workspace.loadSettings(inbox?.currentUser);
 				applyWorkspaceData(workspace.account);
 				teamUsers = workspace.users;
-				await refreshChannelsAndConnections();
+				await Promise.all([refreshChannelsAndConnections(), refreshAIProviderStatus()]);
 			} else {
 				const [account, users] = await Promise.all([
 					apiRequest('/workspace/account'),
@@ -164,7 +180,7 @@
 				]);
 				applyWorkspaceData(account);
 				teamUsers = users;
-				await refreshChannelsAndConnections();
+				await Promise.all([refreshChannelsAndConnections(), refreshAIProviderStatus()]);
 			}
 		} catch (err: any) {
 			errorMsg = err?.message || 'Failed to load workspace settings.';
@@ -220,6 +236,45 @@
 			errorMsg = err?.message || 'Failed to save settings';
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function handleSaveAIProvider() {
+		if (!aiProviderApiKey.trim()) {
+			errorMsg = aiProviderConfigured
+				? 'Enter a new API key to replace the current provider configuration.'
+				: 'API key is required.';
+			return;
+		}
+		if (!aiProviderBaseURL.trim() || !aiCompletionModel.trim() || !aiEmbeddingModel.trim()) {
+			errorMsg = 'Base URL, completion model, and embedding model are required.';
+			return;
+		}
+
+		savingAIProvider = true;
+		errorMsg = '';
+		successMsg = '';
+		try {
+			await apiRequest('/workspace/account/ai-config', {
+				method: 'PUT',
+				body: {
+					config: JSON.stringify({
+						api_key: aiProviderApiKey.trim(),
+						base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
+						completion_model: aiCompletionModel.trim(),
+						embedding_model: aiEmbeddingModel.trim()
+					})
+				}
+			});
+			aiProviderApiKey = '';
+			showAIProviderKey = false;
+			aiProviderConfigured = true;
+			successMsg = 'AI provider configuration saved.';
+			setTimeout(() => successMsg = '', 3000);
+		} catch (err: any) {
+			errorMsg = err?.message || 'Failed to save AI provider configuration.';
+		} finally {
+			savingAIProvider = false;
 		}
 	}
 
@@ -412,7 +467,7 @@
 		<div
 			class="col-span-12 md:col-span-9 lg:col-span-6"
 			role="tabpanel"
-				id={activeSection === 'general' ? 'settings-panel-general' : activeSection === 'business_profile' ? 'settings-panel-business-profile' : activeSection === 'users_permissions' ? 'settings-panel-users-permissions' : activeSection === 'pipeline' ? 'settings-panel-pipeline' : 'settings-panel-channels'}
+				id={activeSection === 'general' ? 'settings-panel-general' : activeSection === 'business_profile' ? 'settings-panel-business_profile' : activeSection === 'ai_provider' ? 'settings-panel-ai_provider' : activeSection === 'users_permissions' ? 'settings-panel-users_permissions' : activeSection === 'pipeline' ? 'settings-panel-pipeline' : 'settings-panel-channels'}
 		>
 
 			<!-- SECTION: GENERAL -->
@@ -622,6 +677,59 @@
 						</div>
 					</div>
 				</div>
+
+			<!-- SECTION: AI PROVIDER -->
+			{:else if activeSection === 'ai_provider'}
+				<form class="space-y-6" onsubmit={(event) => { event.preventDefault(); void handleSaveAIProvider(); }}>
+					<div>
+						<div class="flex flex-wrap items-center gap-2">
+							<h2 class="text-base font-medium text-slate-900">AI provider</h2>
+							<span class="rounded-md px-2 py-0.5 text-[10px] font-medium {aiProviderConfigured ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">
+								{aiProviderConfigured ? 'Configured' : 'Not configured'}
+							</span>
+						</div>
+						<p class="mt-1 text-xs leading-relaxed text-slate-500">Connect an OpenAI-compatible provider with your own API key. Credentials are encrypted before storage.</p>
+					</div>
+
+					{#if aiProviderConfigured}
+						<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-xs leading-relaxed text-emerald-800">
+							A provider is connected. For security, the saved key cannot be viewed. Enter a new key below only when you want to replace the full configuration.
+						</div>
+					{/if}
+
+					<div class="space-y-4 text-xs">
+						<div class="space-y-1.5">
+							<label for="aiSettingsApiKey" class="block font-medium text-slate-700">{aiProviderConfigured ? 'New API key' : 'API key'}</label>
+							<div class="relative">
+								<input id="aiSettingsApiKey" type={showAIProviderKey ? 'text' : 'password'} autocomplete="new-password" bind:value={aiProviderApiKey} class="wf-input pr-16" placeholder={aiProviderConfigured ? 'Enter a replacement key' : 'Enter your provider API key'} />
+								<button type="button" onclick={() => showAIProviderKey = !showAIProviderKey} class="absolute inset-y-0 right-0 px-3 text-[11px] font-medium text-slate-500 hover:text-slate-800" aria-label={showAIProviderKey ? 'Hide API key' : 'Show API key'}>{showAIProviderKey ? 'Hide' : 'Show'}</button>
+							</div>
+							<p class="text-[11px] leading-relaxed text-slate-500">The key is write-only and will not appear here again after saving.</p>
+						</div>
+
+						<div class="space-y-1.5">
+							<label for="aiSettingsBaseURL" class="block font-medium text-slate-700">OpenAI-compatible base URL</label>
+							<input id="aiSettingsBaseURL" type="url" bind:value={aiProviderBaseURL} class="wf-input" required />
+						</div>
+
+						<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+							<div class="space-y-1.5">
+								<label for="aiSettingsCompletionModel" class="block font-medium text-slate-700">Completion model</label>
+								<input id="aiSettingsCompletionModel" bind:value={aiCompletionModel} class="wf-input" required />
+							</div>
+							<div class="space-y-1.5">
+								<label for="aiSettingsEmbeddingModel" class="block font-medium text-slate-700">Embedding model</label>
+								<input id="aiSettingsEmbeddingModel" bind:value={aiEmbeddingModel} class="wf-input" required />
+							</div>
+						</div>
+					</div>
+
+					<div class="flex justify-end border-t border-slate-100 pt-5">
+						<button type="submit" disabled={savingAIProvider || !aiProviderApiKey.trim()} class="wf-button-primary px-5 py-2.5 disabled:cursor-not-allowed disabled:opacity-50">
+							{savingAIProvider ? 'Saving...' : aiProviderConfigured ? 'Replace configuration' : 'Save provider'}
+						</button>
+					</div>
+				</form>
 
 			<!-- SECTION: USERS & PERMISSIONS -->
 			{:else if activeSection === 'users_permissions'}
