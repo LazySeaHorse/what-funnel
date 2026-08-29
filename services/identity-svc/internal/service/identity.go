@@ -83,6 +83,7 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 
 	// 1. Create account with default settings
 	defaultSettings, err := json.Marshal(map[string]any{
+		"ai_enabled":                             true,
 		"ai_reply_mode_default":                  "draft_only",
 		"allow_member_reply_mode_override":       true,
 		"ai_may_auto_answer_mixed_conversations": false,

@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -326,7 +327,7 @@ func TestLeadManagement(t *testing.T) {
 
 	// Create agent user who is NOT assigned
 	var memberID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&memberID)
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'agent') RETURNING id`, accountID, fmt.Sprintf("member_%s@example.com", uuid.New())).Scan(&memberID)
 	require.NoError(t, err)
 
 	// Create a channel

@@ -3,6 +3,7 @@ package consumer_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -71,9 +72,9 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 
 	// Create Agent A and Agent B users in the DB
 	var memberAID, memberBID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'a@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&memberAID)
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'agent') RETURNING id`, accountID, fmt.Sprintf("a_%s@example.com", uuid.New())).Scan(&memberAID)
 	require.NoError(t, err)
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'b@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&memberBID)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'agent') RETURNING id`, accountID, fmt.Sprintf("b_%s@example.com", uuid.New())).Scan(&memberBID)
 	require.NoError(t, err)
 
 	// Create channel, contact, and conversation assigned to Member A

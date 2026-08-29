@@ -245,11 +245,13 @@ func TestInboxE2E(t *testing.T) {
 }
 
 // helper patch function
-func patch(t *testing.T, client *http.Client, url string, body any) (*http.Response, map[string]any) {
+func patch(t *testing.T, client *http.Client, urlStr string, body any) (*http.Response, map[string]any) {
 	t.Helper()
 	b, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(b))
+	req, err := http.NewRequest(http.MethodPatch, urlStr, bytes.NewReader(b))
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
+	attachCSRF(req, client)
 	resp, err := client.Do(req)
 	require.NoError(t, err)
 	t.Cleanup(func() { resp.Body.Close() })

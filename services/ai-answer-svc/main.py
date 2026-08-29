@@ -109,7 +109,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
             pass
 
     ai_reply_mode_default = settings.get("ai_reply_mode_default", "draft_only")
-    ai_enabled = settings.get("ai_enabled", False)
+    ai_enabled = settings.get("ai_enabled", True)
     allow_member_reply_mode_override = settings.get("allow_member_reply_mode_override", True)
     ai_may_auto_answer_mixed_conversations = settings.get("ai_may_auto_answer_mixed_conversations", False)
 
@@ -376,18 +376,18 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         draft_id = await db.fetchval(
             """
             WITH draft_lock AS (
-                SELECT pg_advisory_xact_lock(hashtextextended($2::text, 0))
+                SELECT pg_advisory_xact_lock(hashtextextended($2::uuid::text, 0))
             ), superseded AS (
                 UPDATE ai_reply_drafts
                 SET status = 'superseded', updated_at = NOW()
                 FROM draft_lock
-                WHERE account_id = $1 AND conversation_id = $2 AND status = 'pending'
+                WHERE account_id = $1::uuid AND conversation_id = $2::uuid AND status = 'pending'
             ), new_draft AS (
                 INSERT INTO ai_reply_drafts (
                     account_id, conversation_id, source_message_id, draft_text,
                     stage_matched, confidence
                 )
-                SELECT $1, $2, $3, $4, $5, $6
+                SELECT $1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::float
                 FROM draft_lock
                 RETURNING id
             ), logged_event AS (
@@ -395,7 +395,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                     account_id, conversation_id, message_id, stage_matched,
                     confidence, action, reply_message_id
                 )
-                SELECT $1, $2, $3, $5, $6, 'drafted', NULL
+                SELECT $1::uuid, $2::uuid, $3::uuid, $5::text, $6::float, 'drafted', NULL
                 FROM new_draft
             )
             SELECT id FROM new_draft

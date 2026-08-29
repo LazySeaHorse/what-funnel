@@ -65,11 +65,27 @@ func newClient() *http.Client {
 	}
 }
 
+func attachCSRF(req *http.Request, client *http.Client) {
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	if client.Jar != nil {
+		for _, cookie := range client.Jar.Cookies(req.URL) {
+			if cookie.Name == "csrf_token" {
+				req.Header.Set("X-CSRF-Token", cookie.Value)
+				break
+			}
+		}
+	}
+}
+
 // post sends a POST request with JSON body and returns the decoded response body.
-func post(t *testing.T, client *http.Client, url string, body any) (*http.Response, map[string]any) {
+func post(t *testing.T, client *http.Client, urlStr string, body any) (*http.Response, map[string]any) {
 	t.Helper()
 	b, _ := json.Marshal(body)
-	resp, err := client.Post(url, "application/json", bytes.NewReader(b))
+	req, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(b))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	attachCSRF(req, client)
+	resp, err := client.Do(req)
 	require.NoError(t, err)
 	t.Cleanup(func() { resp.Body.Close() })
 	var result map[string]any
@@ -78,9 +94,9 @@ func post(t *testing.T, client *http.Client, url string, body any) (*http.Respon
 }
 
 // get sends an authenticated GET request.
-func get(t *testing.T, client *http.Client, url string) (*http.Response, map[string]any) {
+func get(t *testing.T, client *http.Client, urlStr string) (*http.Response, map[string]any) {
 	t.Helper()
-	resp, err := client.Get(url)
+	resp, err := client.Get(urlStr)
 	require.NoError(t, err)
 	t.Cleanup(func() { resp.Body.Close() })
 	var result map[string]any
@@ -89,11 +105,13 @@ func get(t *testing.T, client *http.Client, url string) (*http.Response, map[str
 }
 
 // put sends an authenticated PUT request.
-func put(t *testing.T, client *http.Client, url string, body any) (*http.Response, map[string]any) {
+func put(t *testing.T, client *http.Client, urlStr string, body any) (*http.Response, map[string]any) {
 	t.Helper()
 	b, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(b))
+	req, err := http.NewRequest(http.MethodPut, urlStr, bytes.NewReader(b))
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
+	attachCSRF(req, client)
 	resp, err := client.Do(req)
 	require.NoError(t, err)
 	t.Cleanup(func() { resp.Body.Close() })

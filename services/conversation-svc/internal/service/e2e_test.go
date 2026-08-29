@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -86,7 +87,8 @@ func TestChannelIngestionE2E(t *testing.T) {
 	require.NoError(t, err)
 
 	var userID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'e2e-member@example.com', 'pwd', 'agent') RETURNING id`, accountID).Scan(&userID)
+	userEmail := fmt.Sprintf("e2e-member-%s@example.com", uuid.New())
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'pwd', 'agent') RETURNING id`, accountID, userEmail).Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

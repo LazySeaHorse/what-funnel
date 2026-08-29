@@ -3,6 +3,7 @@ package consumer_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -29,7 +30,7 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 
 	// Create Agent User
 	var memberID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'm@example.com', 'h', 'agent') RETURNING id`, accountID).Scan(&memberID)
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'h', 'agent') RETURNING id`, accountID, fmt.Sprintf("m_%s@example.com", uuid.New())).Scan(&memberID)
 	require.NoError(t, err)
 
 	// Create channel, contact, conversation assigned to member
