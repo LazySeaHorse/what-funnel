@@ -65,13 +65,16 @@
 		pipelineStates = workspace.pipeline?.states || [];
 	});
 
-	// Setup banner
+	// Setup banner — step numbers reflect the 7-step onboarding flow:
+	// 1=Business info, 2=Channels, 3=Lead pipeline, 4=Team members,
+	// 5=AI Assistant, 6=Knowledge base, 7=Review & finish
 	const SKIPPED_STEP_NAMES: Record<string, { label: string; step: number }> = {
-		channel_connect: { label: 'Connect a channel', step: 4 },
-		kb_setup:        { label: 'Set up your knowledge base', step: 5 },
-		reply_mode:      { label: 'Configure reply mode', step: 6 },
-		pipeline_setup:  { label: 'Review your pipeline', step: 7 },
-		team_invite:     { label: 'Invite your team', step: 8 }
+		channel_connect: { label: 'Connect a channel', step: 2 },
+		add_team:        { label: 'Add team members', step: 4 },
+		reply_mode:      { label: 'Configure AI assistant', step: 5 },
+		kb_setup:        { label: 'Set up your knowledge base', step: 6 },
+		pipeline_setup:  { label: 'Review your pipeline', step: 3 },
+		team_invite:     { label: 'Add team members', step: 4 }
 	};
 	let showSetupBanner = $state(false);
 	let bannerSkippedSteps = $state<Array<{ label: string; step: number }>>([]);
@@ -364,7 +367,7 @@
 				if (inbox.conversations.length > 0 && !inbox.activeConvoID) {
 					await selectConvo(inbox.conversations[0].id);
 				}
-				if (inbox.currentUser.role === 'admin') {
+				if (inbox.currentUser.role === 'manager') {
 					// Warm the Settings-only channel data after the first conversation is
 					// ready, so entering Settings normally needs no network round trip.
 					void workspace.loadSettings(inbox.currentUser).catch((err) => console.error('Failed to prefetch settings', err));
@@ -918,7 +921,7 @@
 					<div>
 						<div class="text-xs font-medium text-slate-800 leading-tight truncate max-w-[100px]">{accountName}</div>
 						<div class="text-[11px] text-slate-400 leading-tight capitalize">
-							{inbox.currentUser ? inbox.currentUser.role || 'Unknown role' : 'Loading…'}
+							{inbox.currentUser?.role === 'manager' ? 'Manager' : inbox.currentUser?.role === 'agent' ? 'Agent' : inbox.currentUser ? inbox.currentUser.role || 'Agent' : 'Loading…'}
 						</div>
 					</div>
 				</div>
@@ -984,14 +987,14 @@
 				<!-- User Name & Title Box (Outline only, matching height) -->
 				<div class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
 					<div class="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 border border-blue-100/80 flex items-center justify-center text-xs font-medium shrink-0">
-						{(inbox.currentUser?.name || inbox.currentUser?.email || 'U').charAt(0).toUpperCase()}
+						{(inbox.currentUser?.username || inbox.currentUser?.name || inbox.currentUser?.email || 'U').charAt(0).toUpperCase()}
 					</div>
 					<div class="flex flex-col">
 						<span class="text-xs font-medium text-slate-800 leading-tight">
-							{inbox.currentUser?.name || inbox.currentUser?.email?.split('@')[0] || 'User'}
+							{inbox.currentUser?.username || inbox.currentUser?.name || inbox.currentUser?.email?.split('@')[0] || 'User'}
 						</span>
 						<span class="text-[10px] text-slate-400 font-medium capitalize leading-tight">
-							{inbox.currentUser?.role || 'Member'}
+							{inbox.currentUser?.role === 'manager' ? 'Manager' : inbox.currentUser?.role === 'agent' ? 'Agent' : inbox.currentUser?.role || 'Agent'}
 						</span>
 					</div>
 				</div>
@@ -1540,9 +1543,6 @@
 								<div class="space-y-2">
 									<button class="w-full py-2 px-3 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50/50 transition">
 										Summarize conversation
-									</button>
-									<button class="w-full py-2 px-3 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50/50 transition">
-										Find similar conversations
 									</button>
 								</div>
 							</div>

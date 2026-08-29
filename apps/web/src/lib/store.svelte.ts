@@ -34,13 +34,13 @@ export class InboxState {
 	async init() {
 		try {
 			this.currentUser = await apiRequest('/auth/me');
-			if (this.currentUser.role === 'admin') {
+			if (this.currentUser.role === 'manager') {
 				this.filter = 'all';
 			} else {
 				this.filter = 'mine';
 			}
 			const requests: Promise<void>[] = [this.loadConversations()];
-			if (this.currentUser.role === 'admin') requests.push(this.loadUsers());
+			if (this.currentUser.role === 'manager') requests.push(this.loadUsers());
 			await Promise.all(requests);
 			this.connectWS();
 		} catch (err) {

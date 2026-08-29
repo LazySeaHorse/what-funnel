@@ -26,7 +26,7 @@ export class WorkspaceState {
 			const [account, pipelines, users] = await Promise.all([
 				apiRequest('/workspace/account'),
 				apiRequest('/workspace/pipelines'),
-				currentUser?.role === 'admin' && (!Array.isArray(this.users) || this.users.length === 0) ? apiRequest('/workspace/users') : Promise.resolve(this.users)
+				currentUser?.role === 'manager' && (!Array.isArray(this.users) || this.users.length === 0) ? apiRequest('/workspace/users') : Promise.resolve(this.users)
 			]);
 			this.account = account;
 			this.pipeline = Array.isArray(pipelines) ? pipelines[0] ?? null : null;
