@@ -25,9 +25,10 @@ const settings = encodeSettings({
 
 export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 	let accountName = 'Test Workspace';
+	let accountSlug = 'test-slug';
 	let productMode = 'full_workspace';
 	let accountSettings = settings;
-	let users = [{ id: 'user-1', email: 'admin@example.test', role: 'admin' }];
+	let users = [{ id: 'user-1', email: 'admin@example.test', username: 'admin', role: 'manager' }];
 	let channels: Array<{ id: string; type: string; status: string; bridge_identity?: string }> = [];
 	let bridgeConnections: Array<{ channel_id: string; platform: string; state: string; detail: string }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
@@ -44,7 +45,7 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 		}
 
 		const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
-		if (path === '/auth/me') return json({ id: 'user-1', email: 'admin@example.test', role: 'admin' });
+		if (path === '/auth/me') return json({ id: 'user-1', email: 'admin@example.test', username: 'admin', role: 'manager' });
 		if (path === '/workspace/account') {
 			if (request.method() === 'GET') return json({ id: 'account-1', name: accountName, product_mode: productMode, settings: accountSettings });
 			if (request.method() === 'PATCH') {
@@ -52,6 +53,13 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 				return json({ status: 'updated' });
 			}
 			return json({ status: 'updated' });
+		}
+		if (path === '/workspace/account/slug') {
+			if (request.method() === 'GET') return json({ slug: accountSlug });
+			if (request.method() === 'PUT') {
+				accountSlug = String(body?.slug || accountSlug);
+				return json({ slug: accountSlug });
+			}
 		}
 		if (path === '/workspace/account/settings') {
 			accountSettings = encodeSettings(request.method() === 'PATCH'
@@ -68,12 +76,32 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 			aiConfigured = true;
 			return json({ status: 'updated' });
 		}
-		if (path === '/workspace/users') return json(users);
+		if (path === '/workspace/users') {
+			if (request.method() === 'GET') return json(users);
+			if (request.method() === 'POST') {
+				const username = String(body?.username || 'user');
+				const newUser = {
+					id: `user-${users.length + 1}`,
+					email: String(body?.email || `${username}@example.test`),
+					username,
+					role: String(body?.role || 'agent'),
+					password: String(body?.password || '')
+				};
+				users = [...users, newUser];
+				return json(newUser);
+			}
+		}
 		if (path.startsWith('/workspace/users/') && path.endsWith('/role')) {
 			users = users.map((user) => user.id === path.split('/')[3] ? { ...user, role: String(body?.role) } : user);
 			return json({ status: 'updated' });
 		}
-		if (path === '/workspace/users/invite') return json({ email: 'invitee@example.test', role: 'member', invite_token: 'test-token' });
+		if (path.startsWith('/workspace/users/') && path.endsWith('/password')) {
+			return json({ status: 'updated' });
+		}
+		if (path.startsWith('/workspace/users/') && request.method() === 'DELETE') {
+			users = users.filter((u) => u.id !== path.split('/')[3]);
+			return json({ status: 'deleted' });
+		}
 		if (path === '/channels') {
 			return json(channels);
 		}
@@ -106,8 +134,10 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 
 export async function mockOnboardingApi(page: Page, failures: string[] = [], configured = true) {
 	let accountName = 'Setup Studio';
+	let accountSlug = 'setup-studio';
 	let accountSettings: Record<string, unknown> = {};
 	let aiConfigured = configured;
+	let users: Array<{ id: string; username: string; role: string }> = [];
 	let pipeline = {
 		id: 'pipeline-setup',
 		name: 'Default Pipeline',
@@ -127,11 +157,28 @@ export async function mockOnboardingApi(page: Page, failures: string[] = [], con
 		}
 
 		const json = (value: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
-		if (path === '/auth/me') return json({ id: 'user-setup', role: 'admin' });
+		if (path === '/auth/me') return json({ id: 'user-setup', role: 'manager' });
 		if (path === '/workspace/account') {
 			if (method === 'GET') return json({ id: 'account-setup', name: accountName, settings: encodeSettings(accountSettings) });
 			accountName = String(body?.name || accountName);
 			return json({ status: 'updated' });
+		}
+		if (path === '/workspace/account/slug') {
+			if (method === 'GET') return json({ slug: accountSlug });
+			accountSlug = String(body?.slug || accountSlug);
+			return json({ slug: accountSlug });
+		}
+		if (path === '/workspace/users') {
+			if (method === 'GET') return json(users);
+			if (method === 'POST') {
+				const newUser = { id: `user-${users.length + 1}`, username: String(body?.username), role: String(body?.role || 'agent'), password: String(body?.password) };
+				users = [...users, newUser];
+				return json(newUser);
+			}
+		}
+		if (path.startsWith('/workspace/users/') && method === 'DELETE') {
+			users = users.filter(u => u.id !== path.split('/')[3]);
+			return json({ status: 'deleted' });
 		}
 		if (path === '/workspace/account/settings' && method === 'PATCH') {
 			accountSettings = { ...accountSettings, ...body };

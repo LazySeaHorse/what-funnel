@@ -82,6 +82,8 @@
 
 	// ─── Leads Tab Enhanced State (Real Data Only) ───────────────────────────
 	let leadsFilterTab = $state<string>('all');
+	let leadsChannelFilter = $state<string>('all');
+	let leadsAssigneeFilter = $state<string>('all');
 	let leadsSort = $state<'newest' | 'oldest' | 'name'>('newest');
 	let showSortDropdown = $state(false);
 	let showFiltersDropdown = $state(false);
@@ -90,6 +92,16 @@
 	let selectedLeadRowIds = $state<string[]>([]);
 	let leadsPerPage = $state(10);
 	let leadsCurrentPage = $state(1);
+
+	let activeLeadsFilterCount = $derived(
+		(leadsChannelFilter !== 'all' ? 1 : 0) + (leadsAssigneeFilter !== 'all' ? 1 : 0)
+	);
+
+	function resetLeadsFilters() {
+		leadsChannelFilter = 'all';
+		leadsAssigneeFilter = 'all';
+		showFiltersDropdown = false;
+	}
 
 	function getLeadStateInfo(key: string) {
 		const matchedState = pipelineStates.find((s) => s.key === key);
@@ -184,6 +196,16 @@
 				if (leadsFilterTab === 'follow_up' && l.stateKey !== 'follow_up') return false;
 				if (leadsFilterTab === 'interested' && l.stateKey !== 'interested') return false;
 				if (leadsFilterTab === 'converted' && l.stateKey !== 'converted' && l.stateKey !== 'closed_won') return false;
+			}
+			if (leadsChannelFilter !== 'all' && l.channel !== leadsChannelFilter) {
+				return false;
+			}
+			if (leadsAssigneeFilter !== 'all') {
+				if (leadsAssigneeFilter === 'unassigned') {
+					if (l.assignees && l.assignees.length > 0) return false;
+				} else {
+					if (!l.assignees || !l.assignees.some((a: any) => a.id === leadsAssigneeFilter)) return false;
+				}
 			}
 			if (searchQuery.trim() !== '') {
 				const q = searchQuery.toLowerCase();
@@ -1709,16 +1731,80 @@
 					</div>
 
 					<div class="flex items-center gap-2.5 relative">
-						<!-- Filters Button -->
-						<button
-							onclick={() => showFiltersDropdown = !showFiltersDropdown}
-							class="flex items-center gap-2 px-3.5 py-1.5 bg-white hover:bg-slate-50 rounded-xl border border-slate-200/90 text-xs font-medium text-slate-700 transition cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
-						>
-							<svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-							</svg>
-							<span>Filters</span>
-						</button>
+						<!-- Filters Dropdown -->
+						<div class="relative">
+							<button
+								type="button"
+								onclick={() => showFiltersDropdown = !showFiltersDropdown}
+								aria-expanded={showFiltersDropdown}
+								aria-label="Filter leads"
+								class="flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)] {activeLeadsFilterCount > 0 ? 'bg-blue-50 border-blue-200/90 text-blue-700 hover:bg-blue-100/70' : 'bg-white hover:bg-slate-50 border-slate-200/90 text-slate-700'}"
+							>
+								<svg class="w-3.5 h-3.5 {activeLeadsFilterCount > 0 ? 'text-blue-600' : 'text-slate-500'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+								</svg>
+								<span>Filters</span>
+								{#if activeLeadsFilterCount > 0}
+									<span class="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-semibold">{activeLeadsFilterCount}</span>
+								{/if}
+							</button>
+
+							{#if showFiltersDropdown}
+								<div class="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-xl border border-slate-200 shadow-xl p-3 z-50 text-xs space-y-3">
+									<!-- Channel Filter -->
+									<div>
+										<label for="leads-channel-filter" class="block text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-1.5">Channel</label>
+										<select
+											id="leads-channel-filter"
+											bind:value={leadsChannelFilter}
+											class="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+										>
+											<option value="all">All Channels</option>
+											<option value="whatsapp">WhatsApp</option>
+											<option value="instagram">Instagram</option>
+											<option value="messenger">Messenger</option>
+											<option value="telegram">Telegram</option>
+											<option value="webchat">Webchat</option>
+										</select>
+									</div>
+
+									<!-- Assignee Filter -->
+									<div>
+										<label for="leads-assignee-filter" class="block text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-1.5">Assignee</label>
+										<select
+											id="leads-assignee-filter"
+											bind:value={leadsAssigneeFilter}
+											class="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+										>
+											<option value="all">All Assignees</option>
+											<option value="unassigned">Unassigned</option>
+											{#each inbox.users as user}
+												<option value={user.id}>{user.name || user.email || 'User'}</option>
+											{/each}
+										</select>
+									</div>
+
+									<!-- Footer / Reset -->
+									<div class="flex items-center justify-between pt-2 border-t border-slate-100">
+										<button
+											type="button"
+											onclick={resetLeadsFilters}
+											disabled={activeLeadsFilterCount === 0}
+											class="text-[11px] font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+										>
+											Reset filters
+										</button>
+										<button
+											type="button"
+											onclick={() => showFiltersDropdown = false}
+											class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium cursor-pointer"
+										>
+											Close
+										</button>
+									</div>
+								</div>
+							{/if}
+						</div>
 
 						<!-- Sort Dropdown -->
 						<div class="relative">
