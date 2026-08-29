@@ -63,13 +63,12 @@ func setupTestTenant(t *testing.T, pool *pgxpool.Pool, accountName, email string
 	var userID uuid.UUID
 	err = pool.QueryRow(ctx,
 		`INSERT INTO users (account_id, email, password_hash, role)
-		 VALUES ($1, $2, 'hashed', 'admin') RETURNING id`,
+		 VALUES ($1, $2, 'hashed', 'manager') RETURNING id`,
 		accountID, email).Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE account_id = $1`, accountID)
-		pool.Exec(context.Background(), `DELETE FROM invite_tokens WHERE account_id = $1`, accountID)
 		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, accountID)
 		pool.Exec(context.Background(), `DELETE FROM users WHERE account_id = $1`, accountID)
 		pool.Exec(context.Background(), `DELETE FROM accounts WHERE id = $1`, accountID)
@@ -126,25 +125,20 @@ func TestDeleteAccount_CascadesTenantData(t *testing.T) {
 	ctx := context.Background()
 	accountID, _ := setupTestTenant(t, pool, "Delete Account", "delete@example.com")
 
-	_, err := pool.Exec(ctx, `INSERT INTO invite_tokens (token, account_id, email, role) VALUES ('delete-account-token', $1, 'invite@example.com', 'member')`, accountID)
-	require.NoError(t, err)
-
 	require.NoError(t, svc.DeleteAccount(ctx, accountID))
 
-	var accounts, users, invites int
+	var accounts, users int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE id = $1`, accountID).Scan(&accounts))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE account_id = $1`, accountID).Scan(&users))
-	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM invite_tokens WHERE account_id = $1`, accountID).Scan(&invites))
 	assert.Zero(t, accounts)
 	assert.Zero(t, users)
-	assert.Zero(t, invites)
 }
 
 // ---------------------------------------------------------------------------
 // User management — Stage 5
 // ---------------------------------------------------------------------------
 
-func TestListUsers_AdminCanSeeAll(t *testing.T) {
+func TestListUsers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -155,41 +149,71 @@ func TestListUsers_AdminCanSeeAll(t *testing.T) {
 
 	users, err := svc.ListUsers(ctx, accountID)
 	require.NoError(t, err)
-	assert.Len(t, users, 1, "should see the admin user created by setupTestTenant")
+	assert.Len(t, users, 1, "should see the manager user created by setupTestTenant")
 }
 
-func TestInviteUser_GeneratesToken(t *testing.T) {
+func TestCreateAndManageUser(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 	svc, pool := testService(t)
 	ctx := context.Background()
 
-	accountID, actorID := setupTestTenant(t, pool, "Invite Account", "admin2@example.com")
+	accountID, actorID := setupTestTenant(t, pool, "Create User Account", "manager2@example.com")
 
-	result, err := svc.InviteUser(ctx, accountID, actorID, service.InviteUserRequest{
-		Email: "member@example.com",
-		Role:  "member",
+	// 1. Create user
+	result, err := svc.CreateUser(ctx, accountID, actorID, service.CreateUserRequest{
+		Username: "agent_john",
+		Password: "plainpassword123",
+		Role:     "agent",
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, result.Token, "invite token must be non-empty")
-	assert.Equal(t, "member", result.Role)
+	assert.NotEmpty(t, result.ID)
+	assert.Equal(t, "agent_john", result.Username)
+	assert.Equal(t, "agent", result.Role)
+	assert.Equal(t, "plainpassword123", result.PlaintextPassword)
 
-	// Verify token was stored
-	var tokenCount int
-	err = pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM invite_tokens WHERE account_id = $1 AND email = $2`,
-		accountID, "member@example.com").Scan(&tokenCount)
-	require.NoError(t, err)
-	assert.Equal(t, 1, tokenCount, "invite token must be persisted")
-
-	// Verify audit log
+	// 2. Verify audit log
 	var auditCount int
 	err = pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'user.invited'`,
+		`SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'user.created_by_admin'`,
 		accountID).Scan(&auditCount)
 	require.NoError(t, err)
 	assert.Equal(t, 1, auditCount)
+
+	// 3. Reset password
+	err = svc.ResetUserPassword(ctx, accountID, actorID, result.ID, "newpassword456")
+	require.NoError(t, err)
+
+	// 4. Change role
+	err = svc.ChangeUserRole(ctx, accountID, actorID, result.ID, "manager")
+	require.NoError(t, err)
+
+	// 5. Delete user
+	err = svc.DeleteUser(ctx, accountID, actorID, result.ID)
+	require.NoError(t, err)
+
+	var userCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE id = $1`, result.ID).Scan(&userCount)
+	require.NoError(t, err)
+	assert.Zero(t, userCount)
+}
+
+func TestSlugManagement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, actorID := setupTestTenant(t, pool, "Slug Account", "manager3@example.com")
+
+	err := svc.SetAccountSlug(ctx, accountID, actorID, "my-company-slug")
+	require.NoError(t, err)
+
+	slug, err := svc.GetAccountSlug(ctx, accountID)
+	require.NoError(t, err)
+	assert.Equal(t, "my-company-slug", slug)
 }
 
 func TestChangeUserRole_AuditWritten(t *testing.T) {
@@ -201,23 +225,23 @@ func TestChangeUserRole_AuditWritten(t *testing.T) {
 
 	accountID, adminID := setupTestTenant(t, pool, "Role Change Account", "admin3@example.com")
 
-	// Create a member user
-	var memberID uuid.UUID
+	// Create an agent user
+	var agentID uuid.UUID
 	err := pool.QueryRow(ctx,
-		`INSERT INTO users (account_id, email, password_hash, role)
-		 VALUES ($1, 'member3@example.com', 'hashed', 'member') RETURNING id`,
-		accountID).Scan(&memberID)
+		`INSERT INTO users (account_id, username, password_hash, role)
+		 VALUES ($1, 'agent3', 'hashed', 'agent') RETURNING id`,
+		accountID).Scan(&agentID)
 	require.NoError(t, err)
 
-	err = svc.ChangeUserRole(ctx, accountID, adminID, memberID, "admin")
+	err = svc.ChangeUserRole(ctx, accountID, adminID, agentID, "manager")
 	require.NoError(t, err)
 
 	// Verify role was updated
 	var role string
 	err = pool.QueryRow(ctx,
-		`SELECT role FROM users WHERE id = $1`, memberID).Scan(&role)
+		`SELECT role FROM users WHERE id = $1`, agentID).Scan(&role)
 	require.NoError(t, err)
-	assert.Equal(t, "admin", role)
+	assert.Equal(t, "manager", role)
 
 	// Verify audit log
 	var auditCount int

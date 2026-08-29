@@ -57,6 +57,8 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account", auth(http.HandlerFunc(h.GetAccount))).Methods(http.MethodGet)
 	r.Handle("/workspace/account", auth(admin(http.HandlerFunc(h.UpdateAccountName)))).Methods(http.MethodPatch)
 	r.Handle("/workspace/account", auth(admin(http.HandlerFunc(h.DeleteAccount)))).Methods(http.MethodDelete)
+	r.Handle("/workspace/account/slug", auth(admin(http.HandlerFunc(h.SetAccountSlug)))).Methods(http.MethodPut)
+	r.Handle("/workspace/account/slug", auth(http.HandlerFunc(h.GetAccountSlug))).Methods(http.MethodGet)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.PatchSettings)))).Methods(http.MethodPatch)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
@@ -64,8 +66,11 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 	r.Handle("/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 
+	// Users
 	r.Handle("/workspace/users", auth(admin(http.HandlerFunc(h.ListUsers)))).Methods(http.MethodGet)
-	r.Handle("/workspace/users/invite", auth(admin(http.HandlerFunc(h.InviteUser)))).Methods(http.MethodPost)
+	r.Handle("/workspace/users", auth(admin(http.HandlerFunc(h.CreateUser)))).Methods(http.MethodPost)
+	r.Handle("/workspace/users/{id}", auth(admin(http.HandlerFunc(h.DeleteUser)))).Methods(http.MethodDelete)
+	r.Handle("/workspace/users/{id}/password", auth(admin(http.HandlerFunc(h.ResetUserPassword)))).Methods(http.MethodPut)
 	r.Handle("/workspace/users/{id}/role", auth(admin(http.HandlerFunc(h.ChangeUserRole)))).Methods(http.MethodPut)
 	r.Handle("/workspace/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
 	r.Handle("/users/me/reply-mode", auth(http.HandlerFunc(h.UpdateMyReplyMode))).Methods(http.MethodPatch)
@@ -328,35 +333,99 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, users)
 }
 
-func (h *Handler) InviteUser(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	actorID, _ := middleware.UserIDFromContext(r)
 
+	var req service.CreateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	result, err := h.svc.CreateUser(r.Context(), accountID, actorID, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	vars := mux.Vars(r)
+	targetID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
+	if err := h.svc.DeleteUser(r.Context(), accountID, actorID, targetID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	vars := mux.Vars(r)
+	targetID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
 	var req struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 
-	result, err := h.svc.InviteUser(r.Context(), accountID, actorID, service.InviteUserRequest{
-		Email: req.Email,
-		Role:  req.Role,
-	})
-	if err != nil {
+	if err := h.svc.ResetUserPassword(r.Context(), accountID, actorID, targetID, req.Password); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// TODO: wire to email provider — currently returns token in response for testing
-	writeJSON(w, http.StatusCreated, map[string]string{
-		"invite_token": result.Token,
-		"email":        result.Email,
-		"role":         result.Role,
-		"note":         "email delivery is stubbed; use invite_token to register",
-	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+func (h *Handler) SetAccountSlug(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	actorID, _ := middleware.UserIDFromContext(r)
+
+	var req struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	if err := h.svc.SetAccountSlug(r.Context(), accountID, actorID, req.Slug); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"slug": req.Slug, "status": "updated"})
+}
+
+func (h *Handler) GetAccountSlug(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	slug, err := h.svc.GetAccountSlug(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"slug": slug})
 }
 
 func (h *Handler) ChangeUserRole(w http.ResponseWriter, r *http.Request) {

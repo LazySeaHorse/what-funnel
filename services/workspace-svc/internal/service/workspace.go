@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/onboarding"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Service handles workspace operations.
@@ -301,7 +303,7 @@ func (svc *Service) HasAIProviderConfig(ctx context.Context, accountID uuid.UUID
 // ListUsers returns all users for the given account, ordered by created_at.
 func (svc *Service) ListUsers(ctx context.Context, accountID uuid.UUID) ([]*types.User, error) {
 	rows, err := svc.pool.Query(ctx,
-		`SELECT id, account_id, email, role, created_at
+		`SELECT id, account_id, COALESCE(email, ''), COALESCE(username, ''), role, created_at
 		   FROM users WHERE account_id = $1 ORDER BY created_at ASC`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
@@ -311,7 +313,7 @@ func (svc *Service) ListUsers(ctx context.Context, accountID uuid.UUID) ([]*type
 	var users []*types.User
 	for rows.Next() {
 		u := &types.User{}
-		if err := rows.Scan(&u.ID, &u.AccountID, &u.Email, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.AccountID, &u.Email, &u.Username, &u.Role, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -319,30 +321,37 @@ func (svc *Service) ListUsers(ctx context.Context, accountID uuid.UUID) ([]*type
 	return users, rows.Err()
 }
 
-// InviteUserRequest carries invite parameters.
-type InviteUserRequest struct {
-	Email string
-	Role  string
+// CreateUserRequest carries creation parameters.
+type CreateUserRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
 }
 
-// InviteResult is returned by InviteUser.
-type InviteResult struct {
-	Token string
-	Email string
-	Role  string
+// CreateUserResult is returned by CreateUser.
+type CreateUserResult struct {
+	ID                uuid.UUID `json:"id"`
+	Username          string    `json:"username"`
+	Role              string    `json:"role"`
+	PlaintextPassword string    `json:"password,omitempty"`
 }
 
-// InviteUser generates an invite token for the given email/role.
-// Actual email delivery is stubbed — the token is returned in the API response.
-// TODO: wire to email provider
-func (svc *Service) InviteUser(ctx context.Context, accountID, actorID uuid.UUID, req InviteUserRequest) (*InviteResult, error) {
-	if req.Role != types.RoleAdmin && req.Role != types.RoleMember {
+// CreateUser directly creates a new user under the account.
+func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID, req CreateUserRequest) (*CreateUserResult, error) {
+	if req.Role != types.RoleManager && req.Role != types.RoleAgent {
 		return nil, fmt.Errorf("invalid role: %q", req.Role)
 	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		return nil, fmt.Errorf("username is required")
+	}
+	if req.Password == "" {
+		return nil, fmt.Errorf("password is required")
+	}
 
-	token, err := generateToken()
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("generate invite token: %w", err)
+		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
 	tx, err := svc.pool.Begin(ctx)
@@ -351,21 +360,22 @@ func (svc *Service) InviteUser(ctx context.Context, accountID, actorID uuid.UUID
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	_, err = tx.Exec(ctx,
-		`INSERT INTO invite_tokens (token, account_id, email, role) VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (token) DO NOTHING`,
-		token, accountID, req.Email, req.Role)
+	var userID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (account_id, username, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`,
+		accountID, req.Username, string(hash), req.Role).Scan(&userID)
 	if err != nil {
-		return nil, fmt.Errorf("store invite token: %w", err)
+		return nil, fmt.Errorf("create user: %w", err)
 	}
 
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &actorID,
-		Action:     audit.ActionUserInvited,
-		TargetType: audit.TargetUser,
-		Metadata:   map[string]any{"email": req.Email, "role": req.Role},
+		Action:      audit.ActionUserCreatedByAdmin,
+		TargetType:  audit.TargetUser,
+		TargetID:    &userID,
+		Metadata:    map[string]any{"username": req.Username, "role": req.Role},
 	}); err != nil {
 		return nil, err
 	}
@@ -374,14 +384,113 @@ func (svc *Service) InviteUser(ctx context.Context, accountID, actorID uuid.UUID
 		return nil, err
 	}
 
-	// TODO: wire to email provider — send token to req.Email
-	return &InviteResult{Token: token, Email: req.Email, Role: req.Role}, nil
+	return &CreateUserResult{
+		ID:                userID,
+		Username:          req.Username,
+		Role:              req.Role,
+		PlaintextPassword: req.Password,
+	}, nil
+}
+
+// DeleteUser removes a user from an account and clears assignments in conversations.
+func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUserID uuid.UUID) error {
+	if actorID == targetUserID {
+		return fmt.Errorf("cannot delete own account")
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var exists bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
+		Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("user not found in account")
+	}
+
+	// Unassign from any conversations
+	_, err = tx.Exec(ctx,
+		`UPDATE conversations SET assigned_user_ids = array_remove(assigned_user_ids, $1) WHERE account_id = $2 AND $1 = ANY(assigned_user_ids)`,
+		targetUserID, accountID)
+	if err != nil {
+		return fmt.Errorf("unassign conversations: %w", err)
+	}
+
+	// Delete user
+	_, err = tx.Exec(ctx, `DELETE FROM users WHERE id = $1 AND account_id = $2`, targetUserID, accountID)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionUserDeleted,
+		TargetType:  audit.TargetUser,
+		TargetID:    &targetUserID,
+		Metadata:    map[string]any{},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ResetUserPassword updates the password of targetUserID.
+func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newPassword string) error {
+	if newPassword == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var exists bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
+		Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("user not found in account")
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE users SET password_hash = $1 WHERE id = $2 AND account_id = $3`, string(hash), targetUserID, accountID)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionUserPasswordReset,
+		TargetType:  audit.TargetUser,
+		TargetID:    &targetUserID,
+		Metadata:    map[string]any{},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 // ChangeUserRole updates the role of targetUserID within the given account.
-// Only admin callers may invoke this (enforced at the HTTP layer via RequireAdmin).
+// Only manager callers may invoke this.
 func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newRole string) error {
-	if newRole != types.RoleAdmin && newRole != types.RoleMember {
+	if newRole != types.RoleManager && newRole != types.RoleAgent {
 		return fmt.Errorf("invalid role: %q", newRole)
 	}
 
@@ -408,17 +517,49 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &actorID,
-		Action:     audit.ActionUserRoleChanged,
-		TargetType: audit.TargetUser,
-		TargetID:   &targetUserID,
-		Metadata:   map[string]any{"new_role": newRole},
+		Action:      audit.ActionUserRoleChanged,
+		TargetType:  audit.TargetUser,
+		TargetID:    &targetUserID,
+		Metadata:    map[string]any{"new_role": newRole},
 	}); err != nil {
 		return err
 	}
 
 	return tx.Commit(ctx)
+}
+
+// SetAccountSlug updates the unique slug identifier for the workspace.
+func (svc *Service) SetAccountSlug(ctx context.Context, accountID, actorID uuid.UUID, slug string) error {
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	if slug == "" {
+		return fmt.Errorf("slug cannot be empty")
+	}
+	for _, ch := range slug {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			return fmt.Errorf("slug may only contain lowercase letters, numbers, and hyphens")
+		}
+	}
+
+	_, err := svc.pool.Exec(ctx, `UPDATE accounts SET slug = $1 WHERE id = $2`, slug, accountID)
+	if err != nil {
+		return fmt.Errorf("update slug: %w", err)
+	}
+	return nil
+}
+
+// GetAccountSlug retrieves the workspace slug for an account.
+func (svc *Service) GetAccountSlug(ctx context.Context, accountID uuid.UUID) (string, error) {
+	var slug *string
+	err := svc.pool.QueryRow(ctx, `SELECT slug FROM accounts WHERE id = $1`, accountID).Scan(&slug)
+	if err != nil {
+		return "", fmt.Errorf("get slug: %w", err)
+	}
+	if slug == nil {
+		return "", nil
+	}
+	return *slug, nil
 }
 
 // -------------------------------------------------------------------------

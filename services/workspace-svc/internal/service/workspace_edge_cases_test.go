@@ -24,17 +24,17 @@ func TestChangeUserRole_CrossAccount_EXISTS(t *testing.T) {
 	var userB uuid.UUID
 	err := pool.QueryRow(ctx,
 		`INSERT INTO users (account_id, email, password_hash, role)
-		 VALUES ($1, 'user_b@example.com', 'hashed', 'member') RETURNING id`,
+		 VALUES ($1, 'user_b@example.com', 'hashed', 'agent') RETURNING id`,
 		accountB).Scan(&userB)
 	require.NoError(t, err)
 
-	// Admin A attempts to change role of User B (who is in Account B) under Account A
-	err = svc.ChangeUserRole(ctx, accountA, adminA, userB, "admin")
+	// Manager A attempts to change role of User B (who is in Account B) under Account A
+	err = svc.ChangeUserRole(ctx, accountA, adminA, userB, "manager")
 	assert.Error(t, err, "cross-account role change must be rejected")
 	assert.EqualError(t, err, "user not found in account")
 
-	// Admin A attempts to change role of a non-existent user under Account A
-	err = svc.ChangeUserRole(ctx, accountA, adminA, uuid.New(), "admin")
+	// Manager A attempts to change role of a non-existent user under Account A
+	err = svc.ChangeUserRole(ctx, accountA, adminA, uuid.New(), "manager")
 	assert.Error(t, err, "non-existent user role change must be rejected")
 	assert.EqualError(t, err, "user not found in account")
 }
