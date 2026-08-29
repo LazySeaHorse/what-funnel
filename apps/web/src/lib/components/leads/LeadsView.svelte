@@ -22,6 +22,7 @@
 		users = [],
 		notes = [],
 		assignedUserIds = [],
+		canManageAssignments = false,
 		onSelectFilter = () => {},
 		onSelectLead = () => {},
 		onToggleCheckbox = () => {},
@@ -52,6 +53,7 @@
 		users?: any[];
 		notes?: any[];
 		assignedUserIds?: string[];
+		canManageAssignments?: boolean;
 		onSelectFilter: (key: string) => void;
 		onSelectLead: (lead: any) => void;
 		onToggleCheckbox: (id: string, e: MouseEvent) => void;
@@ -95,6 +97,7 @@
 				{users}
 				{notes}
 				{assignedUserIds}
+				{canManageAssignments}
 				onClose={onCloseDrawer}
 				{onOpenChat}
 				{onChangeState}

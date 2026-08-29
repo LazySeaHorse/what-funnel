@@ -9,6 +9,7 @@
 		users = [],
 		notes = [],
 		assignedUserIds = [],
+		canManageAssignments = false,
 		onClose = () => {},
 		onOpenChat = () => {},
 		onChangeState = () => {},
@@ -22,6 +23,7 @@
 		users?: any[];
 		notes?: any[];
 		assignedUserIds?: string[];
+		canManageAssignments?: boolean;
 		onClose: () => void;
 		onOpenChat: (convoId: string) => void;
 		onChangeState: (stateKey: string) => void;
@@ -166,6 +168,7 @@
 				{/if}
 			</div>
 
+			{#if canManageAssignments}
 			<!-- Assigned to Section -->
 			<div class="space-y-1.5 relative">
 				<span class="font-medium text-slate-700">Assigned to</span>
@@ -201,6 +204,7 @@
 					</div>
 				{/if}
 			</div>
+			{/if}
 
 			<!-- Tags Section -->
 			<div class="space-y-1.5">

@@ -16,6 +16,7 @@
 
 	const inbox = new InboxState();
 	const workspace = new WorkspaceState();
+	let capabilities = $derived(workspace.capabilities);
 
 	// Navigation state
 	let selectedNav = $state<'inbox' | 'leads' | 'automation' | 'knowledge' | 'contacts' | 'simulate' | 'settings'>('inbox');
@@ -49,6 +50,15 @@
 	let loadingNotes = $state(false);
 	let isTyping = $state(false);
 
+	function canOpenNav(tab: typeof selectedNav): boolean {
+		if (tab === 'leads') return capabilities.leadTracking;
+		if (tab === 'contacts') return capabilities.viewContacts;
+		if (tab === 'automation') return capabilities.manageAutomation;
+		if (tab === 'knowledge') return capabilities.manageKnowledge;
+		if (tab === 'simulate') return capabilities.useSimulator;
+		return true;
+	}
+
 	$effect(() => {
 		const account = workspace.account;
 		if (account) {
@@ -65,6 +75,15 @@
 			}
 		}
 		pipelineStates = workspace.pipeline?.states || [];
+	});
+
+	$effect(() => {
+		if (!canOpenNav(selectedNav)) selectedNav = 'inbox';
+		if (!capabilities.leadTracking) {
+			replyTab = 'reply';
+			inbox.stateFilter = '';
+		}
+		inbox.configureCapabilities(capabilities);
 	});
 
 	// Setup banner — step numbers reflect the 7-step onboarding flow:
@@ -381,7 +400,12 @@
 					return;
 				}
 				workspace.users = inbox.users;
-				void workspace.loadCore(inbox.currentUser).catch((err) => console.error('Failed to load workspace data', err));
+				await workspace.loadCore(inbox.currentUser);
+				inbox.configureCapabilities(capabilities);
+				if (!capabilities.leadTracking && inbox.filter !== 'all') {
+					inbox.filter = 'all';
+					await inbox.loadConversations();
+				}
 				void loadSetupBanner();
 				void loadAIProviderStatus();
 
@@ -389,7 +413,8 @@
 					const urlParams = new URLSearchParams(window.location.search);
 					const tabParam = urlParams.get('tab');
 					if (tabParam && ['inbox', 'leads', 'automation', 'knowledge', 'contacts', 'simulate', 'settings'].includes(tabParam)) {
-						selectedNav = tabParam as any;
+						const requestedTab = tabParam as typeof selectedNav;
+						selectedNav = canOpenNav(requestedTab) ? requestedTab : 'inbox';
 					}
 				}
 
@@ -397,7 +422,7 @@
 				if (inbox.conversations.length > 0 && !inbox.activeConvoID) {
 					await selectConvo(inbox.conversations[0].id);
 				}
-				if (inbox.currentUser.role === 'manager') {
+				if (capabilities.manageWorkspace) {
 					// Warm the Settings-only channel data after the first conversation is
 					// ready, so entering Settings normally needs no network round trip.
 					void workspace.loadSettings(inbox.currentUser).catch((err) => console.error('Failed to prefetch settings', err));
@@ -886,6 +911,7 @@
 					<span>Inbox</span>
 				</button>
 
+				{#if capabilities.leadTracking}
 				<!-- Leads -->
 				<button
 					onclick={() => selectedNav = 'leads'}
@@ -896,7 +922,9 @@
 					</svg>
 					<span>Leads</span>
 				</button>
+				{/if}
 
+				{#if capabilities.manageAutomation}
 				<!-- Automation -->
 				<button
 					onclick={() => selectedNav = 'automation'}
@@ -907,7 +935,9 @@
 					</svg>
 					<span>Automation</span>
 				</button>
+				{/if}
 
+				{#if capabilities.manageKnowledge}
 				<!-- Knowledge -->
 				<button
 					onclick={() => selectedNav = 'knowledge'}
@@ -920,7 +950,9 @@
 					</svg>
 					<span>Knowledge</span>
 				</button>
+				{/if}
 
+				{#if capabilities.viewContacts}
 				<!-- Contacts -->
 				<button
 					onclick={() => selectedNav = 'contacts'}
@@ -931,7 +963,9 @@
 					</svg>
 					<span>Contacts</span>
 				</button>
+				{/if}
 
+				{#if capabilities.useSimulator}
 				<!-- Simulate (Dev) -->
 				<button
 					onclick={() => selectedNav = 'simulate'}
@@ -945,6 +979,7 @@
 					</div>
 					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {selectedNav === 'simulate' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'}">DEV</span>
 				</button>
+				{/if}
 
 				<!-- Settings -->
 				<button
@@ -955,7 +990,7 @@
 						<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
 						<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 					</svg>
-					<span>Settings</span>
+					<span>{capabilities.isManager ? 'Settings' : 'Preferences'}</span>
 				</button>
 			</nav>
 		</div>
@@ -1042,6 +1077,7 @@
 				</div>
 
 				<!-- User Name & Title Box (Outline only, matching height) -->
+				{#if capabilities.showOperatorIdentity}
 				<div class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
 					<div class="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 border border-blue-100/80 flex items-center justify-center text-xs font-medium shrink-0">
 						{(inbox.currentUser?.username || inbox.currentUser?.name || inbox.currentUser?.email || 'U').charAt(0).toUpperCase()}
@@ -1055,6 +1091,7 @@
 						</span>
 					</div>
 				</div>
+				{/if}
 			</div>
 		</header>
 
@@ -1069,6 +1106,7 @@
 					<div class="p-4 pb-3 border-b border-slate-100 space-y-3">
 						<div class="flex items-center justify-between">
 							<h1 class="text-xl lg:text-lg font-medium text-slate-900 tracking-tight">Inbox</h1>
+							{#if capabilities.leadTracking}
 							<div class="relative">
 								<button
 									type="button"
@@ -1133,6 +1171,7 @@
 									</div>
 								{/if}
 							</div>
+							{/if}
 						</div>
 
 						<!-- Search bar (matching mobile mock) -->
@@ -1150,6 +1189,7 @@
 							/>
 						</div>
 
+						{#if capabilities.leadTracking}
 						<!-- Tabs: All / Unassigned / Mine -->
 						<div class="flex items-center gap-1.5 text-xs overflow-x-auto pb-0.5">
 							<button
@@ -1176,8 +1216,9 @@
 								<span class="text-slate-400 text-[11px]">{countMine}</span>
 							</button>
 						</div>
+						{/if}
 
-						{#if inbox.stateFilter}
+						{#if capabilities.leadTracking && inbox.stateFilter}
 							<div class="flex items-center gap-1.5 text-[11px] text-blue-700 bg-blue-50/80 px-2.5 py-1 rounded-lg border border-blue-200/60">
 								<span class="text-slate-500">Stage:</span>
 								<span class="font-medium">{getLeadStateInfo(inbox.stateFilter).label}</span>
@@ -1249,7 +1290,7 @@
 										<!-- Badges -->
 										<div class="flex items-center justify-between mt-1.5">
 											<div>
-												{#if item.lead?.current_state_key}
+										{#if capabilities.leadTracking && item.lead?.current_state_key}
 													<LeadStateBadge stateKey={item.lead.current_state_key} size="xs" />
 												{/if}
 											</div>
@@ -1305,6 +1346,7 @@
 							</div>
 
 							<div class="flex items-center gap-2">
+								{#if capabilities.manageAssignments}
 								<!-- Assign button -->
 								<div class="relative">
 									<button
@@ -1335,6 +1377,7 @@
 										</div>
 									{/if}
 								</div>
+								{/if}
 
 								<!-- Status badge / action dropdown -->
 								<div class="relative">
@@ -1428,7 +1471,7 @@
 
 						<!-- --- Chat Composer & AI Suggestion (matching mock) --- -->
 						<div class="p-3 sm:p-4 bg-white border-t border-slate-100 shrink-0">
-							{#if activeAIReplyDraft && appliedAIReplyDraftID !== activeAIReplyDraft.id && replyTab === 'reply'}
+							{#if capabilities.useReplyDrafts && activeAIReplyDraft && appliedAIReplyDraftID !== activeAIReplyDraft.id && replyTab === 'reply'}
 								<!-- AI Suggested Response Box (floating above composer matching mock) -->
 								<div class="mb-3 p-3 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1.5 relative">
 									<div class="flex items-center justify-between">
@@ -1463,6 +1506,7 @@
 							{/if}
 
 							<div class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden">
+								{#if capabilities.leadTracking}
 								<!-- Tabs: Reply | Internal Note -->
 								<div class="flex items-center gap-6 px-4 pt-2.5 border-b border-slate-100 text-xs font-medium">
 									<button
@@ -1478,6 +1522,7 @@
 										Internal Note
 									</button>
 								</div>
+								{/if}
 
 								{#if replyTab === 'reply'}
 									<!-- Text Input Area -->
@@ -1553,6 +1598,7 @@
 					{/if}
 				</div>
 
+				{#if capabilities.showConversationSidePanel}
 				<!-- ================= COLUMN 3: RIGHT DETAILS & AI SUMMARY ================= -->
 				<div class="lead-panel hidden lg:flex w-[300px] xl:w-[320px] bg-white flex-col shrink-0 overflow-y-auto min-h-0 h-full">
 					<!-- Header Tabs: Lead / Details / Activity -->
@@ -1618,6 +1664,7 @@
 								{/if}
 							</div>
 
+							{#if capabilities.manageAssignments}
 							<!-- Assigned to -->
 							<div class="space-y-1.5">
 								<span class="text-xs font-medium text-slate-500">Assigned to</span>
@@ -1641,6 +1688,7 @@
 									</button>
 								</div>
 							</div>
+							{/if}
 
 							<!-- Tags -->
 							<div class="space-y-1.5">
@@ -1763,6 +1811,7 @@
 						{/if}
 					</div>
 				</div>
+				{/if}
 
 			</div>
 
@@ -1814,6 +1863,7 @@
 										</select>
 									</div>
 
+									{#if capabilities.manageAssignments}
 									<!-- Assignee Filter -->
 									<div>
 										<label for="leads-assignee-filter" class="block text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-1.5">Assignee</label>
@@ -1829,6 +1879,7 @@
 											{/each}
 										</select>
 									</div>
+									{/if}
 
 									<!-- Footer / Reset -->
 									<div class="flex items-center justify-between pt-2 border-t border-slate-100">
@@ -1910,6 +1961,7 @@
 					users={inbox.users}
 					notes={notes}
 					assignedUserIds={inbox.activeConvo?.assigned_user_ids || []}
+					canManageAssignments={capabilities.manageAssignments}
 					onSelectFilter={(key) => leadsFilterTab = key}
 					onSelectLead={handleSelectLeadRow}
 					onToggleCheckbox={toggleLeadRowCheckbox}
@@ -2223,13 +2275,14 @@
 					<svg class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
 					</svg>
-					{#if countUnassigned > 0}
+					{#if capabilities.leadTracking && countUnassigned > 0}
 						<span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-600"></span>
 					{/if}
 				</div>
 				<span class="text-[11px] mt-0.5">Inbox</span>
 			</a>
 
+			{#if capabilities.leadTracking}
 			<!-- 2. Leads -->
 			<a
 				href="#leads"
@@ -2242,7 +2295,9 @@
 				</svg>
 				<span class="text-[11px] mt-0.5">Leads</span>
 			</a>
+			{/if}
 
+			{#if capabilities.manageAutomation}
 			<!-- 3. Automate -->
 			<a
 				href="#automate"
@@ -2255,7 +2310,9 @@
 				</svg>
 				<span class="text-[11px] mt-0.5">Automate</span>
 			</a>
+			{/if}
 
+			{#if capabilities.manageKnowledge}
 			<!-- 4. Knowledge -->
 			<a
 				href="#knowledge"
@@ -2268,6 +2325,7 @@
 				</svg>
 				<span class="text-[11px] mt-0.5">Knowledge</span>
 			</a>
+			{/if}
 
 			<!-- 5. Settings -->
 			<a
@@ -2280,7 +2338,7 @@
 					<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
 					<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 				</svg>
-				<span class="text-[11px] mt-0.5">Settings</span>
+				<span class="text-[11px] mt-0.5">{capabilities.isManager ? 'Settings' : 'Preferences'}</span>
 			</a>
 		</nav>
 	{/if}

@@ -14,6 +14,7 @@ export interface UICapabilities {
 	manageTeam: boolean;
 	manageChannels: boolean;
 	managePipeline: boolean;
+	manageAutomation: boolean;
 	manageKnowledge: boolean;
 	useSimulator: boolean;
 	showOperatorIdentity: boolean;
@@ -44,9 +45,9 @@ export function getUICapabilities(account?: any, user?: any): UICapabilities {
 		manageTeam: manageAssignments,
 		manageChannels: isManager,
 		managePipeline: isManager && leadTracking,
+		manageAutomation: isManager,
 		manageKnowledge: isManager,
 		useSimulator: isManager,
 		showOperatorIdentity: manageAssignments
 	};
 }
-

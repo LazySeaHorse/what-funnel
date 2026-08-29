@@ -1,4 +1,5 @@
 import { apiRequest } from '$lib/api';
+import type { UICapabilities } from '$lib/ui-capabilities';
 
 export interface AIReplyDraft {
 	id: string;
@@ -30,6 +31,12 @@ export class InboxState {
 	reconnectAttempts = 0;
 	private conversationRequest: AbortController | null = null;
 	private conversationRequestVersion = 0;
+	private replyDraftsEnabled = false;
+
+	configureCapabilities(capabilities: UICapabilities) {
+		this.replyDraftsEnabled = capabilities.useReplyDrafts;
+		if (!this.replyDraftsEnabled) this.replyDrafts = {};
+	}
 	
 	async init() {
 		try {
@@ -81,13 +88,13 @@ export class InboxState {
 			const [conversation, messageResponse, draftResponse] = await Promise.all([
 				apiRequest(`/conversations/${convoID}`, { signal: controller.signal }),
 				apiRequest(`/conversations/${convoID}/messages?limit=20`, { signal: controller.signal }),
-				apiRequest(`/conversations/${convoID}/reply-draft`, { signal: controller.signal })
+				this.replyDraftsEnabled ? apiRequest(`/conversations/${convoID}/reply-draft`, { signal: controller.signal })
 					.catch((err) => {
 						if (!(err instanceof DOMException && err.name === 'AbortError')) {
 							console.error('Failed to load AI reply draft', err);
 						}
 						return { draft: null };
-					})
+					}) : Promise.resolve({ draft: null })
 			]);
 			if (requestVersion !== this.conversationRequestVersion) return;
 
@@ -251,7 +258,7 @@ export class InboxState {
 			this.wsStatus = 'connected';
 			this.reconnectAttempts = 0;
 			console.log('WS connected');
-			void this.loadReplyDraft();
+			if (this.replyDraftsEnabled) void this.loadReplyDraft();
 		};
 		
 		this.ws.onmessage = async (e) => {
@@ -300,6 +307,7 @@ export class InboxState {
 						break;
 
 					case 'ai.reply_ready':
+						if (!this.replyDraftsEnabled) break;
 						if (event.action === 'drafted' && event.draft_id && event.draft_text) {
 							this.setReplyDraft(event.conversation_id, {
 								id: event.draft_id,
