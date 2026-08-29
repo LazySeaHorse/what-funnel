@@ -60,4 +60,40 @@ test.describe('onboarding persistence', () => {
 		expect(api.isAIConfigured()).toBe(true);
 		expect(api.requests).toContainEqual(expect.objectContaining({ path: '/workspace/account/ai-config', method: 'PUT' }));
 	});
+
+	test('chatbot-only onboarding skips lead and team setup without requesting their APIs', async ({ page }) => {
+		const api = await mockOnboardingApi(page, [], true, 'chatbot_only');
+		await page.goto('/onboarding/1');
+		await expect(page.getByText('Step 1 of 5', { exact: true })).toBeVisible();
+
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/2$/);
+		await expect(page.getByText('Step 2 of 5', { exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/5$/);
+		await expect(page.getByText('Step 3 of 5', { exact: true })).toBeVisible();
+
+		expect(api.requests.some((request) => request.path === '/workspace/pipelines')).toBe(false);
+		expect(api.requests.some((request) => request.path === '/workspace/users')).toBe(false);
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/onboarding/status',
+			method: 'PATCH',
+			body: { step: 'pipeline_setup', action: 'skip' }
+		}));
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/onboarding/status',
+			method: 'PATCH',
+			body: { step: 'team_setup', action: 'skip' }
+		}));
+	});
+
+	test('chatbot-only review omits lead and team summaries', async ({ page }) => {
+		await mockOnboardingApi(page, [], true, 'chatbot_only');
+		await page.goto('/onboarding/7');
+		await expect(page.getByText('Step 5 of 5', { exact: true })).toBeVisible();
+		await expect(page.getByText('Lead pipeline', { exact: true })).not.toBeVisible();
+		await expect(page.getByText('Team', { exact: true })).not.toBeVisible();
+		await expect(page.getByText('AI Assistant', { exact: true }).last()).toBeVisible();
+		await expect(page.getByText('Knowledge Base', { exact: true }).last()).toBeVisible();
+	});
 });

@@ -27,7 +27,7 @@ test.describe('in-app settings safety net', () => {
 		}
 	});
 
-	test('an admin can save a BYOK provider configuration without the key being displayed again', async ({ page }) => {
+	test('a manager can save a BYOK provider configuration without the key being displayed again', async ({ page }) => {
 		await openMockedSettings(page);
 		await page.getByRole('tab', { name: 'AI provider', exact: true }).click();
 
@@ -136,6 +136,9 @@ test.describe('in-app settings safety net', () => {
 		await page.getByRole('radio', { name: /Chatbot only/ }).check();
 		await expect(page.getByText('Workspace type updated.', { exact: true })).toBeVisible();
 		await expect(page.getByRole('tab', { name: /Lead pipeline/ })).not.toBeVisible();
+		await expect(page.getByRole('button', { name: 'Leads', exact: true })).not.toBeVisible();
+		await expect(page.getByRole('button', { name: 'Contacts', exact: true })).not.toBeVisible();
+		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 	});
 
 	test('pipeline editor rejects duplicate stage keys before it can create an invalid pipeline', async ({ page }) => {

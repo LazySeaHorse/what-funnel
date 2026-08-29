@@ -23,12 +23,26 @@ const settings = encodeSettings({
 	unassigned_conversations_visible_to_members: true
 });
 
-export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
+export interface MockWorkspaceOptions {
+	role?: 'manager' | 'agent';
+	productMode?: 'full_workspace' | 'chatbot_only';
+	failures?: string[];
+	conversations?: any[];
+	replyDraft?: any | null;
+}
+
+export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
+	const role = options.role ?? 'manager';
+	const failures = options.failures ?? [];
+	const requests: Array<{ path: string; method: string }> = [];
 	let accountName = 'Test Workspace';
 	let accountSlug = 'test-slug';
-	let productMode = 'full_workspace';
+	let productMode: string = options.productMode ?? 'full_workspace';
 	let accountSettings = settings;
-	let users = [{ id: 'user-1', email: 'admin@example.test', username: 'admin', role: 'manager' }];
+	let users: Array<{ id: string; email: string; username: string; role: string; password?: string }> = [
+		{ id: 'user-1', email: `${role}@example.test`, username: role, role }
+	];
+	let replyMode: string | null = null;
 	let channels: Array<{ id: string; type: string; status: string; bridge_identity?: string }> = [];
 	let bridgeConnections: Array<{ channel_id: string; platform: string; state: string; detail: string }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
@@ -38,6 +52,7 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 		const request = route.request();
 		const path = new URL(request.url()).pathname.replace('/api-gateway', '');
 		const body = request.postDataJSON?.() as Record<string, unknown> | undefined;
+		requests.push({ path, method: request.method() });
 
 		if (failures.includes(path)) {
 			await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Service unavailable' }) });
@@ -45,7 +60,7 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 		}
 
 		const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
-		if (path === '/auth/me') return json({ id: 'user-1', email: 'admin@example.test', username: 'admin', role: 'manager' });
+		if (path === '/auth/me') return json({ id: 'user-1', user_id: 'user-1', email: `${role}@example.test`, username: role, role });
 		if (path === '/workspace/account') {
 			if (request.method() === 'GET') return json({ id: 'account-1', name: accountName, product_mode: productMode, settings: accountSettings });
 			if (request.method() === 'PATCH') {
@@ -91,6 +106,18 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 				return json(newUser);
 			}
 		}
+		if (path === '/workspace/users/me/reply-mode') {
+			if (request.method() === 'GET') {
+				return json({
+					reply_mode: replyMode,
+					workspace_default: 'draft_only',
+					effective_reply_mode: replyMode || 'draft_only',
+					override_allowed: true
+				});
+			}
+			replyMode = typeof body?.reply_mode === 'string' ? body.reply_mode : null;
+			return json({ status: 'updated' });
+		}
 		if (path.startsWith('/workspace/users/') && path.endsWith('/role')) {
 			users = users.map((user) => user.id === path.split('/')[3] ? { ...user, role: String(body?.role) } : user);
 			return json({ status: 'updated' });
@@ -126,13 +153,28 @@ export async function mockWorkspaceApi(page: Page, failures: string[] = []) {
 			pipeline = { ...pipeline, name: String(body?.name || pipeline.name), states: Array.isArray(body?.states) ? body.states as typeof pipeline.states : pipeline.states };
 			return json(pipeline);
 		}
-		if (path === '/conversations') return json([]);
+		if (path === '/conversations') return json(options.conversations ?? []);
+		if (/^\/conversations\/[^/]+$/.test(path)) {
+			const conversationID = path.split('/')[2];
+			return json((options.conversations ?? []).find((conversation) => conversation.id === conversationID) ?? {});
+		}
+		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: [], next_cursor: null });
+		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
+		if (/^\/conversations\/[^/]+\/read$/.test(path)) return json({ status: 'read' });
+		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
 		if (path === '/onboarding/status') return json({ completed_at: '2026-01-01T00:00:00Z', skipped_steps: [] });
 		return json({});
 	});
+
+	return { requests };
 }
 
-export async function mockOnboardingApi(page: Page, failures: string[] = [], configured = true) {
+export async function mockOnboardingApi(
+	page: Page,
+	failures: string[] = [],
+	configured = true,
+	productMode: 'full_workspace' | 'chatbot_only' = 'full_workspace'
+) {
 	let accountName = 'Setup Studio';
 	let accountSlug = 'setup-studio';
 	let accountSettings: Record<string, unknown> = {};
@@ -159,7 +201,7 @@ export async function mockOnboardingApi(page: Page, failures: string[] = [], con
 		const json = (value: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
 		if (path === '/auth/me') return json({ id: 'user-setup', role: 'manager' });
 		if (path === '/workspace/account') {
-			if (method === 'GET') return json({ id: 'account-setup', name: accountName, settings: encodeSettings(accountSettings) });
+			if (method === 'GET') return json({ id: 'account-setup', name: accountName, product_mode: productMode, settings: encodeSettings(accountSettings) });
 			accountName = String(body?.name || accountName);
 			return json({ status: 'updated' });
 		}
