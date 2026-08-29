@@ -87,6 +87,9 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			return json({ status: 'updated' });
 		}
 		if (path === '/workspace/account/ai-config/status') return json({ configured: aiConfigured });
+		if (path === '/workspace/account/ai-config/test') {
+			return json({ ok: true, message: 'AI provider connection verified successfully' });
+		}
 		if (path === '/workspace/account/ai-config' && request.method() === 'PUT') {
 			aiConfigured = true;
 			return json({ status: 'updated' });
@@ -227,6 +230,7 @@ export async function mockOnboardingApi(
 			return json({ status: 'updated' });
 		}
 		if (path === '/workspace/account/ai-config/status') return json({ configured: aiConfigured });
+		if (path === '/workspace/account/ai-config/test') return json({ ok: true, message: 'AI provider connection verified successfully' });
 		if (path === '/workspace/account/ai-config' && method === 'PUT') {
 			aiConfigured = true;
 			return json({ status: 'updated' });

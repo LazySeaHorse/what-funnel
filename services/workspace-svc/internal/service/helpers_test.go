@@ -1,7 +1,10 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -212,3 +215,99 @@ func TestSortedTemplates(t *testing.T) {
 func ptr[T any](v T) *T {
 	return &v
 }
+
+func TestTestAIProviderConfig_Success(t *testing.T) {
+	var chatCalled, embedCalled bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
+		if r.URL.Path == "/chat/completions" {
+			chatCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+			return
+		}
+		if r.URL.Path == "/embeddings" {
+			embedCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1, 0.2]}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	configJSON, err := json.Marshal(map[string]string{
+		"api_key":          "test-key",
+		"base_url":         srv.URL,
+		"completion_model": "test-model",
+		"embedding_model":  "test-embed",
+	})
+	assert.NoError(t, err)
+
+	err = svc.TestAIProviderConfig(context.Background(), string(configJSON))
+	assert.NoError(t, err)
+	assert.True(t, chatCalled)
+	assert.True(t, embedCalled)
+}
+
+func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/chat/completions" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`[{"error":{"code":403,"message":"Your API key was reported as leaked. Please use another API key.","status":"PERMISSION_DENIED"}}]`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	configJSON, err := json.Marshal(map[string]string{
+		"api_key":          "leaked-key",
+		"base_url":         srv.URL,
+		"completion_model": "test-model",
+		"embedding_model":  "test-embed",
+	})
+	assert.NoError(t, err)
+
+	err = svc.TestAIProviderConfig(context.Background(), string(configJSON))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Your API key was reported as leaked. Please use another API key.")
+}
+
+func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/chat/completions" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+			return
+		}
+		if r.URL.Path == "/embeddings" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"Model 'unknown-embed' not found."}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	configJSON, err := json.Marshal(map[string]string{
+		"api_key":          "test-key",
+		"base_url":         srv.URL,
+		"completion_model": "test-model",
+		"embedding_model":  "unknown-embed",
+	})
+	assert.NoError(t, err)
+
+	err = svc.TestAIProviderConfig(context.Background(), string(configJSON))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Model 'unknown-embed' not found.")
+}
+

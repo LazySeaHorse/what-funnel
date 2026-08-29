@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -148,6 +149,69 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) TestAIConfig(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+
+	var body struct {
+		Config          string `json:"config"`
+		APIKey          string `json:"api_key"`
+		BaseURL         string `json:"base_url"`
+		CompletionModel string `json:"completion_model"`
+		EmbeddingModel  string `json:"embedding_model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	configJSON := body.Config
+	if configJSON == "" && (body.APIKey != "" || body.BaseURL != "" || body.CompletionModel != "" || body.EmbeddingModel != "") {
+		b, _ := json.Marshal(map[string]string{
+			"api_key":          body.APIKey,
+			"base_url":         body.BaseURL,
+			"completion_model": body.CompletionModel,
+			"embedding_model":  body.EmbeddingModel,
+		})
+		configJSON = string(b)
+	}
+
+	config, err := mergeAIProviderConfig(configJSON, "")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
+		return
+	}
+
+	if !aiProviderConfigHasKey(config) {
+		existing, err := h.svc.GetAIProviderConfig(r.Context(), accountID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		config, err = mergeAIProviderConfig(configJSON, existing)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
+			return
+		}
+		if !aiProviderConfigHasKey(config) {
+			writeError(w, http.StatusBadRequest, "AI provider API key is required")
+			return
+		}
+	}
+
+	if err := h.svc.TestAIProviderConfig(r.Context(), config); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "AI provider connection verified successfully",
+	})
 }
 
 func (h *Handler) GetAIConfigStatus(w http.ResponseWriter, r *http.Request) {

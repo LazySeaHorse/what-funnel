@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/Icon.svelte';
+	import { apiRequest } from '$lib/api';
 
 	let {
 		step,
@@ -20,6 +21,41 @@
 		completionModel: string;
 		embeddingModel: string;
 	} = $props();
+
+	let testing = $state(false);
+	let testResult = $state<{ ok: boolean; message: string } | null>(null);
+
+	async function testConnection() {
+		if (!providerConfigured && !providerApiKey.trim()) {
+			testResult = { ok: false, message: 'API key is required to test the connection.' };
+			return;
+		}
+		if (!providerBaseURL.trim() || !completionModel.trim() || !embeddingModel.trim()) {
+			testResult = { ok: false, message: 'Base URL, completion model, and embedding model are required.' };
+			return;
+		}
+
+		testing = true;
+		testResult = null;
+		try {
+			const res = await apiRequest('/workspace/account/ai-config/test', {
+				method: 'POST',
+				body: {
+					config: JSON.stringify({
+						api_key: providerApiKey.trim(),
+						base_url: providerBaseURL.trim().replace(/\/$/, ''),
+						completion_model: completionModel.trim(),
+						embedding_model: embeddingModel.trim()
+					})
+				}
+			});
+			testResult = { ok: true, message: res?.message || 'Connection verified successfully!' };
+		} catch (error: any) {
+			testResult = { ok: false, message: error?.message || 'Connection test failed.' };
+		} finally {
+			testing = false;
+		}
+	}
 </script>
 
 				<div class="text-center lg:text-left mb-6">
@@ -122,6 +158,21 @@
 								<label class="space-y-1.5 text-xs font-medium text-slate-700">Completion model<input aria-label="Completion model" bind:value={completionModel} class="wf-input" required /></label>
 								<label class="space-y-1.5 text-xs font-medium text-slate-700">Embedding model<input aria-label="Embedding model" bind:value={embeddingModel} class="wf-input" required /></label>
 							</div>
+							<div class="flex items-center justify-between pt-1">
+								<button
+									type="button"
+									onclick={testConnection}
+									disabled={testing || (!providerConfigured && !providerApiKey.trim())}
+									class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									{testing ? 'Testing...' : 'Test connection'}
+								</button>
+							</div>
+							{#if testResult}
+								<div role={testResult.ok ? 'status' : 'alert'} class="rounded-lg border p-2.5 text-xs font-medium {testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}">
+									{testResult.message}
+								</div>
+							{/if}
 						</div>
 					{/if}
 				</div>

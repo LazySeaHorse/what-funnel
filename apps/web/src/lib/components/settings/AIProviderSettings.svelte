@@ -10,6 +10,7 @@
 	let showKey = $state(false);
 	let loading = $state(true);
 	let saving = $state(false);
+	let testing = $state(false);
 	let message = $state<{ kind: 'success' | 'error'; text: string } | null>(null);
 
 	onMount(async () => {
@@ -26,6 +27,38 @@
 		}
 	});
 
+	async function testConnection() {
+		if (!configured && !apiKey.trim()) {
+			message = { kind: 'error', text: 'API key is required to test connection.' };
+			return;
+		}
+		if (!baseURL.trim() || !completionModel.trim() || !embeddingModel.trim()) {
+			message = { kind: 'error', text: 'Base URL, completion model, and embedding model are required.' };
+			return;
+		}
+
+		testing = true;
+		message = null;
+		try {
+			const res = await apiRequest('/workspace/account/ai-config/test', {
+				method: 'POST',
+				body: {
+					config: JSON.stringify({
+						api_key: apiKey.trim(),
+						base_url: baseURL.trim().replace(/\/$/, ''),
+						completion_model: completionModel.trim(),
+						embedding_model: embeddingModel.trim()
+					})
+				}
+			});
+			message = { kind: 'success', text: res?.message || 'AI provider connection verified successfully!' };
+		} catch (error: any) {
+			message = { kind: 'error', text: error?.message || 'AI provider test failed.' };
+		} finally {
+			testing = false;
+		}
+	}
+
 	async function save() {
 		if (!configured && !apiKey.trim()) {
 			message = { kind: 'error', text: 'API key is required.' };
@@ -39,6 +72,19 @@
 		saving = true;
 		message = null;
 		try {
+			// Validate credentials first
+			await apiRequest('/workspace/account/ai-config/test', {
+				method: 'POST',
+				body: {
+					config: JSON.stringify({
+						api_key: apiKey.trim(),
+						base_url: baseURL.trim().replace(/\/$/, ''),
+						completion_model: completionModel.trim(),
+						embedding_model: embeddingModel.trim()
+					})
+				}
+			});
+
 			await apiRequest('/workspace/account/ai-config', {
 				method: 'PUT',
 				body: {
@@ -53,7 +99,7 @@
 			apiKey = '';
 			showKey = false;
 			configured = true;
-			message = { kind: 'success', text: 'AI provider configuration saved.' };
+			message = { kind: 'success', text: 'AI provider verified and saved successfully.' };
 		} catch (error: any) {
 			message = { kind: 'error', text: error?.message || 'Failed to save AI provider configuration.' };
 		} finally {
@@ -78,7 +124,7 @@
 		<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-xs leading-relaxed text-emerald-800">A provider is connected. The saved key is write-only and will be retained unless you enter a replacement. The URL and model defaults can be edited independently.</div>
 	{/if}
 
-	<fieldset disabled={loading || saving} class="space-y-4 text-xs disabled:opacity-60">
+	<fieldset disabled={loading || saving || testing} class="space-y-4 text-xs disabled:opacity-60">
 		<div class="space-y-1.5">
 			<label for="aiSettingsApiKey" class="block font-medium text-slate-700">{configured ? 'New API key' : 'API key'}</label>
 			<div class="relative">
@@ -93,5 +139,15 @@
 			<div class="space-y-1.5"><label for="aiSettingsEmbeddingModel" class="block font-medium text-slate-700">Embedding model</label><input id="aiSettingsEmbeddingModel" bind:value={embeddingModel} class="wf-input" required /></div>
 		</div>
 	</fieldset>
-	<div class="flex justify-end border-t border-slate-100 pt-5"><button type="submit" disabled={loading || saving || (!configured && !apiKey.trim())} class="wf-button-primary px-5 py-2.5 disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving...' : configured ? 'Save changes' : 'Save provider'}</button></div>
+	<div class="flex items-center justify-between border-t border-slate-100 pt-5">
+		<button
+			type="button"
+			onclick={testConnection}
+			disabled={loading || saving || testing || (!configured && !apiKey.trim())}
+			class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+		>
+			{testing ? 'Testing...' : 'Test connection'}
+		</button>
+		<button type="submit" disabled={loading || saving || testing || (!configured && !apiKey.trim())} class="wf-button-primary px-5 py-2.5 disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving...' : configured ? 'Save changes' : 'Save provider'}</button>
+	</div>
 </form>

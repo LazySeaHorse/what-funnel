@@ -96,4 +96,24 @@ test.describe('onboarding persistence', () => {
 		await expect(page.getByText('AI Assistant', { exact: true }).last()).toBeVisible();
 		await expect(page.getByText('Knowledge Base', { exact: true }).last()).toBeVisible();
 	});
+
+	test('manual only AI mode auto-skips knowledge base paste step', async ({ page }) => {
+		const api = await mockOnboardingApi(page, [], false);
+		await page.goto('/onboarding/5');
+		await page.getByRole('button', { name: /Manual only/ }).click();
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+
+		// Directly advances to Step 7 (Review & Finish), skipping Step 6
+		await expect(page).toHaveURL(/\/onboarding\/7$/);
+		expect(api.getSettings()).toMatchObject({ ai_enabled: false, ai_reply_mode_default: 'draft_only' });
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/onboarding/status',
+			method: 'PATCH',
+			body: { step: 'kb_setup', action: 'skip' }
+		}));
+
+		// Back navigation from Step 7 returns to Step 5
+		await page.getByRole('button', { name: 'Back', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/5$/);
+	});
 });

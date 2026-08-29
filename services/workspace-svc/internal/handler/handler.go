@@ -59,6 +59,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.UpdateSettings)))).Methods(http.MethodPut)
 	r.Handle("/workspace/account/settings", auth(admin(http.HandlerFunc(h.PatchSettings)))).Methods(http.MethodPatch)
 	r.Handle("/workspace/account/ai-config", auth(admin(http.HandlerFunc(h.UpdateAIConfig)))).Methods(http.MethodPut)
+	r.Handle("/workspace/account/ai-config/test", auth(admin(http.HandlerFunc(h.TestAIConfig)))).Methods(http.MethodPost)
 	r.Handle("/workspace/account/ai-config/status", auth(http.HandlerFunc(h.GetAIConfigStatus))).Methods(http.MethodGet)
 	r.Handle("/workspace/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)
 	r.Handle("/account/product-mode", auth(admin(http.HandlerFunc(h.UpdateProductMode)))).Methods(http.MethodPatch)

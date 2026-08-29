@@ -34,7 +34,16 @@
 		{ num: 6, label: 'Knowledge Base' },
 		{ num: 7, label: 'Review & Finish' }
 	];
-	let visibleStepItems = $derived(productMode === 'chatbot_only' ? STEP_ITEMS.filter((item) => item.num !== 3 && item.num !== 4) : STEP_ITEMS);
+	let visibleStepItems = $derived.by(() => {
+		let items = STEP_ITEMS;
+		if (productMode === 'chatbot_only') {
+			items = items.filter((item) => item.num !== 3 && item.num !== 4);
+		}
+		if (s5AiMode === 'manual') {
+			items = items.filter((item) => item.num !== 6);
+		}
+		return items;
+	});
 	let displayStepNum = $derived(Math.max(1, visibleStepItems.findIndex((item) => item.num === stepNum) + 1));
 
 	// Step 1: Business info
@@ -183,6 +192,10 @@
 	function handleBack() {
 		if (stepNum === 6 && s6Status === 'results') {
 			s6Status = 'input';
+			return;
+		}
+		if (stepNum === 7 && s5AiMode === 'manual') {
+			goToStep(5);
 			return;
 		}
 		if (productMode === 'chatbot_only' && stepNum === 5) {
@@ -368,12 +381,24 @@
 					throw new Error('Add your AI provider API key, or choose Manual only.');
 				}
 				if (s5AiMode !== 'manual') {
+					await apiRequest('/workspace/account/ai-config/test', {
+						method: 'POST',
+						body: {
+							config: JSON.stringify({
+								api_key: aiProviderApiKey.trim(),
+								base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
+								completion_model: aiCompletionModel.trim(),
+								embedding_model: aiEmbeddingModel.trim()
+							})
+						}
+					});
+
 					await apiRequest('/workspace/account/ai-config', {
 						method: 'PUT',
 						body: {
 							config: JSON.stringify({
 								api_key: aiProviderApiKey.trim(),
-								base_url: aiProviderBaseURL.trim(),
+								base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
 								completion_model: aiCompletionModel.trim(),
 								embedding_model: aiEmbeddingModel.trim()
 							})
@@ -392,7 +417,15 @@
 					body: { step: 'reply_mode', action: 'complete' }
 				});
 
-				goToStep(6);
+				if (s5AiMode === 'manual') {
+					await apiRequest('/onboarding/status', {
+						method: 'PATCH',
+						body: { step: 'kb_setup', action: 'skip' }
+					});
+					goToStep(7);
+				} else {
+					goToStep(6);
+				}
 			} else if (stepNum === 6) {
 				if (s6Status === 'input') {
 					await startCompilingKB();
@@ -434,6 +467,9 @@
 	});
 
 	let kbTopicsSummary = $derived(() => {
+		if (s5AiMode === 'manual') {
+			return 'Skipped (Manual replies)';
+		}
 		if (s6Concepts.length > 0) {
 			return `${s6Concepts.length} concepts organized by AI`;
 		}
