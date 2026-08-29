@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Config holds all environment-sourced configuration.
@@ -15,6 +16,10 @@ type Config struct {
 	RedisURL      string
 	Port          string
 	LogLevel      string
+	// Env is the runtime environment ("production", "development", "testing").
+	Env            string
+	CookieSecure   bool
+	AllowedOrigins []string
 	// Matrix connection control is deliberately server-only. The shared secret
 	// is used solely to create an isolated Matrix puppet user per channel.
 	MatrixHomeserverURL            string
@@ -26,9 +31,51 @@ type Config struct {
 	MatrixMessengerBridgeIdentity  string
 }
 
+// IsProduction returns true if running in a production environment.
+func (c *Config) IsProduction() bool {
+	return strings.EqualFold(c.Env, "production") || strings.EqualFold(c.Env, "prod")
+}
+
+// IsTesting returns true if running in a test environment.
+func (c *Config) IsTesting() bool {
+	return strings.EqualFold(c.Env, "testing") || strings.EqualFold(c.Env, "test")
+}
+
+// IsDevelopment returns true if running in a development environment.
+func (c *Config) IsDevelopment() bool {
+	return !c.IsProduction() && !c.IsTesting()
+}
+
 // Load reads configuration from environment variables, returning an error if
 // any required variable is missing.
 func Load() (*Config, error) {
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = os.Getenv("ENVIRONMENT")
+	}
+	if env == "" {
+		env = os.Getenv("APP_ENV")
+	}
+	if env == "" {
+		env = "development"
+	}
+
+	cookieSecure := false
+	if cookieSecureStr := os.Getenv("COOKIE_SECURE"); cookieSecureStr != "" {
+		cookieSecure = strings.EqualFold(cookieSecureStr, "true") || cookieSecureStr == "1"
+	} else {
+		cookieSecure = strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
+	}
+
+	var allowedOrigins []string
+	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
+		for _, o := range strings.Split(origins, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				allowedOrigins = append(allowedOrigins, trimmed)
+			}
+		}
+	}
+
 	cfg := &Config{
 		DatabaseURL:                    os.Getenv("DATABASE_URL"),
 		SessionSecret:                  os.Getenv("SESSION_SECRET"),
@@ -36,6 +83,9 @@ func Load() (*Config, error) {
 		RedisURL:                       os.Getenv("REDIS_URL"),
 		Port:                           os.Getenv("PORT"),
 		LogLevel:                       os.Getenv("LOG_LEVEL"),
+		Env:                            env,
+		CookieSecure:                   cookieSecure,
+		AllowedOrigins:                 allowedOrigins,
 		MatrixHomeserverURL:            os.Getenv("MATRIX_HOMESERVER_URL"),
 		MatrixServerName:               os.Getenv("MATRIX_SERVER_NAME"),
 		MatrixRegistrationSharedSecret: os.Getenv("MATRIX_REGISTRATION_SHARED_SECRET"),
