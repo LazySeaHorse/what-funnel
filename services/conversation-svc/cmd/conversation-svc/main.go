@@ -74,7 +74,7 @@ func main() {
 			"messenger": cfg.MatrixMessengerBridgeIdentity,
 		},
 	})
-	sess := session.New(pool, cfg.SessionSecret)
+	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 
 	// 5. Initialize and Register Matrix Adapter
 	matrixAdapter := matrixadapter.New()

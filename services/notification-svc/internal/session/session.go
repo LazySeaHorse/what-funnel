@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,8 +27,12 @@ type Store struct {
 	options *sessions.Options
 }
 
-func New(pool *pgxpool.Pool, secret string) *Store {
+func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
 	codec := securecookie.New([]byte(secret), nil)
+	isSecure := false
+	if len(secure) > 0 {
+		isSecure = secure[0]
+	}
 	return &Store{
 		pool:  pool,
 		codec: codec,
@@ -36,6 +41,7 @@ func New(pool *pgxpool.Pool, secret string) *Store {
 			MaxAge:   int(sessionTTL.Seconds()),
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
+			Secure:   isSecure,
 		},
 	}
 }

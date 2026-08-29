@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,8 +38,23 @@ type Store struct {
 }
 
 // New creates a Store. secret must be >= 32 bytes.
-func New(pool *pgxpool.Pool, secret string) *Store {
+// If secure is not provided, it defaults to true in production or when COOKIE_SECURE=true.
+func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
 	codec := securecookie.New([]byte(secret), nil)
+	isSecure := false
+	if len(secure) > 0 {
+		isSecure = secure[0]
+	} else {
+		env := strings.ToLower(os.Getenv("ENV"))
+		if env == "" {
+			env = strings.ToLower(os.Getenv("ENVIRONMENT"))
+		}
+		if env == "" {
+			env = strings.ToLower(os.Getenv("APP_ENV"))
+		}
+		isSecure = env == "production" || env == "prod" || os.Getenv("COOKIE_SECURE") == "true" || os.Getenv("COOKIE_SECURE") == "1"
+	}
+
 	return &Store{
 		pool:  pool,
 		codec: codec,
@@ -46,7 +63,7 @@ func New(pool *pgxpool.Pool, secret string) *Store {
 			MaxAge:   int(sessionTTL.Seconds()),
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
-			// Secure: true in production (behind TLS)
+			Secure:   isSecure,
 		},
 	}
 }
@@ -101,6 +118,7 @@ func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
 		MaxAge:   s.options.MaxAge,
 		HttpOnly: s.options.HttpOnly,
 		SameSite: s.options.SameSite,
+		Secure:   s.options.Secure,
 	})
 
 	// Set readable CSRF token cookie for double-submit protection
@@ -113,6 +131,7 @@ func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
 			MaxAge:   s.options.MaxAge,
 			HttpOnly: false, // Accessible to client JavaScript
 			SameSite: s.options.SameSite,
+			Secure:   s.options.Secure,
 		})
 	}
 	return nil
@@ -160,9 +179,11 @@ func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
 	if err := s.codec.Decode(sessionName, cookie.Value, &token); err != nil {
 		return nil // can't decode — treat as already gone
 	}
-	_, err = s.pool.Exec(r.Context(), `DELETE FROM sessions WHERE token = $1`, token)
-	if err != nil {
-		return fmt.Errorf("session: destroy: %w", err)
+	if s.pool != nil {
+		_, err = s.pool.Exec(r.Context(), `DELETE FROM sessions WHERE token = $1`, token)
+		if err != nil {
+			return fmt.Errorf("session: destroy: %w", err)
+		}
 	}
 	// Expire the session cookie
 	http.SetCookie(w, &http.Cookie{
@@ -171,6 +192,7 @@ func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   s.options.Secure,
 	})
 	// Expire the CSRF cookie
 	http.SetCookie(w, &http.Cookie{
@@ -179,6 +201,7 @@ func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: false,
+		Secure:   s.options.Secure,
 	})
 	return nil
 }

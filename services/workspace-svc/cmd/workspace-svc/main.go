@@ -34,7 +34,7 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to database")
 
-	sess := session.New(pool, cfg.SessionSecret)
+	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 	svc, err := service.New(pool, cfg.EncryptionKey)
 	if err != nil {
 		logger.Error("failed to init service", "error", err)
