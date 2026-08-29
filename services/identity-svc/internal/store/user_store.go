@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ab "github.com/aarondl/authboss/v3"
@@ -17,6 +18,7 @@ type User struct {
 	ID           uuid.UUID
 	AccountID    uuid.UUID
 	Email        string
+	Username     string
 	PasswordHash string
 	Role         string
 	CreatedAt    time.Time
@@ -51,11 +53,34 @@ func New(pool *pgxpool.Pool) *Store {
 func (s *Store) Load(ctx context.Context, key string) (ab.User, error) {
 	u := &User{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, account_id, email, password_hash, role, created_at
+		`SELECT id, account_id, COALESCE(email, ''), COALESCE(username, ''), password_hash, role, created_at
 		   FROM users WHERE email = $1 LIMIT 1`, key).
-		Scan(&u.ID, &u.AccountID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+		Scan(&u.ID, &u.AccountID, &u.Email, &u.Username, &u.PasswordHash, &u.Role, &u.CreatedAt)
 	if err != nil {
 		// pgx returns pgx.ErrNoRows on not found
+		return nil, ab.ErrUserNotFound
+	}
+	return u, nil
+}
+
+// LoadByIdentifier retrieves a user by either email or slug-username.
+func (s *Store) LoadByIdentifier(ctx context.Context, identifier string) (*User, error) {
+	u := &User{}
+	var err error
+	if strings.Contains(identifier, "@") {
+		err = s.pool.QueryRow(ctx,
+			`SELECT id, account_id, COALESCE(email, ''), COALESCE(username, ''), password_hash, role, created_at
+			   FROM users WHERE email = $1 LIMIT 1`, identifier).
+			Scan(&u.ID, &u.AccountID, &u.Email, &u.Username, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	} else {
+		err = s.pool.QueryRow(ctx,
+			`SELECT u.id, u.account_id, COALESCE(u.email, ''), COALESCE(u.username, ''), u.password_hash, u.role, u.created_at
+			   FROM users u
+			   JOIN accounts a ON a.id = u.account_id
+			  WHERE (a.slug || '-' || u.username) = $1 LIMIT 1`, identifier).
+			Scan(&u.ID, &u.AccountID, &u.Email, &u.Username, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	}
+	if err != nil {
 		return nil, ab.ErrUserNotFound
 	}
 	return u, nil
@@ -95,9 +120,9 @@ func (s *Store) Create(ctx context.Context, user ab.User) error {
 		return fmt.Errorf("store: account_id is required for user creation")
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO users (account_id, email, password_hash, role)
-		 VALUES ($1, $2, $3, $4)`,
-		u.AccountID, u.Email, u.PasswordHash, u.Role)
+		`INSERT INTO users (account_id, email, username, password_hash, role)
+		 VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5)`,
+		u.AccountID, u.Email, u.Username, u.PasswordHash, u.Role)
 	if err != nil {
 		return fmt.Errorf("store: create user: %w", err)
 	}
