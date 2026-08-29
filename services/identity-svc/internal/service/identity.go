@@ -12,7 +12,6 @@ import (
 
 	ab "github.com/aarondl/authboss/v3"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
@@ -27,20 +26,20 @@ type Service struct {
 	ab       *ab.Authboss
 }
 
-// SignupRequest carries the fields needed to create an account + admin user,
-// or to redeem an invite token.
+// SignupRequest carries the fields needed to create an account + manager user.
 type SignupRequest struct {
 	AccountName string `json:"account_name"`
 	Email       string `json:"email"`
+	Username    string `json:"username"`
 	Password    string `json:"password"`
-	InviteToken string `json:"invite_token"`
 	ProductMode string `json:"product_mode"`
 }
 
-// LoginRequest carries credentials for login.
+// LoginRequest carries credentials for login. Identifier can be email or slug-username.
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Identifier string `json:"identifier"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
 }
 
 // New creates a Service wired to the given pool and session store.
@@ -61,9 +60,8 @@ func New(pool *pgxpool.Pool, sessions *session.Store) (*Service, error) {
 	}, nil
 }
 
-// Signup creates an account, admin user, and default pipeline in one atomic
-// transaction. If an invite token is provided, it associates the new user
-// with the existing account and role instead.
+// Signup creates an account, manager user, and default pipeline in one atomic
+// transaction.
 func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User, error) {
 	// Hash password via authboss (bcrypt)
 	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(req.Password)
@@ -81,127 +79,97 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 
 	var accountID uuid.UUID
 	var userID uuid.UUID
-	var userRole string
-	isInvite := req.InviteToken != ""
+	userRole := types.RoleManager
 
-	if isInvite {
-		var invitedEmail string
-		// 1. Look up and validate invite token
-		err = tx.QueryRow(ctx,
-			`SELECT account_id, email, role FROM invite_tokens WHERE token = $1`,
-			req.InviteToken).Scan(&accountID, &invitedEmail, &userRole)
-		if err != nil {
-			return nil, fmt.Errorf("service: invalid or expired invite token")
-		}
+	// 1. Create account with default settings
+	defaultSettings, err := json.Marshal(map[string]any{
+		"ai_reply_mode_default":                  "draft_only",
+		"allow_member_reply_mode_override":       true,
+		"ai_may_auto_answer_mixed_conversations": false,
+		"summary_schema": []map[string]string{
+			{"key": "customer_wants", "label": "Customer Wants", "description": "What the customer is looking for"},
+			{"key": "preferred_timeframe", "label": "Preferred Timeframe", "description": "When the customer wants it"},
+			{"key": "objections", "label": "Objections", "description": "Customer doubts or objections"},
+			{"key": "next_action", "label": "Next Action", "description": "What needs to be done next"},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("service: marshal default settings: %w", err)
+	}
 
-		if req.Email != invitedEmail {
-			return nil, fmt.Errorf("service: email does not match the invitation")
-		}
+	if req.ProductMode == "" {
+		req.ProductMode = "full_workspace"
+	}
+	if req.ProductMode != "full_workspace" && req.ProductMode != "chatbot_only" {
+		return nil, fmt.Errorf("invalid product mode: %s", req.ProductMode)
+	}
 
-		// 2. Check email uniqueness within account
+	err = tx.QueryRow(ctx,
+		`INSERT INTO accounts (name, plan, settings, product_mode) VALUES ($1, $2, $3, $4) RETURNING id`,
+		req.AccountName, types.PlanSelfHosted, defaultSettings, req.ProductMode).Scan(&accountID)
+	if err != nil {
+		return nil, fmt.Errorf("service: create account: %w", err)
+	}
+
+	// 2. Check email uniqueness within account if email provided
+	if req.Email != "" {
 		var count int
 		_ = tx.QueryRow(ctx,
 			`SELECT COUNT(*) FROM users WHERE account_id = $1 AND email = $2`,
 			accountID, req.Email).Scan(&count)
 		if count > 0 {
 			return nil, fmt.Errorf("service: email already registered")
-		}
-
-		// 3. Create user with role from invite
-		err = tx.QueryRow(ctx,
-			`INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`,
-			accountID, req.Email, hash, userRole).Scan(&userID)
-		if err != nil {
-			return nil, fmt.Errorf("service: create user from invite: %w", err)
-		}
-
-		// 4. Delete the redeemed token
-		_, err = tx.Exec(ctx, `DELETE FROM invite_tokens WHERE token = $1`, req.InviteToken)
-		if err != nil {
-			return nil, fmt.Errorf("service: consume invite token: %w", err)
-		}
-	} else {
-		userRole = types.RoleAdmin
-		// 1. Create account with default settings
-		defaultSettings, err := json.Marshal(map[string]any{
-			"ai_reply_mode_default":                  "draft_only",
-			"allow_member_reply_mode_override":       true,
-			"ai_may_auto_answer_mixed_conversations": false,
-			"summary_schema": []map[string]string{
-				{"key": "customer_wants", "label": "Customer Wants", "description": "What the customer is looking for"},
-				{"key": "preferred_timeframe", "label": "Preferred Timeframe", "description": "When the customer wants it"},
-				{"key": "objections", "label": "Objections", "description": "Customer doubts or objections"},
-				{"key": "next_action", "label": "Next Action", "description": "What needs to be done next"},
-			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("service: marshal default settings: %w", err)
-		}
-
-		if req.ProductMode == "" {
-			req.ProductMode = "full_workspace"
-		}
-		if req.ProductMode != "full_workspace" && req.ProductMode != "chatbot_only" {
-			return nil, fmt.Errorf("invalid product mode: %s", req.ProductMode)
-		}
-
-		err = tx.QueryRow(ctx,
-			`INSERT INTO accounts (name, plan, settings, product_mode) VALUES ($1, $2, $3, $4) RETURNING id`,
-			req.AccountName, types.PlanSelfHosted, defaultSettings, req.ProductMode).Scan(&accountID)
-		if err != nil {
-			return nil, fmt.Errorf("service: create account: %w", err)
-		}
-
-		// 2. Check email uniqueness within account
-		var count int
-		_ = tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM users WHERE account_id = $1 AND email = $2`,
-			accountID, req.Email).Scan(&count)
-		if count > 0 {
-			return nil, fmt.Errorf("service: email already registered")
-		}
-
-		// 3. Create admin user
-		err = tx.QueryRow(ctx,
-			`INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`,
-			accountID, req.Email, hash, userRole).Scan(&userID)
-		if err != nil {
-			return nil, fmt.Errorf("service: create user: %w", err)
-		}
-
-		// 4. Seed default pipeline
-		statesJSON, err := json.Marshal(types.DefaultPipelineStates)
-		if err != nil {
-			return nil, fmt.Errorf("service: marshal default states: %w", err)
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO lead_pipelines (account_id, name, states) VALUES ($1, $2, $3)`,
-			accountID, "Default Pipeline", statesJSON)
-		if err != nil {
-			return nil, fmt.Errorf("service: seed default pipeline: %w", err)
-		}
-
-		// 5. Write account audit log
-		if err := aw.Write(ctx, audit.Entry{
-			AccountID:  accountID,
-			ActorUserID: &userID,
-			Action:     audit.ActionAccountCreated,
-			TargetType: audit.TargetAccount,
-			TargetID:   &accountID,
-			Metadata:   map[string]any{"account_name": req.AccountName},
-		}); err != nil {
-			return nil, fmt.Errorf("service: audit account: %w", err)
 		}
 	}
 
-	// Common User Creation Audit Log
+	// 3. Create manager user
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (account_id, email, username, password_hash, role) VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5) RETURNING id`,
+		accountID, req.Email, req.Username, hash, userRole).Scan(&userID)
+	if err != nil {
+		return nil, fmt.Errorf("service: create user: %w", err)
+	}
+
+	// 4. Seed default pipeline
+	statesJSON, err := json.Marshal(types.DefaultPipelineStates)
+	if err != nil {
+		return nil, fmt.Errorf("service: marshal default states: %w", err)
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO lead_pipelines (account_id, name, states) VALUES ($1, $2, $3)`,
+		accountID, "Default Pipeline", statesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("service: seed default pipeline: %w", err)
+	}
+
+	// 5. Write account audit log
 	if err := aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &userID,
-		Action:     audit.ActionUserCreated,
-		TargetType: audit.TargetUser,
-		TargetID:   &userID,
-		Metadata:   map[string]any{"email": req.Email, "role": userRole},
+		Action:      audit.ActionAccountCreated,
+		TargetType:  audit.TargetAccount,
+		TargetID:    &accountID,
+		Metadata:    map[string]any{"account_name": req.AccountName},
+	}); err != nil {
+		return nil, fmt.Errorf("service: audit account: %w", err)
+	}
+
+	// User Creation Audit Log
+	userMeta := map[string]any{"role": userRole}
+	if req.Email != "" {
+		userMeta["email"] = req.Email
+	}
+	if req.Username != "" {
+		userMeta["username"] = req.Username
+	}
+
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &userID,
+		Action:      audit.ActionUserCreated,
+		TargetType:  audit.TargetUser,
+		TargetID:    &userID,
+		Metadata:    userMeta,
 	}); err != nil {
 		return nil, fmt.Errorf("service: audit user: %w", err)
 	}
@@ -214,6 +182,7 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		ID:        userID,
 		AccountID: accountID,
 		Email:     req.Email,
+		Username:  req.Username,
 		Role:      userRole,
 		CreatedAt: time.Now(),
 	}, nil
@@ -221,16 +190,18 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 
 // Login verifies credentials and returns the user if valid.
 func (svc *Service) Login(ctx context.Context, req LoginRequest) (*store.User, error) {
-	u := &store.User{}
-	err := svc.pool.QueryRow(ctx,
-		`SELECT id, account_id, email, password_hash, role, created_at
-		   FROM users WHERE email = $1 LIMIT 1`, req.Email).
-		Scan(&u.ID, &u.AccountID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	ident := req.Identifier
+	if ident == "" {
+		ident = req.Email
+	}
+	if ident == "" {
+		return nil, fmt.Errorf("service: invalid credentials")
+	}
+
+	userStore := store.New(svc.pool)
+	u, err := userStore.LoadByIdentifier(ctx, ident)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("service: invalid credentials")
-		}
-		return nil, fmt.Errorf("service: lookup user: %w", err)
+		return nil, fmt.Errorf("service: invalid credentials")
 	}
 
 	// Verify password via authboss (bcrypt)
@@ -245,22 +216,20 @@ func (svc *Service) Login(ctx context.Context, req LoginRequest) (*store.User, e
 }
 
 func (svc *Service) writeLoginAudit(ctx context.Context, accountID, userID uuid.UUID) error {
-	type execer struct{ pool *pgxpool.Pool }
-	type execResult struct{ rows int64 }
 	aw := audit.NewWriter(&pgxExecer{pool: svc.pool})
 	return aw.Write(ctx, audit.Entry{
-		AccountID:  accountID,
+		AccountID:   accountID,
 		ActorUserID: &userID,
-		Action:     audit.ActionLogin,
-		TargetType: audit.TargetUser,
-		TargetID:   &userID,
-		Metadata:   map[string]any{},
+		Action:      audit.ActionLogin,
+		TargetType:  audit.TargetUser,
+		TargetID:    &userID,
+		Metadata:    map[string]any{},
 	})
 }
 
 // SetSession creates a session for the given user.
 func (svc *Service) SetSession(w http.ResponseWriter, r *http.Request, u *store.User) error {
-	return svc.sessions.SetSession(w, r, u.ID, u.AccountID, u.Role)
+	return svc.sessions.SetSession(w, r, u.ID, u.AccountID, u.Role, u.Username)
 }
 
 // Logout destroys the user's session and writes an audit log.

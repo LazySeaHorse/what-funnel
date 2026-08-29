@@ -66,7 +66,7 @@ func TestSignup_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, email, user.Email)
-	assert.Equal(t, "admin", user.Role)
+	assert.Equal(t, "manager", user.Role)
 	assert.NotEmpty(t, user.ID)
 	assert.NotEmpty(t, user.AccountID)
 
@@ -180,7 +180,45 @@ func TestLogin_CorrectPassword(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, email, user.Email)
 	assert.Equal(t, signup.AccountID, user.AccountID)
-	assert.Equal(t, "admin", user.Role)
+	assert.Equal(t, "manager", user.Role)
+
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, signup.AccountID)
+		pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE account_id = $1`, signup.AccountID)
+		pool.Exec(context.Background(), `DELETE FROM users WHERE account_id = $1`, signup.AccountID)
+		pool.Exec(context.Background(), `DELETE FROM accounts WHERE id = $1`, signup.AccountID)
+	})
+}
+
+func TestLogin_SlugUsername(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	email := uniqueEmail(t)
+	signup, err := svc.Signup(ctx, service.SignupRequest{
+		AccountName: "Slug Login Account",
+		Email:       email,
+		Username:    "owner",
+		Password:    "mypassword",
+	})
+	require.NoError(t, err)
+
+	// Set slug
+	_, err = pool.Exec(ctx, `UPDATE accounts SET slug = 'test-acme' WHERE id = $1`, signup.AccountID)
+	require.NoError(t, err)
+
+	// Login with slug-username identifier
+	user, err := svc.Login(ctx, service.LoginRequest{
+		Identifier: "test-acme-owner",
+		Password:   "mypassword",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "owner", user.Username)
+	assert.Equal(t, signup.AccountID, user.AccountID)
+	assert.Equal(t, "manager", user.Role)
 
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, signup.AccountID)

@@ -60,6 +60,7 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 		"user_id":    user.ID,
 		"account_id": user.AccountID,
 		"email":      user.Email,
+		"username":   user.Username,
 		"role":       user.Role,
 	})
 }
@@ -69,6 +70,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req service.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if (req.Identifier == "" && req.Email == "") || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "identifier and password are required")
 		return
 	}
 
@@ -87,6 +92,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		"user_id":    user.ID,
 		"account_id": user.AccountID,
 		"email":      user.Email,
+		"username":   user.Username,
 		"role":       user.Role,
 	})
 }
@@ -104,11 +110,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.UserIDFromContext(r)
 	accountID, _ := middleware.AccountIDFromContext(r)
+	username, _ := middleware.UsernameFromContext(r)
 	role, _ := middleware.RoleFromContext(r)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_id":    userID,
 		"account_id": accountID,
+		"username":   username,
 		"role":       role,
 	})
 }
