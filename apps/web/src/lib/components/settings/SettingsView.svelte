@@ -3,6 +3,7 @@
 	import { apiRequest } from '$lib/api';
 	import type { InboxState } from '$lib/store.svelte';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
+	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
 	import PipelineSettings from './PipelineSettings.svelte';
 	import SettingsSidebar from './SettingsSidebar.svelte';
 	import SettingsInfoPanel from './SettingsInfoPanel.svelte';
@@ -158,7 +159,7 @@
 		productMode = account.product_mode || 'full_workspace';
 		if (!account.settings) return;
 		try {
-			const parsed = JSON.parse(atob(account.settings));
+			const parsed = decodeWorkspaceSettings(account.settings);
 			if (parsed.timezone) defaultTimeZone = normalizeSavedTimeZone(parsed.timezone);
 			if (parsed.language) language = parsed.language;
 			if (parsed.date_format) dateFormat = parsed.date_format;

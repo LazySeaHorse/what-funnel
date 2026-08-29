@@ -4,6 +4,7 @@
 	import { apiRequest } from '$lib/api';
 	import { InboxState } from '$lib/store.svelte';
 	import { WorkspaceState } from '$lib/workspace.svelte';
+	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
 	import BrandLogo from '$lib/components/BrandLogo.svelte';
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
 	import LeadStateBadge from '$lib/components/LeadStateBadge.svelte';
@@ -67,15 +68,9 @@
 		if (account) {
 			accountName = account.name || 'What Funnel Workspace';
 			productMode = account.product_mode || 'full_workspace';
-			try {
-				const parsed = account.settings ? JSON.parse(atob(account.settings)) : {};
-				leadTrackingEnabled = productMode !== 'chatbot_only' && parsed.lead_tracking_enabled !== false;
-				aiAutoReplyEnabled = parsed.ai_enabled === true;
-			} catch (err) {
-				console.error('Failed to parse account settings', err);
-				leadTrackingEnabled = productMode !== 'chatbot_only';
-				aiAutoReplyEnabled = false;
-			}
+			const settings = decodeWorkspaceSettings(account.settings);
+			leadTrackingEnabled = productMode !== 'chatbot_only' && settings.lead_tracking_enabled !== false;
+			aiAutoReplyEnabled = settings.ai_enabled === true;
 		}
 		pipelineStates = workspace.pipeline?.states || [];
 		inbox.users = workspace.users;

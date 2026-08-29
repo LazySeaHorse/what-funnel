@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
+	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
 	import Icon from '$lib/Icon.svelte';
 	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
 	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
@@ -84,21 +85,6 @@
 			.replace(/^-+|-+$/g, '');
 	}
 
-	function parseAccountSettings(raw: unknown): Record<string, any> {
-		if (!raw) return {};
-		if (typeof raw === 'object') return raw as Record<string, any>;
-		if (typeof raw !== 'string') return {};
-		try {
-			return JSON.parse(atob(raw));
-		} catch {
-			try {
-				return JSON.parse(raw);
-			} catch {
-				return {};
-			}
-		}
-	}
-
 	// ─────────────────────────────────────────────────────────────
 	// Mount & Load initial data
 	// ─────────────────────────────────────────────────────────────
@@ -125,7 +111,7 @@
 				s1BusinessName = account.name;
 				if (!s4Slug) s4Slug = slugify(account.name);
 			}
-			const settings = parseAccountSettings(account.settings);
+			const settings = decodeWorkspaceSettings(account.settings);
 			if (settings.business_type) s1BusinessType = settings.business_type;
 			if (settings.timezone) s1Timezone = settings.timezone;
 			if (settings.ai_enabled === false) s5AiMode = 'manual';
