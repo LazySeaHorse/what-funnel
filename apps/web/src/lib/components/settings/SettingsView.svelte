@@ -105,9 +105,6 @@
 	// Modals & UI
 	let showDeleteModal = $state(false);
 	let deleteConfirmationInput = $state('');
-	let showInviteModal = $state(false);
-	let inviteEmail = $state('');
-	let inviteRole = $state('member');
 	let showPlanModal = $state(false);
 	let showChannelModal = $state(false);
 	let newChannelPlatform = $state<'whatsapp' | 'instagram' | 'messenger' | 'telegram'>('whatsapp');
@@ -118,6 +115,29 @@
 	let connectionBusy = $state(false);
 	let qrRefreshToken = $state(Date.now());
 
+	// User Management State
+	let accountSlug = $state('');
+	let savingSlug = $state(false);
+	let showAddUserModal = $state(false);
+	let newUsername = $state('');
+	let newPassword = $state('');
+	let newRole = $state<'agent' | 'manager'>('agent');
+	let addingUser = $state(false);
+	let userModalError = $state('');
+
+	let createdUserResult = $state<{ username: string; plaintextPassword?: string; role: string } | null>(null);
+	let copiedPassword = $state(false);
+
+	let showResetPasswordModal = $state(false);
+	let resetUserTarget = $state<any | null>(null);
+	let resetNewPassword = $state('');
+	let resettingPassword = $state(false);
+	let resetPasswordError = $state('');
+
+	let showDeleteUserModal = $state(false);
+	let deleteUserTarget = $state<any | null>(null);
+	let deletingUser = $state(false);
+
 	// Team users & channels
 	let teamUsers = $state<any[]>([]);
 	let channelsList = $state<any[]>([]);
@@ -126,7 +146,12 @@
 	let unassignedVisible = $state(true);
 
 	function closeModal() {
-		showInviteModal = false;
+		showAddUserModal = false;
+		showDeleteUserModal = false;
+		showResetPasswordModal = false;
+		createdUserResult = null;
+		deleteUserTarget = null;
+		resetUserTarget = null;
 		showDeleteModal = false;
 		showPlanModal = false;
 		showChannelModal = false;
@@ -134,6 +159,8 @@
 		connectionSecret = '';
 		connectionCode = '';
 		deleteConfirmationInput = '';
+		userModalError = '';
+		resetPasswordError = '';
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -209,7 +236,7 @@
 				await workspace.loadSettings(inbox?.currentUser);
 				applyWorkspaceData(workspace.account);
 				teamUsers = workspace.users;
-				await Promise.all([refreshChannelsAndConnections(), refreshAIProviderStatus()]);
+				await Promise.all([refreshChannelsAndConnections(), refreshAIProviderStatus(), loadAccountSlug()]);
 			} else {
 				const [account, users] = await Promise.all([
 					apiRequest('/workspace/account'),
@@ -217,7 +244,7 @@
 				]);
 				applyWorkspaceData(account);
 				teamUsers = users;
-				await Promise.all([refreshChannelsAndConnections(), refreshAIProviderStatus()]);
+				await Promise.all([refreshChannelsAndConnections(), refreshAIProviderStatus(), loadAccountSlug()]);
 			}
 		} catch (err: any) {
 			errorMsg = err?.message || 'Failed to load workspace settings.';
@@ -433,23 +460,155 @@
 		}
 	}
 
-	async function handleInviteUser() {
-		if (!inviteEmail.trim()) {
-			errorMsg = 'An email address is required to send an invitation.';
+	async function loadAccountSlug() {
+		try {
+			const res = await apiRequest('/workspace/account/slug');
+			if (res?.slug) accountSlug = res.slug;
+		} catch {}
+	}
+
+	async function handleSaveSlug() {
+		if (!accountSlug.trim()) {
+			errorMsg = 'Slug cannot be empty.';
 			return;
 		}
+		savingSlug = true;
+		errorMsg = '';
+		successMsg = '';
 		try {
-			await apiRequest('/workspace/users/invite', {
-				method: 'POST',
-				body: { email: inviteEmail.trim(), role: inviteRole }
+			await apiRequest('/workspace/account/slug', {
+				method: 'PUT',
+				body: { slug: accountSlug.trim() }
 			});
-			inviteEmail = '';
-			showInviteModal = false;
-			successMsg = 'Invitation sent';
+			successMsg = 'Workspace slug updated.';
 			setTimeout(() => successMsg = '', 3000);
 		} catch (err: any) {
-			errorMsg = err.message || 'Failed to invite user';
+			errorMsg = err.message || 'Failed to update workspace slug.';
+		} finally {
+			savingSlug = false;
 		}
+	}
+
+	function generateNewUserPassword() {
+		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
+		let pass = '';
+		for (let i = 0; i < 12; i++) {
+			pass += chars.charAt(Math.floor(Math.random() * chars.length));
+		}
+		newPassword = pass;
+	}
+
+	function generateResetPassword() {
+		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
+		let pass = '';
+		for (let i = 0; i < 12; i++) {
+			pass += chars.charAt(Math.floor(Math.random() * chars.length));
+		}
+		resetNewPassword = pass;
+	}
+
+	async function handleAddUser() {
+		userModalError = '';
+		if (!newUsername.trim()) {
+			userModalError = 'Username is required.';
+			return;
+		}
+		if (!newPassword.trim()) {
+			userModalError = 'Password is required.';
+			return;
+		}
+		addingUser = true;
+		try {
+			const res = await apiRequest('/workspace/users', {
+				method: 'POST',
+				body: {
+					username: newUsername.trim(),
+					password: newPassword.trim(),
+					role: newRole
+				}
+			});
+			createdUserResult = {
+				username: res.username || newUsername.trim(),
+				role: res.role || newRole,
+				plaintextPassword: res.password || newPassword.trim()
+			};
+			newUsername = '';
+			newPassword = '';
+			newRole = 'agent';
+			showAddUserModal = false;
+			if (workspace) {
+				await workspace.refreshUsers();
+				teamUsers = workspace.users;
+			} else {
+				teamUsers = await apiRequest('/workspace/users');
+			}
+		} catch (err: any) {
+			userModalError = err.message || 'Failed to create user.';
+		} finally {
+			addingUser = false;
+		}
+	}
+
+	async function handleDeleteUser() {
+		if (!deleteUserTarget) return;
+		deletingUser = true;
+		errorMsg = '';
+		try {
+			await apiRequest(`/workspace/users/${deleteUserTarget.id}`, {
+				method: 'DELETE'
+			});
+			showDeleteUserModal = false;
+			deleteUserTarget = null;
+			if (workspace) {
+				await workspace.refreshUsers();
+				teamUsers = workspace.users;
+			} else {
+				teamUsers = await apiRequest('/workspace/users');
+			}
+			successMsg = 'User deleted and conversations unassigned.';
+			setTimeout(() => successMsg = '', 3000);
+		} catch (err: any) {
+			errorMsg = err.message || 'Failed to delete user.';
+		} finally {
+			deletingUser = false;
+		}
+	}
+
+	async function handleResetPassword() {
+		if (!resetUserTarget || !resetNewPassword.trim()) {
+			resetPasswordError = 'New password is required.';
+			return;
+		}
+		resettingPassword = true;
+		resetPasswordError = '';
+		try {
+			await apiRequest(`/workspace/users/${resetUserTarget.id}/password`, {
+				method: 'PUT',
+				body: { password: resetNewPassword.trim() }
+			});
+			showResetPasswordModal = false;
+			createdUserResult = {
+				username: resetUserTarget.username || resetUserTarget.email,
+				role: resetUserTarget.role,
+				plaintextPassword: resetNewPassword.trim()
+			};
+			resetUserTarget = null;
+			resetNewPassword = '';
+			successMsg = 'Password reset successfully.';
+			setTimeout(() => successMsg = '', 3000);
+		} catch (err: any) {
+			resetPasswordError = err.message || 'Failed to reset password.';
+		} finally {
+			resettingPassword = false;
+		}
+	}
+
+	async function copyPasswordText(text: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			copiedPassword = true;
+			setTimeout(() => copiedPassword = false, 2000);
+		} catch {}
 	}
 </script>
 
@@ -769,33 +928,91 @@
 							<p class="text-xs text-slate-500 mt-0.5">Manage team members and their workspace access</p>
 						</div>
 						<button
-							onclick={() => showInviteModal = true}
-							class="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-medium rounded-xl border border-blue-200/60 flex items-center gap-1.5 transition cursor-pointer"
+							onclick={() => { userModalError = ''; generateNewUserPassword(); showAddUserModal = true; }}
+							class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
 						>
 							<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
 							</svg>
-							<span>Invite user</span>
+							<span>Add user</span>
 						</button>
 					</div>
 
-					<div class="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 text-xs">
+					<!-- Workspace Slug Box -->
+					<div class="p-4 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-2.5">
+						<div class="flex items-center justify-between">
+							<label for="settings-workspace-slug" class="text-xs font-medium text-slate-900">Workspace Login Prefix (Slug)</label>
+							<button
+								type="button"
+								onclick={handleSaveSlug}
+								disabled={savingSlug}
+								class="px-3 py-1 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-medium text-slate-700 transition cursor-pointer disabled:opacity-50"
+							>
+								{savingSlug ? 'Saving...' : 'Update slug'}
+							</button>
+						</div>
+						<input
+							id="settings-workspace-slug"
+							type="text"
+							bind:value={accountSlug}
+							placeholder="company-prefix"
+							class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
+						/>
+						<p class="text-[11px] text-slate-500 font-normal">
+							Agents log in with: <span class="font-mono font-medium text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">{accountSlug || 'prefix'}-[username]</span>
+						</p>
+					</div>
+
+					<!-- Team Users Table -->
+					<div class="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 text-xs bg-white">
 						{#each teamUsers as user}
 							<div class="p-4 flex items-center justify-between hover:bg-slate-50/50 transition">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-xs">
-										{user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+								<div class="flex items-center gap-3 min-w-0">
+									<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-xs shrink-0">
+										{user.username ? user.username.charAt(0).toUpperCase() : (user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase())}
 									</div>
-									<div>
-										<div class="font-medium text-slate-800">{user.name || user.email.split('@')[0]}</div>
-										<div class="text-[11px] text-slate-400">{user.email}</div>
+									<div class="min-w-0">
+										<div class="font-medium text-slate-800 truncate">
+											{user.username || user.name || user.email.split('@')[0]}
+										</div>
+										<div class="text-[11px] text-slate-400 font-mono truncate">
+											{user.email ? user.email : (accountSlug ? `${accountSlug}-${user.username}` : user.username)}
+										</div>
 									</div>
 								</div>
-								<div class="flex items-center gap-3">
-									<select aria-label="Role for {user.email}" value={user.role} onchange={(event) => updateUserRole(user.id, (event.currentTarget as HTMLSelectElement).value)} class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium capitalize text-slate-700 focus:border-blue-500 focus:outline-none">
-										<option value="admin">Admin</option>
-										<option value="member">Member</option>
+
+								<div class="flex items-center gap-2.5 shrink-0">
+									<select
+										aria-label="Role for {user.username || user.email}"
+										value={user.role}
+										onchange={(event) => updateUserRole(user.id, (event.currentTarget as HTMLSelectElement).value)}
+										class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium capitalize text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"
+									>
+										<option value="agent">Agent</option>
+										<option value="manager">Manager</option>
 									</select>
+
+									<button
+										type="button"
+										class="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+										onclick={() => { resetUserTarget = user; resetPasswordError = ''; generateResetPassword(); showResetPasswordModal = true; }}
+										title="Reset Password"
+									>
+										Reset password
+									</button>
+
+									{#if user.id !== inbox?.currentUser?.id}
+										<button
+											type="button"
+											class="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+											onclick={() => { deleteUserTarget = user; showDeleteUserModal = true; }}
+											title="Delete user"
+										>
+											<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+											</svg>
+										</button>
+									{/if}
 								</div>
 							</div>
 						{/each}
@@ -966,30 +1183,145 @@
 	</div>
 {/if}
 
-<!-- Invite User Modal -->
-{#if showInviteModal}
+<!-- Add User Modal -->
+{#if showAddUserModal}
 	<div class="wf-modal-backdrop">
-		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="invite-team-member-title">
-			<h3 id="invite-team-member-title" class="text-sm font-medium text-slate-900">Invite Team Member</h3>
-			<div class="space-y-3 text-xs">
+		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="add-team-member-title">
+			<h3 id="add-team-member-title" class="text-sm font-medium text-slate-900">Add Team Member</h3>
+			<div class="space-y-3.5 text-xs">
 				<div class="space-y-1">
-					<label for="inviteEmailInput" class="font-medium text-slate-700">Email Address</label>
-					<input id="inviteEmailInput" type="email" bind:value={inviteEmail} placeholder="colleague@example.com" class="wf-input" />
+					<label for="newUsernameInput" class="font-medium text-slate-700">Username</label>
+					<input id="newUsernameInput" type="text" bind:value={newUsername} placeholder="e.g. john" class="wf-input" />
+					<p class="text-[11px] text-slate-400">Login username: <span class="font-mono">{accountSlug || 'prefix'}-{newUsername || '[username]'}</span></p>
 				</div>
 				<div class="space-y-1">
-					<label for="inviteRoleSelect" class="font-medium text-slate-700">Role</label>
-					<select id="inviteRoleSelect" bind:value={inviteRole} class="wf-select">
-						<option value="member">Member</option>
-						<option value="admin">Admin</option>
+					<div class="flex items-center justify-between">
+						<label for="newPasswordInput" class="font-medium text-slate-700">Initial Password</label>
+						<button type="button" onclick={generateNewUserPassword} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
+					</div>
+					<input id="newPasswordInput" type="text" bind:value={newPassword} placeholder="Password" class="wf-input font-mono" />
+				</div>
+				<div class="space-y-1">
+					<label for="newRoleSelect" class="font-medium text-slate-700">Role</label>
+					<select id="newRoleSelect" bind:value={newRole} class="wf-select">
+						<option value="agent">Agent</option>
+						<option value="manager">Manager</option>
 					</select>
 				</div>
+				{#if userModalError}
+					<p class="text-xs text-rose-600 font-medium">{userModalError}</p>
+				{/if}
 			</div>
 			<div class="flex items-center justify-end gap-3 pt-2">
-				<button onclick={() => showInviteModal = false} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
+				<button onclick={closeModal} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
 					Cancel
 				</button>
-				<button onclick={handleInviteUser} class="wf-button-primary">
-					Send Invite
+				<button onclick={handleAddUser} disabled={addingUser || !newUsername.trim() || !newPassword.trim()} class="wf-button-primary disabled:opacity-50">
+					{addingUser ? 'Creating...' : 'Create User'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Created / Reset User Credentials Modal (Plaintext shown once) -->
+{#if createdUserResult}
+	<div class="wf-modal-backdrop">
+		<div class="wf-modal max-w-md" role="dialog" aria-modal="true" aria-labelledby="user-credentials-title">
+			<div class="flex items-center gap-3">
+				<div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+					<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+					</svg>
+				</div>
+				<div>
+					<h3 id="user-credentials-title" class="text-sm font-medium text-slate-900">User Credentials</h3>
+					<p class="text-xs text-slate-500">Save these credentials now. The password will not be shown again.</p>
+				</div>
+			</div>
+
+			<div class="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
+				<div class="flex items-center justify-between">
+					<span class="text-slate-500 font-sans text-[11px]">Login Identifier:</span>
+					<span class="font-medium text-slate-900 font-mono">{accountSlug ? `${accountSlug}-${createdUserResult.username}` : createdUserResult.username}</span>
+				</div>
+				<div class="flex items-center justify-between">
+					<span class="text-slate-500 font-sans text-[11px]">Role:</span>
+					<span class="font-medium text-slate-900 font-sans capitalize">{createdUserResult.role}</span>
+				</div>
+				{#if createdUserResult.plaintextPassword}
+					<div class="flex items-center justify-between">
+						<span class="text-slate-500 font-sans text-[11px]">Password:</span>
+						<span class="font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">{createdUserResult.plaintextPassword}</span>
+					</div>
+				{/if}
+			</div>
+
+			<div class="flex items-center justify-end gap-3 pt-2">
+				{#if createdUserResult.plaintextPassword}
+					<button
+						type="button"
+						onclick={() => copyPasswordText(`Login: ${accountSlug ? `${accountSlug}-${createdUserResult!.username}` : createdUserResult!.username}\nPassword: ${createdUserResult!.plaintextPassword}`)}
+						class="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+					>
+						{copiedPassword ? 'Copied!' : 'Copy Credentials'}
+					</button>
+				{/if}
+				<button onclick={closeModal} class="wf-button-primary">
+					Done
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Reset Password Modal -->
+{#if showResetPasswordModal && resetUserTarget}
+	<div class="wf-modal-backdrop">
+		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="reset-user-password-title">
+			<h3 id="reset-user-password-title" class="text-sm font-medium text-slate-900">Reset User Password</h3>
+			<p class="text-xs text-slate-500">Set a new password for <span class="font-medium text-slate-800">{resetUserTarget.username || resetUserTarget.email}</span>.</p>
+
+			<div class="space-y-3.5 text-xs">
+				<div class="space-y-1">
+					<div class="flex items-center justify-between">
+						<label for="resetPasswordInput" class="font-medium text-slate-700">New Password</label>
+						<button type="button" onclick={generateResetPassword} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
+					</div>
+					<input id="resetPasswordInput" type="text" bind:value={resetNewPassword} placeholder="New password" class="wf-input font-mono" />
+				</div>
+				{#if resetPasswordError}
+					<p class="text-xs text-rose-600 font-medium">{resetPasswordError}</p>
+				{/if}
+			</div>
+
+			<div class="flex items-center justify-end gap-3 pt-2">
+				<button onclick={closeModal} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
+					Cancel
+				</button>
+				<button onclick={handleResetPassword} disabled={resettingPassword || !resetNewPassword.trim()} class="wf-button-primary disabled:opacity-50">
+					{resettingPassword ? 'Updating...' : 'Set Password'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Delete User Confirmation Modal -->
+{#if showDeleteUserModal && deleteUserTarget}
+	<div class="wf-modal-backdrop">
+		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="delete-user-modal-title">
+			<h3 id="delete-user-modal-title" class="text-sm font-medium text-slate-900">Delete User</h3>
+			<p class="text-xs text-slate-600 leading-relaxed">
+				Are you sure you want to delete <span class="font-medium text-slate-900">{deleteUserTarget.username || deleteUserTarget.email}</span>?
+				Any conversations currently assigned to them will be unassigned. This action cannot be undone.
+			</p>
+			<div class="flex items-center justify-end gap-3 pt-2">
+				<button onclick={closeModal} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
+					Cancel
+				</button>
+				<button onclick={handleDeleteUser} disabled={deletingUser} class="wf-button-danger disabled:opacity-50">
+					{deletingUser ? 'Deleting...' : 'Delete User'}
 				</button>
 			</div>
 		</div>
