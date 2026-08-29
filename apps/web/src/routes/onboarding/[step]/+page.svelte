@@ -4,13 +4,16 @@
 	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
-	import Icon from '$lib/Icon.svelte';
 	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
 	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
 	import BusinessInfoStep from '$lib/components/onboarding/BusinessInfoStep.svelte';
 	import ChannelsStep from '$lib/components/onboarding/ChannelsStep.svelte';
 	import PipelineStep from '$lib/components/onboarding/PipelineStep.svelte';
 	import TeamStep from '$lib/components/onboarding/TeamStep.svelte';
+	import AIStep from '$lib/components/onboarding/AIStep.svelte';
+	import KnowledgeBaseStep from '$lib/components/onboarding/KnowledgeBaseStep.svelte';
+	import ReviewStep from '$lib/components/onboarding/ReviewStep.svelte';
+	import CompleteStep from '$lib/components/onboarding/CompleteStep.svelte';
 
 	// Step number from route: 1..8
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
@@ -273,11 +276,6 @@
 		}
 	}
 
-	function appendTemplateChunk(label: string, text: string) {
-		if (s6RawText.includes(label)) return;
-		s6RawText = s6RawText.trim() + `\n\n${label}:\n${text}`;
-	}
-
 	async function handleContinue() {
 		error = '';
 		submitting = true;
@@ -477,322 +475,31 @@
 						<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
 					<!-- STEP 5: AI ASSISTANT -->
 					{:else if stepNum === 5}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Meet your AI Assistant</h2>
-							<p class="text-sm text-slate-500 font-normal">How should your assistant handle conversations?</p>
-						</div>
-
-						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-							<!-- Option 1: Auto answer -->
-							<button
-								type="button"
-								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s5AiMode === 'auto_answer' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-								onclick={() => s5AiMode = 'auto_answer'}
-							>
-								<div class="flex items-start gap-3.5">
-									<div class="w-8 h-8 rounded-lg {s5AiMode === 'auto_answer' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
-										<Icon name="bot" size={18} color="currentColor" />
-									</div>
-									<div>
-										<div class="flex items-center gap-2">
-											<span class="text-sm font-medium text-slate-900">Auto answer when confident</span>
-											<span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-medium">Recommended</span>
-										</div>
-										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will answer customer questions automatically when confidence is high.</p>
-									</div>
-								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s5AiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
-									{#if s5AiMode === 'auto_answer'}
-										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
-									{/if}
-								</div>
-							</button>
-
-							<!-- Option 2: Suggest replies only -->
-							<button
-								type="button"
-								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s5AiMode === 'suggest_only' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-								onclick={() => s5AiMode = 'suggest_only'}
-							>
-								<div class="flex items-start gap-3.5">
-									<div class="w-8 h-8 rounded-lg {s5AiMode === 'suggest_only' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
-										<Icon name="sparkles" size={18} color="currentColor" />
-									</div>
-									<div>
-										<span class="text-sm font-medium text-slate-900">Suggest replies only</span>
-										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will draft suggested responses for your team to review and dispatch.</p>
-									</div>
-								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s5AiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
-									{#if s5AiMode === 'suggest_only'}
-										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
-									{/if}
-								</div>
-							</button>
-
-							<!-- Option 3: Manual only -->
-							<button
-								type="button"
-								class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {s5AiMode === 'manual' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-								onclick={() => s5AiMode = 'manual'}
-							>
-								<div class="flex items-start gap-3.5">
-									<div class="w-8 h-8 rounded-lg {s5AiMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
-										<Icon name="edit" size={18} color="currentColor" />
-									</div>
-									<div>
-										<span class="text-sm font-medium text-slate-900">Manual only</span>
-										<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">AI will not send messages automatically. All replies are composed manually.</p>
-									</div>
-								</div>
-								<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {s5AiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
-									{#if s5AiMode === 'manual'}
-										<div class="w-2 h-2 rounded-full bg-blue-600"></div>
-									{/if}
-								</div>
-							</button>
-
-							{#if s5AiMode !== 'manual'}
-								<div class="mt-4 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-									<div>
-										<div class="flex items-center justify-between gap-3">
-											<h3 class="text-sm font-medium text-slate-900">AI provider</h3>
-											{#if aiProviderConfigured}<span class="text-[11px] font-medium text-emerald-700">Configured</span>{/if}
-										</div>
-										<p class="mt-1 text-xs leading-relaxed text-slate-500">Credentials are encrypted before storage. What Funnel will not generate AI content until a provider is configured.</p>
-									</div>
-									<div class="space-y-1.5">
-										<label for="ai-provider-key" class="block text-xs font-medium text-slate-700">API key {aiProviderConfigured ? '(leave blank to keep current key)' : ''}</label>
-										<input id="ai-provider-key" type="password" autocomplete="new-password" bind:value={aiProviderApiKey} class="wf-input" placeholder={aiProviderConfigured ? 'Configured' : 'Required'} />
-										{#if !aiProviderConfigured && !aiProviderApiKey.trim()}
-											<p class="text-[11px] text-amber-700">Add your AI provider API key, or choose Manual only.</p>
-										{/if}
-									</div>
-									<div class="space-y-1.5">
-										<label for="ai-provider-url" class="block text-xs font-medium text-slate-700">OpenAI-compatible base URL</label>
-										<input id="ai-provider-url" type="url" bind:value={aiProviderBaseURL} class="wf-input" required />
-									</div>
-									<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-										<label class="space-y-1.5 text-xs font-medium text-slate-700">Completion model<input aria-label="Completion model" bind:value={aiCompletionModel} class="wf-input" required /></label>
-										<label class="space-y-1.5 text-xs font-medium text-slate-700">Embedding model<input aria-label="Embedding model" bind:value={aiEmbeddingModel} class="wf-input" required /></label>
-									</div>
-								</div>
-							{/if}
-						</div>
+						<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:completionModel={aiCompletionModel} bind:embeddingModel={aiEmbeddingModel} />
 
 					<!-- STEP 6: KNOWLEDGE BASE -->
 					{:else if stepNum === 6}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Teach your AI assistant</h2>
-							<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
-						</div>
-
-						{#if s6Status === 'input'}
-							<div class="space-y-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-								<div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
-									<span class="text-xs font-medium text-slate-500">Quick templates:</span>
-									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Services & Pricing', '- Standard service: $50\n- Premium package: $120')}>
-										+ Pricing
-									</button>
-									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Business Hours', '- Monday–Friday: 9:00 AM – 6:00 PM\n- Saturday: 10:00 AM – 4:00 PM')}>
-										+ Hours
-									</button>
-									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('Cancellation Policy', '- 24-hour advance notice required')}>
-										+ Policy
-									</button>
-									<button type="button" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" onclick={() => appendTemplateChunk('FAQs', '- Free customer parking on-site\n- Walk-ins accepted based on availability')}>
-										+ FAQs
-									</button>
-								</div>
-
-								<textarea
-									class="w-full h-52 p-4 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none leading-relaxed resize-none font-normal"
-									placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
-									bind:value={s6RawText}
-								></textarea>
-							</div>
-
-						{:else if s6Status === 'processing'}
-							<div class="py-12 flex flex-col items-center justify-center text-center space-y-4 w-full">
-								<div class="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-									<Icon name="sparkles" size={24} color="currentColor" />
-								</div>
-								<h2 class="text-xl font-medium text-slate-900">Organizing your knowledge...</h2>
-								<p class="text-xs sm:text-sm text-slate-500 max-w-sm lg:max-w-none font-normal">
-									Structuring raw business notes into categorized concepts and FAQ patterns.
-								</p>
-
-								<button
-									type="button"
-									class="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-xl transition"
-									onclick={skipWaitingToDashboard}
-								>
-									Skip waiting & go to Dashboard →
-								</button>
-							</div>
-
-						{:else if s6Status === 'results'}
-							<div class="flex items-center justify-between mb-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-								<div>
-									<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Structured Knowledge</h2>
-									<p class="text-sm text-slate-500 font-normal">Concepts inferred from your business notes:</p>
-								</div>
-								<button type="button" class="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition" onclick={() => s6Status = 'input'}>
-									Edit raw notes
-								</button>
-							</div>
-
-							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-								{#each s6Concepts as concept}
-									<div class="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
-										<div class="flex items-center justify-between">
-											<span class="text-xs font-medium text-slate-900">{concept.title || 'Knowledge Concept'}</span>
-											<span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-medium">{concept.category || concept.type || 'Rule'}</span>
-										</div>
-										<p class="text-xs text-slate-600 line-clamp-3 font-normal">{concept.body_markdown || concept.content || ''}</p>
-									</div>
-								{/each}
-							</div>
-						{/if}
+						<KnowledgeBaseStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:rawText={s6RawText} status={s6Status} concepts={s6Concepts} compiling={s6Compiling} onSkipToDashboard={skipWaitingToDashboard} />
 
 					<!-- STEP 7: REVIEW AND FINISH -->
 					{:else if stepNum === 7}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
-							<p class="text-sm text-slate-500 font-normal">Here’s a summary of your workspace setup.</p>
-						</div>
-
-						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-							<!-- Business -->
-							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-										<Icon name="store" size={16} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-[11px] font-medium text-slate-400 uppercase">Business</div>
-										<div class="text-sm font-medium text-slate-900">{s1BusinessName || 'Your workspace'}</div>
-									</div>
-								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(1)}>Edit</button>
-							</div>
-
-							<!-- Channels -->
-							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-										<Icon name="chat" size={16} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-[11px] font-medium text-slate-400 uppercase">Channels</div>
-										<div class="text-sm font-medium text-slate-900">{connectedChannelsText()}</div>
-									</div>
-								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(2)}>Edit</button>
-							</div>
-
-							{#if productMode === 'full_workspace'}
-							<!-- Lead Pipeline -->
-							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-										<Icon name="pipeline" size={16} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-[11px] font-medium text-slate-400 uppercase">Lead pipeline</div>
-										<div class="text-sm font-medium text-slate-900">{pipelineStages.length} stages configured</div>
-									</div>
-								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(3)}>Edit</button>
-							</div>
-
-							<!-- Team Members -->
-							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-										<Icon name="users" size={16} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-[11px] font-medium text-slate-400 uppercase">Team</div>
-										<div class="text-sm font-medium text-slate-900">{s4Users.length > 0 ? `${s4Users.length} team member(s) added (prefix: ${s4Slug || 'default'})` : `Prefix: ${s4Slug || 'default'} (no extra members)`}</div>
-									</div>
-								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(4)}>Edit</button>
-							</div>
-							{/if}
-
-							<!-- AI Assistant -->
-							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-										<Icon name="bot" size={16} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-[11px] font-medium text-slate-400 uppercase">AI Assistant</div>
-										<div class="text-sm font-medium text-slate-900">{aiModeLabel()}</div>
-									</div>
-								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(5)}>Edit</button>
-							</div>
-
-							<!-- Knowledge Base -->
-							<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
-								<div class="flex items-center gap-3">
-									<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-										<Icon name="book" size={16} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-[11px] font-medium text-slate-400 uppercase">Knowledge Base</div>
-										<div class="text-sm font-medium text-slate-900">{kbTopicsSummary()}</div>
-									</div>
-								</div>
-								<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => goToStep(6)}>Edit</button>
-							</div>
-						</div>
+						<ReviewStep
+							step={displayStepNum}
+							totalSteps={visibleStepItems.length}
+							{productMode}
+							businessName={s1BusinessName}
+							channelsText={connectedChannelsText()}
+							pipelineStageCount={pipelineStages.length}
+							teamMemberCount={s4Users.length}
+							slug={s4Slug}
+							aiMode={aiModeLabel()}
+							knowledgeSummary={kbTopicsSummary()}
+							onEdit={goToStep}
+						/>
 
 					<!-- STEP 8: ALL SET! READY TO GO -->
 					{:else if stepNum === 8}
-						<div class="flex flex-col items-center lg:items-start text-center lg:text-left max-w-lg lg:max-w-none mx-auto lg:mx-0 pb-6 sm:py-2">
-							<div
-								class="lg:hidden w-[calc(100%+2.5rem)] -mx-5 -mt-2 mb-6 flex items-center justify-center overflow-hidden"
-								style="-webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent), linear-gradient(to right, transparent, black 28%, black 72%, transparent); -webkit-mask-composite: source-in; mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent), linear-gradient(to right, transparent, black 28%, black 72%, transparent); mask-composite: intersect;"
-							>
-								<img
-									src="/images/onboarding-happy.webp"
-									alt="Workspace Ready Mascot"
-									class="w-full max-h-64 object-contain"
-								/>
-							</div>
-
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup Complete</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-2">You’re all set! 🎉</h2>
-							<p class="text-sm text-slate-500 mb-8 font-normal leading-relaxed max-w-md lg:max-w-none">{productMode === 'chatbot_only' ? 'Your channels and AI assistant are ready to handle customer conversations.' : 'Your workspace is configured and ready to turn conversations into customers.'}</p>
-
-							<div class="space-y-3 w-full text-left">
-								<div class="p-3.5 sm:p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-3.5">
-									<div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
-										<Icon name="check" size={18} color="#FFFFFF" strokeWidth={2.5} />
-									</div>
-									<div>
-										<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
-										<div class="text-xs text-slate-500 font-normal mt-0.5">{productMode === 'chatbot_only' ? 'Your business profile, channels, knowledge, and AI preferences are active.' : 'Your business profile, team, channels, and reply preferences are active.'}</div>
-									</div>
-								</div>
-
-								<div class="p-3.5 sm:p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
-									<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-										<Icon name="chat" size={18} color="currentColor" />
-									</div>
-									<div>
-										<div class="text-sm font-medium text-slate-900">Omni-Channel Inbox</div>
-										<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from WhatsApp, Instagram, Messenger, and Telegram.</div>
-									</div>
-								</div>
-							</div>
-						</div>
+						<CompleteStep {productMode} />
 					{/if}
 				</div>
 
