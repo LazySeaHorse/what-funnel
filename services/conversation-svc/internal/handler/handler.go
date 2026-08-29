@@ -65,6 +65,8 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/simulate/channels", auth(admin(http.HandlerFunc(h.ListChannelsForSimulator)))).Methods(http.MethodGet)
 
 	// Platform Webhooks (Native external inbound messages from Telegram, WhatsApp, Meta)
+	r.HandleFunc("/webhooks/{platform}", h.HandlePlatformWebhookVerification).Methods(http.MethodGet)
+	r.HandleFunc("/webhooks/{platform}/{channel_id}", h.HandlePlatformWebhookVerification).Methods(http.MethodGet)
 	r.HandleFunc("/webhooks/{platform}", h.HandlePlatformWebhook).Methods(http.MethodPost)
 	r.HandleFunc("/webhooks/{platform}/{channel_id}", h.HandlePlatformWebhook).Methods(http.MethodPost)
 
