@@ -31,6 +31,7 @@
 	let messageContainer: HTMLDivElement | null = $state(null);
 
 	// Dropdowns and UI popovers
+	let showInboxFilterMenu = $state(false);
 	let showLeadStateDropdown = $state(false);
 	let showWorkspaceDropdown = $state(false);
 	let showAssignDropdown = $state(false);
@@ -464,12 +465,36 @@
 		inbox.conversations.filter((c) => c.assigned_user_ids && inbox.currentUser && c.assigned_user_ids.includes(inbox.currentUser.user_id || inbox.currentUser.id)).length
 	);
 
+	const defaultPipelineStages = [
+		{ key: 'new', label: 'New Lead' },
+		{ key: 'contacted', label: 'Contacted' },
+		{ key: 'follow_up', label: 'Follow-up' },
+		{ key: 'interested', label: 'Interested' },
+		{ key: 'converted', label: 'Converted' }
+	];
+	let availablePipelineStates = $derived(
+		pipelineStates.length > 0 ? pipelineStates : defaultPipelineStages
+	);
+
 	async function changeFilter(tab: 'all' | 'unassigned' | 'mine') {
 		inbox.filter = tab;
 		await inbox.loadConversations();
 		if (inbox.conversations.length > 0 && !inbox.conversations.some((c) => c.id === inbox.activeConvoID)) {
 			await selectConvo(inbox.conversations[0].id);
 		}
+	}
+
+	async function changeInboxStateFilter(stateKey: string) {
+		inbox.stateFilter = stateKey;
+		await inbox.loadConversations();
+		if (inbox.conversations.length > 0 && !inbox.conversations.some((c) => c.id === inbox.activeConvoID)) {
+			await selectConvo(inbox.conversations[0].id);
+		} else if (inbox.conversations.length === 0) {
+			inbox.activeConvoID = null;
+			inbox.activeConvo = null;
+			inbox.messages = [];
+		}
+		showInboxFilterMenu = false;
 	}
 
 	async function selectConvo(id: string) {
@@ -1012,11 +1037,70 @@
 					<div class="p-4 pb-3 border-b border-slate-100 space-y-3">
 						<div class="flex items-center justify-between">
 							<h1 class="text-xl lg:text-lg font-medium text-slate-900 tracking-tight">Inbox</h1>
-							<button title="Filter options" class="text-slate-400 hover:text-slate-600 p-1">
-								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-								</svg>
-							</button>
+							<div class="relative">
+								<button
+									type="button"
+									title="Filter options"
+									aria-label="Filter options"
+									aria-expanded={showInboxFilterMenu}
+									onclick={() => showInboxFilterMenu = !showInboxFilterMenu}
+									class="p-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 {inbox.stateFilter ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}"
+								>
+									<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+									</svg>
+									{#if inbox.stateFilter}
+										<span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+									{/if}
+								</button>
+
+								{#if showInboxFilterMenu}
+									<div class="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
+										<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase tracking-wider">Filter by Stage</div>
+										<button
+											type="button"
+											onclick={() => changeInboxStateFilter('')}
+											class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between {inbox.stateFilter === '' ? 'text-blue-600 font-semibold' : 'text-slate-700'}"
+										>
+											<span>All stages</span>
+											{#if inbox.stateFilter === ''}
+												<svg class="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+												</svg>
+											{/if}
+										</button>
+										{#each availablePipelineStates as st}
+											{@const isSelected = inbox.stateFilter === st.key}
+											{@const stInfo = getLeadStateInfo(st.key)}
+											<button
+												type="button"
+												onclick={() => changeInboxStateFilter(st.key)}
+												class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between {isSelected ? 'text-blue-600 font-semibold' : 'text-slate-700'}"
+											>
+												<div class="flex items-center gap-2">
+													<span class="w-2 h-2 rounded-full {stInfo.dot}"></span>
+													<span>{st.label || stInfo.label}</span>
+												</div>
+												{#if isSelected}
+													<svg class="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+													</svg>
+												{/if}
+											</button>
+										{/each}
+										{#if inbox.stateFilter}
+											<div class="border-t border-slate-100 my-1"></div>
+											<button
+												type="button"
+												onclick={() => changeInboxStateFilter('')}
+												class="w-full px-3 py-1.5 text-left hover:bg-slate-50 text-slate-500 hover:text-slate-700 text-[11px]"
+											>
+												Clear stage filter
+											</button>
+										{/if}
+									</div>
+								{/if}
+							</div>
 						</div>
 
 						<!-- Search bar (matching mobile mock) -->
@@ -1060,6 +1144,23 @@
 								<span class="text-slate-400 text-[11px]">{countMine}</span>
 							</button>
 						</div>
+
+						{#if inbox.stateFilter}
+							<div class="flex items-center gap-1.5 text-[11px] text-blue-700 bg-blue-50/80 px-2.5 py-1 rounded-lg border border-blue-200/60">
+								<span class="text-slate-500">Stage:</span>
+								<span class="font-medium">{getLeadStateInfo(inbox.stateFilter).label}</span>
+								<button
+									type="button"
+									onclick={() => changeInboxStateFilter('')}
+									class="ml-auto text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
+									title="Clear stage filter"
+								>
+									<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+						{/if}
 					</div>
 
 					<!-- Conversation List Items -->
