@@ -116,15 +116,16 @@
 	}
 
 	let realLeads = $derived.by(() => {
-		return inbox.conversations.map((c) => {
-			const channelType = c.channel?.type || c.channel_type || 'matrix_instagram';
-			let channel: 'instagram' | 'whatsapp' | 'messenger' | 'telegram' | 'webchat' = 'instagram';
-			if (channelType.includes('whatsapp')) channel = 'whatsapp';
+		return inbox.conversations.filter((c) => Boolean(c.lead)).map((c) => {
+			const channelType = c.channel?.type || c.channel_type || '';
+			let channel: 'instagram' | 'whatsapp' | 'messenger' | 'telegram' | 'webchat' | 'unknown' = 'unknown';
+			if (channelType.includes('instagram')) channel = 'instagram';
+			else if (channelType.includes('whatsapp')) channel = 'whatsapp';
 			else if (channelType.includes('messenger')) channel = 'messenger';
 			else if (channelType.includes('telegram')) channel = 'telegram';
 			else if (channelType.includes('webchat')) channel = 'webchat';
 
-			const stKey = c.lead?.current_state_key || 'new';
+			const stKey = c.lead.current_state_key || 'unknown';
 			const stInfo = getLeadStateInfo(stKey);
 
 			return {
@@ -150,8 +151,8 @@
 				}),
 				assigneesExtra: Math.max(0, (c.assigned_user_ids?.length || 0) - 2),
 				lastMessage: getSnippet(c) || 'No messages yet',
-				updatedAt: formatTime(c.last_message_at || c.created_at) || 'Just now',
-				tags: c.lead?.tags || [],
+				updatedAt: formatTime(c.last_message_at || c.created_at) || 'Unknown',
+				tags: c.lead.tags || [],
 				contactInfo: [
 					{
 						type: channel === 'whatsapp' ? 'phone' : 'instagram',

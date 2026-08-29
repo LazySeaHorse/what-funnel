@@ -13,7 +13,7 @@ export function formatTime(timeStr?: string): string {
 }
 
 export function getChannelLabel(type?: string): string {
-	if (!type) return 'Direct';
+	if (!type) return 'Unknown';
 	for (const [needle, label] of [['whatsapp', 'WhatsApp'], ['instagram', 'Instagram'], ['messenger', 'Messenger'], ['telegram', 'Telegram'], ['webchat', 'Webchat']] as const) {
 		if (type.includes(needle)) return label;
 	}
