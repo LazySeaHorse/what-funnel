@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	sessionName      = "whatfunnel_session"
+	sessionName         = "whatfunnel_session"
 	sessionKeyUserID    = "user_id"
 	sessionKeyAccountID = "account_id"
+	sessionKeyUsername  = "username"
 	sessionKeyRole      = "role"
 	sessionTTL          = 30 * 24 * time.Hour // 30 days
 )
@@ -55,16 +56,22 @@ func New(pool *pgxpool.Pool, secret string) *Store {
 
 // SetSession writes user identity into the session and persists it.
 func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
-	userID, accountID uuid.UUID, role string) error {
+	userID, accountID uuid.UUID, role string, username ...string) error {
 
 	token, err := s.newToken()
 	if err != nil {
 		return err
 	}
 
+	uName := ""
+	if len(username) > 0 {
+		uName = username[0]
+	}
+
 	data := map[string]string{
 		sessionKeyUserID:    userID.String(),
 		sessionKeyAccountID: accountID.String(),
+		sessionKeyUsername:  uName,
 		sessionKeyRole:      role,
 	}
 	encoded, err := json.Marshal(data)
@@ -192,6 +199,16 @@ func (s *Store) GetRole(r *http.Request) (string, bool) {
 	}
 	role, ok := data[sessionKeyRole]
 	return role, ok
+}
+
+// GetUsername extracts the username from session.
+func (s *Store) GetUsername(r *http.Request) (string, bool) {
+	data, err := s.GetSession(r)
+	if err != nil {
+		return "", false
+	}
+	username, ok := data[sessionKeyUsername]
+	return username, ok
 }
 
 // -------------------------------------------------------------------------
