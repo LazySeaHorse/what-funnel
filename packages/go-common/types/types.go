@@ -128,6 +128,7 @@ type ContextKey string
 const (
 	ContextKeyAccountID ContextKey = "account_id"
 	ContextKeyUserID    ContextKey = "user_id"
+	ContextKeyUsername  ContextKey = "username"
 	ContextKeyUserRole  ContextKey = "user_role"
 )
 

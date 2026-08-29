@@ -338,7 +338,7 @@ func TestChangeUserRole_InvalidRole(t *testing.T) {
 	var memberID uuid.UUID
 	err := pool.QueryRow(ctx,
 		`INSERT INTO users (account_id, email, password_hash, role)
-		 VALUES ($1, 'member5@example.com', 'hashed', 'member') RETURNING id`,
+		 VALUES ($1, 'member5@example.com', 'hashed', 'agent') RETURNING id`,
 		accountID).Scan(&memberID)
 	require.NoError(t, err)
 

@@ -257,11 +257,7 @@ func TestLeadManagementE2E(t *testing.T) {
 
 	// Assign conversation to Member
 	t.Log("E2E Step 18: Assign conversation to member")
-	// Actually, let's look at how inbox_e2e_test.go assigns:
-	// We can query the database directly to assign, or fetch users first. Let's query DB directly for ease.
-	var memberUserID uuid.UUID
-	err = pool.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, memberEmail).Scan(&memberUserID)
-	require.NoError(t, err)
+	memberUserID := uuid.MustParse(createBody["id"].(string))
 
 	_, err = pool.Exec(ctx, `UPDATE conversations SET assigned_user_ids = $1 WHERE id = $2`, []uuid.UUID{memberUserID}, convoID)
 	require.NoError(t, err)
@@ -292,7 +288,7 @@ func TestLeadManagementE2E(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, noteResp.StatusCode)
 	assert.Equal(t, "Spoke to customer, they want to proceed next week", noteBody["body"])
-	assert.Equal(t, memberEmail, noteBody["author_email"])
+	assert.Equal(t, "lead_agent", noteBody["author_email"])
 
 	// List notes
 	listNotesResp, listNotes := getList(t, memberClient, gatewayURL+"/leads/"+leadIDStr+"/notes")

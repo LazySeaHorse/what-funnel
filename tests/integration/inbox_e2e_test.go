@@ -192,7 +192,7 @@ func TestInboxE2E(t *testing.T) {
 
 	// 10. Admin assigns conversation to member
 	t.Log("E2E Step 13: Admin assigns conversation to Member")
-	memberUserIDStr := signupBody["user_id"].(string)
+	memberUserIDStr := createBody["id"].(string)
 	convoIDStr := adminWSEvent.ConversationID
 
 	assignResp, assignBody := patch(t, adminClient, gatewayURL+"/conversations/"+convoIDStr+"/assign", map[string]any{

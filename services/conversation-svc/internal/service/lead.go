@@ -333,7 +333,7 @@ func (s *Service) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUI
 	}
 
 	var authorEmail string
-	if err = tx.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, userID).Scan(&authorEmail); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(email, username, '') FROM users WHERE id = $1`, userID).Scan(&authorEmail); err != nil {
 		return nil, fmt.Errorf("resolve author email: %w", err)
 	}
 
@@ -359,7 +359,7 @@ func (s *Service) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT ln.id, ln.account_id, ln.lead_id, ln.author_user_id, ln.body, ln.created_at, COALESCE(u.email, '')
+		SELECT ln.id, ln.account_id, ln.lead_id, ln.author_user_id, ln.body, ln.created_at, COALESCE(u.email, u.username, '')
 		FROM lead_notes ln
 		LEFT JOIN users u ON ln.author_user_id = u.id
 		WHERE ln.lead_id = $1 AND ln.account_id = $2
@@ -390,7 +390,7 @@ func (s *Service) ListLeadHistory(ctx context.Context, accountID, userID uuid.UU
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT lsh.id, lsh.account_id, lsh.lead_id, lsh.from_state, lsh.to_state, lsh.changed_by, lsh.changed_at, COALESCE(u.email, '')
+		SELECT lsh.id, lsh.account_id, lsh.lead_id, lsh.from_state, lsh.to_state, lsh.changed_by, lsh.changed_at, COALESCE(u.email, u.username, '')
 		FROM lead_state_history lsh
 		LEFT JOIN users u ON lsh.changed_by = u.id
 		WHERE lsh.lead_id = $1 AND lsh.account_id = $2
