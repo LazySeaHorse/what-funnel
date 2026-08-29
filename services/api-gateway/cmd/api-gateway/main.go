@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 )
 
 
@@ -111,6 +112,7 @@ func newRouter(
 	logger *slog.Logger,
 ) http.Handler {
 	r := mux.NewRouter()
+	r.Use(middleware.CSRFProtection())
 
 	// Health check (local, not proxied)
 	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ import (
 
 const (
 	sessionName         = "whatfunnel_session"
+	csrfCookieName      = "csrf_token"
 	sessionKeyUserID    = "user_id"
 	sessionKeyAccountID = "account_id"
 	sessionKeyUsername  = "username"
@@ -101,6 +102,19 @@ func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
 		HttpOnly: s.options.HttpOnly,
 		SameSite: s.options.SameSite,
 	})
+
+	// Set readable CSRF token cookie for double-submit protection
+	csrfToken, err := s.newToken()
+	if err == nil {
+		http.SetCookie(w, &http.Cookie{
+			Name:     csrfCookieName,
+			Value:    csrfToken,
+			Path:     s.options.Path,
+			MaxAge:   s.options.MaxAge,
+			HttpOnly: false, // Accessible to client JavaScript
+			SameSite: s.options.SameSite,
+		})
+	}
 	return nil
 }
 
@@ -150,13 +164,21 @@ func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("session: destroy: %w", err)
 	}
-	// Expire the cookie
+	// Expire the session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+	})
+	// Expire the CSRF cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: false,
 	})
 	return nil
 }
@@ -218,6 +240,22 @@ func (s *Store) GetUsername(r *http.Request) (string, bool) {
 // PurgeExpired deletes expired sessions. Call from a periodic goroutine or cron.
 func (s *Store) PurgeExpired(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE expiry < NOW()`)
+	return err
+}
+
+// RevokeUserSessions deletes all active sessions for the given user.
+func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`,
+		userID.String())
+	return err
+}
+
+// RevokeAccountSessions deletes all active sessions for the given account.
+func (s *Store) RevokeAccountSessions(ctx context.Context, accountID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1`,
+		accountID.String())
 	return err
 }
 
