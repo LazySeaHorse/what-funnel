@@ -46,19 +46,13 @@ export class InboxState {
 			} else {
 				this.filter = 'mine';
 			}
-			const requests: Promise<void>[] = [this.loadConversations()];
-			if (this.currentUser.role === 'manager') requests.push(this.loadUsers());
-			await Promise.all(requests);
+			await this.loadConversations();
 			this.connectWS();
 		} catch (err) {
 			console.error('Failed to init inbox', err);
 		}
 	}
 
-	private async loadUsers() {
-		this.users = await apiRequest('/workspace/users').catch(() => []);
-	}
-	
 	async loadConversations() {
 		try {
 			let url = `/conversations?filter=${this.filter}`;

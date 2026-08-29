@@ -76,6 +76,7 @@
 			}
 		}
 		pipelineStates = workspace.pipeline?.states || [];
+		inbox.users = workspace.users;
 	});
 
 	$effect(() => {
@@ -402,6 +403,7 @@
 				}
 				workspace.users = inbox.users;
 				await workspace.loadCore(inbox.currentUser);
+				inbox.users = workspace.users;
 				inbox.configureCapabilities(capabilities);
 				if (!capabilities.leadTracking && inbox.filter !== 'all') {
 					inbox.filter = 'all';
@@ -598,7 +600,7 @@
 
 	$effect(() => {
 		const lead = inbox.activeConvo?.lead;
-		if (lead && lead.id) {
+		if (capabilities.leadTracking && lead && lead.id) {
 			loadLeadDetails(lead.id);
 		} else {
 			notes = [];
@@ -1079,7 +1081,7 @@
 
 				<!-- User Name & Title Box (Outline only, matching height) -->
 				{#if capabilities.showOperatorIdentity}
-				<div class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
+				<div data-testid="operator-identity" class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
 					<div class="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 border border-blue-100/80 flex items-center justify-center text-xs font-medium shrink-0">
 						{(inbox.currentUser?.username || inbox.currentUser?.name || inbox.currentUser?.email || 'U').charAt(0).toUpperCase()}
 					</div>

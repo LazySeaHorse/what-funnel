@@ -68,6 +68,15 @@ export class WorkspaceState {
 	async refreshAccount() {
 		this.account = await apiRequest('/workspace/account');
 		this.capabilities = getUICapabilities(this.account, this.currentUser);
+		if (!this.capabilities.leadTracking) {
+			this.pipeline = null;
+			this.users = [];
+			return;
+		}
+		await Promise.all([
+			this.pipeline ? Promise.resolve() : this.refreshPipeline(),
+			this.capabilities.manageTeam && this.users.length === 0 ? this.refreshUsers() : Promise.resolve()
+		]);
 	}
 
 	async refreshUsers() {
