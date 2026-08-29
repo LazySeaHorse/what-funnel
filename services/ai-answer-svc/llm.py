@@ -39,9 +39,9 @@ async def get_ai_config(db: ScopedDB) -> Tuple[str, str, str, str]:
         raise ValueError("AI provider configuration is not valid JSON.")
 
     api_key = cfg.get("api_key") or cfg.get("apiKey")
-    base_url = cfg.get("base_url") or cfg.get("baseUrl") or "https://api.openai.com/v1"
-    completion_model = cfg.get("completion_model") or cfg.get("completionModel") or "gpt-4o-mini"
-    embedding_model = cfg.get("embedding_model") or cfg.get("embeddingModel") or "text-embedding-3-small"
+    base_url = cfg.get("base_url") or cfg.get("baseUrl") or "https://generativelanguage.googleapis.com/v1beta/openai/"
+    completion_model = cfg.get("completion_model") or cfg.get("completionModel") or "gemma-4-26b-a4b-it"
+    embedding_model = cfg.get("embedding_model") or cfg.get("embeddingModel") or "gemini-embedding-001"
 
     if not api_key:
         raise ValueError("AI provider API key is missing in the configuration.")

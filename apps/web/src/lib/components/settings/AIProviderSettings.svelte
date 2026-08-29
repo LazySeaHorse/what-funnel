@@ -4,9 +4,9 @@
 
 	let configured = $state(false);
 	let apiKey = $state('');
-	let baseURL = $state('https://api.openai.com/v1');
-	let completionModel = $state('gpt-4o-mini');
-	let embeddingModel = $state('text-embedding-3-small');
+	let baseURL = $state('https://generativelanguage.googleapis.com/v1beta/openai/');
+	let completionModel = $state('gemma-4-26b-a4b-it');
+	let embeddingModel = $state('gemini-embedding-001');
 	let showKey = $state(false);
 	let loading = $state(true);
 	let saving = $state(false);

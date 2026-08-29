@@ -68,9 +68,9 @@
 	let s5AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
 	let aiProviderConfigured = $state(false);
 	let aiProviderApiKey = $state('');
-	let aiProviderBaseURL = $state('https://api.openai.com/v1');
-	let aiCompletionModel = $state('gpt-4o-mini');
-	let aiEmbeddingModel = $state('text-embedding-3-small');
+	let aiProviderBaseURL = $state('https://generativelanguage.googleapis.com/v1beta/openai/');
+	let aiCompletionModel = $state('gemma-4-26b-a4b-it');
+	let aiEmbeddingModel = $state('gemini-embedding-001');
 
 	// Step 6: Knowledge Base
 	let s6RawText = $state('');
