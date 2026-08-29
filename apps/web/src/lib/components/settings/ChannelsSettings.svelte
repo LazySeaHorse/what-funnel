@@ -15,6 +15,7 @@
 	let loading = $state(true);
 	let qrRefreshToken = $state(Date.now());
 	let error = $state('');
+	let notice = $state('');
 
 	function platformName(value: string) {
 		return ({ whatsapp: 'WhatsApp', instagram: 'Instagram', messenger: 'Messenger', telegram: 'Telegram' } as Record<string, string>)[value] || value;
@@ -88,6 +89,7 @@
 			await apiRequest(`/channels/${channelID}/disconnect`, { method: 'POST' });
 			await workspace?.refreshChannels();
 			await refresh();
+			notice = 'Channel disconnected.';
 		} catch (reason: any) { error = reason?.message || 'Failed to disconnect channel.'; }
 	}
 
@@ -104,9 +106,10 @@
 
 <div class="space-y-6" aria-busy={loading}>
 	<div class="flex items-center justify-between gap-4">
-		<div><h2 class="text-base font-medium text-slate-900">Channels</h2><p class="mt-1 text-xs text-slate-500">Connect and manage customer messaging accounts.</p></div>
-		<button onclick={() => showDialog = true} class="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600 hover:bg-blue-100">Connect channel</button>
+		<div><h2 class="text-base font-medium text-slate-900">Connected channels</h2><p class="mt-1 text-xs text-slate-500">Connect and manage customer messaging accounts.</p></div>
+		<button onclick={() => { showDialog = true; notice = ''; }} class="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600 hover:bg-blue-100">Connect channel</button>
 	</div>
+	{#if notice}<div role="status" class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">{notice}</div>{/if}
 	{#if error}<div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{error}</div>{/if}
 	{#if loading}<div role="status" class="py-6 text-xs text-slate-500">Loading channels…</div>
 	{:else}<div class="space-y-3">
@@ -126,7 +129,15 @@
 		<div class="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="connect-channel-title">
 			<div class="flex items-center justify-between gap-4"><div><h3 id="connect-channel-title" class="text-sm font-medium text-slate-900">{activeConnection ? `Connect ${platformName(activeConnection.platform)}` : 'Connect a channel'}</h3><p class="mt-1 text-xs text-slate-500">{activeConnection ? activeConnection.detail : 'WhatFunnel creates an isolated Matrix bridge user and guides the provider-specific login.'}</p></div><button aria-label="Close channel dialog" onclick={closeDialog} class="text-lg text-slate-400 hover:text-slate-600">×</button></div>
 			{#if !activeConnection}
-				<div class="my-5 grid grid-cols-2 gap-3">{#each ['whatsapp', 'instagram', 'messenger', 'telegram'] as option}<button onclick={() => platform = option as typeof platform} class="rounded-xl border p-3 text-left text-xs font-medium {platform === option ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-700'}">{platformName(option)}</button>{/each}</div>
+				<div class="my-5 space-y-3">
+					<label class="block text-xs font-medium text-slate-700">Channel
+						<select aria-label="Channel" bind:value={platform} class="wf-input mt-1.5 w-full">
+							{#each ['whatsapp', 'instagram', 'messenger', 'telegram'] as option}
+								<option value={option}>{platformName(option)}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
 				<div class="flex justify-end gap-2"><button onclick={closeDialog} class="wf-button px-3 py-2 text-slate-600 hover:bg-slate-100">Cancel</button><button onclick={startConnection} disabled={busy} class="wf-button-primary px-3 py-2">{busy ? 'Starting…' : 'Continue'}</button></div>
 			{:else if activeConnection.state === 'awaiting_scan'}
 				<div class="my-5 space-y-4"><div class="mx-auto h-60 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white p-2"><img class="h-full w-full object-contain" src={`/api-gateway/bridge-connections/${activeConnection.channel_id}/qr?refresh=${qrRefreshToken}`} alt={`QR code for ${platformName(activeConnection.platform)} connection`} /></div><p class="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">{activeConnection.platform === 'telegram' ? 'In Telegram, open Settings, Devices, then Link Desktop Device. Scan this code and complete any two-factor prompt.' : 'In WhatsApp, open Settings, Linked devices, then Link a device. Scan this code with your phone.'}</p></div>

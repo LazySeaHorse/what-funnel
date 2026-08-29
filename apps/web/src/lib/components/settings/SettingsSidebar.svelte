@@ -28,7 +28,10 @@
 			{/if}
 		{/each}
 		{#if productMode === 'full_workspace'}
-			<button onclick={() => activeSection = 'pipeline'} role="tab" aria-selected={activeSection === 'pipeline'} aria-controls="settings-panel-pipeline" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'pipeline' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}"><span class="w-4 text-center">⌁</span><span>Lead pipeline</span></button>
+			<button onclick={() => activeSection = 'pipeline'} role="tab" aria-selected={activeSection === 'pipeline'} aria-controls="settings-panel-pipeline" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left {activeSection === 'pipeline' ? 'bg-blue-50/80 text-blue-600 shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}">
+				<Icon name="pipeline" size={16} class={activeSection === 'pipeline' ? 'text-blue-600' : 'text-slate-400'} />
+				<span>Lead pipeline</span>
+			</button>
 		{/if}
 	</div>
 </div>

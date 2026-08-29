@@ -135,14 +135,32 @@
 		<line x1="5" y1="12" x2="19" y2="12" />
 		<polyline points="12 5 19 12 12 19" />
 
-	{:else if name === 'chevron-right'}
-		<!-- Chevron right -->
-		<polyline points="9 18 15 12 9 6" />
-
 	{:else if name === 'arrow-left'}
 		<!-- Arrow left -->
 		<line x1="19" y1="12" x2="5" y2="12" />
 		<polyline points="12 19 5 12 12 5" />
+
+	{:else if name === 'arrow-up'}
+		<!-- Arrow up -->
+		<line x1="12" y1="19" x2="12" y2="5" />
+		<polyline points="5 12 12 5 19 12" />
+
+	{:else if name === 'arrow-down'}
+		<!-- Arrow down -->
+		<line x1="12" y1="5" x2="12" y2="19" />
+		<polyline points="19 12 12 19 5 12" />
+
+	{:else if name === 'chevron-right'}
+		<!-- Chevron right -->
+		<polyline points="9 18 15 12 9 6" />
+
+	{:else if name === 'chevron-up'}
+		<!-- Chevron up -->
+		<polyline points="18 15 12 9 6 15" />
+
+	{:else if name === 'chevron-down'}
+		<!-- Chevron down -->
+		<polyline points="6 9 12 15 18 9" />
 
 	{:else if name === 'sparkles' || name === 'star' || name === 'party'}
 		<!-- Sparkles / Party -->

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { apiRequest } from '$lib/api';
+	import Icon from '$lib/Icon.svelte';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
 
 	let { workspace }: { workspace?: WorkspaceState } = $props();
@@ -104,26 +105,88 @@
 	{:else if !pipeline}
 		<p class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">No lead pipeline is configured.</p>
 	{:else}
-		<div class="space-y-2">
+		<div class="space-y-2.5">
 			{#each states as state, index (state.key)}
-				<div class="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
-					<input aria-label="{state.label} color" type="color" bind:value={state.color} class="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0" />
-					<input aria-label="Stage label" bind:value={state.label} class="wf-input min-w-36 flex-1 rounded-lg px-2.5 py-1.5" />
-					<span class="text-[11px] text-slate-400">{state.key}</span>
-					<div class="ml-auto flex gap-1">
-						<button aria-label="Move {state.label} up" onclick={() => moveState(index, -1)} disabled={index === 0} class="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-30">↑</button>
-						<button aria-label="Move {state.label} down" onclick={() => moveState(index, 1)} disabled={index === states.length - 1} class="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-30">↓</button>
-						<button aria-label="Remove {state.label}" onclick={() => removeState(index)} class="rounded-lg px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Remove</button>
+				<div class="flex items-center gap-3 rounded-xl border border-slate-200/90 bg-white p-3 shadow-2xs transition hover:border-slate-300">
+					<!-- Styled Color Swatch Picker -->
+					<div class="relative w-7 h-7 rounded-lg overflow-hidden border border-slate-200/80 shadow-2xs shrink-0 flex items-center justify-center bg-slate-50">
+						<span class="w-4 h-4 rounded-full border border-black/10 shadow-2xs" style="background-color: {state.color};"></span>
+						<input aria-label="{state.label} color" type="color" bind:value={state.color} class="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
+					</div>
+
+					<!-- Stage Name Input -->
+					<input
+						aria-label="Stage label"
+						bind:value={state.label}
+						class="wf-input min-w-32 flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-900 border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100 font-normal transition"
+					/>
+
+					<!-- Stage Key Badge -->
+					<span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-medium text-slate-400 bg-slate-100/80 border border-slate-200/60 shrink-0" title="Key: {state.key}">
+						{state.key}
+					</span>
+
+					<!-- Actions (Move up/down, Remove) -->
+					<div class="ml-auto flex items-center gap-1 shrink-0">
+						<button
+							aria-label="Move {state.label} up"
+							onclick={() => moveState(index, -1)}
+							disabled={index === 0}
+							class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition"
+							title="Move up"
+						>
+							<Icon name="arrow-up" size={14} color="currentColor" />
+						</button>
+						<button
+							aria-label="Move {state.label} down"
+							onclick={() => moveState(index, 1)}
+							disabled={index === states.length - 1}
+							class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition"
+							title="Move down"
+						>
+							<Icon name="arrow-down" size={14} color="currentColor" />
+						</button>
+						<button
+							aria-label="Remove {state.label}"
+							onclick={() => removeState(index)}
+							class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+							title="Remove stage"
+						>
+							<Icon name="trash" size={14} color="currentColor" />
+						</button>
 					</div>
 				</div>
 			{/each}
 		</div>
 
-		<div class="grid grid-cols-1 gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
-			<input bind:value={newStateKey} placeholder="Stage key" class="wf-input rounded-lg px-2.5 py-2" />
-			<input bind:value={newStateLabel} placeholder="Stage label" class="wf-input rounded-lg px-2.5 py-2" />
-			<input aria-label="New stage color" type="color" bind:value={newStateColor} class="h-8 w-full cursor-pointer rounded border-0 bg-transparent p-0 sm:w-10" />
-			<button onclick={addState} class="rounded-lg bg-white px-3 py-2 text-xs font-medium text-blue-600 ring-1 ring-slate-200 hover:bg-blue-50">Add stage</button>
+		<div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-3.5 sm:p-4 space-y-3">
+			<div class="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+				<Icon name="plus" size={13} color="currentColor" class="text-slate-400" />
+				<span>Add new stage</span>
+			</div>
+			<div class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2.5 items-center">
+				<input
+					bind:value={newStateKey}
+					placeholder="Stage key"
+					class="wf-input rounded-lg px-3 py-2 text-xs bg-white border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
+				/>
+				<input
+					bind:value={newStateLabel}
+					placeholder="Stage label"
+					class="wf-input rounded-lg px-3 py-2 text-xs bg-white border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
+				/>
+				<div class="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-white shadow-2xs shrink-0 flex items-center justify-center">
+					<span class="w-5 h-5 rounded-full border border-black/10 shadow-2xs" style="background-color: {newStateColor};"></span>
+					<input aria-label="New stage color" type="color" bind:value={newStateColor} class="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
+				</div>
+				<button
+					onclick={addState}
+					class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition shadow-2xs cursor-pointer"
+				>
+					<Icon name="plus" size={13} color="currentColor" />
+					<span>Add stage</span>
+				</button>
+			</div>
 		</div>
 
 		<div class="flex justify-end">
