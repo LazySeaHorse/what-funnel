@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -80,7 +81,15 @@ func (h *Handler) GetBridgeQRCode(w http.ResponseWriter, r *http.Request) {
 	}
 	image, contentType, err := h.svc.BridgeQRCode(r.Context(), accountID, channelID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		msg := err.Error()
+		// "not issued yet" is transient — the bridge is still starting up.
+		// Return 202 so the browser img src fails silently while the
+		// polling loop keeps refreshing qrRefreshToken.
+		if strings.Contains(msg, "not issued a QR code yet") {
+			writeError(w, http.StatusAccepted, msg)
+			return
+		}
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
 	w.Header().Set("Content-Type", contentType)

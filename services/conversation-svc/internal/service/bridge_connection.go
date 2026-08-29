@@ -289,12 +289,15 @@ func (s *Service) SubmitBridgeCode(ctx context.Context, accountID, channelID uui
 }
 
 func (s *Service) BridgeQRCode(ctx context.Context, accountID, channelID uuid.UUID) ([]byte, string, error) {
-	connection, err := s.GetBridgeConnection(ctx, accountID, channelID, false)
+	// Refresh from the bridge so a stale DB state does not produce a spurious
+	// 400. For example, if the bridge has already sent a new QR message the
+	// state must be current before we decide whether to look for it.
+	connection, err := s.GetBridgeConnection(ctx, accountID, channelID, true)
 	if err != nil {
 		return nil, "", err
 	}
 	if connection.State != "awaiting_scan" {
-		return nil, "", fmt.Errorf("this connection is not waiting for a QR scan")
+		return nil, "", fmt.Errorf("this connection is not waiting for a QR scan (current state: %s)", connection.State)
 	}
 	creds, err := s.channelMatrixCredentials(ctx, accountID, channelID)
 	if err != nil {
