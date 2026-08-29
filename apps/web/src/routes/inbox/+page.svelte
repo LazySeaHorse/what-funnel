@@ -910,7 +910,9 @@
 					</div>
 					<div>
 						<div class="text-xs font-medium text-slate-800 leading-tight truncate max-w-[100px]">{accountName}</div>
-						<div class="text-[11px] text-slate-400 leading-tight capitalize">{inbox.currentUser?.role || 'Admin'}</div>
+						<div class="text-[11px] text-slate-400 leading-tight capitalize">
+							{inbox.currentUser ? inbox.currentUser.role || 'Unknown role' : 'Loading…'}
+						</div>
 					</div>
 				</div>
 				<svg class="w-4 h-4 text-slate-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
