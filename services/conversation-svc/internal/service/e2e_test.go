@@ -86,7 +86,7 @@ func TestChannelIngestionE2E(t *testing.T) {
 	require.NoError(t, err)
 
 	var userID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'e2e-member@example.com', 'pwd', 'member') RETURNING id`, accountID).Scan(&userID)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'e2e-member@example.com', 'pwd', 'agent') RETURNING id`, accountID).Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -175,7 +175,7 @@ func TestChannelIngestionE2E(t *testing.T) {
 	sessStore := &mockSessionStore{
 		userID:    userID,
 		accountID: accountID,
-		role:      "member",
+		role:      "agent",
 		loggedIn:  true,
 	}
 

@@ -84,32 +84,27 @@ func TestInboxE2E(t *testing.T) {
 	require.NoError(t, err, "admin websocket dial failed: %v", wsResp)
 	defer adminWS.Close()
 
-	// 4. Invite Member
-	t.Log("E2E Step 5: Invite Member")
-	memberEmail := uniqueEmail("inbox-member")
-	invResp, invBody := post(t, adminClient, gatewayURL+"/workspace/users/invite", map[string]string{
-		"email": memberEmail,
-		"role":  "member",
-	})
-	require.Equal(t, http.StatusCreated, invResp.StatusCode, "invite must succeed: %v", invBody)
-	inviteToken := invBody["invite_token"].(string)
-
-	// 5. Member signup using invite token
-	t.Log("E2E Step 6: Sign up Member with invite token")
-	memberClient := newClient()
-	signupResp, signupBody := post(t, memberClient, gatewayURL+"/auth/signup", map[string]string{
-		"account_name": "Invited User",
-		"email":        memberEmail,
-		"password":     "MemberPassword123!",
-		"invite_token": inviteToken,
-	})
-	require.Equal(t, http.StatusCreated, signupResp.StatusCode, "member signup must succeed: %v", signupBody)
-
-	// Member Login
-	t.Log("E2E Step 7: Log in Member")
-	memLoginResp, _ := post(t, memberClient, gatewayURL+"/auth/login", map[string]string{
-		"email":    memberEmail,
+	// 4. Create Agent User directly
+	t.Log("E2E Step 5: Create Agent User")
+	createResp, createBody := post(t, adminClient, gatewayURL+"/workspace/users", map[string]string{
+		"username": "inbox_agent",
 		"password": "MemberPassword123!",
+		"role":     "agent",
+	})
+	require.Equal(t, http.StatusCreated, createResp.StatusCode, "create user must succeed: %v", createBody)
+
+	// Set workspace slug
+	slugResp, _ := put(t, adminClient, gatewayURL+"/workspace/account/slug", map[string]string{
+		"slug": "inbox-corp",
+	})
+	require.Equal(t, http.StatusOK, slugResp.StatusCode)
+
+	// 5. Agent Login using slug-username
+	t.Log("E2E Step 6: Log in Agent with slug-username")
+	memberClient := newClient()
+	memLoginResp, _ := post(t, memberClient, gatewayURL+"/auth/login", map[string]string{
+		"identifier": "inbox-corp-inbox_agent",
+		"password":   "MemberPassword123!",
 	})
 	require.Equal(t, http.StatusOK, memLoginResp.StatusCode)
 

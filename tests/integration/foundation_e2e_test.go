@@ -152,7 +152,7 @@ func TestFoundationE2E(t *testing.T) {
 		"password":     "Password123!",
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "signup must return 201: %v", body)
-	assert.Equal(t, "admin", body["role"], "first user must be admin")
+	assert.Equal(t, "manager", body["role"], "first user must be manager")
 	accountIDStr, ok := body["account_id"].(string)
 	require.True(t, ok, "account_id must be in response")
 	accountID := uuid.MustParse(accountIDStr)
@@ -160,7 +160,6 @@ func TestFoundationE2E(t *testing.T) {
 	// Cleanup all data for this account after test
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM sessions WHERE data::text LIKE '%'||$1||'%'`, accountIDStr)
-		pool.Exec(ctx, `DELETE FROM invite_tokens WHERE account_id = $1`, accountID)
 		pool.Exec(ctx, `DELETE FROM audit_logs WHERE account_id = $1`, accountID)
 		pool.Exec(ctx, `DELETE FROM lead_pipelines WHERE account_id = $1`, accountID)
 		pool.Exec(ctx, `DELETE FROM users WHERE account_id = $1`, accountID)
@@ -187,7 +186,7 @@ func TestFoundationE2E(t *testing.T) {
 		"password": "Password123!",
 	})
 	require.Equal(t, http.StatusOK, loginResp.StatusCode, "login must return 200: %v", loginBody)
-	assert.Equal(t, "admin", loginBody["role"])
+	assert.Equal(t, "manager", loginBody["role"])
 
 	// -----------------------------------------------------------------------
 	// Step 4: Session persists (GET /auth/me)
@@ -195,7 +194,7 @@ func TestFoundationE2E(t *testing.T) {
 	t.Log("Step 4: Session persists")
 	meResp, meBody := get(t, adminClient, gatewayURL+"/auth/me")
 	require.Equal(t, http.StatusOK, meResp.StatusCode, "GET /auth/me must return 200: %v", meBody)
-	assert.Equal(t, "admin", meBody["role"])
+	assert.Equal(t, "manager", meBody["role"])
 	assert.Equal(t, accountIDStr, meBody["account_id"])
 
 	// -----------------------------------------------------------------------
@@ -206,21 +205,20 @@ func TestFoundationE2E(t *testing.T) {
 	assert.Equal(t, http.StatusOK, pipResp.StatusCode)
 
 	// -----------------------------------------------------------------------
-	// Step 6: Invite a member
+	// Step 6: Create an agent directly
 	// -----------------------------------------------------------------------
-	t.Log("Step 6: Invite member")
-	memberEmail := uniqueEmail("member")
-	invResp, invBody := post(t, adminClient, gatewayURL+"/workspace/users/invite", map[string]string{
-		"email": memberEmail,
-		"role":  "member",
+	t.Log("Step 6: Create agent")
+	createUserResp, createUserBody := post(t, adminClient, gatewayURL+"/workspace/users", map[string]string{
+		"username": "agent_e2e",
+		"password": "AgentPassword123!",
+		"role":     "agent",
 	})
-	require.Equal(t, http.StatusCreated, invResp.StatusCode, "invite must return 201: %v", invBody)
-	inviteToken, ok := invBody["invite_token"].(string)
-	require.True(t, ok, "invite_token must be in response")
-	assert.NotEmpty(t, inviteToken)
+	require.Equal(t, http.StatusCreated, createUserResp.StatusCode, "create user must return 201: %v", createUserBody)
+	assert.Equal(t, "agent_e2e", createUserBody["username"])
+	assert.Equal(t, "agent", createUserBody["role"])
 
 	// -----------------------------------------------------------------------
-	// Step 7: Admin can list users (sees at least the admin)
+	// Step 7: Manager can list users (sees manager + agent)
 	// -----------------------------------------------------------------------
 	t.Log("Step 7: List users")
 	usersResp, _ := get(t, adminClient, gatewayURL+"/workspace/users")
@@ -246,18 +244,15 @@ func TestFoundationE2E(t *testing.T) {
 		"GET /auth/me after logout must return 401")
 
 	// -----------------------------------------------------------------------
-	// Step 10: Member RBAC denial placeholder
-	// Redeeming invite tokens and full member login flow is implemented in
-	// Build Prompt 3. Here we assert the invite token exists in the DB.
-	// extended in Build Prompt 3
+	// Step 10: Confirm agent user in DB
 	// -----------------------------------------------------------------------
-	t.Log("Step 10: Confirm invite token stored (member flow extended in Build Prompt 3)")
-	var tokenExists bool
+	t.Log("Step 10: Confirm agent user stored in DB")
+	var userExists bool
 	err = pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM invite_tokens WHERE token = $1 AND account_id = $2)`,
-		inviteToken, accountID).Scan(&tokenExists)
+		`SELECT EXISTS(SELECT 1 FROM users WHERE username = 'agent_e2e' AND account_id = $1)`,
+		accountID).Scan(&userExists)
 	require.NoError(t, err)
-	assert.True(t, tokenExists, "invite token must be persisted in DB")
+	assert.True(t, userExists, "agent user must be persisted in DB")
 }
 
 // TestWrongPasswordDenied verifies login with wrong password returns 401.

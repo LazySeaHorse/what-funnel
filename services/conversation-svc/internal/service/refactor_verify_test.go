@@ -212,9 +212,9 @@ func TestCanSeeConversation_RBAC_AllEndpoints(t *testing.T) {
 
 	// Create 2 member users
 	var memberA, memberB uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member_a@example.com', 'h', 'member') RETURNING id`, accountID).Scan(&memberA)
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member_a@example.com', 'h', 'agent') RETURNING id`, accountID).Scan(&memberA)
 	require.NoError(t, err)
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member_b@example.com', 'h', 'member') RETURNING id`, accountID).Scan(&memberB)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member_b@example.com', 'h', 'agent') RETURNING id`, accountID).Scan(&memberB)
 	require.NoError(t, err)
 
 	// Create Channel & 2 Contacts

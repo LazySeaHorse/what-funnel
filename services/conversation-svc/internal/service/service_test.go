@@ -72,7 +72,7 @@ func setupTestTenant(t *testing.T, pool *pgxpool.Pool, name string) (uuid.UUID, 
 	require.NoError(t, err)
 
 	var userID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'admin') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'manager') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -324,9 +324,9 @@ func TestLeadManagement(t *testing.T) {
 
 	accountID, adminID := setupTestTenant(t, pool, "lead-mgmt-test")
 
-	// Create member user who is NOT assigned
+	// Create agent user who is NOT assigned
 	var memberID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member@example.com', 'hash', 'member') RETURNING id`, accountID).Scan(&memberID)
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'member@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&memberID)
 	require.NoError(t, err)
 
 	// Create a channel
@@ -406,24 +406,24 @@ func TestLeadManagement(t *testing.T) {
 
 	// 3. Manual lead creation (POST /conversations/{id}/lead)
 	// Create lead manually for convo2
-	lead2, err := svc.CreateLead(ctx, accountID, adminID, convo2ID, "admin")
+	lead2, err := svc.CreateLead(ctx, accountID, adminID, convo2ID, "manager")
 	require.NoError(t, err)
 	require.NotNil(t, lead2)
 	assert.Equal(t, "new", lead2.CurrentStateKey)
 
 	// Idempotency: call it again
-	lead2Dup, err := svc.CreateLead(ctx, accountID, adminID, convo2ID, "admin")
+	lead2Dup, err := svc.CreateLead(ctx, accountID, adminID, convo2ID, "manager")
 	require.NoError(t, err)
 	assert.Equal(t, lead2.ID, lead2Dup.ID, "Manual lead creation must be idempotent")
 
 	// 4. State Transitions (PATCH /leads/{id}/state)
 	// Update state to 'won'
-	lead2, err = svc.UpdateLeadState(ctx, accountID, adminID, lead2.ID, "admin", "won")
+	lead2, err = svc.UpdateLeadState(ctx, accountID, adminID, lead2.ID, "manager", "won")
 	require.NoError(t, err)
 	assert.Equal(t, "won", lead2.CurrentStateKey)
 
 	// Reject invalid state
-	_, err = svc.UpdateLeadState(ctx, accountID, adminID, lead2.ID, "admin", "invalid-state-key")
+	_, err = svc.UpdateLeadState(ctx, accountID, adminID, lead2.ID, "manager", "invalid-state-key")
 	assert.Error(t, err, "Invalid state key must be rejected")
 
 	// 5. Visibility check
@@ -434,39 +434,39 @@ func TestLeadManagement(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = $1 WHERE id = $2`, settingsRaw, accountID)
 	require.NoError(t, err)
 
-	// Member tries to access lead2 — should fail with "lead not found"
-	_, err = svc.UpdateLeadState(ctx, accountID, memberID, lead2.ID, "member", "lost")
-	assert.Error(t, err, "Member should be denied lead access due to visibility")
+	// Agent tries to access lead2 — should fail with "lead not found"
+	_, err = svc.UpdateLeadState(ctx, accountID, memberID, lead2.ID, "agent", "lost")
+	assert.Error(t, err, "Agent should be denied lead access due to visibility")
 	assert.Contains(t, err.Error(), "lead not found")
 
-	// Assign member to convo2
+	// Assign agent to convo2
 	_, err = pool.Exec(ctx, `UPDATE conversations SET assigned_user_ids = $1 WHERE id = $2`, []uuid.UUID{memberID}, convo2ID)
 	require.NoError(t, err)
 
-	// Member tries again — should succeed
-	lead2, err = svc.UpdateLeadState(ctx, accountID, memberID, lead2.ID, "member", "lost")
+	// Agent tries again — should succeed
+	lead2, err = svc.UpdateLeadState(ctx, accountID, memberID, lead2.ID, "agent", "lost")
 	require.NoError(t, err)
 	assert.Equal(t, "lost", lead2.CurrentStateKey)
 
 	// 6. Tags and Notes (PATCH /leads/{id}/tags, POST /leads/{id}/notes)
 	// Update tags
-	lead2, err = svc.UpdateLeadTags(ctx, accountID, memberID, lead2.ID, "member", []string{"tag1", "tag2"})
+	lead2, err = svc.UpdateLeadTags(ctx, accountID, memberID, lead2.ID, "agent", []string{"tag1", "tag2"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"tag1", "tag2"}, lead2.Tags)
 
 	// Create notes
-	note1, err := svc.CreateLeadNote(ctx, accountID, memberID, lead2.ID, "member", "This is first note")
+	note1, err := svc.CreateLeadNote(ctx, accountID, memberID, lead2.ID, "agent", "This is first note")
 	require.NoError(t, err)
 	assert.Equal(t, "This is first note", note1.Body)
 
 	// List notes
-	notes, err := svc.ListLeadNotes(ctx, accountID, memberID, lead2.ID, "member")
+	notes, err := svc.ListLeadNotes(ctx, accountID, memberID, lead2.ID, "agent")
 	require.NoError(t, err)
 	require.Len(t, notes, 1)
 	assert.Equal(t, "This is first note", notes[0].Body)
 
 	// List history
-	history, err := svc.ListLeadHistory(ctx, accountID, memberID, lead2.ID, "member")
+	history, err := svc.ListLeadHistory(ctx, accountID, memberID, lead2.ID, "agent")
 	require.NoError(t, err)
 	// Historied transitions: null -> new (creation), new -> won, won -> lost
 	require.Len(t, history, 3)

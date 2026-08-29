@@ -68,7 +68,7 @@ func setupTestTenant(t *testing.T, pool *pgxpool.Pool, name string) (uuid.UUID, 
 	require.NoError(t, err)
 
 	var userID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'admin') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'manager') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

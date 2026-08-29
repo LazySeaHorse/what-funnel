@@ -44,7 +44,7 @@ func setupTestTenant(t *testing.T, pool *pgxpool.Pool, name string) (uuid.UUID, 
 	require.NoError(t, err)
 
 	var userID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'admin') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'manager') RETURNING id`, accountID, name+"@example.com").Scan(&userID)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -69,11 +69,11 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 	accountID, _ := setupTestTenant(t, pool, "ws-privacy")
 	ctx := context.Background()
 
-	// Create Member A and Member B users in the DB
+	// Create Agent A and Agent B users in the DB
 	var memberAID, memberBID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'a@example.com', 'hash', 'member') RETURNING id`, accountID).Scan(&memberAID)
+	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'a@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&memberAID)
 	require.NoError(t, err)
-	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'b@example.com', 'hash', 'member') RETURNING id`, accountID).Scan(&memberBID)
+	err = pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'b@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&memberBID)
 	require.NoError(t, err)
 
 	// Create channel, contact, and conversation assigned to Member A

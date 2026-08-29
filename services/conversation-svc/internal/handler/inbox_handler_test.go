@@ -31,7 +31,7 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 	var memberID uuid.UUID
 	err := pool.QueryRow(context.Background(), `
 		INSERT INTO users (account_id, email, password_hash, role)
-		VALUES ($1, 'member-h@example.com', 'hash', 'member') RETURNING id
+		VALUES ($1, 'member-h@example.com', 'hash', 'agent') RETURNING id
 	`, accountID).Scan(&memberID)
 	require.NoError(t, err)
 
