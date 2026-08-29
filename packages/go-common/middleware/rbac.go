@@ -113,9 +113,17 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 // RequireRole rejects requests where the authenticated user's role does not
 // match one of the allowed roles. Must be chained after RequireAuthenticated.
 func RequireRole(roles ...string) func(http.Handler) http.Handler {
-	allowed := make(map[string]bool, len(roles))
+	allowed := make(map[string]bool, len(roles)*2)
 	for _, r := range roles {
 		allowed[r] = true
+		if r == "manager" || r == "admin" {
+			allowed["admin"] = true
+			allowed["manager"] = true
+		}
+		if r == "agent" || r == "member" {
+			allowed["agent"] = true
+			allowed["member"] = true
+		}
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

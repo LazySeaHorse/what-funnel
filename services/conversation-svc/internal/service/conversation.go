@@ -180,7 +180,7 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 
 	sqlQuery := sharedConversationSQL + `
 		WHERE c.account_id = $2 AND (
-		    $3 = 'admin' OR
+		    $3 = 'admin' OR $3 = 'manager' OR
 		    $1 = ANY(c.assigned_user_ids) OR
 		    (cardinality(c.assigned_user_ids) = 0 AND $4 = true)
 		)
@@ -356,6 +356,65 @@ func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conve
 	if err != nil {
 		return fmt.Errorf("upsert conversation read: %w", err)
 	}
+	return nil
+}
+
+// CloseConversation marks a conversation as closed, resets ai_mode_active to true for AI resumption,
+// records an audit log, and publishes conversation.closed and conversation.updated events.
+func (s *Service) CloseConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) error {
+	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+		return err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE conversations
+		SET status = 'closed', ai_mode_active = true
+		WHERE id = $1 AND account_id = $2
+	`, conversationID, accountID)
+	if err != nil {
+		return fmt.Errorf("update conversation close: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err = aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &userID,
+		Action:      "conversation.closed",
+		TargetType:  "conversation",
+		TargetID:    &conversationID,
+		Metadata:    map[string]any{},
+	}); err != nil {
+		return fmt.Errorf("write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit close tx: %w", err)
+	}
+
+	// Publish conversation.closed event for AI debounced summary and workers
+	event := map[string]any{
+		"account_id":      accountID.String(),
+		"conversation_id": conversationID.String(),
+		"closed_at":       time.Now().Format(time.RFC3339),
+	}
+	if _, err := s.pubsub.Publish(ctx, "conversation.closed", event); err != nil {
+		fmt.Printf("failed to publish conversation.closed: %v\n", err)
+	}
+
+	// Publish conversation.updated event for real-time WebSocket clients
+	if _, err := s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
+		AccountID:      accountID,
+		ConversationID: conversationID,
+	}); err != nil {
+		fmt.Printf("failed to publish conversation.updated on close: %v\n", err)
+	}
+
 	return nil
 }
 

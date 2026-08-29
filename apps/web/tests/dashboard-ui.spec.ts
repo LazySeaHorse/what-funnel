@@ -49,10 +49,11 @@ test('leads tab UI renders real database leads with table and detail drawer', as
 
   const email = `leads-real-${Date.now()}@e2e.local`;
   await page.goto('/signup');
+  await page.waitForLoadState('networkidle');
   await page.fill('#account-name-input', 'Glamour Salon');
   await page.fill('#signup-email-input', email);
   await page.fill('#signup-password-input', 'E2ePassword99!');
-  await page.click('button[type="submit"]');
+  await page.locator('button[type="submit"]').click();
 
   await page.waitForURL((url) => url.pathname.includes('/onboarding') || url.pathname.includes('/inbox'), { timeout: 20000 });
   await page.goto('/inbox');
@@ -104,6 +105,36 @@ test('leads tab UI renders real database leads with table and detail drawer', as
   await page.fill('textarea[placeholder="Add an internal note..."]', 'Customer prefers Saturday afternoon.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('text=Customer prefers Saturday afternoon.')).toBeVisible({ timeout: 5000 });
+
+  // Test Leads Filters dropdown
+  const leadsFiltersBtn = page.getByRole('button', { name: 'Filter leads' });
+  await expect(leadsFiltersBtn).toBeVisible();
+  await leadsFiltersBtn.click();
+  await expect(page.locator('text=Filter by Stage').or(page.locator('label:has-text("Channel")'))).toBeVisible();
+
+  // Filter by Telegram (should hide WhatsApp lead Alice Test)
+  await page.locator('#leads-channel-filter').selectOption('telegram');
+  await expect(page.locator('text=No leads in this view')).toBeVisible();
+
+  // Reset filters
+  await page.getByRole('button', { name: 'Reset filters' }).click();
+  await expect(page.locator('text=Alice Test').first()).toBeVisible();
+
+  // Test Inbox Filter Options Menu
+  const inboxNav = page.locator('button:has-text("Inbox")').first();
+  await inboxNav.click();
+  const inboxFilterBtn = page.getByRole('button', { name: 'Filter options' });
+  await expect(inboxFilterBtn).toBeVisible();
+  await inboxFilterBtn.click();
+  await expect(page.locator('text=Filter by Stage')).toBeVisible();
+
+  // Select Contacted stage filter (Alice is in New Lead stage, so conversation list becomes empty)
+  await page.getByRole('button', { name: 'Contacted' }).click();
+  await expect(page.locator('text=Stage: Contacted')).toBeVisible();
+
+  // Clear stage filter
+  await page.getByRole('button', { name: 'Clear stage filter' }).click();
+  await expect(page.locator('text=Alice Test').first()).toBeVisible();
 
   // Take screenshot of real Leads Tab UI
   await page.screenshot({ path: 'test-results/leads-tab-screenshot.png' });

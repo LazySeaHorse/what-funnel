@@ -371,11 +371,13 @@
 
 			setTimeout(() => {
 				refreshCurrentConvo(false);
+				window.dispatchEvent(new CustomEvent('dev-message-sent'));
 				lastStatus = 'idle';
-			}, 2000);
+			}, 1000);
 			setTimeout(() => {
 				refreshCurrentConvo(false);
-			}, 4000);
+				window.dispatchEvent(new CustomEvent('dev-message-sent'));
+			}, 2500);
 		} catch (err: any) {
 			lastStatus = 'error';
 			lastError = err.message || 'Failed to send message';
