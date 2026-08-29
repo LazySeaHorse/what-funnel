@@ -13,6 +13,7 @@
 	import PersonalPreferences from '$lib/components/settings/PersonalPreferences.svelte';
 	import ContactsView from '$lib/components/inbox/ContactsView.svelte';
 	import SimulatorView from '$lib/components/inbox/SimulatorView.svelte';
+	import AutomationView from '$lib/components/automation/AutomationView.svelte';
 	import { formatTime, getChannelLabel, getContactHandle, getContactName, getSnippet, getTagColor, parseMessageContent } from '$lib/inbox/presentation';
 
 	const inbox = new InboxState();
@@ -1980,39 +1981,11 @@
 			</div>
 
 		{:else if selectedNav === 'automation'}
-			<!-- ================= AUTOMATION VIEW ================= -->
-			<div class="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
-				<div class="flex items-center justify-between">
-					<div>
-						<h1 class="text-xl font-medium text-slate-900 tracking-tight">Automation & AI Workflows</h1>
-						<p class="text-xs text-slate-500">Set up instant auto-replies, lead qualification triggers, and smart routing</p>
-					</div>
-				</div>
-
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-					<div class="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/40 space-y-3">
-						<div class="flex items-center justify-between">
-							<div class="flex items-center gap-2">
-								<span class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-medium">⚡</span>
-								<div>
-									<h3 class="text-xs font-medium text-slate-900">Instant AI Auto-reply</h3>
-									<p class="text-[11px] text-slate-400">Replies automatically to incoming customer questions</p>
-								</div>
-							</div>
-							<span class="px-2 py-0.5 rounded-full text-[10px] font-medium {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}">
-								{!aiProviderStatusLoaded ? 'CHECKING' : aiAutoReplyEnabled && aiProviderConfigured ? 'ACTIVE' : !aiProviderConfigured ? 'NOT CONFIGURED' : 'OFF'}
-							</span>
-						</div>
-						<p class="text-xs text-slate-600">
-							{aiAutoReplyEnabled && aiProviderConfigured
-								? 'Uses your knowledge base to provide instant answers.'
-								: !aiProviderConfigured
-									? 'Connect an AI provider during onboarding before auto-replies can run.'
-									: 'Auto-replies are currently disabled in workspace settings.'}
-						</p>
-					</div>
-				</div>
-			</div>
+			<AutomationView
+				autoReplyEnabled={aiAutoReplyEnabled}
+				providerConfigured={aiProviderConfigured}
+				providerStatusLoaded={aiProviderStatusLoaded}
+			/>
 
 		{:else if selectedNav === 'knowledge'}
 			<!-- ================= KNOWLEDGE BASE VIEW ================= -->
