@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,15 +14,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins in dev
-		return true
-	},
-}
 
 type SessionStore interface {
 	GetUserID(r *http.Request) (uuid.UUID, bool)
@@ -105,17 +98,79 @@ func (h *Hub) BroadcastToAccount(accountID uuid.UUID, event any, filterFunc func
 }
 
 type Server struct {
-	hub    *Hub
-	sess   SessionStore
-	logger *slog.Logger
+	hub            *Hub
+	sess           SessionStore
+	logger         *slog.Logger
+	upgrader       websocket.Upgrader
+	allowedOrigins []string
+	isProd         bool
 }
 
-func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger) *Server {
-	return &Server{
-		hub:    hub,
-		sess:   sess,
-		logger: logger,
+func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins []string, isProd bool) *Server {
+	s := &Server{
+		hub:            hub,
+		sess:           sess,
+		logger:         logger,
+		allowedOrigins: allowedOrigins,
+		isProd:         isProd,
 	}
+	s.upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     s.CheckOrigin,
+	}
+	return s
+}
+
+// CheckOrigin validates the incoming WebSocket upgrade request against the origin whitelist.
+func (s *Server) CheckOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser or direct clients without Origin header
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	// 1. Same-host check (origin matches Host or X-Forwarded-Host)
+	reqHost := r.Host
+	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		reqHost = fwdHost
+	}
+	if strings.EqualFold(u.Host, reqHost) || strings.EqualFold(strings.Split(u.Host, ":")[0], strings.Split(reqHost, ":")[0]) {
+		return true
+	}
+
+	// 2. Explicit whitelist check
+	for _, allowed := range s.allowedOrigins {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
+		if allowed == "*" {
+			return true
+		}
+		if strings.EqualFold(allowed, origin) {
+			return true
+		}
+		if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
+			if strings.EqualFold(parsedAllowed.Host, u.Host) {
+				return true
+			}
+		}
+	}
+
+	// 3. In non-production (dev/testing), allow localhost and 127.0.0.1 origins
+	if !s.isProd {
+		hostOnly := strings.Split(u.Host, ":")[0]
+		if hostOnly == "localhost" || hostOnly == "127.0.0.1" || hostOnly == "0.0.0.0" || strings.HasSuffix(hostOnly, ".local") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +198,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Upgrade to WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Error("failed to upgrade websocket connection", "error", err)
 		return

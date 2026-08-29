@@ -48,7 +48,7 @@ func main() {
 	logger.Info("connected to redis")
 
 	// 3. Initialize Session Store & Hub
-	sess := session.New(pool, cfg.SessionSecret)
+	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 	hub := server.NewHub(logger)
 	go hub.Run(ctx)
 
@@ -58,7 +58,7 @@ func main() {
 	c.Start(ctx, consumerName)
 
 	// 5. Initialize Server & Routes
-	srvHandler := server.NewServer(hub, sess, logger)
+	srvHandler := server.NewServer(hub, sess, logger, cfg.AllowedOrigins, cfg.IsProduction())
 	r := mux.NewRouter()
 	r.Use(loggingMiddleware(logger))
 
