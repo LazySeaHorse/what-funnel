@@ -7,6 +7,9 @@
 	import Icon from '$lib/Icon.svelte';
 	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
 	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
+	import BusinessInfoStep from '$lib/components/onboarding/BusinessInfoStep.svelte';
+	import ChannelsStep from '$lib/components/onboarding/ChannelsStep.svelte';
+	import PipelineStep from '$lib/components/onboarding/PipelineStep.svelte';
 
 	// Step number from route: 1..8
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
@@ -450,20 +453,6 @@
 		goto('/inbox?tab=settings');
 	}
 
-	function addStage() {
-		const colors = ['#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'];
-		const randomColor = colors[pipelineStages.length % colors.length];
-		pipelineStages = [
-			...pipelineStages,
-			{ key: `stage_${Date.now()}`, label: 'New Stage', color: randomColor }
-		];
-	}
-
-	function removeStage(index: number) {
-		if (pipelineStages.length <= 1) return;
-		pipelineStages = pipelineStages.filter((_, i) => i !== index);
-	}
-
 	let connectedChannelsText = $derived(() => {
 		const conn = channels.filter(c => c.connected).map(c => c.name);
 		return conn.length > 0 ? conn.join(', ') : 'WhatsApp, Instagram';
@@ -523,161 +512,13 @@
 						<div class="w-9"></div>
 					</div>
 
-					<!-- STEP 1: BUSINESS INFO -->
+					<!-- Steps own their presentation and form-local behavior; this page coordinates persistence and navigation. -->
 					{#if stepNum === 1}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
-							<p class="text-sm text-slate-500 font-normal">This helps us personalize your workspace.</p>
-						</div>
-
-						<div class="space-y-5 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-							<div>
-								<label for="business-name" class="block text-xs font-medium text-slate-700 mb-1.5">Business name</label>
-								<input
-									id="business-name"
-									type="text"
-									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-normal"
-									placeholder="Enter your business name"
-									bind:value={s1BusinessName}
-								/>
-							</div>
-
-							<div>
-								<label for="business-type" class="block text-xs font-medium text-slate-700 mb-1.5">Business type</label>
-								<div class="relative w-full">
-									<select id="business-type" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={s1BusinessType}>
-										<option value="" disabled>Select business type</option>
-										<option value="Salon / Beauty">Salon / Beauty</option>
-										<option value="Photography">Photography</option>
-										<option value="Tutoring / Education">Tutoring / Education</option>
-										<option value="Home Services">Home Services</option>
-										<option value="E-commerce / Retail">E-commerce / Retail</option>
-										<option value="Consulting / Agency">Consulting / Agency</option>
-										<option value="Other">Other</option>
-									</select>
-									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-										</svg>
-									</div>
-								</div>
-							</div>
-
-							<div>
-								<label for="timezone" class="block text-xs font-medium text-slate-700 mb-1.5">Time zone</label>
-								<div class="relative w-full">
-									<select id="timezone" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={s1Timezone}>
-										<option value="(GMT+00:00) UTC">(GMT+00:00) UTC</option>
-										<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
-										<option value="(GMT-05:00) Eastern Time (US & Canada)">(GMT-05:00) Eastern Time (US & Canada)</option>
-										<option value="(GMT-08:00) Pacific Time (US & Canada)">(GMT-08:00) Pacific Time (US & Canada)</option>
-										<option value="(GMT+01:00) Paris / Berlin">(GMT+01:00) Paris / Berlin</option>
-										<option value="(GMT+08:00) Singapore / Beijing">(GMT+08:00) Singapore / Beijing</option>
-										<option value="(GMT+09:00) Tokyo">(GMT+09:00) Tokyo</option>
-									</select>
-									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-										</svg>
-									</div>
-								</div>
-							</div>
-						</div>
-
-					<!-- STEP 2: CHANNELS -->
+						<BusinessInfoStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:businessName={s1BusinessName} bind:businessType={s1BusinessType} bind:timezone={s1Timezone} />
 					{:else if stepNum === 2}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Connect your channels</h2>
-							<p class="text-sm text-slate-500 font-normal">Bring all your conversations into one place.</p>
-						</div>
-
-						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-							{#each channels as ch}
-								<div class="flex items-center justify-between p-3.5 sm:p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition">
-									<div class="flex items-center gap-3">
-										<div class="w-9 h-9 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
-											<Icon name={ch.icon} size={20} color={ch.color} />
-										</div>
-										<span class="text-sm font-medium text-slate-800">{ch.name}</span>
-									</div>
-
-									<div>
-										{#if ch.connected}
-											<button type="button" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium cursor-pointer" onclick={() => toggleChannel(ch)}>
-												<Icon name="check" size={14} color="#10B981" />
-												<span>Connected</span>
-											</button>
-										{:else}
-											<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => toggleChannel(ch)}>
-												Connect
-											</button>
-										{/if}
-									</div>
-								</div>
-							{/each}
-
-							<!-- Web Chat coming soon item -->
-							<div class="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/50 border border-slate-200/60 rounded-xl opacity-75">
-								<div class="flex items-center gap-3">
-									<div class="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 text-slate-400">
-										<Icon name="chat" size={18} color="currentColor" />
-									</div>
-									<span class="text-sm font-medium text-slate-600">Web Chat</span>
-								</div>
-								<span class="px-2.5 py-1 text-[11px] font-medium text-slate-400 bg-slate-100 rounded-lg">Coming soon</span>
-							</div>
-
-							<p class="text-xs text-slate-400 text-center lg:text-left pt-2">You can connect more later.</p>
-						</div>
-
-					<!-- STEP 3: LEAD PIPELINE -->
+						<ChannelsStep step={displayStepNum} totalSteps={visibleStepItems.length} {channels} onConnect={toggleChannel} />
 					{:else if stepNum === 3}
-						<div class="text-center lg:text-left mb-6">
-							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {displayStepNum} of {visibleStepItems.length}</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
-							<p class="text-sm text-slate-500 font-normal">Create the stages your leads will go through.</p>
-						</div>
-
-						<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-							<div class="space-y-2.5 w-full">
-								{#each pipelineStages as stage, i}
-									<div class="flex items-center gap-2.5 p-2 sm:p-2.5 bg-slate-50/80 border border-slate-200 rounded-xl w-full">
-										<div class="grid grid-cols-2 gap-0.5 text-slate-300 shrink-0 ml-1.5">
-											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
-											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
-											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
-											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
-											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
-											<div class="w-1 h-1 rounded-full bg-slate-400"></div>
-										</div>
-										<div class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: {stage.color};"></div>
-										<input
-											type="text"
-											class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none font-normal"
-											bind:value={stage.label}
-											placeholder="Stage name"
-										/>
-										<button
-											type="button"
-											class="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-											onclick={() => removeStage(i)}
-											title="Remove stage"
-											disabled={pipelineStages.length <= 1}
-										>
-											<Icon name="trash" size={16} color="currentColor" />
-										</button>
-									</div>
-								{/each}
-							</div>
-
-							<button type="button" class="mt-2 flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed" onclick={addStage}>
-								<Icon name="plus" size={14} color="currentColor" />
-								<span>Add another stage</span>
-							</button>
-						</div>
-
+						<PipelineStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:stages={pipelineStages} />
 					<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
 					{:else if stepNum === 4}
 						<div class="text-center lg:text-left mb-6">
