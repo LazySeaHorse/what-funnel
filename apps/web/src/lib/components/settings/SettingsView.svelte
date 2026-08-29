@@ -3,11 +3,11 @@
 	import { apiRequest } from '$lib/api';
 	import type { InboxState } from '$lib/store.svelte';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
-	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
 	import PipelineSettings from './PipelineSettings.svelte';
 	import SettingsSidebar from './SettingsSidebar.svelte';
 	import SettingsInfoPanel from './SettingsInfoPanel.svelte';
 	import AIProviderSettings from './AIProviderSettings.svelte';
+	import ChannelsSettings from './ChannelsSettings.svelte';
 
 	let {
 		inbox,
@@ -97,14 +97,6 @@
 	let showDeleteModal = $state(false);
 	let deleteConfirmationInput = $state('');
 	let showPlanModal = $state(false);
-	let showChannelModal = $state(false);
-	let newChannelPlatform = $state<'whatsapp' | 'instagram' | 'messenger' | 'telegram'>('whatsapp');
-	let activeConnection = $state<any>(null);
-	let bridgeConnections = $state<any[]>([]);
-	let connectionSecret = $state('');
-	let connectionCode = $state('');
-	let connectionBusy = $state(false);
-	let qrRefreshToken = $state(Date.now());
 
 	// User Management State
 	let accountSlug = $state('');
@@ -129,9 +121,8 @@
 	let deleteUserTarget = $state<any | null>(null);
 	let deletingUser = $state(false);
 
-	// Team users & channels
+	// Team users
 	let teamUsers = $state<any[]>([]);
-	let channelsList = $state<any[]>([]);
 	let productMode = $state('full_workspace');
 	let leadTracking = $state(true);
 	let unassignedVisible = $state(true);
@@ -152,10 +143,6 @@
 		resetUserTarget = null;
 		showDeleteModal = false;
 		showPlanModal = false;
-		showChannelModal = false;
-		activeConnection = null;
-		connectionSecret = '';
-		connectionCode = '';
 		deleteConfirmationInput = '';
 		userModalError = '';
 		resetPasswordError = '';
@@ -189,32 +176,6 @@
 		}
 	}
 
-	function connectedChannels(channels: any[]) {
-		return channels.filter((channel) => channel.status !== 'disconnected');
-	}
-
-	async function refreshChannelsAndConnections(refreshBridge = false) {
-		const connectionPath = refreshBridge ? '/bridge-connections?refresh=true' : '/bridge-connections';
-		const [channels, connections] = await Promise.all([apiRequest('/channels'), apiRequest(connectionPath)]);
-		channelsList = connectedChannels(channels);
-		bridgeConnections = Array.isArray(connections) ? connections : [];
-		if (activeConnection) {
-			activeConnection = bridgeConnections.find((connection) => connection.channel_id === activeConnection.channel_id) || activeConnection;
-		}
-	}
-
-	function connectionForChannel(channelID: string) {
-		return bridgeConnections.find((connection) => connection.channel_id === channelID);
-	}
-
-	function platformName(platform: string) {
-		return ({ whatsapp: 'WhatsApp', instagram: 'Instagram', messenger: 'Messenger', telegram: 'Telegram' } as Record<string, string>)[platform] || platform;
-	}
-
-	function channelName(channel: any) {
-		return platformName(channel.type.replace('matrix_', ''));
-	}
-
 	onMount(async () => {
 		if (initialSection && ['general', 'business_profile', 'ai_provider', 'users_permissions', 'channels', 'pipeline'].includes(initialSection)) {
 			activeSection = initialSection as SettingsSection;
@@ -226,7 +187,7 @@
 				await workspace.loadSettings(inbox?.currentUser);
 				applyWorkspaceData(workspace.account);
 				teamUsers = workspace.users;
-				await Promise.all([refreshChannelsAndConnections(), loadAccountSlug()]);
+				await loadAccountSlug();
 			} else {
 				const [account, users] = await Promise.all([
 					apiRequest('/workspace/account'),
@@ -234,7 +195,7 @@
 				]);
 				applyWorkspaceData(account);
 				teamUsers = users;
-				await Promise.all([refreshChannelsAndConnections(), loadAccountSlug()]);
+				await loadAccountSlug();
 			}
 		} catch (err: any) {
 			errorMsg = err?.message || 'Failed to load workspace settings.';
@@ -310,84 +271,6 @@
 			errorMsg = err.message || 'Failed to update user role.';
 		}
 	}
-
-	async function connectChannel() {
-		connectionBusy = true;
-		errorMsg = '';
-		try {
-			activeConnection = await apiRequest('/bridge-connections', {
-				method: 'POST',
-				body: { platform: newChannelPlatform }
-			});
-			qrRefreshToken = Date.now();
-			await refreshChannelsAndConnections(true);
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to connect channel.';
-		} finally {
-			connectionBusy = false;
-		}
-	}
-
-	async function submitConnectionSecret() {
-		if (!activeConnection || !connectionSecret.trim()) return;
-		connectionBusy = true;
-		errorMsg = '';
-		try {
-			activeConnection = await apiRequest(`/bridge-connections/${activeConnection.channel_id}/session`, {
-				method: 'POST', body: { session: connectionSecret }
-			});
-			connectionSecret = '';
-			await refreshChannelsAndConnections(true);
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to hand the session to the bridge.';
-		} finally {
-			connectionBusy = false;
-		}
-	}
-
-	async function submitConnectionCode() {
-		if (!activeConnection || !connectionCode.trim()) return;
-		connectionBusy = true;
-		errorMsg = '';
-		try {
-			activeConnection = await apiRequest(`/bridge-connections/${activeConnection.channel_id}/code`, {
-				method: 'POST', body: { code: connectionCode }
-			});
-			connectionCode = '';
-			await refreshChannelsAndConnections(true);
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to send the login response.';
-		} finally {
-			connectionBusy = false;
-		}
-	}
-
-	async function disconnectChannel(channelID: string) {
-		if (!confirm('Disconnect this channel? Existing conversations will remain available.')) return;
-		try {
-			await apiRequest(`/channels/${channelID}/disconnect`, { method: 'POST' });
-			if (workspace) {
-				await workspace.refreshChannels();
-			}
-			await refreshChannelsAndConnections();
-			successMsg = 'Channel disconnected.';
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to disconnect channel.';
-		}
-	}
-
-	$effect(() => {
-		if (!showChannelModal || !activeConnection || ['connected', 'failed', 'cancelled'].includes(activeConnection.state)) return;
-		const timer = window.setInterval(async () => {
-			try {
-				await refreshChannelsAndConnections(true);
-				qrRefreshToken = Date.now();
-			} catch {
-				// Connection polling is best effort. The manual refresh control remains available.
-			}
-		}, 3500);
-		return () => window.clearInterval(timer);
-	});
 
 	async function updateProductMode(mode: string) {
 		if (mode === productMode) return;
@@ -926,30 +809,7 @@
 
 				<!-- SECTION: CHANNELS -->
 				{:else if activeSection === 'channels'}
-					<div class="space-y-5">
-						<div class="flex items-start justify-between gap-3">
-							<div><h2 class="text-base font-medium text-slate-900">Connected channels</h2><p class="mt-0.5 text-xs text-slate-500">Link each account through its mautrix bridge, then monitor its connection here.</p></div>
-							<button onclick={() => showChannelModal = true} class="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600 hover:bg-blue-100">Connect channel</button>
-						</div>
-						{#if channelsList.length === 0}
-							<p class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-5 text-center text-xs text-slate-500">No channels connected yet.</p>
-						{:else}
-							<div class="space-y-2">
-								{#each channelsList as channel (channel.id)}
-									{@const connection = connectionForChannel(channel.id)}
-									<div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
-										<ChannelBadge channel={channel.type} size="md" />
-										<div class="min-w-0 flex-1"><div class="truncate text-xs font-medium text-slate-800">{channelName(channel)}</div><div class="mt-0.5 truncate text-[11px] text-slate-400">{connection?.detail || channel.status_detail || channel.bridge_identity || 'Ready to connect'}</div></div>
-										{#if connection && !['connected', 'cancelled'].includes(connection.state)}
-											<button onclick={() => { activeConnection = connection; showChannelModal = true; qrRefreshToken = Date.now(); }} class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Continue</button>
-										{/if}
-										<button onclick={() => disconnectChannel(channel.id)} class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50">Disconnect</button>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-
+					<ChannelsSettings {workspace} />
 				{:else if activeSection === 'pipeline'}
 					<PipelineSettings {workspace} />
 			{/if}
@@ -966,60 +826,11 @@
 		/>
 
 	</div>
-
-<!-- Connect channel modal -->
-{#if showChannelModal}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal max-w-lg" role="dialog" aria-modal="true" aria-labelledby="connect-channel-title">
-			<div class="flex items-center justify-between gap-4"><div><h3 id="connect-channel-title" class="text-sm font-medium text-slate-900">{activeConnection ? `Connect ${platformName(activeConnection.platform)}` : 'Connect a channel'}</h3><p class="mt-1 text-xs text-slate-500">{activeConnection ? activeConnection.detail : 'WhatFunnel creates an isolated Matrix bridge user and guides the provider-specific login.'}</p></div><button aria-label="Close channel dialog" onclick={closeModal} class="text-lg text-slate-400 hover:text-slate-600">×</button></div>
-
-			{#if !activeConnection}
-				<label class="block text-xs font-medium text-slate-700">Channel
-					<select bind:value={newChannelPlatform} class="wf-select mt-1.5"><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="messenger">Messenger</option><option value="telegram">Telegram</option></select>
-				</label>
-				<p class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">The bridge runs as a linked device or authenticated session for this channel. Connection credentials remain server-side and encrypted at rest.</p>
-				<div class="flex justify-end gap-2"><button onclick={closeModal} class="wf-button px-3 py-2 text-slate-600 hover:bg-slate-100">Cancel</button><button onclick={connectChannel} disabled={connectionBusy} class="wf-button-primary px-3 py-2">{connectionBusy ? 'Starting…' : 'Continue'}</button></div>
-			{:else if activeConnection.state === 'awaiting_scan'}
-				<div class="space-y-4">
-					<div class="mx-auto flex h-52 w-52 items-center justify-center rounded-2xl border border-slate-200 bg-white p-3">
-						<img class="h-full w-full object-contain" src={`/api-gateway/bridge-connections/${activeConnection.channel_id}/qr?refresh=${qrRefreshToken}`} alt={`QR code for ${platformName(activeConnection.platform)} connection`} />
-					</div>
-					<p class="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">{activeConnection.platform === 'telegram' ? 'In Telegram, open Settings, Devices, then Link Desktop Device. Scan this code and complete any two-factor prompt.' : 'In WhatsApp, open Settings, Linked devices, then Link a device. Scan this code with your phone.'}</p>
-					<div class="flex justify-end gap-2"><button onclick={() => { qrRefreshToken = Date.now(); refreshChannelsAndConnections(true); }} class="wf-button px-3 py-2 text-slate-600 hover:bg-slate-100">Refresh QR</button><button onclick={closeModal} class="wf-button-primary px-3 py-2">I’ve scanned it</button></div>
-				</div>
-			{:else if activeConnection.state === 'awaiting_code'}
-				<label class="block text-xs font-medium text-slate-700">Telegram response
-					<input bind:value={connectionCode} autocomplete="one-time-code" class="wf-input mt-1.5" placeholder="Verification code or 2FA password" />
-					<span class="mt-1.5 block text-[11px] font-normal leading-4 text-slate-500">Enter exactly what the bridge requested. It is forwarded to the private bridge-management room and is not stored by WhatFunnel.</span>
-				</label>
-				<div class="flex justify-end gap-2"><button onclick={closeModal} class="wf-button px-3 py-2 text-slate-600 hover:bg-slate-100">Cancel</button><button onclick={submitConnectionCode} disabled={connectionBusy || !connectionCode.trim()} class="wf-button-primary px-3 py-2">{connectionBusy ? 'Sending…' : 'Submit'}</button></div>
-			{:else if activeConnection.state === 'awaiting_session'}
-				<div class="space-y-3 text-xs text-slate-600 leading-5">
-					<p>Open {activeConnection.platform === 'instagram' ? 'instagram.com' : 'messenger.com'} in a private browser window and sign in. In browser developer tools, copy an authenticated GraphQL request as POSIX cURL.</p>
-					<label class="block text-xs font-medium text-slate-700">Bridge session hand-off
-						<textarea bind:value={connectionSecret} autocomplete="off" spellcheck="false" class="wf-input mt-1.5 min-h-32 font-mono text-[11px]" placeholder="Paste the copied cURL request"></textarea>
-						<span class="mt-1.5 block text-[11px] font-normal leading-4 text-slate-500">This value is sent once over TLS and is not written to WhatFunnel’s database or logs. Your Matrix operator controls bridge-management room retention and encryption.</span>
-					</label>
-				</div>
-				<div class="flex justify-end gap-2"><button onclick={closeModal} class="wf-button px-3 py-2 text-slate-600 hover:bg-slate-100">Cancel</button><button onclick={submitConnectionSecret} disabled={connectionBusy || !connectionSecret.trim()} class="wf-button-primary px-3 py-2">{connectionBusy ? 'Handing off…' : 'Connect'}</button></div>
-			{:else if activeConnection.state === 'connected'}
-				<div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">{platformName(activeConnection.platform)} is connected. New chats will sync through the bridge.</div>
-				<div class="flex justify-end"><button onclick={closeModal} class="wf-button-primary px-3 py-2">Done</button></div>
-			{:else if activeConnection.state === 'failed'}
-				<div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">{activeConnection.detail || 'The bridge could not complete this login.'}</div>
-				<div class="flex justify-end"><button onclick={closeModal} class="wf-button-primary px-3 py-2">Close</button></div>
-			{:else}
-				<div class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">The bridge is verifying this connection. This dialog checks for updates automatically.</div>
-				<div class="flex justify-end"><button onclick={() => refreshChannelsAndConnections(true)} class="wf-button-primary px-3 py-2">Check status</button></div>
-			{/if}
-		</div>
-	</div>
-{/if}
 	{/if}
 
 </div>
 
-<!-- Plan Modal -->
+<!-- Plan modal -->
 {#if showPlanModal}
 	<div class="wf-modal-backdrop">
 		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-plan-title">
