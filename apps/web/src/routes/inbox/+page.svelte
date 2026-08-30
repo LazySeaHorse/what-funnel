@@ -807,7 +807,7 @@
 					<svg class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
 					</svg>
-					<span>Automation</span>
+					<span>Automations</span>
 				</button>
 				{/if}
 
@@ -896,7 +896,7 @@
 
 				{#if showWorkspaceDropdown}
 					<div class="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl border border-slate-200 py-1.5 z-50">
-						<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase">Current Account</div>
+						<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase">Current account</div>
 						<div class="px-3 py-1.5 text-xs font-medium text-slate-800">{accountName}</div>
 						<div class="border-t border-slate-100 my-1"></div>
 						<button
@@ -945,10 +945,10 @@
 					onclick={toggleGlobalAutoReply}
 					disabled={!capabilities.manageWorkspace || togglingGlobalAI || (!aiProviderConfigured && !aiAutoReplyEnabled)}
 					class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-default disabled:opacity-70"
-					title={!aiProviderStatusLoaded ? 'Checking AI configuration' : !aiProviderConfigured ? 'Configure an AI provider during onboarding before enabling auto-replies' : undefined}
+					title={!aiProviderStatusLoaded ? 'Checking AI configuration' : !aiProviderConfigured ? 'Configure an AI provider in Settings before enabling automatic replies' : undefined}
 				>
 					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
-					<span class="text-slate-700">AI Auto-reply</span>
+					<span class="text-slate-700">AI auto-reply</span>
 					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'}">
 						{!aiProviderStatusLoaded ? 'CHECKING' : !aiProviderConfigured ? 'NOT CONFIGURED' : aiAutoReplyEnabled ? 'ON' : 'OFF'}
 					</span>
@@ -1004,7 +1004,7 @@
 
 								{#if showInboxFilterMenu}
 									<div class="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
-										<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase tracking-wider">Filter by Stage</div>
+										<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase tracking-wider">Filter by stage</div>
 										<button
 											type="button"
 											onclick={() => changeInboxStateFilter('')}
@@ -1123,8 +1123,8 @@
 										<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
 									</svg>
 								</div>
-								<div class="text-xs font-medium text-slate-800">No conversations yet</div>
-								<p class="text-[11px] text-slate-400">Incoming messages from connected channels will show up here in real time.</p>
+								<div class="text-xs font-medium text-slate-800">No conversations found</div>
+								<p class="text-[11px] text-slate-400">Incoming messages from connected channels appear here.</p>
 							</div>
 						{:else}
 							{#each filteredConversations as item (item.id)}
@@ -1194,75 +1194,69 @@
 								</svg>
 							</div>
 							<h3 class="text-sm font-medium text-slate-800">Select a conversation</h3>
-							<p class="text-xs text-slate-400 max-w-xs">Pick a chat from the inbox on the left to view messages and respond.</p>
+							<p class="text-xs text-slate-400 max-w-xs">Select a conversation from the list to view messages and send replies.</p>
 						</div>
 					{:else}
 						<!-- Chat Top Header (with back button on mobile matching mock) -->
 						<div class="h-16 px-4 sm:px-6 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
-							<div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+							<div class="flex items-center gap-3">
 								<button
-									type="button"
-									class="lg:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-900 rounded-lg active:bg-slate-100 transition cursor-pointer shrink-0"
 									onclick={handleBackToConversations}
+									class="lg:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100"
 									aria-label="Back to conversations"
 								>
-									<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+									<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 										<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
 									</svg>
 								</button>
-
 								<UserAvatar
 									name={getContactName(inbox.activeConvo)}
 									avatar={inbox.activeConvo.contact?.avatar_url}
-									size="lg"
+									size="md"
 									channel={inbox.activeConvo.channel?.type || inbox.activeConvo.channel_type}
 								/>
-								<div class="min-w-0">
-									<h2 class="font-medium text-sm text-slate-900 leading-tight whitespace-nowrap truncate">{getContactName(inbox.activeConvo)}</h2>
-									<p class="text-xs text-slate-400 leading-tight whitespace-nowrap truncate">{getContactHandle(inbox.activeConvo) || getChannelLabel(inbox.activeConvo.channel_type || inbox.activeConvo.channel?.type)}</p>
+								<div>
+									<div class="flex items-center gap-2">
+										<h2 class="text-sm font-medium text-slate-800 leading-tight">{getContactName(inbox.activeConvo)}</h2>
+										{#if inbox.activeConvo.channel}
+											<ChannelBadge channel={inbox.activeConvo.channel?.type || inbox.activeConvo.channel_type} size="xs" />
+										{/if}
+									</div>
+									<p class="text-[11px] text-slate-400 leading-tight mt-0.5">
+										{getContactHandle(inbox.activeConvo)}
+									</p>
 								</div>
 							</div>
 
+							<!-- Chat Action Buttons -->
 							<div class="flex items-center gap-2">
-								<button
-									type="button"
-									role="switch"
-									aria-label="Auto-reply for this chat"
-									aria-checked={aiAutoReplyEnabled && inbox.activeConvo.ai_auto_reply_enabled !== false}
-									onclick={toggleChatAutoReply}
-									disabled={togglingChatAI || !aiAutoReplyEnabled}
-									class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition {aiAutoReplyEnabled && inbox.activeConvo.ai_auto_reply_enabled !== false ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-500'} disabled:opacity-60"
-									title={inbox.activeConvo.ai_auto_reply_enabled === false ? 'Auto-reply is off for this chat. Click to use the workspace default.' : aiAutoReplyEnabled ? 'Using the workspace auto-reply setting. Click to turn it off for this chat.' : 'Workspace auto-reply is off.'}
-								>
-									<span class="w-1.5 h-1.5 rounded-full {aiAutoReplyEnabled && inbox.activeConvo.ai_auto_reply_enabled !== false ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
-									{inbox.activeConvo.ai_auto_reply_enabled === false ? 'AI off' : aiAutoReplyEnabled ? 'AI on' : 'Global off'}
-								</button>
+								<!-- Assignee dropdown button -->
 								{#if capabilities.manageAssignments}
-								<!-- Assign button -->
 								<div class="relative">
 									<button
-										title="Assign conversation"
+										type="button"
 										onclick={() => showAssignDropdown = !showAssignDropdown}
-										class="w-8 h-8 rounded-lg border border-slate-200/80 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition"
+										aria-expanded={showAssignDropdown}
+										aria-label="Assign conversation"
+										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+										title="Assign conversation"
 									>
 										<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+											<path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
 										</svg>
 									</button>
 
 									{#if showAssignDropdown}
-										<div class="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl border border-slate-200 py-1.5 z-50 text-xs">
-											<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase">Assign Team Member</div>
-											{#each inbox.users as u}
-												{@const isAssigned = inbox.activeConvo.assigned_user_ids?.includes(u.id)}
+										<div class="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
+											<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase tracking-wider">Assign team member</div>
+											{#each inbox.users as user}
+												{@const isAssigned = inbox.activeConvo?.assigned_user_ids?.includes(user.id)}
 												<button
-													onclick={() => toggleUserAssignment(u.id)}
-													class="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between text-slate-700 font-medium"
+													onclick={() => toggleUserAssignment(user.id)}
+													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between {isAssigned ? 'text-blue-600' : 'text-slate-700'}"
 												>
-													<span>{u.email.split('@')[0]}</span>
-													{#if isAssigned}
-														<span class="text-blue-600 font-medium">✓</span>
-													{/if}
+													<span>{user.name || user.email}</span>
+													{#if isAssigned}<span>✓</span>{/if}
 												</button>
 											{/each}
 										</div>
@@ -1270,37 +1264,29 @@
 								</div>
 								{/if}
 
-								<!-- Status badge / action dropdown -->
+								<!-- Resolve / Close Conversation -->
 								<div class="relative">
 									<button
-										type="button"
 										onclick={() => showStatusDropdown = !showStatusDropdown}
-										class="flex items-center gap-1.5 px-3 py-1.5 rounded-full {inbox.activeConvo.status === 'closed' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-blue-50 text-blue-600 border-blue-100'} text-xs font-medium border transition hover:opacity-90 cursor-pointer"
-										title="Change conversation status"
+										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+										title="Conversation Status"
 									>
-										<span class="w-1.5 h-1.5 rounded-full {inbox.activeConvo.status === 'closed' ? 'bg-slate-400' : 'bg-emerald-500'}"></span>
-										<span>{inbox.activeConvo.status === 'closed' ? 'Closed' : 'In Conversation'}</span>
-										<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+										<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 										</svg>
 									</button>
 
 									{#if showStatusDropdown}
-										<div class="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl border border-slate-200 py-1.5 z-50 text-xs shadow-lg">
-											<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase">Conversation Status</div>
-											{#if inbox.activeConvo.status !== 'closed'}
+										<div class="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
+											{#if inbox.activeConvo.status === 'open'}
 												<button
-													type="button"
-													onclick={async () => {
-														showStatusDropdown = false;
-														await inbox.closeConversation(inbox.activeConvo.id);
-													}}
-													class="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium cursor-pointer"
+													onclick={() => { inbox.resolveConversation(); showStatusDropdown = false; }}
+													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium text-slate-700 flex items-center gap-2"
 												>
 													<svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 													</svg>
-													<span>Close Conversation</span>
+													<span>Close conversation</span>
 												</button>
 											{:else}
 												<div class="px-3 py-2 text-slate-500 flex items-center gap-2">
@@ -1325,7 +1311,7 @@
 
 							{#if displayMessages.length === 0}
 								<div class="text-center py-12 text-slate-400 text-xs">
-									No messages yet in this conversation. Send a reply below.
+									No messages recorded in this conversation. Send a reply below.
 								</div>
 							{:else}
 								{#each displayMessages as msg (msg.id)}
@@ -1390,7 +1376,7 @@
 											onclick={useAISuggestion}
 											class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition shadow-2xs cursor-pointer"
 										>
-											Use this
+											Use draft
 										</button>
 									</div>
 								</div>
@@ -1410,7 +1396,7 @@
 										onclick={() => replyTab = 'note'}
 										class="pb-2 transition {replyTab === 'note' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
 									>
-										Internal Note
+										Internal note
 									</button>
 								</div>
 								{/if}
@@ -1422,7 +1408,7 @@
 											type="text"
 											bind:value={messageInput}
 											onkeydown={handleKeydown}
-											placeholder="Type a message..."
+											placeholder="Enter a message..."
 											class="compose-input w-full text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
 										/>
 									</div>
@@ -1470,7 +1456,7 @@
 									<div class="p-3">
 										<textarea
 											bind:value={internalNoteInput}
-											placeholder="Add an internal note visible only to your team..."
+											placeholder="Enter an internal note for team members..."
 											class="w-full h-20 p-2.5 text-xs text-slate-800 placeholder-slate-400 bg-amber-50/40 rounded-xl border border-amber-200/60 focus:outline-none"
 										></textarea>
 										<div class="flex justify-end mt-2">
@@ -1478,7 +1464,7 @@
 												onclick={postInternalNote}
 												class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium rounded-lg transition"
 											>
-												Post Internal Note
+												Save note
 											</button>
 										</div>
 									</div>
@@ -1521,13 +1507,13 @@
 								<p class="text-[11px] text-slate-400">To simulate customer inquiries, click <button onclick={() => selectedNav = 'simulate'} class="text-purple-600 font-medium underline">Simulate</button> in the left sidebar.</p>
 							</div>
 						{:else if leadTab === 'lead'}
-							<!-- Lead State -->
+							<!-- Lead Stage -->
 							<div class="space-y-1.5 relative">
-								<span class="text-xs font-medium text-slate-500">Lead State</span>
+								<span class="text-xs font-medium text-slate-500">Lead stage</span>
 								<button
 									type="button"
 									onclick={() => showLeadStateDropdown = !showLeadStateDropdown}
-									aria-label="Change lead state"
+									aria-label="Change lead stage"
 									class="lead-state-badge w-full flex items-center justify-between p-2.5 bg-amber-50/60 rounded-xl border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition text-left"
 								>
 									<div class="flex items-center gap-2">
@@ -1544,7 +1530,7 @@
 										{#each (pipelineStates.length > 0 ? pipelineStates : [{ key: 'new', label: 'New Lead' }, { key: 'interested', label: 'Interested' }, { key: 'follow_up', label: 'Follow-up' }, { key: 'quoted', label: 'Quoted' }, { key: 'closed_won', label: 'Closed Won' }]) as stateOption}
 											<button
 												onclick={() => updateLeadState(stateOption.key || stateOption.label)}
-												aria-label={`Set lead state to ${stateOption.label || stateOption.key}`}
+												aria-label={`Set lead stage to ${stateOption.label || stateOption.key}`}
 												class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 text-slate-700 flex items-center gap-2"
 											>
 												<span class="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -1623,9 +1609,9 @@
 							<div class="space-y-1.5">
 								<span class="text-xs font-medium text-slate-500">Notes</span>
 								{#if loadingNotes}
-									<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">Loading notes...</div>
+									<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">Loading notes…</div>
 								{:else if notes.length === 0}
-									<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">No notes yet. Use internal note to add one.</div>
+									<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">No notes found. Enter an internal note to add one.</div>
 								{:else}
 									<div class="space-y-2">
 										{#each notes as note}
@@ -1644,7 +1630,7 @@
 									<svg class="w-3.5 h-3.5 text-purple-600" viewBox="0 0 24 24" fill="currentColor">
 										<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
 									</svg>
-									<span>AI Assist</span>
+									<span>AI assist</span>
 									<span class="text-[10px] text-slate-400 font-normal">(Beta)</span>
 								</div>
 
@@ -1660,7 +1646,7 @@
 							<div class="space-y-4 text-xs">
 								<div class="p-3.5 bg-slate-50 rounded-xl space-y-2.5">
 									<div class="flex justify-between py-1 border-b border-slate-200/60">
-										<span class="text-slate-400">Display Name</span>
+										<span class="text-slate-400">Display name</span>
 										<span class="font-medium text-slate-800">{getContactName(inbox.activeConvo)}</span>
 									</div>
 									<div class="flex justify-between py-1 border-b border-slate-200/60">
@@ -1686,13 +1672,13 @@
 							<!-- Activity Timeline Tab -->
 							<div class="space-y-3 text-xs">
 								{#if history.length === 0}
-									<div class="text-slate-400 text-xs p-4 text-center">No state history recorded yet.</div>
+									<div class="text-slate-400 text-xs p-4 text-center">No stage history recorded.</div>
 								{:else}
 									<div class="border-l-2 border-blue-200 ml-2 pl-3 space-y-4">
 										{#each history as item}
 											<div class="history-item relative">
 												<span class="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white"></span>
-												<div class="font-medium text-slate-800">Stage changed to {item.to_state}</div>
+												<div class="font-medium text-slate-800">Lead stage changed to {item.to_state}</div>
 												<div class="text-[11px] text-slate-400">{formatTime(item.created_at)}</div>
 											</div>
 										{/each}
@@ -1745,7 +1731,7 @@
 											bind:value={leadsChannelFilter}
 											class="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:border-blue-400"
 										>
-											<option value="all">All Channels</option>
+											<option value="all">All channels</option>
 											<option value="whatsapp">WhatsApp</option>
 											<option value="instagram">Instagram</option>
 											<option value="messenger">Messenger</option>
