@@ -96,6 +96,9 @@ func (s *Service) StartBridgeConnection(ctx context.Context, accountID uuid.UUID
 	if err != nil {
 		return nil, err
 	}
+	if err := adapter.WaitForManagementRoomReady(ctx, creds, roomID, bridgeIdentity); err != nil {
+		return nil, err
+	}
 	creds.ManagementRoomID = roomID
 	rawCredentials, err := json.Marshal(creds)
 	if err != nil {

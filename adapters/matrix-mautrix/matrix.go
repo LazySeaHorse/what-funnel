@@ -312,6 +312,33 @@ func (a *Adapter) CreateManagementRoom(ctx context.Context, creds Credentials, b
 	return result.RoomID, nil
 }
 
+// WaitForManagementRoomReady waits until the invited bridge bot has joined.
+// Commands sent while the bot is still invited are present in room history,
+// but mautrix does not process them as live command events.
+func (a *Adapter) WaitForManagementRoomReady(ctx context.Context, creds Credentials, roomID, bridgeIdentity string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/state/m.room.member/%s", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(roomID), url.PathEscape(bridgeIdentity))
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		var member struct {
+			Membership string `json:"membership"`
+		}
+		if err := a.matrixJSON(waitCtx, creds, http.MethodGet, endpoint, nil, &member); err == nil && member.Membership == "join" {
+			return nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("bridge bot did not join the management room: %w", waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 // SendManagementCommand posts a command to a mautrix management room.
 func (a *Adapter) SendManagementCommand(ctx context.Context, creds Credentials, roomID, command string) (string, error) {
 	txID := fmt.Sprintf("wf-setup-%d", time.Now().UnixNano())
@@ -358,7 +385,7 @@ func (a *Adapter) DownloadMedia(ctx context.Context, creds Credentials, mxcURL s
 		return nil, "", fmt.Errorf("invalid Matrix media URL")
 	}
 	mediaID := strings.Trim(parsed.Path, "/")
-	endpoint := fmt.Sprintf("%s/_matrix/media/v3/download/%s/%s", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(parsed.Host), url.PathEscape(mediaID))
+	endpoint := fmt.Sprintf("%s/_matrix/client/v1/media/download/%s/%s", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(parsed.Host), url.PathEscape(mediaID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, "", err

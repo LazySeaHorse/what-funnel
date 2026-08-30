@@ -1,11 +1,58 @@
 package matrix
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestWaitForManagementRoomReadyWaitsForBridgeJoin(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		membership := "invite"
+		if requests > 1 {
+			membership = "join"
+		}
+		assert.Equal(t, "Bearer matrix-token", r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(map[string]string{"membership": membership})
+	}))
+	defer server.Close()
+
+	adapter := New()
+	err := adapter.WaitForManagementRoomReady(context.Background(), Credentials{
+		HomeserverURL: server.URL,
+		AccessToken:   "matrix-token",
+	}, "!setup:localhost", "@whatsappbot:localhost")
+
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, requests, 2)
+}
+
+func TestDownloadMediaUsesAuthenticatedClientMediaEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/_matrix/client/v1/media/download/localhost/qr-image", r.URL.Path)
+		assert.Equal(t, "Bearer matrix-token", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("png-data"))
+	}))
+	defer server.Close()
+
+	adapter := New()
+	body, contentType, err := adapter.DownloadMedia(context.Background(), Credentials{
+		HomeserverURL: server.URL,
+		AccessToken:   "matrix-token",
+	}, "mxc://localhost/qr-image")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "image/png", contentType)
+	assert.Equal(t, []byte("png-data"), body)
+}
 
 func TestRegistrationMACUsesSynapseSharedSecretFormat(t *testing.T) {
 	assert.Equal(t,
