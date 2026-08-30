@@ -180,15 +180,16 @@ type Contact struct {
 
 // Conversation is a thread with one contact on one channel.
 type Conversation struct {
-	ID              uuid.UUID   `json:"id" db:"id"`
-	AccountID       uuid.UUID   `json:"account_id" db:"account_id"`
-	ContactID       uuid.UUID   `json:"contact_id" db:"contact_id"`
-	ChannelID       uuid.UUID   `json:"channel_id" db:"channel_id"`
-	Status          string      `json:"status" db:"status"`
-	AssignedUserIDs []uuid.UUID `json:"assigned_user_ids" db:"assigned_user_ids"`
-	LastMessageAt   *time.Time  `json:"last_message_at" db:"last_message_at"`
-	AIModeActive    bool        `json:"ai_mode_active" db:"ai_mode_active"`
-	CreatedAt       time.Time   `json:"created_at" db:"created_at"`
+	ID                 uuid.UUID   `json:"id" db:"id"`
+	AccountID          uuid.UUID   `json:"account_id" db:"account_id"`
+	ContactID          uuid.UUID   `json:"contact_id" db:"contact_id"`
+	ChannelID          uuid.UUID   `json:"channel_id" db:"channel_id"`
+	Status             string      `json:"status" db:"status"`
+	AssignedUserIDs    []uuid.UUID `json:"assigned_user_ids" db:"assigned_user_ids"`
+	LastMessageAt      *time.Time  `json:"last_message_at" db:"last_message_at"`
+	AIModeActive       bool        `json:"ai_mode_active" db:"ai_mode_active"`
+	AIAutoReplyEnabled *bool       `json:"ai_auto_reply_enabled" db:"ai_auto_reply_enabled"`
+	CreatedAt          time.Time   `json:"created_at" db:"created_at"`
 }
 
 // ConversationListItem is a list item representing a conversation with unread status and last message preview.

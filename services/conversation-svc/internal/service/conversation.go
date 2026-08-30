@@ -89,6 +89,7 @@ func scanConversationRow(scanner interface {
 		&d.item.Conversation.AssignedUserIDs,
 		&d.item.Conversation.LastMessageAt,
 		&d.item.Conversation.AIModeActive,
+		&d.item.Conversation.AIAutoReplyEnabled,
 		&d.item.Conversation.CreatedAt,
 		&d.item.ContactName,
 		&d.item.ContactAvatarURL,
@@ -144,7 +145,7 @@ func scanConversationRow(scanner interface {
 // sharedConversationSQL is the common SELECT / JOIN block used by both
 // ListConversations and GetConversation. Callers append their own WHERE clause.
 const sharedConversationSQL = `
-	SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.created_at,
+	SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.ai_auto_reply_enabled, c.created_at,
 	       co.display_name, co.avatar_url,
 	       cr.last_read_at,
 	       ch.type as channel_type,
@@ -343,6 +344,42 @@ func (s *Service) AssignConversation(ctx context.Context, accountID, conversatio
 		fmt.Printf("failed to publish conversation.assigned: %v\n", err)
 	}
 	return nil
+}
+
+// SetConversationAIAutoReply stores an optional per-chat restriction. Nil
+// means inherit the workspace default; false prevents automatic sends.
+func (s *Service) SetConversationAIAutoReply(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string, enabled *bool) error {
+	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+		return err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := tx.Exec(ctx, `
+		UPDATE conversations
+		SET ai_auto_reply_enabled = $1
+		WHERE id = $2 AND account_id = $3
+	`, enabled, conversationID, accountID)
+	if err != nil {
+		return fmt.Errorf("update conversation AI auto-reply: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return errors.New("conversation not found")
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err = aw.Write(ctx, audit.Entry{
+		AccountID: accountID, ActorUserID: &userID,
+		Action: "conversation.ai_auto_reply_updated", TargetType: "conversation", TargetID: &conversationID,
+		Metadata: map[string]any{"enabled": enabled},
+	}); err != nil {
+		return fmt.Errorf("write audit log: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // ReadConversation upserts a read-receipt for the given user.

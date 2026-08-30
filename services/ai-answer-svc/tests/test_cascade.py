@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from main import (
+    apply_chat_auto_reply_override,
     process_conversation_updated,
     process_conversation_closed,
 )
@@ -17,6 +18,14 @@ class MockRecord(dict):
             return self[name]
         except KeyError:
             raise AttributeError(name)
+
+def test_chat_auto_reply_override_only_restricts_the_effective_default():
+    assert apply_chat_auto_reply_override("auto_send", None) == "auto_send"
+    assert apply_chat_auto_reply_override("auto_send", True) == "auto_send"
+    assert apply_chat_auto_reply_override("auto_send", False) == "draft_only"
+    assert apply_chat_auto_reply_override("draft_only", None) == "draft_only"
+    assert apply_chat_auto_reply_override("draft_only", True) == "draft_only"
+    assert apply_chat_auto_reply_override("draft_only", False) == "draft_only"
 
 @pytest.mark.asyncio
 async def test_rapidfuzz_matching():

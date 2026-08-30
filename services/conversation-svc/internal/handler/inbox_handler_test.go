@@ -197,6 +197,32 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rr.Code)
 	}
 
+	// Per-chat auto-reply can be disabled and reset to the workspace default.
+	{
+		h := handler.New(svc, memberSess)
+		r := mux.NewRouter()
+		h.RegisterRoutes(r)
+
+		req, _ := http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-auto-reply", bytes.NewBufferString(`{"enabled":false}`))
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var enabled *bool
+		err = pool.QueryRow(context.Background(), `SELECT ai_auto_reply_enabled FROM conversations WHERE id = $1`, convoID).Scan(&enabled)
+		require.NoError(t, err)
+		require.NotNil(t, enabled)
+		assert.False(t, *enabled)
+
+		req, _ = http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-auto-reply", bytes.NewBufferString(`{"enabled":null}`))
+		rr = httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code)
+		err = pool.QueryRow(context.Background(), `SELECT ai_auto_reply_enabled FROM conversations WHERE id = $1`, convoID).Scan(&enabled)
+		require.NoError(t, err)
+		assert.Nil(t, enabled)
+	}
+
 	var sourceMessageID, draftID uuid.UUID
 	err = pool.QueryRow(context.Background(), `
 		INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content)

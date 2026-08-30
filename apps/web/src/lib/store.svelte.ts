@@ -217,6 +217,23 @@ export class InboxState {
 		}
 	}
 
+	async setConversationAIAutoReply(enabled: boolean | null) {
+		if (!this.activeConvoID) return false;
+		try {
+			await apiRequest(`/conversations/${this.activeConvoID}/ai-auto-reply`, {
+				method: 'PATCH',
+				body: { enabled }
+			});
+			if (this.activeConvo) this.activeConvo.ai_auto_reply_enabled = enabled;
+			const item = this.conversations.find((conversation) => conversation.id === this.activeConvoID);
+			if (item) item.ai_auto_reply_enabled = enabled;
+			return true;
+		} catch (err) {
+			console.error('Failed to update conversation AI auto-reply:', err);
+			return false;
+		}
+	}
+
 	async closeConversation(convoID?: string) {
 		const id = convoID || this.activeConvoID;
 		if (!id) return;

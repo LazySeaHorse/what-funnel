@@ -19,6 +19,12 @@ from rapidfuzz import fuzz
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger("ai-answer-svc")
 
+def apply_chat_auto_reply_override(effective_mode: str, enabled):
+    """A chat may opt out of auto-send; otherwise it inherits its effective default."""
+    if enabled is False and effective_mode == "auto_send":
+        return "draft_only"
+    return effective_mode
+
 async def publish_redis_stream(redis_client, stream_name: str, payload: dict):
     serialized = json.dumps(payload)
     await redis_client.xadd(stream_name, {"payload": serialized.encode("utf-8")})
@@ -86,7 +92,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
 
     # Fetch conversation details
     convo_row = await db.fetchrow(
-        "SELECT ai_mode_active, assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2",
+        "SELECT ai_mode_active, ai_auto_reply_enabled, assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2",
         convo_uuid, account_uuid
     )
     if not convo_row:
@@ -94,6 +100,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         return
 
     ai_mode_active = convo_row["ai_mode_active"]
+    chat_auto_reply_enabled = convo_row.get("ai_auto_reply_enabled")
     assigned_user_ids = convo_row["assigned_user_ids"] or []
 
     # Fetch account settings
@@ -122,6 +129,10 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         )
         if user_row and user_row["reply_mode_override"]:
             effective_mode = user_row["reply_mode_override"]
+
+    # A chat may restrict auto-send, but it cannot elevate a workspace or user
+    # that is already in draft-only mode. NULL inherits the effective default.
+    effective_mode = apply_chat_auto_reply_override(effective_mode, chat_auto_reply_enabled)
 
     if not ai_enabled:
         await supersede_pending_draft(db, redis_client, account_uuid, convo_uuid)

@@ -27,7 +27,11 @@
 	let leadTab = $state<'lead' | 'details' | 'activity'>('lead');
 	let replyTab = $state<'reply' | 'note'>('reply');
 	let searchQuery = $state('');
-	let aiAutoReplyEnabled = $state(false);
+	let aiEnabled = $state(false);
+	let aiReplyModeDefault = $state<'auto_send' | 'draft_only'>('draft_only');
+	let aiAutoReplyEnabled = $derived(aiEnabled && aiReplyModeDefault === 'auto_send');
+	let togglingGlobalAI = $state(false);
+	let togglingChatAI = $state(false);
 	let aiProviderConfigured = $state(false);
 	let aiProviderStatusLoaded = $state(false);
 	let messageInput = $state('');
@@ -70,11 +74,44 @@
 			productMode = account.product_mode || 'full_workspace';
 			const settings = decodeWorkspaceSettings(account.settings);
 			leadTrackingEnabled = productMode !== 'chatbot_only' && settings.lead_tracking_enabled !== false;
-			aiAutoReplyEnabled = settings.ai_enabled === true;
+			aiEnabled = settings.ai_enabled === true;
+			aiReplyModeDefault = settings.ai_reply_mode_default === 'auto_send' ? 'auto_send' : 'draft_only';
 		}
 		pipelineStates = workspace.pipeline?.states || [];
 		inbox.users = workspace.users;
 	});
+
+	async function toggleGlobalAutoReply() {
+		if (!capabilities.manageWorkspace || togglingGlobalAI) return;
+		const nextEnabled = !aiAutoReplyEnabled;
+		if (nextEnabled && !aiProviderConfigured) return;
+		togglingGlobalAI = true;
+		try {
+			await apiRequest('/workspace/account/settings', {
+				method: 'PATCH',
+				body: {
+					ai_enabled: nextEnabled,
+					ai_reply_mode_default: nextEnabled ? 'auto_send' : aiReplyModeDefault
+				}
+			});
+			aiEnabled = nextEnabled;
+			if (nextEnabled) aiReplyModeDefault = 'auto_send';
+			await workspace.refreshAccount();
+		} finally {
+			togglingGlobalAI = false;
+		}
+	}
+
+	async function toggleChatAutoReply() {
+		if (!inbox.activeConvo || togglingChatAI) return;
+		togglingChatAI = true;
+		try {
+			const override = inbox.activeConvo.ai_auto_reply_enabled;
+			await inbox.setConversationAIAutoReply(override === false ? null : false);
+		} finally {
+			togglingChatAI = false;
+		}
+	}
 
 	$effect(() => {
 		if (!canOpenNav(selectedNav)) selectedNav = 'inbox';
@@ -900,16 +937,22 @@
 			<!-- Right Controls -->
 			<div class="flex items-center gap-3">
 				<!-- AI status reflects saved settings and provider configuration. -->
-				<div
-					class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-700"
+				<button
+					type="button"
+					role="switch"
+					aria-label="Global AI auto-reply"
+					aria-checked={aiAutoReplyEnabled && aiProviderConfigured}
+					onclick={toggleGlobalAutoReply}
+					disabled={!capabilities.manageWorkspace || togglingGlobalAI || (!aiProviderConfigured && !aiAutoReplyEnabled)}
+					class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-default disabled:opacity-70"
 					title={!aiProviderStatusLoaded ? 'Checking AI configuration' : !aiProviderConfigured ? 'Configure an AI provider during onboarding before enabling auto-replies' : undefined}
 				>
 					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
 					<span class="text-slate-700">AI Auto-reply</span>
 					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'}">
-						{!aiProviderStatusLoaded ? 'CHECKING' : aiAutoReplyEnabled && aiProviderConfigured ? 'ON' : 'OFF'}
+						{!aiProviderStatusLoaded ? 'CHECKING' : !aiProviderConfigured ? 'NOT CONFIGURED' : aiAutoReplyEnabled ? 'ON' : 'OFF'}
 					</span>
-				</div>
+				</button>
 
 				<!-- User Name & Title Box (Outline only, matching height) -->
 				{#if capabilities.showOperatorIdentity}
@@ -1181,6 +1224,19 @@
 							</div>
 
 							<div class="flex items-center gap-2">
+								<button
+									type="button"
+									role="switch"
+									aria-label="Auto-reply for this chat"
+									aria-checked={aiAutoReplyEnabled && inbox.activeConvo.ai_auto_reply_enabled !== false}
+									onclick={toggleChatAutoReply}
+									disabled={togglingChatAI || !aiAutoReplyEnabled}
+									class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium transition {aiAutoReplyEnabled && inbox.activeConvo.ai_auto_reply_enabled !== false ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-500'} disabled:opacity-60"
+									title={inbox.activeConvo.ai_auto_reply_enabled === false ? 'Auto-reply is off for this chat. Click to use the workspace default.' : aiAutoReplyEnabled ? 'Using the workspace auto-reply setting. Click to turn it off for this chat.' : 'Workspace auto-reply is off.'}
+								>
+									<span class="w-1.5 h-1.5 rounded-full {aiAutoReplyEnabled && inbox.activeConvo.ai_auto_reply_enabled !== false ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
+									{inbox.activeConvo.ai_auto_reply_enabled === false ? 'AI off' : aiAutoReplyEnabled ? 'AI on' : 'Global off'}
+								</button>
 								{#if capabilities.manageAssignments}
 								<!-- Assign button -->
 								<div class="relative">

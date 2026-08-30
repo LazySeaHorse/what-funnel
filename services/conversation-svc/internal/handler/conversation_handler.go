@@ -324,6 +324,33 @@ func (h *Handler) AssignConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "assigned"})
 }
 
+func (h *Handler) SetConversationAIAutoReply(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
+	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := h.svc.SetConversationAIAutoReply(r.Context(), accountID, userID, conversationID, role, body.Enabled); err != nil {
+		if err.Error() == "conversation not found" {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ai_auto_reply_enabled": body.Enabled})
+}
+
 func (h *Handler) ReadConversation(w http.ResponseWriter, r *http.Request) {
 	accountID, ok := middleware.AccountIDFromContext(r)
 	if !ok {

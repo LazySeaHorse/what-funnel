@@ -30,6 +30,8 @@ export interface MockWorkspaceOptions {
 	conversations?: any[];
 	replyDraft?: any | null;
 	knowledge?: { concepts?: any[]; patterns?: any[] };
+	aiConfigured?: boolean;
+	autoReplyEnabled?: boolean;
 }
 
 export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
@@ -47,7 +49,14 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 	let channels: Array<{ id: string; type: string; status: string; bridge_identity?: string }> = [];
 	let bridgeConnections: Array<{ channel_id: string; platform: string; state: string; detail: string }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
-	let aiConfigured = false;
+	let aiConfigured = options.aiConfigured ?? false;
+	if (options.autoReplyEnabled !== undefined) {
+		accountSettings = encodeSettings({
+			...decodeSettings(accountSettings),
+			ai_enabled: true,
+			ai_reply_mode_default: options.autoReplyEnabled ? 'auto_send' : 'draft_only'
+		});
+	}
 	let ingestion: any = null;
 	let knowledgeConcepts = options.knowledge?.concepts ?? [];
 	let knowledgePatterns = options.knowledge?.patterns ?? [];
@@ -167,6 +176,11 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		}
 		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: [], next_cursor: null });
 		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
+		if (/^\/conversations\/[^/]+\/ai-auto-reply$/.test(path) && request.method() === 'PATCH') {
+			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);
+			if (conversation) conversation.ai_auto_reply_enabled = body?.enabled ?? null;
+			return json({ ai_auto_reply_enabled: body?.enabled ?? null });
+		}
 		if (/^\/conversations\/[^/]+\/read$/.test(path)) return json({ status: 'read' });
 		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
 		if (path === '/api/kb/concepts') return json({ concepts: knowledgeConcepts });
