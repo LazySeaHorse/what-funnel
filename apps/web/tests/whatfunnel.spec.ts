@@ -60,7 +60,7 @@ async function signupViaPage(page: Page, email: string, businessName: string) {
   await page.fill('#account-name-input', businessName);
   await page.fill('#signup-email-input', email);
   await page.fill('#signup-password-input', PASSWORD);
-  await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /Full workspace/i })).toBeChecked();
   await page.click('button[type="submit"]');
   await page.waitForURL('**/onboarding/**', { timeout: 20000 });
 }
@@ -173,7 +173,7 @@ test.describe('1. Auth & Session', () => {
     await page.fill('#account-name-input', 'Auth Test Business');
     await page.fill('#signup-email-input', uniqueEmail('auth1'));
     await page.fill('#signup-password-input', PASSWORD);
-    await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
+    await expect(page.getByRole('radio', { name: /Full workspace/i })).toBeChecked();
     await page.click('button[type="submit"]');
     await page.waitForURL('**/onboarding/**', { timeout: 20000 });
     expect(page.url()).toContain('/onboarding');
@@ -221,7 +221,7 @@ test.describe('2. Onboarding Flow', () => {
   test('2.2 Step 1 collects business details', async ({ page }) => {
     await signupViaPage(page, uniqueEmail('ob2'), 'Mode Test Biz');
     await page.waitForURL('**/onboarding/1', { timeout: 20000 });
-    await expect(page.getByRole('heading', { name: 'Let’s start with your business', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Enter business information', exact: true })).toBeVisible();
     await expect(page.getByLabel('Business name')).toHaveValue('Mode Test Biz');
     await expect(page.getByLabel('Business type')).toBeVisible();
     await expect(page.getByLabel('Time zone')).toBeVisible();
@@ -232,7 +232,7 @@ test.describe('2. Onboarding Flow', () => {
     await page.waitForURL('**/onboarding/1', { timeout: 20000 });
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.waitForURL('**/onboarding/2', { timeout: 15000 });
-    await expect(page.getByRole('heading', { name: 'Connect your channels', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Connect messaging channels', exact: true })).toBeVisible();
     await expect(page.getByText('WhatsApp', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Connect' }).first()).toBeVisible();
   });
@@ -250,7 +250,7 @@ test.describe('2. Onboarding Flow', () => {
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await page.waitForURL(`**/onboarding/${step}`, { timeout: 15000 });
     }
-    await expect(page.getByRole('heading', { name: 'Meet your AI Assistant', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Configure AI assistant', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Auto answer when confident/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Suggest replies only/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Manual only/ })).toBeVisible();

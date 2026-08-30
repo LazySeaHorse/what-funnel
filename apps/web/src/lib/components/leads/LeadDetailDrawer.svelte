@@ -2,6 +2,14 @@
 	import ChannelBadge from '../ChannelBadge.svelte';
 	import LeadStateBadge from '../LeadStateBadge.svelte';
 	import UserAvatar from '../UserAvatar.svelte';
+	import {
+		PlusIcon,
+		XMarkIcon,
+		EllipsisVerticalIcon,
+		ChevronDownIcon,
+		PencilSquareIcon,
+		CheckIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 
 	let {
 		lead,
@@ -80,9 +88,7 @@
 			onclick={() => onOpenChat(lead.convoId)}
 			class="wf-button-primary px-3.5 py-1.5"
 		>
-			<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-				<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-			</svg>
+			<PlusIcon class="w-3.5 h-3.5" />
 			<span>Add lead</span>
 		</button>
 
@@ -92,9 +98,7 @@
 			aria-label="Close details"
 			class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
 		>
-			<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-				<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-			</svg>
+			<XMarkIcon class="w-4 h-4" />
 		</button>
 	</div>
 
@@ -111,11 +115,7 @@
 			<div class="flex items-center justify-between">
 				<h2 class="font-medium text-sm text-slate-900 leading-tight truncate">{lead.name}</h2>
 				<button class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer" aria-label="More options for {lead.name}">
-					<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-						<circle cx="12" cy="5" r="1.5" />
-						<circle cx="12" cy="12" r="1.5" />
-						<circle cx="12" cy="19" r="1.5" />
-					</svg>
+					<EllipsisVerticalIcon class="w-4 h-4" />
 				</button>
 			</div>
 			<div class="flex items-center gap-1.5 mt-1 text-xs text-slate-400 min-w-0">
@@ -141,17 +141,15 @@
 	<!-- Drawer Content -->
 	<div class="p-5 space-y-4 flex-1 text-xs">
 		{#if activeTab === 'overview'}
-			<!-- Lead State Section -->
+			<!-- Lead Stage Section -->
 			<div class="space-y-1.5 relative">
-				<span class="font-medium text-slate-700">Lead State</span>
+				<span class="font-medium text-slate-700">Lead stage</span>
 				<button
 					onclick={() => showStateDropdown = !showStateDropdown}
 					class="w-full flex items-center justify-between p-2.5 bg-amber-50/50 rounded-xl border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition text-left"
 				>
 					<LeadStateBadge stateKey={lead.stateKey} label={lead.stateLabel} size="sm" class="border-0 bg-transparent p-0" />
-					<svg class="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-					</svg>
+					<ChevronDownIcon class="w-3.5 h-3.5 text-amber-500" />
 				</button>
 
 				{#if showStateDropdown}
@@ -190,7 +188,7 @@
 
 				{#if showAssignDropdown}
 					<div class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50 text-xs">
-						<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">Assign Team Member</div>
+						<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">Assign team member</div>
 						{#each users as user}
 							{@const isAssigned = assignedUserIds.includes(user.id)}
 							<button
@@ -247,13 +245,11 @@
 					<div class="bg-slate-50 border border-slate-100 rounded-xl p-3.5 flex items-start justify-between gap-2">
 						<div class="text-slate-600 leading-relaxed flex-1">{notes[0].body || notes[0].text}</div>
 						<button onclick={() => showAddNoteInput = !showAddNoteInput} class="text-slate-400 hover:text-slate-600 shrink-0 p-0.5 cursor-pointer" title="Edit note" aria-label="Edit note">
-							<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-							</svg>
+							<PencilSquareIcon class="w-3.5 h-3.5" />
 						</button>
 					</div>
 				{:else}
-					<p class="rounded-xl border border-slate-100 bg-slate-50 p-3.5 text-slate-400">No notes yet.</p>
+					<p class="rounded-xl border border-slate-100 bg-slate-50 p-3.5 text-slate-400">No notes recorded.</p>
 				{/if}
 				{#if showAddNoteInput}
 					<div class="p-3 bg-slate-50 rounded-xl space-y-2">
@@ -284,9 +280,7 @@
 						</div>
 						<div class="flex items-center gap-1 text-slate-400 text-[11px]">
 							<span>{contact.label}</span>
-							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-							</svg>
+							<ChevronDownIcon class="w-3 h-3" />
 						</div>
 					</div>
 					{:else}
@@ -298,7 +292,7 @@
 		{:else if activeTab === 'details'}
 			<div class="p-3.5 bg-slate-50 rounded-xl space-y-2.5 text-xs">
 				<div class="flex justify-between gap-4 py-1 border-b border-slate-200/60">
-					<span class="text-slate-400">Display Name</span>
+					<span class="text-slate-400">Display name</span>
 					<span class="font-medium text-slate-800 text-right truncate">{lead.name}</span>
 				</div>
 				<div class="flex justify-between gap-4 py-1 border-b border-slate-200/60">
@@ -310,7 +304,7 @@
 					<span class="font-medium text-slate-800 text-right truncate">{lead.handle || 'N/A'}</span>
 				</div>
 				<div class="flex justify-between gap-4 py-1">
-					<span class="text-slate-400">Lead status</span>
+					<span class="text-slate-400">Lead stage</span>
 					<span class="font-medium text-slate-800">{lead.stateLabel}</span>
 				</div>
 			</div>
@@ -318,7 +312,7 @@
 		{:else if activeTab === 'notes'}
 			<div class="space-y-3">
 				<div class="flex items-center justify-between">
-					<span class="font-medium text-slate-700">Internal Notes</span>
+					<span class="font-medium text-slate-700">Internal notes</span>
 					<button onclick={() => showAddNoteInput = true} class="text-[11px] text-blue-600 font-medium hover:underline cursor-pointer">+ Add note</button>
 				</div>
 				{#if showAddNoteInput}
@@ -331,7 +325,7 @@
 					</div>
 				{/if}
 				{#if notes.length === 0}
-					<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">No notes yet. Add an internal note for your team.</div>
+					<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">No notes found. Add an internal note for team members.</div>
 				{:else}
 					<div class="space-y-2">
 						{#each notes as note}
@@ -349,8 +343,8 @@
 				<div class="border-l-2 border-blue-200 ml-2 pl-3 space-y-4">
 					<div class="relative">
 						<span class="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white"></span>
-						<div class="font-medium text-slate-800">Lead is currently {lead.stateLabel}</div>
-						<div class="text-[11px] text-slate-400">Last updated {lead.updatedAt || 'recently'}</div>
+						<div class="font-medium text-slate-800">Lead stage: {lead.stateLabel}</div>
+						<div class="text-[11px] text-slate-400">Updated: {lead.updatedAt || 'recently'}</div>
 					</div>
 				</div>
 			</div>

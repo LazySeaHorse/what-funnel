@@ -3,6 +3,15 @@
 	import { apiRequest } from '$lib/api';
 	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
+	import {
+		ChatBubbleLeftRightIcon,
+		SparklesIcon,
+		PaperAirplaneIcon,
+		CheckIcon,
+		ExclamationCircleIcon,
+		BoltIcon,
+		CodeBracketIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 
 	// ─── State ───────────────────────────────────────────────────────────────
 	let isSending = $state(false);
@@ -690,9 +699,7 @@
 			{:else if convoMessages.length === 0}
 				<div class="flex flex-col items-center justify-center h-full text-slate-400 text-xs text-center p-6 space-y-2">
 					<div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-						</svg>
+						<ChatBubbleLeftRightIcon class="w-4 h-4" />
 					</div>
 					<div class="font-medium text-slate-600">No messages in this thread yet</div>
 					<p class="text-[11px] leading-relaxed">Pick a scenario prompt or type below to simulate an incoming customer query.</p>
@@ -716,9 +723,7 @@
 							<div class="sim-bubble px-3.5 py-2.5 rounded-2xl rounded-tl-sm bg-white text-slate-800 border border-slate-200/90 text-xs leading-relaxed shadow-2xs">
 								{#if m.sender_type === 'ai'}
 									<div class="flex items-center gap-1.5 text-[10px] font-medium text-blue-700 mb-1 pb-1 border-b border-slate-100">
-										<svg class="w-3 h-3 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
-											<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z"/>
-										</svg>
+										<SparklesIcon class="w-3 h-3 text-blue-600" />
 										<span>AI Auto-reply</span>
 										{#if currentTelemetry.stageMatched && currentTelemetry.stageMatched !== 'none'}
 											<span class="px-1.5 py-0.2 rounded bg-blue-50 text-[9px] font-mono border border-blue-100">{currentTelemetry.stageMatched}</span>
@@ -750,24 +755,18 @@
 					class="absolute right-1.5 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition flex items-center justify-center cursor-pointer shadow-2xs active:scale-[0.95]"
 					title="Send as customer"
 				>
-					<svg class="w-3.5 h-3.5 rotate-45 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-					</svg>
+					<PaperAirplaneIcon class="w-3.5 h-3.5" />
 				</button>
 			</div>
 
 			{#if lastStatus === 'success'}
 				<div class="text-[11px] text-emerald-600 font-medium flex items-center gap-1.5">
-					<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-					</svg>
+					<CheckIcon class="w-3.5 h-3.5" />
 					<span>Inbound message sent to What Funnel</span>
 				</div>
 			{:else if lastStatus === 'error'}
 				<div class="text-[11px] text-rose-600 font-medium flex items-center gap-1.5">
-					<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-					</svg>
+					<ExclamationCircleIcon class="w-3.5 h-3.5" />
 					<span>{lastError}</span>
 				</div>
 			{/if}
@@ -782,9 +781,7 @@
 		<div class="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-2xs space-y-4 shrink-0">
 			<div class="flex items-center justify-between pb-2 border-b border-slate-100">
 				<div class="flex items-center gap-2">
-					<svg class="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-					</svg>
+					<BoltIcon class="w-4 h-4 text-blue-600" />
 					<span class="text-xs font-semibold text-slate-900 tracking-tight">AI Cascade Diagnostics</span>
 				</div>
 				<span class="text-[10px] font-mono text-slate-400">{currentTelemetry.latencyMs ? `${currentTelemetry.latencyMs}ms` : 'Ready'}</span>
@@ -885,9 +882,7 @@
 		<div class="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-2xs space-y-2.5 flex-1">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2">
-					<svg class="w-4 h-4 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
-					</svg>
+					<CodeBracketIcon class="w-4 h-4 text-slate-600" />
 					<span class="text-xs font-semibold text-slate-900 tracking-tight">Webhook Payload Inspector</span>
 				</div>
 				<button

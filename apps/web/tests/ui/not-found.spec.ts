@@ -6,14 +6,14 @@ test.describe('404 Not Found Page', () => {
 		await page.goto('/unknown-random-route-404');
 		
 		// Check headline elements
-		await expect(page.getByRole('heading', { level: 1 })).toContainText('Oops! This page');
-		await expect(page.getByRole('heading', { level: 1 })).toContainText('wandered off somewhere');
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('404 — Page not found');
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('The page does not exist');
 
 		// Check subtext
-		await expect(page.getByText("We can't find the page you're looking for.")).toBeVisible();
+		await expect(page.getByText("The page you requested does not exist or moved to a new address.")).toBeVisible();
 
 		// Check action buttons
-		const homeBtn = page.getByRole('link', { name: /Go back home/i });
+		const homeBtn = page.getByRole('link', { name: /Go to home page/i });
 		await expect(homeBtn).toBeVisible();
 		await expect(homeBtn).toHaveAttribute('href', '/');
 
@@ -28,7 +28,7 @@ test.describe('404 Not Found Page', () => {
 
 	test('renders directly at /404 route', async ({ page }) => {
 		await page.goto('/404');
-		await expect(page.getByRole('heading', { level: 1 })).toContainText('Oops! This page');
-		await expect(page.getByRole('link', { name: /Go back home/i })).toBeVisible();
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('404 — Page not found');
+		await expect(page.getByRole('link', { name: /Go to home page/i })).toBeVisible();
 	});
 });

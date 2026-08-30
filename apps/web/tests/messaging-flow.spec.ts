@@ -8,8 +8,8 @@ test('sending messages in inbox and simulator tabs renders correctly in both vie
   await page.goto('/signup');
   await page.fill('#account-name-input', 'Realtime Sync Studio');
   await page.fill('#signup-email-input', email);
-  await page.fill('#signup-password-input', 'E2ePassword99!');
-  await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
+  await page.fill('#signup-password-input', 'Password123!');
+  await expect(page.getByRole('radio', { name: /Full workspace/i })).toBeChecked();
   await page.click('button[type="submit"]');
 
   await page.waitForURL('**/onboarding/**', { timeout: 20000 });

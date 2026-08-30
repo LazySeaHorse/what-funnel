@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
-	import Icon from '$lib/Icon.svelte';
+	import { CpuChipIcon } from '@fvilers/heroicons-svelte/24/outline';
 
 	const STEP_KEY_TO_NUM: Record<string, number> = {
 		business_basics: 1,
@@ -59,7 +59,7 @@
 <div class="wf-page flex items-center justify-center p-4">
 	<div class="wf-card flex flex-col items-center gap-4 p-8 text-center">
 		<div class="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-			<Icon name="bot" size={22} color="currentColor" />
+			<CpuChipIcon class="w-6 h-6" />
 		</div>
 		<div class="text-sm font-medium text-slate-500">Verifying session...</div>
 	</div>

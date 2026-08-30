@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Icon from '$lib/Icon.svelte';
+	import { CheckIcon, ChatBubbleLeftRightIcon } from '@fvilers/heroicons-svelte/24/outline';
 	let { productMode }: { productMode: string } = $props();
 </script>
 
@@ -10,32 +10,32 @@
 				>
 					<img
 						src="/images/onboarding-happy.webp"
-						alt="Workspace Ready Mascot"
+						alt="Setup complete illustration"
 						class="w-full max-h-64 object-contain"
 					/>
 				</div>
 
-				<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup Complete</div>
-				<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-2">You're all set! 🎉</h2>
-				<p class="text-sm text-slate-500 mb-8 font-normal leading-relaxed max-w-md lg:max-w-none">{productMode === 'chatbot_only' ? 'Your channels and AI assistant are ready to handle customer conversations.' : 'Your workspace is configured and ready to turn conversations into customers.'}</p>
+				<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Setup complete</div>
+				<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-2">Setup is complete</h2>
+				<p class="text-sm text-slate-500 mb-8 font-normal leading-relaxed max-w-md lg:max-w-none">{productMode === 'chatbot_only' ? 'Your channels and AI assistant are configured to process customer conversations.' : 'Your workspace is configured and ready to process conversations and leads.'}</p>
 
 				<div class="space-y-3 w-full text-left">
 					<div class="p-3.5 sm:p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-3.5">
 						<div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
-							<Icon name="check" size={18} color="#FFFFFF" strokeWidth={2.5} />
+							<CheckIcon class="w-5 h-5" />
 						</div>
 						<div>
-							<div class="text-sm font-medium text-slate-900">Workspace is fully configured</div>
-							<div class="text-xs text-slate-500 font-normal mt-0.5">{productMode === 'chatbot_only' ? 'Your business profile, channels, knowledge, and AI preferences are active.' : 'Your business profile, team, channels, and reply preferences are active.'}</div>
+							<div class="text-sm font-medium text-slate-900">Workspace is configured</div>
+							<div class="text-xs text-slate-500 font-normal mt-0.5">{productMode === 'chatbot_only' ? 'Business profile, channels, knowledge base, and AI preferences are active.' : 'Business profile, team members, channels, and reply preferences are active.'}</div>
 						</div>
 					</div>
 
 					<div class="p-3.5 sm:p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3.5">
 						<div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-							<Icon name="chat" size={18} color="currentColor" />
+							<ChatBubbleLeftRightIcon class="w-5 h-5" />
 						</div>
 						<div>
-							<div class="text-sm font-medium text-slate-900">Omni-Channel Inbox</div>
+							<div class="text-sm font-medium text-slate-900">Omni-channel inbox</div>
 							<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from WhatsApp, Instagram, Messenger, and Telegram.</div>
 						</div>
 					</div>

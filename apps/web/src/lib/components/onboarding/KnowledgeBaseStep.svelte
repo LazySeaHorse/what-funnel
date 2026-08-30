@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Icon from '$lib/Icon.svelte';
+	import { SparklesIcon, ArrowRightIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 
 	type Concept = { id: string; title: string; type: string; tags: string[]; body_markdown: string; approved: boolean };
@@ -50,13 +50,13 @@
 {#if status === 'input'}
 	<div class="text-center lg:text-left mb-6">
 		<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
-		<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Teach your AI assistant</h2>
-		<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add business notes, price lists, FAQs, hours, or policies. The AI compiler organizes it automatically.</p>
+		<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Add knowledge base sources</h2>
+		<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add notes, price lists, business hours, and policies. The system extracts concepts and answer patterns automatically.</p>
 	</div>
 
 	<div class="space-y-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 		<div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
-			<span class="text-xs font-medium text-slate-500">Quick templates:</span>
+			<span class="text-xs font-medium text-slate-500">Templates:</span>
 			{#each templates as t}
 				{@const isAdded = rawText.includes(t.label)}
 				<button
@@ -81,11 +81,11 @@
 	<div class="py-14 flex flex-col items-center justify-center text-center space-y-4 w-full">
 		<div class="relative w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
 			<span class="absolute inset-0 rounded-2xl border-2 border-blue-400/30 animate-ping"></span>
-			<Icon name="sparkles" size={24} color="currentColor" />
+			<SparklesIcon class="w-6 h-6" />
 		</div>
-		<h2 class="text-xl font-medium text-slate-900">{status === 'publishing' ? 'Adding reviewed knowledge…' : 'Organizing your knowledge…'}</h2>
+		<h2 class="text-xl font-medium text-slate-900">{status === 'publishing' ? 'Publishing knowledge items…' : 'Compiling knowledge items…'}</h2>
 		<p class="text-xs sm:text-sm text-slate-500 max-w-sm lg:max-w-none font-normal">
-			{status === 'publishing' ? 'Creating searchable concepts for your AI assistant.' : 'Structuring raw business notes into categorized knowledge concepts.'}
+			{status === 'publishing' ? 'Creating searchable concepts for the knowledge base.' : 'Structuring notes into categorized knowledge concepts.'}
 		</p>
 
 		{#if status === 'processing'}
@@ -95,7 +95,7 @@
 				onclick={onSkipWaiting}
 			>
 				<span>Skip waiting and go to next page</span>
-				<Icon name="arrow-right" size={14} color="currentColor" />
+				<ArrowRightIcon class="w-3.5 h-3.5" />
 			</button>
 		{/if}
 	</div>
@@ -105,10 +105,10 @@
 		<div>
 			<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
 			<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Structured Knowledge</h2>
-			<p class="text-sm text-slate-500 font-normal mt-0.5">Review the knowledge concepts and deterministic answer patterns inferred from your notes.</p>
+			<p class="text-sm text-slate-500 font-normal mt-0.5">Review the concepts and answer patterns extracted from your notes.</p>
 		</div>
 		<button type="button" class="px-3.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer" onclick={onEditNotes}>
-			Edit raw notes
+			Edit notes
 		</button>
 	</div>
 

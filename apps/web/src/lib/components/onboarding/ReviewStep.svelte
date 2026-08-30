@@ -1,5 +1,12 @@
 <script lang="ts">
-	import Icon from '$lib/Icon.svelte';
+	import {
+		BuildingStorefrontIcon,
+		ChatBubbleLeftRightIcon,
+		FunnelIcon,
+		UserGroupIcon,
+		CpuChipIcon,
+		BookOpenIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 
 	let {
 		step,
@@ -30,8 +37,8 @@
 
 				<div class="text-center lg:text-left mb-6">
 					<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
-					<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
-					<p class="text-sm text-slate-500 font-normal">Here's a summary of your workspace setup.</p>
+					<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Review and finish</h2>
+					<p class="text-sm text-slate-500 font-normal">Summary of your workspace configuration.</p>
 				</div>
 
 				<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
@@ -39,7 +46,7 @@
 					<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-								<Icon name="store" size={16} color="currentColor" />
+								<BuildingStorefrontIcon class="w-4 h-4" />
 							</div>
 							<div>
 								<div class="text-[11px] font-medium text-slate-400 uppercase">Business</div>
@@ -53,7 +60,7 @@
 					<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-								<Icon name="chat" size={16} color="currentColor" />
+								<ChatBubbleLeftRightIcon class="w-4 h-4" />
 							</div>
 							<div>
 								<div class="text-[11px] font-medium text-slate-400 uppercase">Channels</div>
@@ -68,7 +75,7 @@
 					<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-								<Icon name="pipeline" size={16} color="currentColor" />
+								<FunnelIcon class="w-4 h-4" />
 							</div>
 							<div>
 								<div class="text-[11px] font-medium text-slate-400 uppercase">Lead pipeline</div>
@@ -82,7 +89,7 @@
 					<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-								<Icon name="users" size={16} color="currentColor" />
+								<UserGroupIcon class="w-4 h-4" />
 							</div>
 							<div>
 								<div class="text-[11px] font-medium text-slate-400 uppercase">Team</div>
@@ -97,7 +104,7 @@
 					<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-								<Icon name="bot" size={16} color="currentColor" />
+								<CpuChipIcon class="w-4 h-4" />
 							</div>
 							<div>
 								<div class="text-[11px] font-medium text-slate-400 uppercase">AI Assistant</div>
@@ -111,7 +118,7 @@
 					<div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl w-full">
 						<div class="flex items-center gap-3">
 							<div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-								<Icon name="book" size={16} color="currentColor" />
+								<BookOpenIcon class="w-4 h-4" />
 							</div>
 							<div>
 								<div class="text-[11px] font-medium text-slate-400 uppercase">Knowledge Base</div>

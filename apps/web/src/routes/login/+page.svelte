@@ -3,6 +3,13 @@
 	import { apiRequest } from '$lib/api';
 	import heroImage from '$lib/assets/sign-in-hero.webp';
 	import BrandLogo from '$lib/components/BrandLogo.svelte';
+	import {
+		EnvelopeIcon,
+		LockClosedIcon,
+		EyeIcon,
+		EyeSlashIcon,
+		ExclamationCircleIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 
 	let identifier = $state('');
 	let password = $state('');
@@ -21,7 +28,7 @@
 			});
 			goto('/inbox');
 		} catch (err: any) {
-			error = err.message || 'Invalid credentials. Please try again.';
+			error = err.message || 'The username or password is incorrect. Try again.';
 		} finally {
 			loading = false;
 		}
@@ -30,7 +37,7 @@
 </script>
 
 <svelte:head>
-	<title>Sign In — What Funnel</title>
+	<title>Sign in — What Funnel</title>
 </svelte:head>
 
 <div class="wf-page min-h-screen flex flex-col justify-between p-4 pt-6 pb-0 sm:p-8 lg:p-12 selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
@@ -67,11 +74,11 @@
 					<!-- Hero Headline and Subhead -->
 					<div class="mt-6 sm:mt-8">
 						<h1 class="text-3xl sm:text-4xl lg:text-5xl font-medium text-slate-900 tracking-tight leading-[1.15]">
-							All your conversations.<br />
-							<span class="text-blue-600">Every lead.</span> One place.
+							All conversations.<br />
+							<span class="text-blue-600">All leads.</span> One workspace.
 						</h1>
 						<p class="text-slate-500 text-sm sm:text-base font-normal leading-relaxed max-w-xl mt-3.5">
-							Unify every channel, automate answers, and track leads from hello to happy customer.
+							Connect messaging channels, automate replies with AI, and track leads.
 						</p>
 					</div>
 				</div>
@@ -80,7 +87,7 @@
 				<div class="relative w-full flex items-center justify-center mt-2 lg:mt-0 pointer-events-none">
 					<img
 						src={heroImage}
-						alt="What Funnel Dashboard & Customer Experience in 3D"
+						alt="What Funnel dashboard illustration"
 						class="w-full max-h-[520px] lg:max-h-[580px] object-contain"
 						loading="eager"
 					/>
@@ -108,16 +115,14 @@
 						
 						<!-- Form Header (Centered on mobile) -->
 						<div class="text-center lg:text-left">
-							<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Welcome back</h2>
-							<p class="text-slate-500 text-sm mt-1 font-normal">Sign in to continue to your workspace</p>
+							<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Sign in</h2>
+							<p class="text-slate-500 text-sm mt-1 font-normal">Sign in to your workspace.</p>
 						</div>
 
 						<!-- Error alert -->
 						{#if error}
 							<div class="wf-alert-error mt-5 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed sm:text-sm">
-								<svg class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-								</svg>
+								<ExclamationCircleIcon class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
 								<span>{error}</span>
 							</div>
 						{/if}
@@ -129,10 +134,7 @@
 								<label for="identifier-input" class="block text-xs font-medium text-slate-700 mb-1.5">Email or username</label>
 								<div class="relative">
 									<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<rect width="20" height="16" x="2" y="4" rx="2" />
-											<path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-										</svg>
+										<EnvelopeIcon class="w-4 h-4" />
 									</div>
 									<input
 										type="text"
@@ -151,10 +153,7 @@
 								<label for="password-input" class="block text-xs font-medium text-slate-700 mb-1.5">Password</label>
 								<div class="relative">
 									<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-											<path d="M7 11V7a5 5 0 0 1 10 0v4" />
-										</svg>
+										<LockClosedIcon class="w-4 h-4" />
 									</div>
 									<input
 										type={showPassword ? 'text' : 'password'}
@@ -172,15 +171,9 @@
 										aria-label={showPassword ? 'Hide password' : 'Show password'}
 									>
 										{#if showPassword}
-											<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-												<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-												<line x1="1" y1="1" x2="23" y2="23" />
-											</svg>
+											<EyeSlashIcon class="w-4 h-4" />
 										{:else}
-											<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-												<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-												<circle cx="12" cy="12" r="3" />
-											</svg>
+											<EyeIcon class="w-4 h-4" />
 										{/if}
 									</button>
 								</div>
@@ -206,7 +199,7 @@
 
 						<!-- Bottom Create Account Link -->
 						<div class="mt-8 text-center text-xs sm:text-sm text-slate-500">
-							Don't have an account? <a href="/signup" class="text-blue-600 font-medium hover:text-blue-700 hover:underline transition-colors">Create account</a>
+							Do not have an account? <a href="/signup" class="text-blue-600 font-medium hover:text-blue-700 hover:underline transition-colors">Create account</a>
 						</div>
 
 					</div>
@@ -221,7 +214,7 @@
 	<div class="lg:hidden w-[calc(100%+2rem)] -mx-4 mt-auto pointer-events-none select-none flex items-end justify-center overflow-hidden leading-none z-0">
 		<img
 			src={heroImage}
-			alt="What Funnel Dashboard & Customer Experience in 3D"
+			alt="What Funnel dashboard illustration"
 			class="w-full h-auto max-h-[260px] sm:max-h-[320px] object-cover object-bottom block"
 			loading="eager"
 		/>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Icon from '$lib/Icon.svelte';
+	import { TrashIcon, PlusIcon } from '@fvilers/heroicons-svelte/24/outline';
 	type Stage = { key: string; label: string; color: string };
 	let { step, totalSteps, stages = $bindable() }: { step: number; totalSteps: number; stages: Stage[] } = $props();
 	function add() {
@@ -14,8 +14,8 @@
 
 <div class="text-center lg:text-left mb-6">
 	<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
-	<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Set up your lead pipeline</h2>
-	<p class="text-sm text-slate-500 font-normal">Create the stages your leads will go through.</p>
+	<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Set up lead pipeline</h2>
+	<p class="text-sm text-slate-500 font-normal">Create the pipeline stages for your leads.</p>
 </div>
 
 <div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
@@ -44,14 +44,14 @@
 					aria-label="Remove {stage.label}"
 					disabled={stages.length <= 1}
 				>
-					<Icon name="trash" size={14} color="currentColor" />
+					<TrashIcon class="w-4 h-4" />
 				</button>
 			</div>
 		{/each}
 	</div>
 
 	<button type="button" class="mt-2 flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed" onclick={add}>
-		<Icon name="plus" size={14} color="currentColor" />
-		<span>Add another stage</span>
+		<PlusIcon class="w-4 h-4" />
+		<span>Add stage</span>
 	</button>
 </div>

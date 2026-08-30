@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { ChatBubbleLeftRightIcon, QuestionMarkCircleIcon } from '@fvilers/heroicons-svelte/24/outline';
+
 	let {
 		channel = 'webchat',
 		size = 'sm',
@@ -73,19 +75,13 @@
 		title={showTooltip ? 'Webchat' : undefined}
 		class="{sizeClasses[size]} bg-blue-500 flex items-center justify-center text-white shadow-xs shrink-0 {className}"
 	>
-		<svg class="{iconSizes[size]}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-			<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-		</svg>
+		<ChatBubbleLeftRightIcon class={iconSizes[size]} />
 	</div>
 {:else}
 	<div
 		title={showTooltip ? 'Unknown channel' : undefined}
 		class="{sizeClasses[size]} bg-slate-400 flex items-center justify-center text-white shadow-xs shrink-0 {className}"
 	>
-		<svg class="{iconSizes[size]}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-			<circle cx="12" cy="12" r="9" />
-			<path stroke-linecap="round" d="M9.75 9a2.25 2.25 0 1 1 3.89 1.54c-.91.94-1.64 1.35-1.64 2.46" />
-			<path stroke-linecap="round" d="M12 16.5h.01" />
-		</svg>
+		<QuestionMarkCircleIcon class={iconSizes[size]} />
 	</div>
 {/if}

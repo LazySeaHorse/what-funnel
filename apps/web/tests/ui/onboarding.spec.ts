@@ -51,7 +51,7 @@ test.describe('onboarding persistence', () => {
 		await page.goto('/onboarding/5');
 		await expect(page.getByLabel(/^API key/)).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
-		await expect(page.getByText('Add your AI provider API key, or choose Manual only.', { exact: true })).toBeVisible();
+		await expect(page.getByText('Enter your AI provider API key, or select Manual only.', { exact: true })).toBeVisible();
 		await page.getByLabel(/^API key/).fill('test-provider-key');
 		await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
 		await page.getByRole('button', { name: 'Continue', exact: true }).click();

@@ -16,6 +16,30 @@
 	import SimulatorView from '$lib/components/inbox/SimulatorView.svelte';
 	import AutomationView from '$lib/components/automation/AutomationView.svelte';
 	import KnowledgeView from '$lib/components/knowledge/KnowledgeView.svelte';
+	import {
+		InboxIcon,
+		UsersIcon,
+		BoltIcon,
+		BookOpenIcon,
+		UserIcon,
+		DevicePhoneMobileIcon,
+		Cog6ToothIcon,
+		ChevronDownIcon,
+		ChevronLeftIcon,
+		MagnifyingGlassIcon,
+		AdjustmentsHorizontalIcon,
+		FunnelIcon,
+		CheckIcon,
+		CheckCircleIcon,
+		XMarkIcon,
+		UserPlusIcon,
+		SparklesIcon,
+		PlusIcon,
+		FaceSmileIcon,
+		BookmarkIcon,
+		PaperAirplaneIcon,
+		ChatBubbleLeftRightIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 	import { formatTime, getChannelLabel, getContactHandle, getContactName, getSnippet, getTagColor, parseMessageContent } from '$lib/inbox/presentation';
 
 	const inbox = new InboxState();
@@ -779,9 +803,7 @@
 					onclick={() => selectedNav = 'inbox'}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'inbox' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<svg class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-					</svg>
+					<InboxIcon class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" />
 					<span>Inbox</span>
 				</button>
 
@@ -791,9 +813,7 @@
 					onclick={() => selectedNav = 'leads'}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'leads' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<svg class="w-5 h-5 {selectedNav === 'leads' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-					</svg>
+					<UsersIcon class="w-5 h-5 {selectedNav === 'leads' ? 'text-blue-600' : 'text-slate-400'}" />
 					<span>Leads</span>
 				</button>
 				{/if}
@@ -804,9 +824,7 @@
 					onclick={() => selectedNav = 'automation'}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'automation' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<svg class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-					</svg>
+					<BoltIcon class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" />
 					<span>Automations</span>
 				</button>
 				{/if}
@@ -817,9 +835,7 @@
 					onclick={() => selectedNav = 'knowledge'}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'knowledge' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<svg class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-					</svg>
+					<BookOpenIcon class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" />
 					<span>Knowledge</span>
 				</button>
 				{/if}
@@ -830,9 +846,7 @@
 					onclick={() => selectedNav = 'contacts'}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'contacts' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<svg class="w-5 h-5 {selectedNav === 'contacts' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-					</svg>
+					<UserIcon class="w-5 h-5 {selectedNav === 'contacts' ? 'text-blue-600' : 'text-slate-400'}" />
 					<span>Contacts</span>
 				</button>
 				{/if}
@@ -844,9 +858,7 @@
 					class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'simulate' ? 'bg-purple-50/80 text-purple-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
 					<div class="flex items-center gap-3">
-						<svg class="w-5 h-5 {selectedNav === 'simulate' ? 'text-purple-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-						</svg>
+						<DevicePhoneMobileIcon class="w-5 h-5 {selectedNav === 'simulate' ? 'text-purple-600' : 'text-slate-400'}" />
 						<span>Simulate</span>
 					</div>
 					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {selectedNav === 'simulate' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'}">DEV</span>
@@ -858,10 +870,7 @@
 					onclick={() => selectedNav = 'settings'}
 					class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 {selectedNav === 'settings' ? 'bg-blue-50/80 text-blue-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'}"
 				>
-					<svg class="w-5 h-5 {selectedNav === 'settings' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-						<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-					</svg>
+					<Cog6ToothIcon class="w-5 h-5 {selectedNav === 'settings' ? 'text-blue-600' : 'text-slate-400'}" />
 					<span>{capabilities.isManager ? 'Settings' : 'Preferences'}</span>
 				</button>
 			</nav>
@@ -889,9 +898,7 @@
 						</div>
 					</div>
 				</div>
-				<svg class="w-4 h-4 text-slate-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-				</svg>
+				<ChevronDownIcon class="w-4 h-4 text-slate-400 mr-1" />
 				</button>
 
 				{#if showWorkspaceDropdown}
@@ -919,9 +926,7 @@
 			<!-- Search Bar -->
 			<div class="relative w-80 sm:w-96">
 				<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-					</svg>
+					<MagnifyingGlassIcon class="w-4 h-4" />
 				</span>
 				<input
 					type="text"
@@ -994,9 +999,7 @@
 									onclick={() => showInboxFilterMenu = !showInboxFilterMenu}
 									class="p-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 {inbox.stateFilter ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}"
 								>
-									<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-									</svg>
+									<AdjustmentsHorizontalIcon class="w-4 h-4" />
 									{#if inbox.stateFilter}
 										<span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
 									{/if}
@@ -1012,9 +1015,7 @@
 										>
 											<span>All stages</span>
 											{#if inbox.stateFilter === ''}
-												<svg class="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-												</svg>
+												<CheckIcon class="w-3.5 h-3.5 text-blue-600" />
 											{/if}
 										</button>
 										{#each availablePipelineStates as st}
@@ -1030,9 +1031,7 @@
 													<span>{st.label || stInfo.label}</span>
 												</div>
 												{#if isSelected}
-													<svg class="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-													</svg>
+													<CheckIcon class="w-3.5 h-3.5 text-blue-600" />
 												{/if}
 											</button>
 										{/each}
@@ -1055,9 +1054,7 @@
 						<!-- Search bar (matching mobile mock) -->
 						<div class="relative w-full">
 							<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-								</svg>
+								<MagnifyingGlassIcon class="w-4 h-4" />
 							</span>
 							<input
 								type="text"
@@ -1106,9 +1103,7 @@
 									class="ml-auto text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
 									title="Clear stage filter"
 								>
-									<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-									</svg>
+									<XMarkIcon class="w-3 h-3" />
 								</button>
 							</div>
 						{/if}
@@ -1119,9 +1114,7 @@
 						{#if filteredConversations.length === 0}
 							<div class="p-8 text-center space-y-2">
 								<div class="w-10 h-10 mx-auto rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-									<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-									</svg>
+									<InboxIcon class="w-5 h-5" />
 								</div>
 								<div class="text-xs font-medium text-slate-800">No conversations found</div>
 								<p class="text-[11px] text-slate-400">Incoming messages from connected channels appear here.</p>
@@ -1189,9 +1182,7 @@
 					{#if !inbox.activeConvo}
 						<div class="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
 							<div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-								<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-								</svg>
+								<ChatBubbleLeftRightIcon class="w-6 h-6" />
 							</div>
 							<h3 class="text-sm font-medium text-slate-800">Select a conversation</h3>
 							<p class="text-xs text-slate-400 max-w-xs">Select a conversation from the list to view messages and send replies.</p>
@@ -1202,12 +1193,10 @@
 							<div class="flex items-center gap-3">
 								<button
 									onclick={handleBackToConversations}
-									class="lg:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100"
+									class="lg:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 cursor-pointer"
 									aria-label="Back to conversations"
 								>
-									<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-									</svg>
+									<ChevronLeftIcon class="w-5 h-5" />
 								</button>
 								<UserAvatar
 									name={getContactName(inbox.activeConvo)}
@@ -1238,12 +1227,10 @@
 										onclick={() => showAssignDropdown = !showAssignDropdown}
 										aria-expanded={showAssignDropdown}
 										aria-label="Assign conversation"
-										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
 										title="Assign conversation"
 									>
-										<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-										</svg>
+										<UserPlusIcon class="w-4 h-4" />
 									</button>
 
 									{#if showAssignDropdown}
@@ -1253,7 +1240,7 @@
 												{@const isAssigned = inbox.activeConvo?.assigned_user_ids?.includes(user.id)}
 												<button
 													onclick={() => toggleUserAssignment(user.id)}
-													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between {isAssigned ? 'text-blue-600' : 'text-slate-700'}"
+													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between cursor-pointer {isAssigned ? 'text-blue-600' : 'text-slate-700'}"
 												>
 													<span>{user.name || user.email}</span>
 													{#if isAssigned}<span>✓</span>{/if}
@@ -1268,31 +1255,25 @@
 								<div class="relative">
 									<button
 										onclick={() => showStatusDropdown = !showStatusDropdown}
-										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
 										title="Conversation Status"
 									>
-										<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-										</svg>
+										<CheckCircleIcon class="w-4 h-4" />
 									</button>
 
 									{#if showStatusDropdown}
 										<div class="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
 											{#if inbox.activeConvo.status === 'open'}
 												<button
-													onclick={() => { inbox.resolveConversation(); showStatusDropdown = false; }}
-													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium text-slate-700 flex items-center gap-2"
+													onclick={() => { inbox.closeConversation(); showStatusDropdown = false; }}
+													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium text-slate-700 flex items-center gap-2 cursor-pointer"
 												>
-													<svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-													</svg>
+													<CheckIcon class="w-4 h-4 text-slate-500" />
 													<span>Close conversation</span>
 												</button>
 											{:else}
 												<div class="px-3 py-2 text-slate-500 flex items-center gap-2">
-													<svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-													</svg>
+													<CheckIcon class="w-4 h-4 text-emerald-500" />
 													<span>Conversation is closed</span>
 												</div>
 											{/if}
@@ -1335,10 +1316,7 @@
 											</div>
 											<div class="flex items-center gap-1 text-[10px] text-slate-400 mt-1 mr-1">
 												<span>{timeStr}</span>
-												<svg class="w-3.5 h-3.5 text-blue-500 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-													<path d="M18 6L7 17l-5-5" />
-													<path d="M22 10l-7.5 7.5-1.5-1.5" />
-												</svg>
+												<CheckIcon class="w-3.5 h-3.5 text-blue-500 inline-block" />
 											</div>
 										</div>
 									{/if}
@@ -1353,18 +1331,16 @@
 								<div class="mb-3 p-3 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1.5 relative">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-1.5 text-xs font-medium text-blue-700">
-											<svg class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
-												<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
-											</svg>
+											<SparklesIcon class="w-3.5 h-3.5 text-blue-600" />
 											<span>AI reply suggestion</span>
 									</div>
 									<button
 										type="button"
 										onclick={dismissAISuggestion}
-										class="text-slate-400 hover:text-slate-600 p-0.5 text-xs"
+										class="text-slate-400 hover:text-slate-600 p-0.5 text-xs cursor-pointer"
 										aria-label="Dismiss suggestion"
 									>
-										✕
+										<XMarkIcon class="w-3.5 h-3.5" />
 									</button>
 								</div>
 								<div class="text-xs text-slate-700 leading-snug">
@@ -1417,25 +1393,17 @@
 									<div class="flex items-center justify-between px-3 py-2 border-t border-slate-100/60 bg-slate-50/40">
 										<!-- Left icon tools -->
 										<div class="flex items-center gap-1 text-slate-400">
-											<button title="Add attachment" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-												</svg>
+											<button title="Add attachment" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer">
+												<PlusIcon class="w-4 h-4" />
 											</button>
-											<button title="Emoji picker" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-												</svg>
+											<button title="Emoji picker" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer">
+												<FaceSmileIcon class="w-4 h-4" />
 											</button>
-											<button title="Saved replies" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-												</svg>
+											<button title="Saved replies" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer">
+												<BookmarkIcon class="w-4 h-4" />
 											</button>
-											<button title="Quick automation" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-												<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-												</svg>
+											<button title="Quick automation" class="p-1.5 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer">
+												<BoltIcon class="w-4 h-4" />
 											</button>
 										</div>
 
@@ -1446,9 +1414,7 @@
 											class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-full flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-40 shadow-xs cursor-pointer"
 											aria-label="Send message"
 										>
-											<svg class="w-4 h-4 rotate-45 -mt-0.5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-											</svg>
+											<PaperAirplaneIcon class="w-4 h-4" />
 										</button>
 									</div>
 								{:else}
@@ -1520,9 +1486,7 @@
 										<span class="w-2 h-2 rounded-full bg-amber-500"></span>
 										<span class="text-xs font-medium text-amber-700">{inbox.activeConvo.lead?.current_state_key || 'New Lead'}</span>
 									</div>
-									<svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-									</svg>
+									<ChevronDownIcon class="w-4 h-4 text-amber-500" />
 								</button>
 
 								{#if showLeadStateDropdown}
@@ -1559,7 +1523,7 @@
 									<button
 										onclick={() => showAssignDropdown = !showAssignDropdown}
 										title="Add assignee"
-										class="w-7 h-7 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-xs transition"
+										class="w-7 h-7 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-xs transition cursor-pointer"
 									>
 										+
 									</button>
@@ -1591,13 +1555,13 @@
 												placeholder="Tag..."
 												class="w-20 px-2 py-0.5 text-xs border border-purple-200 rounded-lg focus:outline-none"
 											/>
-											<button onclick={addTag} aria-label="Save tag" class="text-xs font-medium text-blue-600 px-1">✓</button>
+											<button onclick={addTag} aria-label="Save tag" class="text-xs font-medium text-blue-600 px-1 cursor-pointer">✓</button>
 										</div>
 									{:else}
 										<button
 											onclick={() => showAddTagInput = true}
 											title="Add tag"
-											class="w-6 h-6 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 flex items-center justify-center text-xs transition"
+											class="w-6 h-6 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 flex items-center justify-center text-xs transition cursor-pointer"
 										>
 											+
 										</button>
@@ -1627,15 +1591,13 @@
 							<!-- AI Assist (Beta) Section -->
 							<div class="space-y-2 pt-1">
 								<div class="flex items-center gap-1.5 text-xs font-medium text-slate-700">
-									<svg class="w-3.5 h-3.5 text-purple-600" viewBox="0 0 24 24" fill="currentColor">
-										<path d="M12 2L14.4 8.6L21 11L14.4 13.4L12 20L9.6 13.4L3 11L9.6 8.6L12 2Z" />
-									</svg>
+									<SparklesIcon class="w-3.5 h-3.5 text-purple-600" />
 									<span>AI assist</span>
 									<span class="text-[10px] text-slate-400 font-normal">(Beta)</span>
 								</div>
 
 								<div class="space-y-2">
-									<button class="w-full py-2 px-3 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50/50 transition">
+									<button class="w-full py-2 px-3 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50/50 transition cursor-pointer">
 										Summarize conversation
 									</button>
 								</div>
@@ -1712,9 +1674,7 @@
 								aria-label="Filter leads"
 								class="flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)] {activeLeadsFilterCount > 0 ? 'bg-blue-50 border-blue-200/90 text-blue-700 hover:bg-blue-100/70' : 'bg-white hover:bg-slate-50 border-slate-200/90 text-slate-700'}"
 							>
-								<svg class="w-3.5 h-3.5 {activeLeadsFilterCount > 0 ? 'text-blue-600' : 'text-slate-500'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-								</svg>
+								<FunnelIcon class="w-3.5 h-3.5 {activeLeadsFilterCount > 0 ? 'text-blue-600' : 'text-slate-500'}" />
 								<span>Filters</span>
 								{#if activeLeadsFilterCount > 0}
 									<span class="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-semibold">{activeLeadsFilterCount}</span>
@@ -1787,9 +1747,7 @@
 								class="flex items-center gap-1.5 px-3.5 py-1.5 bg-white hover:bg-slate-50 rounded-xl border border-slate-200/90 text-xs font-medium text-slate-700 transition cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
 							>
 								<span>Sort: {leadsSort === 'newest' ? 'Newest' : leadsSort === 'oldest' ? 'Oldest' : 'Name'}</span>
-								<svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-								</svg>
+								<ChevronDownIcon class="w-3.5 h-3.5 text-slate-400" />
 							</button>
 
 							{#if showSortDropdown}
@@ -1892,9 +1850,7 @@
 				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'inbox' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
 			>
 				<div class="relative">
-					<svg class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-					</svg>
+					<InboxIcon class="w-5 h-5 {selectedNav === 'inbox' ? 'text-blue-600' : 'text-slate-400'}" />
 					{#if capabilities.leadTracking && countUnassigned > 0}
 						<span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-600"></span>
 					{/if}
@@ -1910,9 +1866,7 @@
 				onclick={(e) => { e.preventDefault(); selectedNav = 'leads'; }}
 				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'leads' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
 			>
-				<svg class="w-5 h-5 {selectedNav === 'leads' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-				</svg>
+				<UsersIcon class="w-5 h-5 {selectedNav === 'leads' ? 'text-blue-600' : 'text-slate-400'}" />
 				<span class="text-[11px] mt-0.5">Leads</span>
 			</a>
 			{/if}
@@ -1925,9 +1879,7 @@
 				onclick={(e) => { e.preventDefault(); selectedNav = 'automation'; }}
 				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'automation' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
 			>
-				<svg class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-				</svg>
+				<BoltIcon class="w-5 h-5 {selectedNav === 'automation' ? 'text-blue-600' : 'text-slate-400'}" />
 				<span class="text-[11px] mt-0.5">Automate</span>
 			</a>
 			{/if}
@@ -1940,9 +1892,7 @@
 				onclick={(e) => { e.preventDefault(); selectedNav = 'knowledge'; }}
 				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'knowledge' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
 			>
-				<svg class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-				</svg>
+				<BookOpenIcon class="w-5 h-5 {selectedNav === 'knowledge' ? 'text-blue-600' : 'text-slate-400'}" />
 				<span class="text-[11px] mt-0.5">Knowledge</span>
 			</a>
 			{/if}
@@ -1954,10 +1904,7 @@
 				onclick={(e) => { e.preventDefault(); selectedNav = 'settings'; }}
 				class="flex flex-col items-center justify-center py-1 px-3 rounded-xl transition cursor-pointer {selectedNav === 'settings' ? 'text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-800'}"
 			>
-				<svg class="w-5 h-5 {selectedNav === 'settings' ? 'text-blue-600' : 'text-slate-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-					<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-				</svg>
+				<Cog6ToothIcon class="w-5 h-5 {selectedNav === 'settings' ? 'text-blue-600' : 'text-slate-400'}" />
 				<span class="text-[11px] mt-0.5">{capabilities.isManager ? 'Settings' : 'Preferences'}</span>
 			</a>
 		</nav>

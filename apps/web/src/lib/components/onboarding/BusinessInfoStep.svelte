@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { ChevronDownIcon } from '@fvilers/heroicons-svelte/24/outline';
+
 	let { step, totalSteps, businessName = $bindable(), businessType = $bindable(), timezone = $bindable() }: { step: number; totalSteps: number; businessName: string; businessType: string; timezone: string } = $props();
 </script>
 
 						<div class="text-center lg:text-left mb-6">
 							<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
-							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Let’s start with your business</h2>
-							<p class="text-sm text-slate-500 font-normal">This helps us personalize your workspace.</p>
+							<h2 class="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight mb-1">Enter business information</h2>
+							<p class="text-sm text-slate-500 font-normal">The system uses this information to configure your workspace.</p>
 						</div>
 
 						<div class="space-y-5 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
@@ -34,9 +36,7 @@
 										<option value="Other">Other</option>
 									</select>
 									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-										</svg>
+										<ChevronDownIcon class="w-4 h-4" />
 									</div>
 								</div>
 							</div>
@@ -54,9 +54,7 @@
 										<option value="(GMT+09:00) Tokyo">(GMT+09:00) Tokyo</option>
 									</select>
 									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-										</svg>
+										<ChevronDownIcon class="w-4 h-4" />
 									</div>
 								</div>
 							</div>

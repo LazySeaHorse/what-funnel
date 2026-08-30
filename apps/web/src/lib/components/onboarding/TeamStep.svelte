@@ -1,5 +1,10 @@
 <script lang="ts">
-	import Icon from '$lib/Icon.svelte';
+	import {
+		PlusIcon,
+		CheckIcon,
+		DocumentDuplicateIcon,
+		TrashIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 
 	type User = { id: string; username: string; role: string; plaintextPassword?: string };
 
@@ -139,7 +144,7 @@
 						onclick={addUser}
 						disabled={adding || !newUsername.trim() || !newPassword.trim()}
 					>
-						<Icon name="plus" size={14} color="#FFFFFF" />
+						<PlusIcon class="w-3.5 h-3.5" />
 						<span>Add</span>
 					</button>
 				</div>
@@ -186,7 +191,11 @@
 								title="Copy password"
 							>
 								<span>{member.plaintextPassword}</span>
-								<Icon name={copiedPassId === member.id ? 'check' : 'copy'} size={12} color={copiedPassId === member.id ? '#10B981' : '#64748B'} />
+								{#if copiedPassId === member.id}
+									<CheckIcon class="w-3 h-3 text-emerald-600" />
+								{:else}
+									<DocumentDuplicateIcon class="w-3 h-3 text-slate-500" />
+								{/if}
 							</button>
 						{/if}
 
@@ -196,7 +205,7 @@
 							onclick={() => onRemoveUser(member.id)}
 							title="Remove user"
 						>
-							<Icon name="trash" size={14} color="currentColor" />
+							<TrashIcon class="w-3.5 h-3.5" />
 						</button>
 					</div>
 				</div>

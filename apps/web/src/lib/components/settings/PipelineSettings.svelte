@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { apiRequest } from '$lib/api';
-	import Icon from '$lib/Icon.svelte';
+	import { ArrowUpIcon, ArrowDownIcon, TrashIcon, PlusIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
 
 	let { workspace }: { workspace?: WorkspaceState } = $props();
@@ -138,7 +138,7 @@
 							class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition"
 							title="Move up"
 						>
-							<Icon name="arrow-up" size={14} color="currentColor" />
+							<ArrowUpIcon class="w-3.5 h-3.5" />
 						</button>
 						<button
 							aria-label="Move {state.label} down"
@@ -147,7 +147,7 @@
 							class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition"
 							title="Move down"
 						>
-							<Icon name="arrow-down" size={14} color="currentColor" />
+							<ArrowDownIcon class="w-3.5 h-3.5" />
 						</button>
 						<button
 							aria-label="Remove {state.label}"
@@ -155,7 +155,7 @@
 							class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
 							title="Remove stage"
 						>
-							<Icon name="trash" size={14} color="currentColor" />
+							<TrashIcon class="w-3.5 h-3.5" />
 						</button>
 					</div>
 				</div>
@@ -168,7 +168,7 @@
 			class="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed"
 			onclick={addState}
 		>
-			<Icon name="plus" size={14} color="currentColor" />
+			<PlusIcon class="w-3.5 h-3.5" />
 			<span>Add another stage</span>
 		</button>
 

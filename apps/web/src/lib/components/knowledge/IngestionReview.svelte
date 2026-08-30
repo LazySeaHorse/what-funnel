@@ -31,7 +31,7 @@
 
 <div class="mb-2.5 mt-6 flex items-center justify-between w-full">
 	<div class="flex items-center gap-2">
-		<h3 class="text-sm font-medium text-slate-800">Deterministic answer patterns</h3>
+		<h3 class="text-sm font-medium text-slate-800">Direct answer patterns</h3>
 		<span class="rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">{patterns.length}</span>
 	</div>
 	<div class="text-[11px] text-slate-400">Direct response triggers</div>
@@ -46,7 +46,7 @@
 			<textarea bind:value={pattern.answer_markdown} disabled={!pattern.approved} aria-label="Pattern answer" rows="3" class="w-full resize-y bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-600 outline-none focus:border-blue-500 disabled:bg-slate-100/70 disabled:text-slate-400 leading-relaxed transition"></textarea>
 			<div class="flex items-center justify-between pt-0.5">
 				<label class="block text-[10px] font-medium uppercase tracking-wide text-slate-400" for={`triggers-${pattern.id}`}>
-					Trigger phrases ({pattern.trigger_phrases.length}) <span class="font-normal text-slate-400">· one per line</span>
+					Trigger phrases ({pattern.trigger_phrases.length}) <span class="font-normal text-slate-400">· one trigger per line</span>
 				</label>
 			</div>
 			<textarea id={`triggers-${pattern.id}`} disabled={!pattern.approved} value={pattern.trigger_phrases.join('\n')} oninput={(event) => updateTriggers(pattern, event.currentTarget.value)} rows="3" class="w-full resize-y bg-white border border-slate-200 rounded-lg p-2.5 text-[11px] text-slate-600 outline-none focus:border-blue-500 disabled:bg-slate-100/70 disabled:text-slate-400 leading-relaxed font-mono transition"></textarea>

@@ -11,10 +11,10 @@ export async function signupAndOpenSettings(page: Page, workspaceName = 'UI Safe
 
 	await page.goto('/signup');
 	await page.getByLabel('Business Name').fill(workspaceName);
-	await page.getByLabel('Email').fill(email);
-	await page.locator('#signup-password-input').fill(PASSWORD);
-	await expect(page.getByRole('radio', { name: /Full Workspace/ })).toBeChecked();
-	await page.getByRole('button', { name: /create workspace/i }).click();
+	await page.fill('#signup-email-input', email);
+	await page.fill('#signup-password-input', 'Password123!');
+	await expect(page.getByRole('radio', { name: /Full workspace/i })).toBeChecked();
+	await page.click('button[type="submit"]');
 	await page.waitForURL('**/onboarding/**', { timeout: 20_000 });
 
 	await page.goto('/inbox?tab=settings');

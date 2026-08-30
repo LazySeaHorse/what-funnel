@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CustomerSimulator from '$lib/CustomerSimulator.svelte';
+	import { DevicePhoneMobileIcon, ArrowLeftIcon } from '@fvilers/heroicons-svelte/24/outline';
 	let { onBack }: { onBack: () => void } = $props();
 </script>
 
@@ -8,10 +9,7 @@
 	<div class="flex items-center justify-between pb-3 border-b border-slate-200/80 shrink-0">
 		<div class="flex items-center gap-3">
 			<div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/80 flex items-center justify-center font-medium shadow-2xs">
-				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/>
-					<path d="M12 18h.01"/>
-				</svg>
+				<DevicePhoneMobileIcon class="w-5 h-5" />
 			</div>
 			<div>
 				<div class="flex items-center gap-2">
@@ -25,9 +23,7 @@
 			onclick={onBack}
 			class="px-3.5 py-1.5 rounded-xl border border-slate-200/90 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-[0.98]"
 		>
-			<svg class="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="m15 18-6-6 6-6"/>
-			</svg>
+			<ArrowLeftIcon class="w-3.5 h-3.5 text-slate-500" />
 			<span>Back to Inbox</span>
 		</button>
 	</div>

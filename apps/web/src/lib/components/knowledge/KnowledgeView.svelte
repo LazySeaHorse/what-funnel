@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { apiRequest } from '$lib/api';
-	import Icon from '$lib/Icon.svelte';
+	import {
+		SparklesIcon,
+		TrashIcon,
+		CheckIcon,
+		XMarkIcon,
+		BookOpenIcon,
+		ChevronDownIcon,
+		ChatBubbleLeftRightIcon
+	} from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 
 	let { reviewerID = '', searchQuery = '' }: { reviewerID?: string; searchQuery?: string } = $props();
@@ -288,22 +296,22 @@
 	<header class="px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
 		<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
 			<div>
-				<h1 class="text-xl font-medium text-slate-900 tracking-tight">Knowledge Base</h1>
-				<p class="text-xs text-slate-500 mt-0.5">Train What Funnel AI on your pricing, FAQs, services, and policies</p>
+				<h1 class="text-xl font-medium text-slate-900 tracking-tight">Knowledge base</h1>
+				<p class="text-xs text-slate-500 mt-0.5">Manage pricing, FAQs, services, and policies for AI answers.</p>
 			</div>
 			<div class="flex flex-wrap items-center gap-3 self-start sm:self-auto">
 				<div class="text-left sm:text-right">
-					<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Last AI Audit</div>
+					<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Last AI audit</div>
 					<div class="text-xs font-medium text-slate-700 mt-0.5">{formatDate(lastRun?.run_at)}</div>
 					{#if lastRun}<div class="text-[11px] text-slate-400">{lastRun.messages_scanned} scanned · {lastRun.clusters_found} clusters · {lastRun.suggestions_created} suggestions</div>{/if}
 				</div>
 				<button onclick={triggerMining} disabled={mining} class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition disabled:opacity-50 cursor-pointer">
-					<Icon name="sparkles" size={13} color="currentColor" />
-					<span>{mining ? 'Scanning…' : 'Run Audit Now'}</span>
+					<SparklesIcon class="w-3.5 h-3.5" />
+					<span>{mining ? 'Scanning…' : 'Run audit now'}</span>
 				</button>
 				<button onclick={purgeKnowledgeBase} disabled={purging || ingestionPhase !== 'idle'} class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-rose-200 text-xs font-medium text-rose-600 hover:bg-rose-50 transition disabled:opacity-40 cursor-pointer">
-					<Icon name="trash" size={13} color="currentColor" />
-					<span>{purging ? 'Purging…' : 'Purge KB'}</span>
+					<TrashIcon class="w-3.5 h-3.5" />
+					<span>{purging ? 'Purging…' : 'Purge knowledge base'}</span>
 				</button>
 			</div>
 		</div>
@@ -311,32 +319,32 @@
 		{#if miningResult}
 			<div class="mt-3 px-3.5 py-2.5 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700 flex items-center justify-between gap-2">
 				<div class="flex items-center gap-2">
-					<Icon name="sparkles" size={14} color="#2563EB" />
+					<SparklesIcon class="w-4 h-4 text-blue-600" />
 					<span>Audit complete — {miningResult.messages_scanned} messages scanned, {miningResult.clusters_found} clusters found, {miningResult.suggestions_created} suggestions created.</span>
 				</div>
 				<button type="button" onclick={() => miningResult = null} class="text-blue-500 hover:text-blue-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<Icon name="close" size={14} />
+					<XMarkIcon class="w-3.5 h-3.5" />
 				</button>
 			</div>
 		{/if}
 		{#if purgeResult}
 			<div class="mt-3 px-3.5 py-2.5 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-700 flex items-center justify-between gap-2">
 				<div class="flex items-center gap-2">
-					<Icon name="check" size={14} color="#059669" />
+					<CheckIcon class="w-4 h-4 text-emerald-600" />
 					<span>Knowledge base purged — {purgeResult.concepts} concept{purgeResult.concepts !== 1 ? 's' : ''} and {purgeResult.patterns} pattern{purgeResult.patterns !== 1 ? 's' : ''} removed.</span>
 				</div>
 				<button type="button" onclick={() => purgeResult = null} class="text-emerald-500 hover:text-emerald-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<Icon name="close" size={14} />
+					<XMarkIcon class="w-3.5 h-3.5" />
 				</button>
 			</div>
 		{:else if purgeError}
 			<div class="mt-3 px-3.5 py-2.5 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700 flex items-center justify-between gap-2">
 				<div class="flex items-center gap-2">
-					<Icon name="close" size={14} color="#E11D48" />
+					<XMarkIcon class="w-4 h-4 text-rose-600" />
 					<span>{purgeError}</span>
 				</div>
 				<button type="button" onclick={() => purgeError = ''} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<Icon name="close" size={14} />
+					<XMarkIcon class="w-3.5 h-3.5" />
 				</button>
 			</div>
 		{/if}
@@ -373,30 +381,30 @@
 					</div>
 					{#if pasteResult?.error}
 						<div class="mb-3 flex items-center gap-1.5 text-xs text-rose-600 font-medium">
-							<Icon name="close" size={13} color="currentColor" />
+							<XMarkIcon class="w-3.5 h-3.5" />
 							<span>{pasteResult.error}</span>
 						</div>
 					{/if}
 					<div class="max-h-[52vh] overflow-y-auto pr-1"><IngestionReview bind:concepts={ingestionConcepts} bind:patterns={ingestionPatterns} /></div>
 				{:else}
 					<div class="text-xs font-medium text-slate-700 mb-2">Add business knowledge</div>
-					<textarea bind:value={pasteText} disabled={pasting} placeholder="Paste anything — pricing, policies, FAQs, hours, services… The AI will extract concepts and deterministic answer patterns." class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 resize-none leading-relaxed disabled:opacity-60"></textarea>
+					<textarea bind:value={pasteText} disabled={pasting} placeholder="Paste business information, pricing, business hours, and policies. The system extracts concepts and answer patterns." class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 resize-none leading-relaxed disabled:opacity-60"></textarea>
 					<div class="flex items-center justify-between mt-2">
 						<div class="flex items-center gap-2">
 							{#if pasteResult?.added !== undefined}
 								<div class="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-									<Icon name="check" size={13} color="currentColor" />
+									<CheckIcon class="w-3.5 h-3.5" />
 									<span>{pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} and {pasteResult.patternsAdded ?? 0} pattern{pasteResult.patternsAdded !== 1 ? 's' : ''} added</span>
 								</div>
 							{:else if pasteResult?.error}
 								<div class="flex items-center gap-1.5 text-xs text-rose-600 font-medium">
-									<Icon name="close" size={13} color="currentColor" />
+									<XMarkIcon class="w-3.5 h-3.5" />
 									<span>{pasteResult.error}</span>
 								</div>
 							{:else if ingestionPhase === 'processing'}
 								<div class="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
 									<span class="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
-									<span>Organizing concepts and deterministic patterns…</span>
+									<span>Extracting concepts and answer patterns…</span>
 								</div>
 							{:else if ingestionPhase === 'publishing'}
 								<div class="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
@@ -406,8 +414,8 @@
 							{/if}
 						</div>
 						<button onclick={compilePaste} disabled={pasting || !pasteText.trim()} class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer">
-							<Icon name="sparkles" size={13} color="#FFFFFF" />
-							<span>{pasting ? 'Processing…' : 'Organize with AI'}</span>
+							<SparklesIcon class="w-3.5 h-3.5 text-white" />
+							<span>{pasting ? 'Processing…' : 'Extract with AI'}</span>
 						</button>
 					</div>
 				{/if}
@@ -417,13 +425,13 @@
 				{#if filteredConcepts.length === 0}
 					<div class="flex flex-col items-center justify-center py-16 text-center">
 						<div class="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-							<Icon name="kb" size={20} color="currentColor" />
+							<BookOpenIcon class="w-5 h-5" />
 						</div>
 						<div class="text-sm font-medium text-slate-600">
-							{searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts yet'}
+							{searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
 						</div>
 						<div class="text-xs text-slate-400 mt-1 max-w-sm">
-							{searchQuery.trim() ? 'Try adjusting your search terms' : 'Paste your business info above and click "Organize with AI"'}
+							{searchQuery.trim() ? 'Try adjusting your search terms' : 'Paste business information above and click "Extract with AI"'}
 						</div>
 					</div>
 				{:else}
@@ -445,7 +453,7 @@
 									{/if}
 								</div>
 								<div class="text-slate-400 transition-transform duration-200 {expandedConcept === concept.id ? 'rotate-180' : ''}">
-									<Icon name="chevron-down" size={15} />
+									<ChevronDownIcon class="w-4 h-4" />
 								</div>
 							</button>
 							{#if expandedConcept === concept.id}
@@ -454,7 +462,7 @@
 									<div class="flex items-center justify-between pt-2 text-[11px] text-slate-400 border-t border-slate-100">
 										<span>Added {formatDate(concept.created_at)}</span>
 										<button onclick={() => deleteConcept(concept.id)} class="text-rose-500 hover:text-rose-700 transition cursor-pointer flex items-center gap-1">
-											<Icon name="trash" size={12} color="currentColor" />
+											<TrashIcon class="w-3.5 h-3.5" />
 											<span>Delete</span>
 										</button>
 									</div>
@@ -470,7 +478,7 @@
 			{#if filteredPatterns.length === 0}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 mb-3">
-						<Icon name="chat" size={20} color="currentColor" />
+						<ChatBubbleLeftRightIcon class="w-5 h-5" />
 					</div>
 					<div class="text-sm font-medium text-slate-600">
 						{searchQuery.trim() ? 'No matching answer patterns' : 'No deterministic answer patterns yet'}
@@ -497,7 +505,7 @@
 						<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap bg-slate-50/70 p-3 rounded-lg border border-slate-100">{pattern.answer_markdown}</div>
 						<div class="flex justify-end pt-1 text-[11px]">
 							<button onclick={() => deletePattern(pattern.id)} class="text-rose-500 hover:text-rose-700 transition cursor-pointer flex items-center gap-1">
-								<Icon name="trash" size={12} color="currentColor" />
+								<TrashIcon class="w-3.5 h-3.5" />
 								<span>Delete</span>
 							</button>
 						</div>
@@ -510,7 +518,7 @@
 			{#if filteredSuggestions.length === 0}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-500 mb-3">
-						<Icon name="sparkles" size={20} color="currentColor" />
+						<SparklesIcon class="w-5 h-5" />
 					</div>
 					<div class="text-sm font-medium text-slate-600">
 						{searchQuery.trim() ? 'No matching suggestions' : 'No suggestions pending review'}

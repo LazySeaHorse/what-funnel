@@ -14,6 +14,7 @@
 	import KnowledgeBaseStep from '$lib/components/onboarding/KnowledgeBaseStep.svelte';
 	import ReviewStep from '$lib/components/onboarding/ReviewStep.svelte';
 	import CompleteStep from '$lib/components/onboarding/CompleteStep.svelte';
+	import { ChevronLeftIcon } from '@fvilers/heroicons-svelte/24/outline';
 
 	// Step number from route: 1..8
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
@@ -28,11 +29,11 @@
 	const STEP_ITEMS = [
 		{ num: 1, label: 'Business info' },
 		{ num: 2, label: 'Channels' },
-		{ num: 3, label: 'Lead setup' },
+		{ num: 3, label: 'Lead pipeline' },
 		{ num: 4, label: 'Team members' },
-		{ num: 5, label: 'AI Assistant' },
-		{ num: 6, label: 'Knowledge Base' },
-		{ num: 7, label: 'Review & Finish' }
+		{ num: 5, label: 'AI assistant' },
+		{ num: 6, label: 'Knowledge base' },
+		{ num: 7, label: 'Review and finish' }
 	];
 	let visibleStepItems = $derived.by(() => {
 		let items = STEP_ITEMS;
@@ -551,7 +552,7 @@
 			return 'Skipped (Manual replies)';
 		}
 		if (s6Concepts.length > 0) {
-			return `${s6Concepts.length} concepts organized by AI`;
+			return `${s6Concepts.length} concepts in knowledge base`;
 		}
 		return 'Business information compiled';
 	});
@@ -579,9 +580,7 @@
 							onclick={handleBack}
 							aria-label="Go back"
 						>
-							<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M15 18l-6-6 6-6" />
-							</svg>
+							<ChevronLeftIcon class="w-5 h-5" />
 						</button>
 
 						{#if stepNum <= 7}
@@ -591,7 +590,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-xs font-medium text-slate-500">Setup Complete</div>
+							<div class="text-xs font-medium text-slate-500">Setup complete</div>
 						{/if}
 
 						<div class="w-9"></div>
