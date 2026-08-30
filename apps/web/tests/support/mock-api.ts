@@ -29,12 +29,13 @@ export interface MockWorkspaceOptions {
 	failures?: string[];
 	conversations?: any[];
 	replyDraft?: any | null;
+	knowledge?: { concepts?: any[]; patterns?: any[] };
 }
 
 export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
 	const role = options.role ?? 'manager';
 	const failures = options.failures ?? [];
-	const requests: Array<{ path: string; method: string }> = [];
+	const requests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
 	let accountName = 'Test Workspace';
 	let accountSlug = 'test-slug';
 	let productMode: string = options.productMode ?? 'full_workspace';
@@ -47,12 +48,15 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 	let bridgeConnections: Array<{ channel_id: string; platform: string; state: string; detail: string }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
 	let aiConfigured = false;
+	let ingestion: any = null;
+	let knowledgeConcepts = options.knowledge?.concepts ?? [];
+	let knowledgePatterns = options.knowledge?.patterns ?? [];
 
 	await page.route('**/api-gateway/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname.replace('/api-gateway', '');
 		const body = request.postDataJSON?.() as Record<string, unknown> | undefined;
-		requests.push({ path, method: request.method() });
+		requests.push({ path, method: request.method(), body });
 
 		if (failures.includes(path)) {
 			await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Service unavailable' }) });
@@ -165,6 +169,36 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
 		if (/^\/conversations\/[^/]+\/read$/.test(path)) return json({ status: 'read' });
 		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
+		if (path === '/api/kb/concepts') return json({ concepts: knowledgeConcepts });
+		if (path === '/api/kb/patterns') return json({ patterns: knowledgePatterns });
+		if (path === '/api/kb/purge' && request.method() === 'DELETE') {
+			const result = { cleared_concepts: knowledgeConcepts.length, cleared_patterns: knowledgePatterns.length };
+			knowledgeConcepts = [];
+			knowledgePatterns = [];
+			return json({ success: true, ...result });
+		}
+		if (path === '/api/kb/suggestions') return json({ suggestions: [] });
+		if (path === '/api/kb/mining-runs/latest') return json({ last_run: null });
+		if (path === '/api/kb/ingestions/latest') return json({ ingestion });
+		if (path === '/api/kb/ingestions' && request.method() === 'POST') {
+			ingestion = { id: '81111111-1111-4111-8111-111111111111', status: 'queued', concepts: [], patterns: [] };
+			return json(ingestion);
+		}
+		if (/^\/api\/kb\/ingestions\/[^/]+\/publish$/.test(path) && request.method() === 'POST') {
+			ingestion = { ...ingestion, status: 'complete', concepts: body?.concepts ?? [], patterns: body?.patterns ?? [] };
+			return json(ingestion);
+		}
+		if (/^\/api\/kb\/ingestions\/[^/]+$/.test(path)) {
+			if (ingestion?.status === 'queued') {
+				ingestion = {
+					...ingestion,
+					status: 'review_required',
+					concepts: [{ id: '82111111-1111-4111-8111-111111111111', type: 'pricing', title: 'Pricing', tags: [], body_markdown: '$100 per hour.', status: 'draft' }],
+					patterns: [{ id: '83111111-1111-4111-8111-111111111111', canonical_question: 'What does it cost?', answer_markdown: '$100 per hour.', trigger_phrases: ['pricing', 'how much', 'what does it cost'], status: 'draft' }]
+				};
+			}
+			return json(ingestion);
+		}
 		if (path === '/onboarding/status') return json({ completed_at: '2026-01-01T00:00:00Z', skipped_steps: [] });
 		return json({});
 	});

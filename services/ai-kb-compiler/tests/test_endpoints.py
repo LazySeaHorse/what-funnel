@@ -340,6 +340,90 @@ async def test_concept_list_and_delete():
         await teardown_test_data(pool, account_id)
 
 @pytest.mark.asyncio
+async def test_purge_knowledge_base_is_scoped_and_audited():
+    pool, account_id, user_id = await setup_test_data()
+    other_account_id = uuid.uuid4()
+
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO accounts (id, name, plan) VALUES ($1, 'Other Account', 'self_hosted')",
+                other_account_id,
+            )
+            for target_account_id, slug in ((account_id, "mine"), (other_account_id, "theirs")):
+                await conn.execute(
+                    """
+                    INSERT INTO kb_concepts (account_id, slug, type, title, body_markdown, source)
+                    VALUES ($1, $2, 'faq', 'Test Concept', 'Body text', 'owner_pasted')
+                    """,
+                    target_account_id,
+                    slug,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO patterns (account_id, trigger_phrases, canonical_question, answer_markdown)
+                    VALUES ($1, ARRAY['test'], 'Test question?', 'Test answer')
+                    """,
+                    target_account_id,
+                )
+
+            active_ingestion_id = await conn.fetchval(
+                """
+                INSERT INTO kb_ingestions (account_id, requested_by, status, raw_text)
+                VALUES ($1, $2, 'review_required', 'Pending knowledge')
+                RETURNING id
+                """,
+                account_id,
+                user_id,
+            )
+
+        with TestClient(app) as client:
+            blocked = client.delete(
+                "/internal/kb/purge",
+                headers={"X-Account-ID": str(account_id), "X-User-ID": str(user_id)},
+            )
+            assert blocked.status_code == 409
+
+            async with pool.acquire() as conn:
+                assert await conn.fetchval("SELECT count(*) FROM kb_concepts WHERE account_id = $1", account_id) == 1
+                assert await conn.fetchval("SELECT count(*) FROM patterns WHERE account_id = $1", account_id) == 1
+                await conn.execute(
+                    "UPDATE kb_ingestions SET status = 'complete' WHERE id = $1",
+                    active_ingestion_id,
+                )
+
+            response = client.delete(
+                "/internal/kb/purge",
+                headers={"X-Account-ID": str(account_id), "X-User-ID": str(user_id)},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "success": True,
+            "cleared_concepts": 1,
+            "cleared_patterns": 1,
+        }
+
+        async with pool.acquire() as conn:
+            assert await conn.fetchval("SELECT count(*) FROM kb_concepts WHERE account_id = $1", account_id) == 0
+            assert await conn.fetchval("SELECT count(*) FROM patterns WHERE account_id = $1", account_id) == 0
+            assert await conn.fetchval("SELECT count(*) FROM kb_concepts WHERE account_id = $1", other_account_id) == 1
+            assert await conn.fetchval("SELECT count(*) FROM patterns WHERE account_id = $1", other_account_id) == 1
+            audit = await conn.fetchrow(
+                """
+                SELECT actor_user_id, metadata FROM audit_logs
+                WHERE account_id = $1 AND action = 'knowledge_base.purged'
+                """,
+                account_id,
+            )
+            assert audit["actor_user_id"] == user_id
+            assert json.loads(audit["metadata"]) == {"cleared_concepts": 1, "cleared_patterns": 1}
+    finally:
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM accounts WHERE id = $1", other_account_id)
+        await teardown_test_data(pool, account_id)
+
+@pytest.mark.asyncio
 async def test_suggestion_approve_reject():
     pool, account_id, user_id = await setup_test_data()
 

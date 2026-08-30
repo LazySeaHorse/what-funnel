@@ -562,6 +562,83 @@ async def list_concepts(db: ScopedDB = Depends(get_db)):
     )
     return {"concepts": [dict(r) for r in rows]}
 
+@app.delete("/internal/kb/purge")
+async def purge_knowledge_base(
+    db: ScopedDB = Depends(get_db),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    actor_user_id = None
+    if x_user_id:
+        try:
+            actor_user_id = uuid.UUID(x_user_id)
+        except ValueError:
+            pass
+
+    async with db.pool.acquire() as conn:
+        async with conn.transaction():
+            active_ingestion = await conn.fetchval(
+                """
+                SELECT id FROM kb_ingestions
+                WHERE account_id = $1
+                  AND status IN ('queued', 'processing', 'review_required', 'publishing')
+                ORDER BY created_at DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                db.account_id,
+            )
+            if active_ingestion:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Finish the active knowledge ingestion before purging the knowledge base.",
+                )
+
+            if actor_user_id:
+                user_exists = await conn.fetchval(
+                    "SELECT 1 FROM users WHERE id = $1 AND account_id = $2",
+                    actor_user_id,
+                    db.account_id,
+                )
+                if not user_exists:
+                    actor_user_id = None
+
+            cleared_concepts = await conn.fetchval(
+                """
+                WITH deleted AS (
+                    DELETE FROM kb_concepts WHERE account_id = $1 RETURNING 1
+                )
+                SELECT count(*) FROM deleted
+                """,
+                db.account_id,
+            )
+            cleared_patterns = await conn.fetchval(
+                """
+                WITH deleted AS (
+                    DELETE FROM patterns WHERE account_id = $1 RETURNING 1
+                )
+                SELECT count(*) FROM deleted
+                """,
+                db.account_id,
+            )
+            await conn.execute(
+                """
+                INSERT INTO audit_logs (account_id, actor_user_id, action, target_type, metadata)
+                VALUES ($1, $2, 'knowledge_base.purged', 'knowledge_base', $3)
+                """,
+                db.account_id,
+                actor_user_id,
+                json.dumps({
+                    "cleared_concepts": cleared_concepts,
+                    "cleared_patterns": cleared_patterns,
+                }),
+            )
+
+    return {
+        "success": True,
+        "cleared_concepts": cleared_concepts,
+        "cleared_patterns": cleared_patterns,
+    }
+
 @app.delete("/internal/kb/concepts/{concept_id}")
 async def delete_concept(
     concept_id: str,
