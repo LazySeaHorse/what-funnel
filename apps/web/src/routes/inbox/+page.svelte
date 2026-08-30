@@ -1875,7 +1875,7 @@
 			/>
 
 		{:else if selectedNav === 'knowledge'}
-			<KnowledgeView reviewerID={inbox.currentUser?.user_id || inbox.currentUser?.id || ''} />
+			<KnowledgeView {searchQuery} reviewerID={inbox.currentUser?.user_id || inbox.currentUser?.id || ''} />
 		{:else if selectedNav === 'contacts'}
 			<ContactsView conversations={inbox.conversations} onOpenConversation={(id) => { void selectConvo(id); selectedNav = 'inbox'; }} />
 

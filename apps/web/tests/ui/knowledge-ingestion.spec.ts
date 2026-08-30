@@ -45,3 +45,43 @@ test('Knowledge tab can purge all concepts and patterns in one guarded request',
 		expect.objectContaining({ method: 'DELETE' })
 	]);
 });
+
+test('Knowledge tab filters concepts dynamically from global search input', async ({ page }) => {
+	await mockWorkspaceApi(page, {
+		role: 'manager',
+		productMode: 'full_workspace',
+		knowledge: {
+			concepts: [
+				{ id: 'c-1', type: 'pricing', title: 'Consulting Rates', body_markdown: 'Standard rate is $150/hr', tags: ['pricing', 'rates'] },
+				{ id: 'c-2', type: 'hours', title: 'Office Hours', body_markdown: 'Open Monday to Friday', tags: ['hours'] }
+			],
+			patterns: []
+		}
+	});
+
+	await page.goto('/inbox?tab=knowledge');
+	await expect(page.getByText('Consulting Rates')).toBeVisible();
+	await expect(page.getByText('Office Hours')).toBeVisible();
+
+	await page.getByPlaceholder('Search knowledge...').fill('Consulting');
+	await expect(page.getByText('Consulting Rates')).toBeVisible();
+	await expect(page.getByText('Office Hours')).not.toBeVisible();
+
+	await page.getByPlaceholder('Search knowledge...').fill('Nonexistent topic');
+	await expect(page.getByText('No matching knowledge concepts')).toBeVisible();
+	await expect(page.getByText('Try adjusting your search terms')).toBeVisible();
+});
+
+test('Knowledge tab can discard a reviewed ingestion to return to paste state', async ({ page }) => {
+	await mockWorkspaceApi(page, { role: 'manager', productMode: 'full_workspace' });
+	await page.goto('/inbox?tab=knowledge');
+
+	await page.getByPlaceholder(/Paste anything/).fill('Return policy requires 14 days.');
+	await page.getByRole('button', { name: 'Organize with AI', exact: true }).click();
+	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Discard', exact: true }).click();
+	await expect(page.getByText('Review structured knowledge', { exact: true })).not.toBeVisible();
+	await expect(page.getByRole('button', { name: 'Organize with AI', exact: true })).toBeVisible();
+});
+
