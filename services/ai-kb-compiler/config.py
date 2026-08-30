@@ -10,5 +10,6 @@ class Config:
     PORT: int = int(os.getenv("PORT", "8085"))
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     MINING_INTERVAL_HOURS: int = int(os.getenv("MINING_INTERVAL_HOURS", "6"))
+    AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60"))
 
 config = Config()

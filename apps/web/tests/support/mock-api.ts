@@ -188,6 +188,7 @@ export async function mockOnboardingApi(
 		name: 'Default Pipeline',
 		states: [{ key: 'new', label: 'New lead', color: '#3B82F6' }]
 	};
+	let ingestion: any = null;
 	const requests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
 
 	await page.route('**/api-gateway/**', async (route) => {
@@ -241,6 +242,39 @@ export async function mockOnboardingApi(
 			return json({ status: 'updated' });
 		}
 		if (path === '/channels') return json([]);
+		if (path === '/api/kb/ingestions/latest') return json({ ingestion });
+		if (path === '/api/kb/ingestions' && method === 'POST') {
+			ingestion = {
+				id: '11111111-1111-4111-8111-111111111111',
+				status: 'queued',
+				concepts: [],
+				patterns: []
+			};
+			return json(ingestion);
+		}
+		if (/^\/api\/kb\/ingestions\/[^/]+\/publish$/.test(path) && method === 'POST') {
+			ingestion = { ...ingestion, status: 'complete', concepts: body?.concepts ?? ingestion.concepts, patterns: body?.patterns ?? ingestion.patterns };
+			return json(ingestion);
+		}
+		if (/^\/api\/kb\/ingestions\/[^/]+$/.test(path)) {
+			if (ingestion?.status === 'queued') {
+				ingestion = {
+					...ingestion,
+					status: 'review_required',
+					concepts: [
+						{ id: '21111111-1111-4111-8111-111111111111', position: 0, type: 'service', title: 'Consulting', tags: [], body_markdown: 'Strategy consulting.', status: 'draft' },
+						{ id: '31111111-1111-4111-8111-111111111111', position: 1, type: 'pricing', title: 'Pricing', tags: [], body_markdown: '$100 per hour.', status: 'draft' },
+						{ id: '41111111-1111-4111-8111-111111111111', position: 2, type: 'hours', title: 'Hours', tags: [], body_markdown: 'Weekdays.', status: 'draft' },
+						{ id: '51111111-1111-4111-8111-111111111111', position: 3, type: 'policy', title: 'Cancellation', tags: [], body_markdown: '24 hours notice.', status: 'draft' }
+					],
+					patterns: [
+						{ id: '61111111-1111-4111-8111-111111111111', position: 0, canonical_question: 'What does consulting cost?', answer_markdown: '$100 per hour.', trigger_phrases: ['consulting price', 'what do you charge', 'hourly rate'], status: 'draft' },
+						{ id: '71111111-1111-4111-8111-111111111111', position: 1, canonical_question: 'When are you open?', answer_markdown: 'We are open weekdays.', trigger_phrases: ['opening hours', 'when are you open', 'business hours'], status: 'draft' }
+					]
+				};
+			}
+			return json(ingestion);
+		}
 		if (path === '/onboarding/status') {
 			if (method === 'GET') return json({ completed_steps: [], skipped_steps: [], completed_at: null });
 			return json({ status: 'updated' });

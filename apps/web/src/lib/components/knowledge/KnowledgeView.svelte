@@ -12,7 +12,7 @@
 	let activeTab = $state<'concepts' | 'patterns' | 'suggestions'>('concepts');
 	let pasteText = $state('');
 	let pasting = $state(false);
-	let pasteResult = $state<{ added?: number; queued?: number; error?: string } | null>(null);
+	let pasteResult = $state<{ added?: number; patternsAdded?: number; queued?: number; error?: string } | null>(null);
 	let expandedConcept = $state<string | null>(null);
 	let mining = $state(false);
 	let miningResult = $state<{ messages_scanned?: number; clusters_found?: number; suggestions_created?: number } | null>(null);
@@ -64,9 +64,10 @@
 		pasteResult = null;
 		try {
 			const result = await apiRequest('/api/kb/compile-paste', { method: 'POST', body: { raw_text: pasteText.trim() } });
-			if (result.added_concepts) {
-				pasteResult = { added: result.added_concepts.length };
-				concepts = [...result.added_concepts, ...concepts];
+			if (result.added_concepts || result.added_patterns) {
+				pasteResult = { added: result.added_concepts?.length ?? 0, patternsAdded: result.added_patterns?.length ?? 0 };
+				concepts = [...(result.added_concepts ?? []), ...concepts];
+				patterns = [...(result.added_patterns ?? []), ...patterns];
 			} else if (result.suggestion_ids) {
 				pasteResult = { queued: result.suggestion_ids.length };
 			}
@@ -154,7 +155,7 @@
 				<textarea bind:value={pasteText} placeholder="Paste anything — pricing, policies, FAQs, hours, services… The AI will extract and structure it automatically." class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 resize-none leading-relaxed"></textarea>
 				<div class="flex items-center justify-between mt-2">
 					<div>
-						{#if pasteResult?.added !== undefined}<span class="text-xs text-emerald-600 font-medium">✓ {pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} added to KB</span>
+						{#if pasteResult?.added !== undefined}<span class="text-xs text-emerald-600 font-medium">✓ {pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} and {pasteResult.patternsAdded ?? 0} pattern{pasteResult.patternsAdded !== 1 ? 's' : ''} added</span>
 						{:else if pasteResult?.queued !== undefined}<span class="text-xs text-amber-600 font-medium">⏳ {pasteResult.queued} concepts queued for review (AI Suggestions tab)</span>
 						{:else if pasteResult?.error}<span class="text-xs text-rose-600 font-medium">✕ {pasteResult.error}</span>{/if}
 					</div>

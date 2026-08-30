@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import time
 import pytest
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
@@ -20,7 +21,10 @@ mock_concepts_3_or_fewer = {
     "concepts": [
         {"type": "faq", "title": "About Us", "tags": ["info"], "body_markdown": "We are WhatFunnel."},
         {"type": "hours", "title": "Opening Hours", "tags": ["schedule"], "body_markdown": "9 AM to 5 PM."}
-    ]
+    ],
+    "patterns": [
+        {"canonical_question": "When are you open?", "answer_markdown": "9 AM to 5 PM.", "trigger_phrases": ["opening hours", "when are you open", "business hours"]}
+    ],
 }
 
 mock_concepts_more_than_3 = {
@@ -29,7 +33,11 @@ mock_concepts_more_than_3 = {
         {"type": "faq", "title": "FAQ 2", "tags": ["faq"], "body_markdown": "Answer 2"},
         {"type": "faq", "title": "FAQ 3", "tags": ["faq"], "body_markdown": "Answer 3"},
         {"type": "faq", "title": "FAQ 4", "tags": ["faq"], "body_markdown": "Answer 4"}
-    ]
+    ],
+    "patterns": [
+        {"canonical_question": "What does it cost?", "answer_markdown": "See our current pricing.", "trigger_phrases": ["pricing", "what does it cost", "how much"]},
+        {"canonical_question": "When are you open?", "answer_markdown": "We are open weekdays.", "trigger_phrases": ["opening hours", "when are you open", "business hours"]},
+    ],
 }
 
 async def setup_test_data():
@@ -53,7 +61,7 @@ async def setup_test_data():
             account_id, encrypted_config
         )
         await conn.execute(
-            "INSERT INTO users (id, account_id, email, role) VALUES ($1, $2, 'test@example.com', 'admin')",
+            "INSERT INTO users (id, account_id, email, role) VALUES ($1, $2, 'test@example.com', 'manager')",
             user_id, account_id
         )
 
@@ -62,12 +70,106 @@ async def setup_test_data():
 async def teardown_test_data(pool, account_id):
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM audit_logs WHERE account_id = $1", account_id)
+        await conn.execute("DELETE FROM kb_ingestions WHERE account_id = $1", account_id)
         await conn.execute("DELETE FROM kb_concepts WHERE account_id = $1", account_id)
         await conn.execute("DELETE FROM patterns WHERE account_id = $1", account_id)
         await conn.execute("DELETE FROM automation_suggestions WHERE account_id = $1", account_id)
         await conn.execute("DELETE FROM users WHERE account_id = $1", account_id)
         await conn.execute("DELETE FROM accounts WHERE id = $1", account_id)
     await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_ingestion_review_and_idempotent_publish():
+    pool, account_id, user_id = await setup_test_data()
+
+    try:
+        with patch("ingestions.complete", return_value=mock_concepts_more_than_3), \
+             patch("ingestions.embed", return_value=[0.05] * 1536):
+            with TestClient(app) as client:
+                headers = {
+                    "X-Account-ID": str(account_id),
+                    "X-User-ID": str(user_id),
+                }
+                created = client.post(
+                    "/internal/kb/ingestions",
+                    json={"raw_text": "A rich set of business details"},
+                    headers=headers,
+                )
+                assert created.status_code == 202
+                ingestion_id = created.json()["id"]
+
+                ingestion = None
+                for _ in range(30):
+                    ingestion = client.get(
+                        f"/internal/kb/ingestions/{ingestion_id}", headers=headers
+                    ).json()
+                    if ingestion["status"] == "review_required":
+                        break
+                    time.sleep(0.1)
+                assert ingestion["status"] == "review_required"
+                assert len(ingestion["concepts"]) == 4
+                assert len(ingestion["patterns"]) == 2
+
+                submitted_concepts = []
+                for index, item in enumerate(ingestion["concepts"]):
+                    submitted_concepts.append({
+                        "id": item["id"],
+                        "approved": index < 3,
+                        "type": item["type"],
+                        "title": "Edited FAQ" if index == 0 else item["title"],
+                        "tags": item["tags"],
+                        "body_markdown": item["body_markdown"],
+                    })
+                submitted_patterns = []
+                for item in ingestion["patterns"]:
+                    submitted_patterns.append({
+                        "id": item["id"],
+                        "approved": True,
+                        "canonical_question": item["canonical_question"],
+                        "answer_markdown": item["answer_markdown"],
+                        "trigger_phrases": item["trigger_phrases"],
+                    })
+                publish = client.post(
+                    f"/internal/kb/ingestions/{ingestion_id}/publish",
+                    json={"concepts": submitted_concepts, "patterns": submitted_patterns},
+                    headers=headers,
+                )
+                assert publish.status_code == 202
+                assert publish.json()["status"] == "publishing"
+
+                for _ in range(30):
+                    ingestion = client.get(
+                        f"/internal/kb/ingestions/{ingestion_id}", headers=headers
+                    ).json()
+                    if ingestion["status"] == "complete":
+                        break
+                    time.sleep(0.1)
+                assert ingestion["status"] == "complete"
+
+                retry = client.post(
+                    f"/internal/kb/ingestions/{ingestion_id}/publish",
+                    json={"concepts": submitted_concepts, "patterns": submitted_patterns},
+                    headers=headers,
+                )
+                assert retry.status_code == 202
+                assert retry.json()["status"] == "complete"
+
+                async with pool.acquire() as conn:
+                    concepts = await conn.fetch(
+                        "SELECT title FROM kb_concepts WHERE account_id = $1 ORDER BY title",
+                        account_id,
+                    )
+                    assert len(concepts) == 3
+                    assert any(row["title"] == "Edited FAQ" for row in concepts)
+                    patterns = await conn.fetch(
+                        "SELECT canonical_question, trigger_phrases FROM patterns WHERE account_id = $1 ORDER BY canonical_question",
+                        account_id,
+                    )
+                    assert len(patterns) == 2
+                    assert all(row["canonical_question"].lower() in row["trigger_phrases"] for row in patterns)
+    finally:
+        await teardown_test_data(pool, account_id)
 
 @pytest.mark.asyncio
 async def test_compile_paste_three_or_fewer():
@@ -93,6 +195,7 @@ async def test_compile_paste_three_or_fewer():
                 res_json = response.json()
                 assert "added_concepts" in res_json
                 assert len(res_json["added_concepts"]) == 2
+                assert len(res_json["added_patterns"]) == 1
                 
                 # Verify they are stored in DB
                 async with pool.acquire() as conn:
@@ -100,6 +203,12 @@ async def test_compile_paste_three_or_fewer():
                     assert len(rows) == 2
                     for r in rows:
                         assert r["source"] == "owner_pasted"
+                    pattern_rows = await conn.fetch(
+                        "SELECT canonical_question, trigger_phrases FROM patterns WHERE account_id = $1",
+                        account_id,
+                    )
+                    assert len(pattern_rows) == 1
+                    assert "when are you open?" in pattern_rows[0]["trigger_phrases"]
                     
                     # Check audit logs
                     audit_rows = await conn.fetch("SELECT action FROM audit_logs WHERE account_id = $1", account_id)
@@ -127,7 +236,7 @@ async def test_compile_paste_more_than_three():
                 assert response.status_code == 200
                 res_json = response.json()
                 assert "suggestion_ids" in res_json
-                assert len(res_json["suggestion_ids"]) == 4
+                assert len(res_json["suggestion_ids"]) == 6
 
                 # Verify suggestions are stored
                 async with pool.acquire() as conn:
@@ -135,9 +244,9 @@ async def test_compile_paste_more_than_three():
                         "SELECT id, type, status, confidence FROM automation_suggestions WHERE account_id = $1",
                         account_id
                     )
-                    assert len(rows) == 4
+                    assert len(rows) == 6
+                    assert {row["type"] for row in rows} == {"new_kb_concept", "new_pattern"}
                     for r in rows:
-                        assert r["type"] == "new_kb_concept"
                         assert r["status"] == "pending"
                         assert r["confidence"] == 1.0
 
@@ -146,7 +255,7 @@ async def test_compile_paste_more_than_three():
                         "SELECT action FROM audit_logs WHERE account_id = $1 AND action = 'automation_suggestion.created'",
                         account_id
                     )
-                    assert len(audit_rows) == 4
+                    assert len(audit_rows) == 6
     finally:
         await teardown_test_data(pool, account_id)
 

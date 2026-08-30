@@ -49,7 +49,7 @@ export async function apiRequest(path: string, options: ApiRequestOptions = {}) 
 	const res = await fetch(targetPath, fetchOptions);
 	if (!res.ok) {
 		const errData = await res.json().catch(() => ({}));
-		throw new Error(errData.error || `Request failed with status ${res.status}`);
+		throw new Error(errData.error || errData.detail || `Request failed with status ${res.status}`);
 	}
 	
 	if (res.status === 204) return null;

@@ -78,9 +78,10 @@ async def embed(api_key: str, base_url: str, model: str, text: str) -> List[floa
         "dimensions": 1536
     }
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    timeout = httpx.Timeout(app_config.AI_REQUEST_TIMEOUT_SECONDS)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         try:
-            response = await client.post(url, json=payload, headers=headers, timeout=None)
+            response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
         except Exception as e:
             logger.error(f"Embedding request failed: {e}")
@@ -148,12 +149,13 @@ async def complete(api_key: str, base_url: str, model: str, prompt: str, respons
         "temperature": 0.0
     }
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    timeout = httpx.Timeout(app_config.AI_REQUEST_TIMEOUT_SECONDS)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         last_err = None
         response = None
         for attempt in range(3):
             try:
-                response = await client.post(url, json=payload, headers=headers, timeout=None)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 last_err = None
                 break

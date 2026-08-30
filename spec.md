@@ -281,7 +281,7 @@ If a human is present in the conversation and `reply_mode` is `draft_only`: neve
 
 ### 5.3 KB Compiler contract (`ai-kb-compiler`, batch job — cron or on-demand trigger)
 Two entry points:
-- **Paste ingestion**: raw text/markdown in → LLM drafts one or more OKF concept files out → written directly as `kb_concepts` rows (source=`owner_pasted` if user reviewed inline during paste, else queued as suggestion for larger batches — decide threshold at build time, default: anything over ~3 concepts goes to the suggestion queue for manager skim-approval).
+- **Paste ingestion**: raw text/markdown in → LLM drafts both atomic knowledge concepts for Layer 3 RAG and definitive Q&A patterns (canonical question, exact answer, and realistic trigger phrases) for Layers 1–2 deterministic matching. Onboarding persists both draft types for inline manager review, then publishes approved `kb_concepts` and `patterns` atomically. Other paste surfaces may queue larger batches for manager skim-approval.
 - **Dormant conversation mining**: runs on a schedule, pulls conversations with `flagged_human`/low-confidence messages since last run, clusters similar unanswered questions, drafts pattern/concept candidates, writes to `automation_suggestions` with `status=pending`.
 
 ---

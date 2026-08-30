@@ -116,4 +116,54 @@ test.describe('onboarding persistence', () => {
 		await page.getByRole('button', { name: 'Back', exact: true }).click();
 		await expect(page).toHaveURL(/\/onboarding\/5$/);
 	});
+
+	test('reviews a rich paste inline and publishes it before completing KB setup', async ({ page }) => {
+		const api = await mockOnboardingApi(page);
+		await page.goto('/onboarding/6');
+		await page.getByPlaceholder(/Paste raw business info/).fill('Consulting, pricing, hours, cancellation rules, and several FAQs.');
+		await page.getByRole('button', { name: 'Organize with AI', exact: true }).click();
+
+		await expect(page.getByText('Structured Knowledge', { exact: true })).toBeVisible();
+		await expect(page.getByLabel('Concept title')).toHaveCount(4);
+		await expect(page.getByLabel('Canonical question')).toHaveCount(2);
+		await page.getByLabel('Concept title').first().fill('Advisory consulting');
+		await page.getByLabel('Include Cancellation').uncheck();
+		await page.getByLabel('Canonical question').first().fill('How much does advisory consulting cost?');
+		await page.getByRole('button', { name: 'Add to Knowledge Base', exact: true }).click();
+
+		await expect(page).toHaveURL(/\/onboarding\/7$/);
+		const publish = api.requests.find((request) => request.path.endsWith('/publish'));
+		expect(publish?.body?.concepts).toEqual(expect.arrayContaining([
+			expect.objectContaining({ title: 'Advisory consulting', approved: true }),
+			expect.objectContaining({ title: 'Cancellation', approved: false })
+		]));
+		expect(publish?.body?.patterns).toEqual(expect.arrayContaining([
+			expect.objectContaining({ canonical_question: 'How much does advisory consulting cost?', approved: true })
+		]));
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/onboarding/status',
+			method: 'PATCH',
+			body: { step: 'kb_setup', action: 'complete' }
+		}));
+	});
+
+	test('can skip a running KB ingestion to the next onboarding page', async ({ page }) => {
+		const api = await mockOnboardingApi(page);
+		await page.route(/\/api-gateway\/api\/kb\/ingestions\/[0-9a-f-]+$/, async (route) => {
+			return route.fulfill({
+				contentType: 'application/json',
+				body: JSON.stringify({ id: '11111111-1111-4111-8111-111111111111', status: 'processing', concepts: [], patterns: [] })
+			});
+		});
+		await page.goto('/onboarding/6');
+		await page.getByPlaceholder(/Paste raw business info/).fill('Enough information to start compiling.');
+		await page.getByRole('button', { name: 'Organize with AI', exact: true }).click();
+
+		await page.getByRole('button', { name: /Skip waiting and go to next page/ }).click();
+		await expect(page).toHaveURL(/\/onboarding\/7$/);
+		expect(api.requests).not.toContainEqual(expect.objectContaining({
+			path: '/onboarding/status',
+			body: { step: 'done', action: 'complete' }
+		}));
+	});
 });

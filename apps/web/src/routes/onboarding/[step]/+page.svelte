@@ -83,10 +83,13 @@
 
 	// Step 6: Knowledge Base
 	let s6RawText = $state('');
-	let s6Status = $state<'input' | 'processing' | 'results'>('input');
-	let s6Concepts = $state<Array<{ id?: string; title: string; type?: string; category?: string; tags?: string[]; body_markdown?: string; content?: string }>>([]);
+	let s6Status = $state<'input' | 'processing' | 'results' | 'publishing'>('input');
+	let s6Concepts = $state<Array<{ id: string; title: string; type: string; tags: string[]; body_markdown: string; approved: boolean }>>([]);
+	let s6Patterns = $state<Array<{ id: string; canonical_question: string; answer_markdown: string; trigger_phrases: string[]; approved: boolean }>>([]);
 	let s6Compiling = $state(false);
 	let s6Error = $state('');
+	let s6IngestionID = $state('');
+	let s6PollGeneration = 0;
 
 	function slugify(name: string): string {
 		return name
@@ -167,12 +170,79 @@
 					if (found) found.connected = (c.status === 'connected');
 				}
 			}
+			if (stepNum === 6 && settings.ai_enabled !== false) {
+				void resumeLatestIngestion();
+			}
 		} catch (err: any) {
 			error = err?.message || 'We could not load your saved setup. Refresh and try again.';
 		} finally {
 			loading = false;
 		}
 	});
+
+	function ingestionConcepts(items: any[]) {
+		return (items ?? []).map((item: any) => ({
+			id: item.id,
+			title: item.title ?? '',
+			type: item.type ?? 'faq',
+			tags: Array.isArray(item.tags) ? item.tags : [],
+			body_markdown: item.body_markdown ?? '',
+			approved: item.status !== 'rejected'
+		}));
+	}
+
+	function ingestionPatterns(items: any[]) {
+		return (items ?? []).map((item: any) => ({
+			id: item.id,
+			canonical_question: item.canonical_question ?? '',
+			answer_markdown: item.answer_markdown ?? '',
+			trigger_phrases: Array.isArray(item.trigger_phrases) ? item.trigger_phrases : [],
+			approved: item.status !== 'rejected'
+		}));
+	}
+
+	async function pollIngestion(id: string, generation: number) {
+		while (generation === s6PollGeneration) {
+			const ingestion = await apiRequest(`/api/kb/ingestions/${id}`);
+			if (ingestion.status === 'review_required') {
+				s6Concepts = ingestionConcepts(ingestion.concepts);
+				s6Patterns = ingestionPatterns(ingestion.patterns);
+				s6Status = 'results';
+				s6Compiling = false;
+				return;
+			}
+			if (ingestion.status === 'complete') {
+				await apiRequest('/onboarding/status', {
+					method: 'PATCH',
+					body: { step: 'kb_setup', action: 'complete' }
+				});
+				s6Compiling = false;
+				goToStep(7);
+				return;
+			}
+			if (ingestion.status === 'failed') {
+				throw new Error(ingestion.error || 'Knowledge ingestion failed. Please try again.');
+			}
+			s6Status = ingestion.status === 'publishing' ? 'publishing' : 'processing';
+			await new Promise((resolve) => setTimeout(resolve, 750));
+		}
+	}
+
+	async function resumeLatestIngestion() {
+		try {
+			const response = await apiRequest('/api/kb/ingestions/latest');
+			const ingestion = response?.ingestion;
+			if (!ingestion || ingestion.status === 'failed') return;
+			s6IngestionID = ingestion.id;
+			s6Compiling = true;
+			const generation = ++s6PollGeneration;
+			await pollIngestion(ingestion.id, generation);
+		} catch (err: any) {
+			s6Error = err?.message || 'Could not resume knowledge ingestion.';
+			s6Status = 'input';
+			s6Compiling = false;
+		}
+	}
 
 	// ─────────────────────────────────────────────────────────────
 	// Step Handlers
@@ -191,7 +261,7 @@
 
 	function handleBack() {
 		if (stepNum === 6 && s6Status === 'results') {
-			s6Status = 'input';
+			editKnowledgeNotes();
 			return;
 		}
 		if (stepNum === 7 && s5AiMode === 'manual') {
@@ -246,47 +316,57 @@
 		s6Error = '';
 
 		try {
-			const res = await apiRequest('/api/kb/compile-paste', {
+			const ingestion = await apiRequest('/api/kb/ingestions', {
 				method: 'POST',
 				body: { raw_text: s6RawText.trim() }
 			});
-
-			if (Array.isArray(res?.added_concepts) && res.added_concepts.length > 0) {
-				s6Concepts = res.added_concepts;
-			} else {
-				const fetched = await apiRequest('/api/kb/concepts');
-				if (Array.isArray(fetched?.concepts) && fetched.concepts.length > 0) {
-					s6Concepts = fetched.concepts;
-				} else {
-					throw new Error('The AI compiler returned no knowledge concepts. Check your AI provider settings and try again.');
-				}
-			}
-
-			await apiRequest('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: 'kb_setup', action: 'complete' }
-			});
-
-			s6Status = 'results';
+			s6IngestionID = ingestion.id;
+			const generation = ++s6PollGeneration;
+			await pollIngestion(ingestion.id, generation);
 		} catch (err: any) {
 			s6Error = err?.message || 'Failed to process knowledge text. Check your AI provider settings and try again.';
 			s6Concepts = [];
+			s6Patterns = [];
 			s6Status = 'input';
-		} finally {
 			s6Compiling = false;
 		}
 	}
 
-	async function skipWaitingToDashboard() {
-		try {
-			await apiRequest('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: 'done', action: 'complete' }
-			});
-			goto('/inbox');
-		} catch (err: any) {
-			s6Error = err?.message || 'Could not finish setup. Please try again.';
+	async function publishCompiledKB() {
+		if (!s6IngestionID) throw new Error('The knowledge ingestion is unavailable. Organize your notes again.');
+		if (!s6Concepts.some((concept) => concept.approved) && !s6Patterns.some((pattern) => pattern.approved)) {
+			throw new Error('Select at least one concept or pattern to add.');
 		}
+		s6Compiling = true;
+		s6Status = 'publishing';
+		s6Error = '';
+		try {
+			await apiRequest(`/api/kb/ingestions/${s6IngestionID}/publish`, {
+				method: 'POST',
+				body: { concepts: s6Concepts, patterns: s6Patterns }
+			});
+			const generation = ++s6PollGeneration;
+			await pollIngestion(s6IngestionID, generation);
+		} catch (err: any) {
+			s6Error = err?.message || 'Failed to add the reviewed concepts to your knowledge base.';
+			s6Status = 'results';
+			s6Compiling = false;
+		}
+	}
+
+	function editKnowledgeNotes() {
+		s6PollGeneration++;
+		s6IngestionID = '';
+		s6Concepts = [];
+		s6Patterns = [];
+		s6Error = '';
+		s6Status = 'input';
+	}
+
+	function skipWaitingToNextStep() {
+		s6PollGeneration++;
+		s6Compiling = false;
+		goToStep(7);
 	}
 
 	async function handleContinue() {
@@ -429,8 +509,8 @@
 			} else if (stepNum === 6) {
 				if (s6Status === 'input') {
 					await startCompilingKB();
-				} else {
-					goToStep(7);
+				} else if (s6Status === 'results') {
+					await publishCompiledKB();
 				}
 			} else if (stepNum === 7) {
 				await apiRequest('/onboarding/status', {
@@ -533,7 +613,7 @@
 
 					<!-- STEP 6: KNOWLEDGE BASE -->
 					{:else if stepNum === 6}
-						<KnowledgeBaseStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:rawText={s6RawText} status={s6Status} concepts={s6Concepts} compiling={s6Compiling} onSkipToDashboard={skipWaitingToDashboard} />
+						<KnowledgeBaseStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:rawText={s6RawText} status={s6Status} bind:concepts={s6Concepts} bind:patterns={s6Patterns} compiling={s6Compiling} errorMessage={s6Error} onSkipWaiting={skipWaitingToNextStep} onEditNotes={editKnowledgeNotes} />
 
 					<!-- STEP 7: REVIEW AND FINISH -->
 					{:else if stepNum === 7}

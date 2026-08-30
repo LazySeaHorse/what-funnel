@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 import re
 import uuid
@@ -15,6 +16,7 @@ from llm import get_ai_config, embed, complete
 from mining import run_mining
 from scheduler import start_scheduler
 from redis_client import publish_suggestion_created
+from ingestions import compilation_prompt, run_worker, stop_worker
 
 
 
@@ -28,12 +30,17 @@ async def lifespan(app: FastAPI):
     logger.info("Connecting to database...")
     app.state.db = await create_db_pool(config.DATABASE_URL)
     logger.info("Database connection pool initialized.")
+    app.state.ingestion_worker = asyncio.create_task(
+        run_worker(app.state.db, CompilePasteSchema),
+        name="kb-ingestion-worker",
+    )
     # Start periodic mining scheduler
     app.state.scheduler = start_scheduler(app.state.db)
     yield
     # Shutdown
     logger.info("Stopping scheduler...")
     app.state.scheduler.shutdown()
+    await stop_worker(getattr(app.state, "ingestion_worker", None))
     logger.info("Closing database pool...")
     await app.state.db.close()
     logger.info("Database pool closed.")
@@ -121,19 +128,271 @@ class OKFConceptDraft(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Tags associated with the concept")
     body_markdown: str = Field(description="Markdown body of the concept")
 
+class OKFPatternDraft(BaseModel):
+    canonical_question: str = Field(description="The standard representative customer question")
+    answer_markdown: str = Field(description="The exact definitive answer in markdown")
+    trigger_phrases: List[str] = Field(
+        default_factory=list,
+        description="Four to eight realistic lowercase customer query variations"
+    )
+
 class CompilePasteSchema(BaseModel):
     concepts: List[OKFConceptDraft] = Field(description="List of concepts compiled from raw text")
+    patterns: List[OKFPatternDraft] = Field(description="Deterministic customer question and answer patterns")
 
 class CompilePasteRequest(BaseModel):
     raw_text: str
 
 class CompilePasteResponse(BaseModel):
     added_concepts: Optional[List[dict]] = None
+    added_patterns: Optional[List[dict]] = None
     suggestion_ids: Optional[List[str]] = None
+
+
+class CreateIngestionRequest(BaseModel):
+    raw_text: str = Field(min_length=1, max_length=500_000)
+
+
+class PublishIngestionItem(BaseModel):
+    id: uuid.UUID
+    approved: bool = True
+    type: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=500)
+    tags: List[str] = Field(default_factory=list)
+    body_markdown: str = Field(min_length=1, max_length=100_000)
+
+
+class PublishIngestionPattern(BaseModel):
+    id: uuid.UUID
+    approved: bool = True
+    canonical_question: str = Field(min_length=1, max_length=1000)
+    answer_markdown: str = Field(min_length=1, max_length=100_000)
+    trigger_phrases: List[str] = Field(default_factory=list, max_length=50)
+
+
+class PublishIngestionRequest(BaseModel):
+    concepts: List[PublishIngestionItem] = Field(default_factory=list)
+    patterns: List[PublishIngestionPattern] = Field(default_factory=list)
 
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+def ingestion_payload(row, concepts=(), patterns=()):
+    return {
+        "id": str(row["id"]),
+        "status": row["status"],
+        "error": row["error"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "completed_at": row["completed_at"],
+        "concepts": [dict(concept) for concept in concepts],
+        "patterns": [dict(pattern) for pattern in patterns],
+    }
+
+
+@app.post("/internal/kb/ingestions", status_code=status.HTTP_202_ACCEPTED)
+async def create_ingestion(
+    req: CreateIngestionRequest,
+    db: ScopedDB = Depends(get_db),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    raw_text = req.raw_text.strip()
+    if not raw_text:
+        raise HTTPException(status_code=422, detail="raw_text must not be blank")
+    requested_by = None
+    if x_user_id:
+        try:
+            candidate = uuid.UUID(x_user_id)
+            if await db.fetchval(
+                "SELECT 1 FROM users WHERE id = $1 AND account_id = $2",
+                candidate,
+                db.account_id,
+            ):
+                requested_by = candidate
+        except ValueError:
+            pass
+    row = await db.fetchrow(
+        """
+        INSERT INTO kb_ingestions (account_id, requested_by, raw_text)
+        VALUES ($1, $2, $3)
+        RETURNING id, status, error, created_at, updated_at, completed_at
+        """,
+        db.account_id,
+        requested_by,
+        raw_text,
+    )
+    return ingestion_payload(row)
+
+
+@app.get("/internal/kb/ingestions/latest")
+async def get_latest_ingestion(db: ScopedDB = Depends(get_db)):
+    row = await db.fetchrow(
+        """
+        SELECT id, status, error, created_at, updated_at, completed_at
+        FROM kb_ingestions
+        WHERE account_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        db.account_id,
+    )
+    if not row:
+        return {"ingestion": None}
+    concepts = await db.fetch(
+        """
+        SELECT id, position, type, title, tags, body_markdown, status, concept_id
+        FROM kb_ingestion_items
+        WHERE ingestion_id = $1
+        ORDER BY position
+        """,
+        row["id"],
+    )
+    patterns = await db.fetch(
+        """
+        SELECT id, position, canonical_question, answer_markdown, trigger_phrases, status, pattern_id
+        FROM kb_ingestion_patterns
+        WHERE ingestion_id = $1
+        ORDER BY position
+        """,
+        row["id"],
+    )
+    return {"ingestion": ingestion_payload(row, concepts, patterns)}
+
+
+@app.get("/internal/kb/ingestions/{ingestion_id}")
+async def get_ingestion(ingestion_id: uuid.UUID, db: ScopedDB = Depends(get_db)):
+    row = await db.fetchrow(
+        """
+        SELECT id, status, error, created_at, updated_at, completed_at
+        FROM kb_ingestions
+        WHERE id = $1 AND account_id = $2
+        """,
+        ingestion_id,
+        db.account_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Knowledge ingestion not found")
+    concepts = await db.fetch(
+        """
+        SELECT id, position, type, title, tags, body_markdown, status, concept_id
+        FROM kb_ingestion_items
+        WHERE ingestion_id = $1
+        ORDER BY position
+        """,
+        ingestion_id,
+    )
+    patterns = await db.fetch(
+        """
+        SELECT id, position, canonical_question, answer_markdown, trigger_phrases, status, pattern_id
+        FROM kb_ingestion_patterns
+        WHERE ingestion_id = $1
+        ORDER BY position
+        """,
+        ingestion_id,
+    )
+    return ingestion_payload(row, concepts, patterns)
+
+
+@app.post("/internal/kb/ingestions/{ingestion_id}/publish", status_code=status.HTTP_202_ACCEPTED)
+async def publish_ingestion(
+    ingestion_id: uuid.UUID,
+    req: PublishIngestionRequest,
+    db: ScopedDB = Depends(get_db),
+):
+    if len({item.id for item in req.concepts}) != len(req.concepts):
+        raise HTTPException(status_code=422, detail="Each ingestion concept may only be submitted once")
+    if len({pattern.id for pattern in req.patterns}) != len(req.patterns):
+        raise HTTPException(status_code=422, detail="Each ingestion pattern may only be submitted once")
+
+    async with db.pool.acquire() as conn:
+        async with conn.transaction():
+            ingestion = await conn.fetchrow(
+                """
+                SELECT id, status, error, created_at, updated_at, completed_at
+                FROM kb_ingestions
+                WHERE id = $1 AND account_id = $2
+                FOR UPDATE
+                """,
+                ingestion_id,
+                db.account_id,
+            )
+            if not ingestion:
+                raise HTTPException(status_code=404, detail="Knowledge ingestion not found")
+            if ingestion["status"] in ("publishing", "complete"):
+                return ingestion_payload(ingestion)
+            if ingestion["status"] != "review_required":
+                raise HTTPException(status_code=409, detail=f"Ingestion cannot be published while {ingestion['status']}")
+
+            stored_concept_ids = set(
+                await conn.fetchval(
+                    "SELECT COALESCE(array_agg(id), ARRAY[]::uuid[]) FROM kb_ingestion_items WHERE ingestion_id = $1",
+                    ingestion_id,
+                )
+            )
+            stored_pattern_ids = set(
+                await conn.fetchval(
+                    "SELECT COALESCE(array_agg(id), ARRAY[]::uuid[]) FROM kb_ingestion_patterns WHERE ingestion_id = $1",
+                    ingestion_id,
+                )
+            )
+            submitted_concept_ids = {item.id for item in req.concepts}
+            submitted_pattern_ids = {pattern.id for pattern in req.patterns}
+            if submitted_concept_ids != stored_concept_ids or submitted_pattern_ids != stored_pattern_ids:
+                raise HTTPException(status_code=409, detail="The ingestion drafts changed; reload them before publishing")
+            if not any(item.approved for item in req.concepts) and not any(pattern.approved for pattern in req.patterns):
+                raise HTTPException(status_code=422, detail="Approve at least one concept or pattern")
+
+            for item in req.concepts:
+                await conn.execute(
+                    """
+                    UPDATE kb_ingestion_items
+                    SET type = $2, title = $3, tags = $4, body_markdown = $5,
+                        status = $6, updated_at = NOW()
+                    WHERE id = $1 AND ingestion_id = $7
+                    """,
+                    item.id,
+                    item.type.strip(),
+                    item.title.strip(),
+                    item.tags,
+                    item.body_markdown.strip(),
+                    "approved" if item.approved else "rejected",
+                    ingestion_id,
+                )
+            for pattern in req.patterns:
+                triggers = list(dict.fromkeys(
+                    phrase.lower().strip()
+                    for phrase in pattern.trigger_phrases
+                    if phrase.strip()
+                ))
+                canonical_trigger = pattern.canonical_question.lower().strip()
+                if canonical_trigger not in triggers:
+                    triggers.append(canonical_trigger)
+                await conn.execute(
+                    """
+                    UPDATE kb_ingestion_patterns
+                    SET canonical_question = $2, answer_markdown = $3, trigger_phrases = $4,
+                        status = $5, updated_at = NOW()
+                    WHERE id = $1 AND ingestion_id = $6
+                    """,
+                    pattern.id,
+                    pattern.canonical_question.strip(),
+                    pattern.answer_markdown.strip(),
+                    triggers,
+                    "approved" if pattern.approved else "rejected",
+                    ingestion_id,
+                )
+            ingestion = await conn.fetchrow(
+                """
+                UPDATE kb_ingestions
+                SET status = 'publishing', error = NULL, updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, status, error, created_at, updated_at, completed_at
+                """,
+                ingestion_id,
+            )
+    return ingestion_payload(ingestion)
 
 # Stage 4 — Paste-to-OKF Pipeline
 @app.post("/internal/kb/compile-paste", response_model=CompilePasteResponse)
@@ -151,15 +410,17 @@ async def compile_paste(
 
     api_key, base_url, completion_model, embedding_model = await get_ai_config(db)
 
-    prompt = f"Analyze the following raw text and extract one or more Knowledge Base concepts:\n\n{req.raw_text}"
+    prompt = compilation_prompt(req.raw_text)
     result = await complete(api_key, base_url, completion_model, prompt, CompilePasteSchema)
     concepts = result.get("concepts", [])
+    patterns = result.get("patterns", [])
 
-    if not concepts:
-        return CompilePasteResponse(added_concepts=[])
+    if not concepts and not patterns:
+        return CompilePasteResponse(added_concepts=[], added_patterns=[])
 
-    if len(concepts) <= 3:
+    if len(concepts) + len(patterns) <= 3:
         added_concepts = []
+        added_patterns = []
         for c in concepts:
             # Generate unique slug
             base_slug = slugify(c["title"]) or "concept"
@@ -199,7 +460,42 @@ async def compile_paste(
                 metadata={"title": c["title"], "slug": unique_slug, "source": "owner_pasted"}
             )
 
-        return CompilePasteResponse(added_concepts=added_concepts)
+        for p in patterns:
+            canonical_question = p["canonical_question"].strip()
+            answer_markdown = p["answer_markdown"].strip()
+            trigger_phrases = list(dict.fromkeys(
+                phrase.lower().strip()
+                for phrase in p.get("trigger_phrases", [])
+                if phrase.strip()
+            ))
+            canonical_trigger = canonical_question.lower()
+            if canonical_trigger not in trigger_phrases:
+                trigger_phrases.append(canonical_trigger)
+            vector = await embed(api_key, base_url, embedding_model, canonical_question)
+            row = await db.fetchrow(
+                """
+                INSERT INTO patterns (account_id, canonical_question, answer_markdown, trigger_phrases, embedding)
+                VALUES ($1, $2, $3, $4, $5::vector)
+                RETURNING id, canonical_question, answer_markdown, trigger_phrases, created_at, updated_at
+                """,
+                db.account_id,
+                canonical_question,
+                answer_markdown,
+                trigger_phrases,
+                str(vector),
+            )
+            record = dict(row)
+            added_patterns.append(record)
+            await write_audit_log(
+                db=db,
+                actor_user_id=actor_user_id,
+                action="pattern.created",
+                target_type="pattern",
+                target_id=record["id"],
+                metadata={"canonical_question": canonical_question, "source": "owner_pasted"},
+            )
+
+        return CompilePasteResponse(added_concepts=added_concepts, added_patterns=added_patterns)
 
     else:
         # More than 3 concepts -> suggestion queue
@@ -226,6 +522,28 @@ async def compile_paste(
                 target_type="automation_suggestion",
                 target_id=sugg_id,
                 metadata={"type": "new_kb_concept", "title": c["title"]}
+            )
+
+        for p in patterns:
+            sugg_id = uuid.uuid4()
+            await db.execute(
+                """
+                INSERT INTO automation_suggestions (id, account_id, type, proposed_payload, confidence, status)
+                VALUES ($1, $2, 'new_pattern', $3, 1.0, 'pending')
+                """,
+                sugg_id,
+                db.account_id,
+                json.dumps(p),
+            )
+            suggestion_ids.append(str(sugg_id))
+            await publish_suggestion_created(db.account_id, sugg_id, 'new_pattern', p)
+            await write_audit_log(
+                db=db,
+                actor_user_id=actor_user_id,
+                action="automation_suggestion.created",
+                target_type="automation_suggestion",
+                target_id=sugg_id,
+                metadata={"type": "new_pattern", "canonical_question": p["canonical_question"]},
             )
 
         return CompilePasteResponse(suggestion_ids=suggestion_ids)
