@@ -1376,7 +1376,7 @@
 											onclick={useAISuggestion}
 											class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition shadow-2xs cursor-pointer"
 										>
-											Use draft
+											Use this
 										</button>
 									</div>
 								</div>
