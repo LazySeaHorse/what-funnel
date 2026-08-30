@@ -49,6 +49,7 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 data_dir="$repo_root/adapters/matrix-mautrix/bridges/$bridge"
+container_user="$(id -u):$(id -g)"
 
 if [[ -e "$data_dir/config.yaml" || -e "$data_dir/registration.yaml" ]]; then
   echo "Refusing to overwrite existing $bridge bridge data at $data_dir." >&2
@@ -59,7 +60,7 @@ fi
 mkdir -p "$data_dir"
 
 echo "Generating the initial $bridge config from $image..."
-docker run --rm -v "$data_dir:/data" "$image"
+docker run --rm --user "$container_user" -v "$data_dir:/data" "$image"
 
 config="$data_dir/config.yaml"
 if [[ ! -f "$config" ]]; then
@@ -76,24 +77,34 @@ replace_required() {
     echo "Expected configuration field not found: $pattern" >&2
     exit 1
   fi
-  sed -Ei "s|$pattern|$replacement|" "$config"
+  sed -Ei "s#$pattern#$replacement#" "$config"
 }
 
-replace_required 'address: https?://matrix\.example\.com' 'address: http://synapse:8008'
+# mautrix releases have used both matrix.example.com and example.localhost in
+# their generated homeserver placeholder.
+replace_required 'address: https?://(matrix\.example\.com|example\.localhost(:[0-9]+)?)' 'address: http://synapse:8008'
 replace_required 'domain: example\.com' 'domain: localhost'
 replace_required 'address: http://localhost:[0-9]+' "address: http://$service:$port"
 replace_required 'hostname: 127\.0\.0\.1' 'hostname: 0.0.0.0'
 replace_required 'port: [0-9]+' "port: $port"
 replace_required 'id: (telegram|meta|instagram)' "id: $appservice_id"
 replace_required 'username: (telegrambot|metabot|instagrambot)' "username: $bot_username"
+replace_required '"example\.com": user' '"localhost": user'
+replace_required '"@admin:example\.com": admin' '"@admin:localhost": admin'
+replace_required '    type: postgres' '    type: sqlite3-fk-wal'
+replace_required '    uri: postgres://user:password@host/database\?sslmode=disable' '    uri: file:/data/bridge.db?_txlock=immediate'
 
 if [[ "$bridge" == "telegram" ]]; then
   replace_required 'api_id: [0-9]+' "api_id: $TELEGRAM_API_ID"
   replace_required 'api_hash: [[:alnum:]]+' "api_hash: $TELEGRAM_API_HASH"
 fi
+if [[ "$bridge" == "messenger" ]]; then
+  replace_required '    mode:$' '    mode: facebook'
+  replace_required '    allow_messenger_com_on_fb: false' '    allow_messenger_com_on_fb: true'
+fi
 
 echo "Generating the $bridge application-service registration..."
-docker run --rm -v "$data_dir:/data" "$image"
+docker run --rm --user "$container_user" -v "$data_dir:/data" "$image"
 
 if [[ ! -f "$data_dir/registration.yaml" ]]; then
   echo "mautrix did not create $data_dir/registration.yaml" >&2
