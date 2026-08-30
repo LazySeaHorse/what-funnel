@@ -32,7 +32,6 @@
 		CheckIcon,
 		CheckCircleIcon,
 		XMarkIcon,
-		UserPlusIcon,
 		SparklesIcon,
 		PlusIcon,
 		FaceSmileIcon,
@@ -657,6 +656,10 @@
 	}
 
 	$effect(() => {
+		const _convoId = inbox.activeConvoID;
+		showAssignDropdown = false;
+		showLeadStateDropdown = false;
+		showStatusDropdown = false;
 		const lead = inbox.activeConvo?.lead;
 		if (capabilities.leadTracking && lead && lead.id) {
 			loadLeadDetails(lead.id);
@@ -1219,38 +1222,6 @@
 
 							<!-- Chat Action Buttons -->
 							<div class="flex items-center gap-2">
-								<!-- Assignee dropdown button -->
-								{#if capabilities.manageAssignments}
-								<div class="relative">
-									<button
-										type="button"
-										onclick={() => showAssignDropdown = !showAssignDropdown}
-										aria-expanded={showAssignDropdown}
-										aria-label="Assign conversation"
-										class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-										title="Assign conversation"
-									>
-										<UserPlusIcon class="w-4 h-4" />
-									</button>
-
-									{#if showAssignDropdown}
-										<div class="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
-											<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase tracking-wider">Assign team member</div>
-											{#each inbox.users as user}
-												{@const isAssigned = inbox.activeConvo?.assigned_user_ids?.includes(user.id)}
-												<button
-													onclick={() => toggleUserAssignment(user.id)}
-													class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between cursor-pointer {isAssigned ? 'text-blue-600' : 'text-slate-700'}"
-												>
-													<span>{user.name || user.email}</span>
-													{#if isAssigned}<span>✓</span>{/if}
-												</button>
-											{/each}
-										</div>
-									{/if}
-								</div>
-								{/if}
-
 								<!-- Resolve / Close Conversation -->
 								<div class="relative">
 									<button
@@ -1507,7 +1478,7 @@
 
 							{#if capabilities.manageAssignments}
 							<!-- Assigned to -->
-							<div class="space-y-1.5">
+							<div class="space-y-1.5 relative">
 								<span class="text-xs font-medium text-slate-500">Assigned to</span>
 								<div class="flex items-center gap-2">
 									{#if !inbox.activeConvo.assigned_user_ids || inbox.activeConvo.assigned_user_ids.length === 0}
@@ -1515,19 +1486,39 @@
 									{:else}
 										{#each inbox.activeConvo.assigned_user_ids as uid}
 											{@const usr = inbox.users.find(u => u.id === uid)}
-											<div class="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-medium ring-2 ring-white">
+											<div class="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-medium ring-2 ring-white" title={usr?.name || usr?.email || 'User'}>
 												{usr?.email ? usr.email.charAt(0).toUpperCase() : 'U'}
 											</div>
 										{/each}
 									{/if}
 									<button
+										type="button"
 										onclick={() => showAssignDropdown = !showAssignDropdown}
-										title="Add assignee"
+										aria-expanded={showAssignDropdown}
+										aria-label="Assign conversation"
+										title="Assign conversation"
 										class="w-7 h-7 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-xs transition cursor-pointer"
 									>
 										+
 									</button>
 								</div>
+
+								{#if showAssignDropdown}
+									<div class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-md py-1.5 z-50 text-xs">
+										<div class="px-3 py-1 text-[11px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-1">Assign team member</div>
+										{#each inbox.users as user}
+											{@const isAssigned = inbox.activeConvo?.assigned_user_ids?.includes(user.id)}
+											<button
+												type="button"
+												onclick={() => toggleUserAssignment(user.id)}
+												class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between cursor-pointer {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
+											>
+												<span class="truncate">{user.name || user.email}</span>
+												{#if isAssigned}<span>✓</span>{/if}
+											</button>
+										{/each}
+									</div>
+								{/if}
 							</div>
 							{/if}
 

@@ -176,6 +176,11 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		}
 		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: [], next_cursor: null });
 		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
+		if (/^\/conversations\/[^/]+\/assign$/.test(path) && request.method() === 'PATCH') {
+			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);
+			if (conversation) conversation.assigned_user_ids = (body?.user_ids as string[]) ?? [];
+			return json({ status: 'assigned' });
+		}
 		if (/^\/conversations\/[^/]+\/ai-auto-reply$/.test(path) && request.method() === 'PATCH') {
 			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);
 			if (conversation) conversation.ai_auto_reply_enabled = body?.enabled ?? null;

@@ -45,14 +45,14 @@ test.describe('effective UI capabilities', () => {
 
 		await expect(page.getByRole('button', { name: 'Leads', exact: true })).not.toBeVisible();
 		await expect(page.getByRole('button', { name: 'Contacts', exact: true })).not.toBeVisible();
-		await expect(page.getByRole('button', { name: 'Automation', exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Automations', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Knowledge', exact: true })).toBeVisible();
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
 		await expect(page.locator('.lead-panel')).not.toBeVisible();
-		await expect(page.getByRole('button', { name: 'Internal Note', exact: true })).not.toBeVisible();
+		await expect(page.getByRole('button', { name: /Internal note/i })).not.toBeVisible();
 		await expect(page.getByText(replyDraft.draft_text, { exact: true })).not.toBeVisible();
-		await expect(page.getByPlaceholder('Type a message...')).toBeVisible();
+		await expect(page.getByPlaceholder('Enter a message...')).toBeVisible();
 
 		await expect.poll(() => api.requests.map((request) => request.path)).not.toContain('/workspace/pipelines');
 		expect(api.requests.some((request) => request.path === '/workspace/users')).toBe(false);
@@ -72,14 +72,14 @@ test.describe('effective UI capabilities', () => {
 		await expect(page.getByRole('heading', { name: 'Inbox', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Leads', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Contacts', exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Automation', exact: true })).not.toBeVisible();
+		await expect(page.getByRole('button', { name: 'Automations', exact: true })).not.toBeVisible();
 		await expect(page.getByRole('button', { name: 'Knowledge', exact: true })).not.toBeVisible();
 		await expect(page.getByRole('button', { name: 'Simulate', exact: true })).not.toBeVisible();
 		await expect(page.getByRole('button', { name: 'Preferences', exact: true })).toBeVisible();
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
 		await expect(page.locator('.lead-panel')).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Internal Note', exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: /Internal note/i })).toBeVisible();
 		await expect(page.getByText(replyDraft.draft_text, { exact: true })).toBeVisible();
 
 		await page.getByRole('button', { name: 'Preferences', exact: true }).click();
@@ -104,7 +104,7 @@ test.describe('effective UI capabilities', () => {
 
 		await page.goto('/inbox');
 		await expect(page.getByRole('button', { name: 'Leads', exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Automation', exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Automations', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Knowledge', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Contacts', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();

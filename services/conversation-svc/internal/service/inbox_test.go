@@ -164,3 +164,126 @@ func TestService_InboxPagination(t *testing.T) {
 	assert.Equal(t, msgIDs[0], msgsPage3[0].ID) // msg1
 	assert.Empty(t, cursor3)                    // reached end
 }
+
+func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "assign-multi-test")
+
+	// Create 2 member agents
+	var member1ID, member2ID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO users (account_id, email, password_hash, role)
+		VALUES ($1, 'agent1@example.com', 'hash', 'agent') RETURNING id
+	`, accountID).Scan(&member1ID)
+	require.NoError(t, err)
+
+	err = pool.QueryRow(ctx, `
+		INSERT INTO users (account_id, email, password_hash, role)
+		VALUES ($1, 'agent2@example.com', 'hash', 'agent') RETURNING id
+	`, accountID).Scan(&member2ID)
+	require.NoError(t, err)
+
+	// Create channel and contact
+	var channelID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO channels (account_id, type, status)
+		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+	`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	var contactID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO contacts (account_id, channel_id, external_identity)
+		VALUES ($1, $2, 'contact-assign-1') RETURNING id
+	`, accountID, channelID).Scan(&contactID)
+	require.NoError(t, err)
+
+	// Create conversation (starts unassigned)
+	var convoID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO conversations (account_id, contact_id, channel_id, status, assigned_user_ids)
+		VALUES ($1, $2, $3, 'open', '{}') RETURNING id
+	`, accountID, contactID, channelID).Scan(&convoID)
+	require.NoError(t, err)
+
+	// 1. Initial State: conversation is unassigned
+	unassignedList, err := svc.ListConversations(ctx, accountID, adminID, types.RoleAdmin, "unassigned", "")
+	require.NoError(t, err)
+	require.Len(t, unassignedList, 1)
+	assert.Equal(t, convoID, unassignedList[0].Conversation.ID)
+
+	mine1, err := svc.ListConversations(ctx, accountID, member1ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	assert.Empty(t, mine1)
+
+	mine2, err := svc.ListConversations(ctx, accountID, member2ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	assert.Empty(t, mine2)
+
+	// 2. Single Assign: assign to Agent 1
+	err = svc.AssignConversation(ctx, accountID, convoID, []uuid.UUID{member1ID}, adminID)
+	require.NoError(t, err)
+
+	convo, err := svc.GetConversation(ctx, accountID, adminID, convoID, types.RoleAdmin)
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{member1ID}, convo.Conversation.AssignedUserIDs)
+
+	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	require.Len(t, mine1, 1)
+	assert.Equal(t, convoID, mine1[0].Conversation.ID)
+
+	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	assert.Empty(t, mine2)
+
+	// 3. Multi-Assign: assign to BOTH Agent 1 and Agent 2
+	err = svc.AssignConversation(ctx, accountID, convoID, []uuid.UUID{member1ID, member2ID}, adminID)
+	require.NoError(t, err)
+
+	convo, err = svc.GetConversation(ctx, accountID, adminID, convoID, types.RoleAdmin)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uuid.UUID{member1ID, member2ID}, convo.Conversation.AssignedUserIDs)
+
+	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	require.Len(t, mine1, 1)
+	assert.Equal(t, convoID, mine1[0].Conversation.ID)
+
+	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	require.Len(t, mine2, 1)
+	assert.Equal(t, convoID, mine2[0].Conversation.ID)
+
+	unassignedList, err = svc.ListConversations(ctx, accountID, adminID, types.RoleAdmin, "unassigned", "")
+	require.NoError(t, err)
+	assert.Empty(t, unassignedList)
+
+	// 4. Unassign: clear all assignees
+	err = svc.AssignConversation(ctx, accountID, convoID, []uuid.UUID{}, adminID)
+	require.NoError(t, err)
+
+	convo, err = svc.GetConversation(ctx, accountID, adminID, convoID, types.RoleAdmin)
+	require.NoError(t, err)
+	assert.Empty(t, convo.Conversation.AssignedUserIDs)
+
+	unassignedList, err = svc.ListConversations(ctx, accountID, adminID, types.RoleAdmin, "unassigned", "")
+	require.NoError(t, err)
+	require.Len(t, unassignedList, 1)
+	assert.Equal(t, convoID, unassignedList[0].Conversation.ID)
+
+	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	assert.Empty(t, mine1)
+
+	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleMember, "mine", "")
+	require.NoError(t, err)
+	assert.Empty(t, mine2)
+}
+
