@@ -1,390 +1,576 @@
-# What Funnel — Master Spec
+# What Funnel — Master Specification
 
-Version 0.1 — living document. This is the shared reference for every component build prompt. If a build prompt contradicts this doc, this doc wins unless explicitly noted as superseded.
-
----
-
-## 1. What this product is
-
-What Funnel is two things that share a backbone but stay independently usable:
-
-1. **A chatbot automation layer** that connects to a business's existing messaging channels (via mautrix bridges initially) and automatically answers repetitive customer questions, escalating to a human when it isn't confident. Usable standalone — no dashboard required, the business keeps using their native WhatsApp/Instagram/etc. app.
-2. **A lead management workspace** — a unified inbox with configurable lead pipelines, notes, tags, and assignment — built on the same conversation/channel backbone. Lead tracking is a toggle on top of the same account, not a separate product.
-
-The two share: accounts, channel adapters, the conversation data model, and the AI cascade. They diverge at the UI/workflow layer.
-
-### Design philosophy
-- The owner never configures AI, embeddings, prompts, or vector databases. They paste text and approve suggestions.
-- The owner never learns new chat paradigms. The product leans on WhatsApp/Instagram-familiar interaction patterns.
-- Every AI action that isn't a pre-approved deterministic answer is either a draft (human clicks send) or is logged for human review after the fact — never silent, unreviewable automation.
-- Self-hosting works via Docker Compose. Cloud is the same containers, plus managed bridges, backups, and reliability — that's what's being sold.
-
-### Explicit non-goals for v1
-- No real plugin marketplace (v2). v1 ships with a stubbed tool contract only.
-- No official channel APIs (WhatsApp Cloud API, Instagram Graph API) — mautrix bridges only.
-- No analytics/reporting dashboard.
-- No multi-business accounts (one account = one business).
-- No mobile app (desktop-first web app only).
-- No non-English support.
-- No local/self-hosted LLM inference support in v1 — BYO OpenAI-compatible API key only.
-- No PDF ingestion for knowledge base — plain text/Markdown paste only.
+Version 1.0. This document is the technical specification for What Funnel.
 
 ---
 
-## 2. Core concepts & terminology
+## 1. Product Overview
 
-| Term | Meaning |
+What Funnel provides two functions on a shared core architecture:
+
+1. **Chatbot Automation**: The system connects to messaging channels through Matrix bridges. The system answers customer questions automatically. The system transfers the conversation to a human user when confidence is low. A business can use this function without the dashboard.
+2. **Lead Management Workspace**: The system provides a unified inbox with lead pipelines, notes, tags, and user assignments. The user can enable or disable lead tracking for an account.
+
+The two functions share accounts, channel adapters, conversation data models, and the AI cascade.
+
+### Design Principles
+- The user does not configure vector databases, embedding models, or complex prompts. The user pastes text and approves suggestions.
+- The user uses familiar messaging workflows.
+- The system drafts non-deterministic AI answers or logs completed actions for review.
+- The system runs locally through Docker Compose. The managed cloud environment uses the same containers.
+
+### Non-Goals for Version 1
+- No plugin marketplace.
+- No official channel APIs (Matrix bridges only).
+- No reporting dashboard.
+- No multi-business accounts (one account represents one business).
+- No mobile application (desktop web application only).
+- English language only.
+- No local LLM inference in version 1 (OpenAI-compatible API with user key only).
+- Plain text and Markdown knowledge base ingestion only (no PDF files).
+
+---
+
+## 2. Terms and Definitions
+
+| Term | Definition |
 |---|---|
-| **Account** | One business. Root tenant boundary. Owns users, channels, conversations, KB, settings. |
-| **User** | A person with login access to an account. Has a role: `manager` or `agent`. |
-| **Manager** | Can see all leads/conversations, manage settings, channels, KB, users, pipeline config, and approve AI suggestions. Multiple managers are allowed per account. |
-| **Agent** | Sees only conversations/leads assigned to them (or left unassigned/visible per manager-configured scope). Can reply, take notes, and change lead state on what they can see. |
-| **Channel** | A connected messaging surface (a mautrix-bridged WhatsApp/Instagram/etc. identity). |
-| **Contact** | A person who has messaged the business on some channel. Contacts are per-channel-identity until manually merged by a user. |
-| **Conversation** | A thread with one contact on one channel. |
-| **Message** | A single normalized message within a conversation (inbound or outbound, from human or AI). |
-| **Lead** | Optional record attached to a conversation/contact when lead tracking is enabled. Has a state, notes, tags. |
-| **Pipeline** | The manager-configured, ordered list of lead states for the account. |
-| **KB (Knowledge Base)** | The account's business knowledge, stored as an OKF bundle (markdown + YAML frontmatter concept files). |
-| **Pattern** | A deterministic Q&A pair used by the fast-path matcher (rapidfuzz / embedding stage), distinct from full OKF concepts. |
-| **Automation Suggestion** | A HITL-queued proposal (new pattern, new OKF concept, edited answer) generated by the KB compiler, awaiting manager approval. |
-| **Reply mode** | Per-account setting: AI can auto-send, or AI only drafts above the send box (agent-configurable within manager-allowed bounds). |
+| **Account** | The tenant boundary. An account owns users, channels, conversations, knowledge base records, and settings. |
+| **User** | A person who has login access to an account. A user has a role: `manager` or `agent`. |
+| **Manager** | A user who can configure settings, manage channels, edit the knowledge base, manage users, and approve AI suggestions. |
+| **Agent** | A user who can view assigned conversations, reply to messages, write notes, and update lead stages. |
+| **Channel** | A connected messaging identity (such as a bridged WhatsApp or Telegram account). |
+| **Channel Connection** | A temporary record that manages the pairing flow (such as QR code scan) for a channel. |
+| **Contact** | A customer who sends a message to the business on a channel. |
+| **Conversation** | A message thread between one contact and the business on one channel. |
+| **Message** | A single communication record in a conversation. |
+| **Lead** | A record attached to a conversation when lead tracking is active. A lead has a stage, tags, and notes. |
+| **Pipeline** | An ordered list of lead stages configured for an account. |
+| **Knowledge Base (KB)** | The business knowledge stored as concepts with Markdown bodies and vector embeddings. |
+| **Pattern** | A deterministic question-and-answer pair with trigger phrases for fast matching. |
+| **KB Ingestion** | A staged import job that converts raw text into draft concepts and draft patterns for review. |
+| **Automation Suggestion** | A proposed pattern or concept generated by conversation mining, waiting for manager review. |
+| **Reply Mode** | An account or user setting that controls whether the AI sends answers directly (`auto_send`) or creates drafts (`draft_only`). |
 
 ---
 
-## 3. System architecture
+## 3. System Architecture
 
 ```
                          ┌─────────────────┐
-                         │   API Gateway    │  (Go)
-                         └────────┬─────────┘
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                     ▼
-      ┌───────────────┐   ┌────────────────┐   ┌──────────────────┐
-      │ Identity Svc   │   │ Workspace Svc  │   │ Conversation Svc │
-      │ (Go)           │   │ (Go)           │   │ (Go)             │
-      │ auth, RBAC,    │   │ account, users,│   │ contacts,        │
-      │ audit log      │   │ pipeline config│   │ conversations,   │
-      └───────────────┘   └────────────────┘   │ messages, leads  │
-                                                  └────────┬─────────┘
-                                                            │
-                                                            ▼
-                                                  ┌──────────────────┐
-                                                  │  Redis Streams    │
-                                                  └────────┬─────────┘
-                          ┌─────────────────────────────────┼─────────────────────────┐
-                          ▼                                 ▼                         ▼
-                 ┌─────────────────┐             ┌────────────────────┐    ┌──────────────────┐
-                 │ ai-answer-svc    │             │ ai-kb-compiler     │    │ Notification Svc  │
-                 │ (Python)         │             │ (Python)           │    │ (Go)              │
-                 │ rapidfuzz →      │             │ paste→OKF          │    │ WebSocket push     │
-                 │ pgvector →       │◄────────────┤ dormant-convo mine │    └──────────────────┘
-                 │ OKF retrieval →  │  reads KB    │ → suggestions      │
-                 │ LLM → gate       │              └────────────────────┘
-                 └────────┬─────────┘
-                          │
-                          ▼
-                 ┌──────────────────┐
-                 │ Channel Adapters  │  (Go)
-                 │ mautrix/Matrix    │
-                 │ (webchat later)   │
-                 └────────┬─────────┘
-                          │
-                 ┌──────────────────┐
-                 │ Matrix homeserver │
-                 │ + mautrix bridges │
-                 │ (WhatsApp, IG,    │
-                 │  Messenger, TG)   │
-                 └────────┬─────────┘
+                         │   API Gateway   │  (Go)
+                         └────────┬────────┘
+              ┌───────────────────┼───────────────────┐
+              ▼                   ▼                   ▼
+      ┌───────────────┐   ┌───────────────┐   ┌──────────────────┐
+      │ Identity Svc  │   │ Workspace Svc │   │ Conversation Svc │
+      │ (Go)          │   │ (Go)          │   │ (Go)             │
+      │ Auth, Users,  │   │ Accounts,     │   │ Contacts, Leads, │
+      │ Sessions      │   │ Pipelines     │   │ Messages, Bridge │
+      └───────────────┘   └───────────────┘   └────────┬─────────┘
+                                                       │
+                                                       ▼
+                                              ┌──────────────────┐
+                                              │  Redis Streams   │
+                                              └────────┬─────────┘
+                      ┌────────────────────────────────┼────────────────────────┐
+                      ▼                                ▼                        ▼
+             ┌─────────────────┐             ┌────────────────────┐   ┌──────────────────┐
+             │  ai-answer-svc  │             │   ai-kb-compiler   │   │ Notification Svc │
+             │  (Python)       │             │   (Python)         │   │ (Go)             │
+             │  Cascade,       │◄────────────┤   Ingestion,       │   │ WebSocket Push   │
+             │  Embeddings,    │  reads KB   │   Dormant Mining   │   └──────────────────┘
+             │  Summaries      │             └────────────────────┘
+             └────────┬────────┘
+                      │
+                      ▼
+             ┌─────────────────┐
+             │ Channel Adapter │  (Go)
+             │ Matrix/Mautrix  │
+             └────────┬────────┘
+                      │
+                      ▼
+             ┌─────────────────┐
+             │ Synapse Matrix  │
+             │ + Bridge Fleet  │
+             └─────────────────┘
 ```
 
-**Frontend:** SvelteKit, talks to API Gateway over REST + WebSocket.
+**Frontend**: SvelteKit single-page application. Communicates with API Gateway through REST and WebSocket.
 
-**Data flow for an inbound message:**
-1. Bridge → Matrix homeserver → Matrix adapter normalizes into `InboundEvent`.
-2. Adapter publishes to Redis Streams (`messages.inbound`).
-3. Conversation Service consumer persists message, upserts contact/conversation, publishes `conversation.updated`.
-4. `ai-answer-svc` consumer picks up `conversation.updated` (not `messages.inbound` directly — it needs the message already persisted so it has a real `message_id` to log against), runs the cascade, either publishes a suggested reply, an auto-sent reply (via adapter), or a `needs_human` flag.
-5. Notification Service pushes relevant updates over WebSocket to connected clients.
-6. Idle-conversation summarizer (debounced, see §7) runs on conversation close/return.
+### Data Flow for Inbound Messages
+1. The external messaging platform delivers a message to a Mautrix bridge.
+2. The bridge sends the message to the Matrix homeserver (Synapse).
+3. The Matrix adapter reads the event, normalizes the payload, and publishes an `InboundEvent` to Redis Streams (`messages.inbound`).
+4. The `conversation-svc` consumes `messages.inbound`. It saves the message, updates the contact, creates a lead if enabled, and publishes `conversation.updated`.
+5. The `ai-answer-svc` consumes `conversation.updated`. It executes the answer cascade. It sends an automated reply, saves a draft, or flags the conversation for a human.
+6. The `notification-svc` receives stream events and pushes WebSocket updates to connected browser clients.
 
-**External send and human takeover flow:**
-1. Agent replies directly from external client (e.g. native WhatsApp app).
-2. Matrix adapter detects outbound message with sender `human`.
-3. Conversation Service stores message and sets `ai_mode_active: false` (human takeover).
-4. AI automation pauses for this conversation until re-enabled by a user or rule.
+### Human Takeover Flow
+1. An agent replies directly from an external client (for example, native WhatsApp) or through the workspace.
+2. The Matrix adapter detects an outbound message from a human sender.
+3. The `conversation-svc` saves the message and sets `ai_mode_active = false`.
+4. Automated AI sending stops for this conversation until a user closes the conversation or re-enables AI mode.
 
 ---
 
-## 4. Data model
+## 4. Data Model
 
-All tables carry `account_id` for row-level tenant isolation (enforced at the application layer in v1; Postgres RLS is a hardening option, not required for v1 launch — flag as a fast-follow).
+All tenant tables include `account_id` for tenant isolation. The application layer enforces tenant boundaries on all queries.
 
 ```
 accounts
-  id, name, created_at, plan, ai_provider_config (encrypted), settings jsonb, product_mode (full_workspace|chatbot_only)
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE,
+  plan TEXT NOT NULL DEFAULT 'self_hosted',
+  product_mode TEXT NOT NULL DEFAULT 'full_workspace', -- full_workspace | chatbot_only
+  ai_provider_config TEXT,                            -- AES-256-GCM encrypted string
+  settings JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 users
-  id, account_id, email, password_hash (via Authboss), role (manager|agent), reply_mode_override (auto_send|draft_only), created_at
-
-invite_tokens
-  token, account_id, email, role (manager|agent), created_at, used_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  username TEXT,
+  email TEXT,
+  password_hash TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL CHECK (role IN ('manager', 'agent')),
+  reply_mode_override TEXT CHECK (reply_mode_override IN ('auto_send', 'draft_only')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 sessions
-  token, data bytea, expiry
+  token TEXT PRIMARY KEY,
+  data BYTEA NOT NULL,
+  expiry TIMESTAMPTZ NOT NULL
 
 audit_logs
-  id, account_id, actor_user_id, action, target_type, target_id, metadata jsonb, created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  actor_user_id UUID REFERENCES users(id),
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id UUID,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 channels
-  id, account_id, type (matrix_whatsapp|matrix_instagram|matrix_messenger|matrix_telegram|webchat),
-  bridge_identity, bridge_credentials jsonb, status (connected|disconnected|error), status_detail, created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  type TEXT NOT NULL CHECK (type IN ('matrix_whatsapp', 'matrix_instagram', 'matrix_messenger', 'matrix_telegram', 'webchat')),
+  bridge_identity TEXT,
+  bridge_credentials JSONB,
+  status TEXT NOT NULL DEFAULT 'disconnected' CHECK (status IN ('pending', 'connected', 'disconnected', 'error')),
+  status_detail TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+channel_connections
+  channel_id UUID PRIMARY KEY REFERENCES channels(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  platform TEXT NOT NULL,
+  bridge_identity TEXT NOT NULL,
+  management_room_id TEXT,
+  state TEXT NOT NULL CHECK (state IN ('awaiting_scan', 'awaiting_phone', 'awaiting_code', 'awaiting_session', 'connecting', 'connected', 'failed', 'cancelled')),
+  detail TEXT,
+  last_event_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 contacts
-  id, account_id, channel_id, external_identity, display_name, avatar_url, merged_into_contact_id (nullable), created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  channel_id UUID NOT NULL REFERENCES channels(id),
+  external_identity TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  merged_into_contact_id UUID REFERENCES contacts(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 conversations
-  id, account_id, contact_id, channel_id, status (open|closed - closed just means "idle", not archived),
-  assigned_user_ids uuid[], last_message_at, ai_mode_active bool, created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  contact_id UUID NOT NULL REFERENCES contacts(id),
+  channel_id UUID NOT NULL REFERENCES channels(id),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+  assigned_user_ids UUID[] NOT NULL DEFAULT '{}',
+  last_message_at TIMESTAMPTZ,
+  ai_mode_active BOOLEAN NOT NULL DEFAULT TRUE,
+  ai_auto_reply_enabled BOOLEAN,                      -- Optional per-chat override
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 conversation_reads
-  id, account_id, conversation_id, user_id, last_read_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  user_id UUID NOT NULL REFERENCES users(id),
+  last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 messages
-  id, account_id, conversation_id, direction (inbound|outbound), sender_type (contact|human|ai),
-  sender_user_id (nullable), content_type (text|image|video|audio|document|reaction|location|contact),
-  content jsonb, external_message_id, created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+  sender_type TEXT NOT NULL CHECK (sender_type IN ('contact', 'human', 'ai')),
+  sender_user_id UUID REFERENCES users(id),
+  content_type TEXT NOT NULL CHECK (content_type IN ('text', 'image', 'video', 'audio', 'document', 'reaction', 'location', 'contact')),
+  content JSONB NOT NULL,
+  external_message_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 lead_pipelines
-  id, account_id, name, states jsonb  -- ordered list of {key, label, color}
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  name TEXT NOT NULL,
+  states JSONB NOT NULL,                              -- Array of {key, label, color}
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 leads
-  id, account_id, conversation_id, pipeline_id, current_state_key,
-  tags text[], created_by, created_at, updated_at
-  -- notes are NOT a single field (revised from earlier draft) — see lead_notes below.
-  -- A single overwritable text field loses history; a small biz owner needs to see
-  -- "called Tuesday, said X" alongside "followed up Thursday", not just the latest note.
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  pipeline_id UUID NOT NULL REFERENCES lead_pipelines(id),
+  current_state_key TEXT NOT NULL,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 lead_notes
-  id, account_id, lead_id, author_user_id, body text, created_at
-  -- append-only, chronological. This is the notes UI surface, not a single textarea.
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  lead_id UUID NOT NULL REFERENCES leads(id),
+  author_user_id UUID REFERENCES users(id),
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 lead_state_history
-  id, account_id, lead_id, from_state, to_state, changed_by, changed_at
-  -- account_id added for consistency with the tenant-isolation indexing convention
-  -- established in Build Prompt 1 (every tenant-scoped table is indexed on account_id).
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  lead_id UUID NOT NULL REFERENCES leads(id),
+  from_state TEXT,
+  to_state TEXT NOT NULL,
+  changed_by UUID REFERENCES users(id),
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 conversation_summaries
-  id, account_id, conversation_id, summary_fields jsonb (account-configurable extraction schema),
-  generated_at, message_count_at_generation
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  summary_fields JSONB NOT NULL DEFAULT '{}',
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  message_count_at_generation INT NOT NULL
 
 ai_answer_events
-  id, account_id, conversation_id, message_id, stage_matched (pattern|embedding|llm_grounded|none),
-  confidence numeric, action (auto_sent|drafted|flagged_human), reply_message_id, created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  message_id UUID NOT NULL REFERENCES messages(id),
+  stage_matched TEXT NOT NULL CHECK (stage_matched IN ('pattern', 'embedding', 'llm_grounded', 'none')),
+  confidence NUMERIC,
+  action TEXT NOT NULL CHECK (action IN ('auto_sent', 'drafted', 'flagged_human')),
+  reply_message_id UUID REFERENCES messages(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 ai_reply_drafts
-  id, account_id, conversation_id, source_message_id, draft_text, stage_matched, confidence,
-  status (pending|used|dismissed|superseded), used_message_id, created_at, updated_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  source_message_id UUID NOT NULL REFERENCES messages(id),
+  draft_text TEXT NOT NULL,
+  stage_matched TEXT NOT NULL CHECK (stage_matched IN ('pattern', 'embedding', 'llm_grounded')),
+  confidence NUMERIC,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'used', 'dismissed', 'superseded')),
+  used_message_id UUID REFERENCES messages(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
-kb_concepts   -- OKF bundle, one row per concept file
-  id, account_id, slug, type, title, tags text[], body_markdown, embedding vector(1536),
-  source (owner_pasted|ai_compiled), created_at, updated_at
+kb_concepts
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  slug TEXT NOT NULL,
+  type TEXT NOT NULL,                                 -- faq, policy, hours, service, pricing
+  title TEXT NOT NULL,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  body_markdown TEXT NOT NULL,
+  embedding VECTOR(1536),
+  source TEXT NOT NULL CHECK (source IN ('owner_pasted', 'ai_compiled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
-patterns      -- fast-path deterministic Q&A
-  id, account_id, trigger_phrases text[], canonical_question, answer_markdown,
-  embedding vector(1536), created_at, updated_at
+patterns
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  trigger_phrases TEXT[] NOT NULL,
+  canonical_question TEXT NOT NULL,
+  answer_markdown TEXT NOT NULL,
+  embedding VECTOR(1536),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+kb_ingestions
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  requested_by UUID REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'processing', 'review_required', 'publishing', 'complete', 'failed')),
+  raw_text TEXT NOT NULL,
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+kb_ingestion_items
+  id UUID PRIMARY KEY,
+  ingestion_id UUID NOT NULL REFERENCES kb_ingestions(id),
+  position INT NOT NULL,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  body_markdown TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'published')),
+  concept_id UUID REFERENCES kb_concepts(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+kb_ingestion_patterns
+  id UUID PRIMARY KEY,
+  ingestion_id UUID NOT NULL REFERENCES kb_ingestions(id),
+  position INT NOT NULL,
+  canonical_question TEXT NOT NULL,
+  answer_markdown TEXT NOT NULL,
+  trigger_phrases TEXT[] NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'published')),
+  pattern_id UUID REFERENCES patterns(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 automation_suggestions
-  id, account_id, type (new_pattern|new_kb_concept|edited_answer),
-  source_message_ids uuid[], proposed_payload jsonb, confidence numeric,
-  status (pending|approved|rejected|edited), reviewed_by, reviewed_at, created_at
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  type TEXT NOT NULL CHECK (type IN ('new_pattern', 'new_kb_concept', 'edited_answer')),
+  source_message_ids UUID[] NOT NULL DEFAULT '{}',
+  proposed_payload JSONB NOT NULL,
+  confidence NUMERIC,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'edited')),
+  reviewed_by UUID REFERENCES users(id),
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
-kb_mining_runs   -- tracks the dormant-conversation-mining watermark per account
-  id, account_id, run_at, window_start, window_end,
-  messages_scanned, clusters_found, suggestions_created
-
-connector_registrations   -- v1 stub only, unused until v2
-  id, account_id, tool_name, config jsonb, enabled bool
+kb_mining_runs
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  window_start TIMESTAMPTZ NOT NULL,
+  window_end TIMESTAMPTZ NOT NULL,
+  messages_scanned INT NOT NULL,
+  clusters_found INT NOT NULL,
+  suggestions_created INT NOT NULL
 ```
 
 ---
 
-## 5. Service contracts
+## 5. Service Contracts
 
-### 5.0 Crypto interop (Go ↔ Python)
+### 5.0 Cryptography Specification (Go and Python)
 
-`accounts.ai_provider_config` and `channels.bridge_credentials` are encrypted by Go services (Build Prompt 1/2) but must be decryptable by Python AI services (Build Prompt 5 onward). Exact format, non-negotiable:
+The system encrypts `accounts.ai_provider_config` and `channels.bridge_credentials` at rest.
 
-- Algorithm: AES-256-GCM.
-- Key: 32 raw bytes, provided to every service (Go and Python) via the same `APP_ENCRYPTION_KEY` environment variable, base64-encoded in the env var.
-- Nonce: 12 random bytes, generated fresh per encryption, **prepended** to the ciphertext.
-- Storage format: `base64(nonce || ciphertext_with_gcm_tag)`, stored as a single string in the jsonb/text column.
-- Any service in any language decrypts by: base64-decode, split first 12 bytes as nonce, AES-256-GCM-open the rest with the shared key.
+- **Algorithm**: AES-256-GCM.
+- **Key**: 32 raw bytes, configured via `ENCRYPTION_KEY` or `APP_ENCRYPTION_KEY`.
+- **Nonce**: 12 random bytes, generated per operation and prepended to the ciphertext.
+- **Encoding**: Go encodes ciphertext as a hexadecimal string `hex(nonce || ciphertext_with_tag)`. Python supports decoding both hexadecimal and Base64 strings.
+- **Decryption Procedure**: Decode string to bytes, extract the first 12 bytes as the nonce, and decrypt the remaining bytes with the shared key.
 
-Build Prompt 5 must include a cross-language test: encrypt a known value with the Go helper, decrypt it with the Python implementation, assert equality (and vice versa). Don't assume compatibility — prove it.
+Cross-language tests in `tests/integration/crypto_interop_test.go` verify encryption and decryption between Go and Python.
 
-### 5.1 Channel Adapter contract (Go interface, implemented per channel type)
+### 5.1 Channel Adapter Contract
+
+The channel adapter interface in Go defines messaging communication:
+
 ```go
 type InboundEvent struct {
-  ChannelID        string
-  ExternalThreadID string
-  Contact          ContactRef
-  Message          NormalizedMessage
-  Timestamp        time.Time
+    ChannelID        string
+    ExternalThreadID string
+    Contact          ContactRef
+    Message          NormalizedMessage
+    Timestamp        time.Time
+}
+
+type ExternalOutboundEvent struct {
+    ChannelID         string
+    ExternalThreadID  string
+    Message           NormalizedMessage
+    ExternalMessageID string
+    Timestamp         time.Time
 }
 
 type NormalizedMessage struct {
-  ContentType string // text|image|video|audio|document|reaction|location|contact
-  Text        string
-  MediaURL    string
-  ReplyToExternalID string
+    ContentType       string // text|image|video|audio|document|reaction|location|contact
+    Text              string
+    MediaURL          string
+    ReplyToExternalID string
+    ExternalMessageID string
 }
 
 type ChannelAdapter interface {
-  Start(ctx context.Context, publish func(InboundEvent)) error
-  SendMessage(ctx context.Context, channelID, externalThreadID string, msg NormalizedMessage) error
-  Status(channelID string) ChannelStatus
+    Start(ctx context.Context, publishInbound func(InboundEvent), publishExternalOutbound func(ExternalOutboundEvent)) error
+    SendMessage(ctx context.Context, channelID, externalThreadID string, msg NormalizedMessage) (string, error)
+    Status(channelID string) ChannelStatus
 }
 ```
-The core app never imports anything Matrix-specific outside `adapters/matrix-mautrix`. This is the seam that lets official APIs replace bridges later without touching Conversation Service, AI services, or frontend.
 
-### 5.2 AI cascade contract (`ai-answer-svc`, called via Redis Streams, request/response)
-```json
-// request (consumed from messages.inbound)
-{
-  "account_id": "...",
-  "conversation_id": "...",
-  "message_id": "...",
-  "text": "do you guys do house calls",
-  "conversation_recent_context": ["...last N messages..."],
-  "reply_mode": "auto_send" | "draft_only"
-}
+### 5.2 AI Answer Cascade Contract (`ai-answer-svc`)
 
-// response (published to ai.reply_ready)
-{
-  "conversation_id": "...",
-  "message_id": "...",
-  "draft_id": "...", // present when action=drafted
-  "stage_matched": "pattern" | "embedding" | "llm_grounded" | "none",
-  "confidence": 0.0,
-  "answer_markdown": "...",
-  "action": "auto_sent" | "drafted" | "flagged_human"
-}
-```
-Cascade stages, in order, each with a confidence threshold configured per account (sane defaults, manager-adjustable later):
-1. `rapidfuzz` match against `patterns.trigger_phrases`
-2. `pgvector` cosine similarity against `patterns.embedding`
-3. `pgvector` retrieval of top-k `kb_concepts` + LLM-grounded answer, LLM returns structured `{answer, confidence, needs_human}` (pydantic-validated)
-4. Below threshold at every stage → `flagged_human`, no draft shown, conversation marked `needs_human`
+The `ai-answer-svc` consumes `conversation.updated` events from Redis Streams.
 
-If a human is present in the conversation and `reply_mode` is `draft_only`: never auto-send, always populate the compose box on click, per-agent override allowed within manager bounds.
+#### Cascade Stages in Execution Order
+1. **Trigger Phrase Match**: The service uses `rapidfuzz` to compare message text against `patterns.trigger_phrases` (ratio threshold >= 90.0).
+2. **Pattern Embedding Match**: The service computes the query embedding and compares cosine similarity against `patterns.embedding` (similarity threshold >= 0.85).
+3. **Concept RAG Match**: The service retrieves the top 5 `kb_concepts` by embedding similarity. The LLM generates a grounded answer with a structured Pydantic response (`answer_markdown`, `confidence`, `needs_human`). The response requires confidence >= 0.70 and `needs_human = false`.
+4. **Fallback**: If all stages fail, the service creates an `ai_answer_events` record with `action = 'flagged_human'`.
 
-### 5.3 KB Compiler contract (`ai-kb-compiler`, batch job — cron or on-demand trigger)
-Two entry points:
-- **Paste ingestion**: raw text/markdown in → LLM drafts both atomic knowledge concepts for Layer 3 RAG and definitive Q&A patterns (canonical question, exact answer, and realistic trigger phrases) for Layers 1–2 deterministic matching. Onboarding persists both draft types for inline manager review, then publishes approved `kb_concepts` and `patterns` atomically. Other paste surfaces may queue larger batches for manager skim-approval.
-- **Dormant conversation mining**: runs on a schedule, pulls conversations with `flagged_human`/low-confidence messages since last run, clusters similar unanswered questions, drafts pattern/concept candidates, writes to `automation_suggestions` with `status=pending`.
+#### Reply Mode and Safety Guards
+- **Mode Resolution**: The effective reply mode is determined from the account default (`settings.ai_reply_mode_default`), user preference (`users.reply_mode_override`), and conversation override (`conversations.ai_auto_reply_enabled`).
+- **Human Takeover Guard**: If `ai_mode_active = false`, automatic sending pauses. The service continues generating drafts if mode is `draft_only`.
+- **LLM Judge Supervisor**: If the effective mode is `auto_send` and a human agent replied earlier in the conversation, the LLM Judge validates whether the automated reply is safe to send. If unsafe, the service flags the conversation for human review.
+- **Draft Output**: When action is `drafted`, the service saves the draft to `ai_reply_drafts` and publishes `ai.reply_ready`.
+
+### 5.3 Knowledge Base Compiler Contract (`ai-kb-compiler`)
+
+The service provides two compilation workflows:
+
+1. **Paste Ingestion**:
+   - Small inputs (3 or fewer items) publish directly to `kb_concepts` and `patterns`.
+   - Large inputs create a `kb_ingestions` job. The background worker drafts concept items (`kb_ingestion_items`) and pattern items (`kb_ingestion_patterns`). The manager reviews, edits, and publishes approved items atomically.
+2. **Dormant Conversation Mining**:
+   - The scheduler runs periodically based on `MINING_INTERVAL_HOURS`.
+   - The worker scans conversations with unanswered questions or low-confidence events.
+   - The worker clusters questions and creates proposals in `automation_suggestions` with status `pending`.
+   - The manager approves, edits, or rejects suggestions through the workspace API.
 
 ---
 
-## 6. Realtime (WebSocket)
+## 6. Realtime Communication (WebSocket)
 
-One WebSocket connection per logged-in user, scoped to their account. Server pushes:
-- `message.received` / `message.sent`
-- `conversation.assigned`
-- `lead.state_changed`
-- `automation_suggestion.created`
-- `ai.reply_ready` (draft available in compose box, or auto-sent confirmation)
-- `channel.status_changed`
+The `notification-svc` maintains WebSocket connections with authenticated users. The service filters broadcast events by user account and conversation assignment visibility.
 
-No presence/typing indicators in v1 (not required by spec, skip unless trivial).
-
----
-
-## 7. AI summary debounce logic
-
-Trigger conditions for regenerating `conversation_summaries`:
-- A user closes/exits the conversation view, **and**
-- At least one new message (either direction) has arrived since the last summary generation, **and**
-- At least 60 seconds have elapsed since the last summary generation for this conversation.
-
-Implementation: on conversation-close event, check `now - last_generated_at >= 60s` and `message_count_at_generation < current_message_count`; if both true, enqueue summarization; else skip silently.
+### Published Realtime Events
+- `message.received`: Inbound message arrived.
+- `message.sent`: Outbound message sent.
+- `conversation.assigned`: User assignments changed on a conversation.
+- `lead.state_changed`: Lead stage updated.
+- `automation_suggestion.created`: New automation proposal generated.
+- `ai.reply_ready`: New AI draft or auto-reply completed.
+- `ai.reply_draft.updated`: AI draft used, dismissed, or superseded.
+- `channel.status_changed`: Channel connection status updated.
+- `conversation.summary_updated`: AI summary regenerated.
 
 ---
 
-## 8. RBAC
+## 7. AI Summary Debounce Logic
 
-Two roles only: `manager`, `agent`. No custom roles in v1.
+When a conversation closes, `conversation-svc` publishes `conversation.closed`.
 
-- **Manager**: full account settings, channel management, KB management, pipeline config, user management, sees/assigns all conversations and leads, approves automation suggestions, and views the audit log.
-- **Agent**: sees only conversations assigned to them; can reply, add notes/tags, and change lead state on assigned items; can toggle their own `reply_mode` preference within whatever bound the manager set; cannot touch workspace settings, channels, KB, or other agents' assignments.
+The `ai-answer-svc` evaluates these debounce conditions before generating a summary:
+1. `now - last_generated_at >= 60 seconds`.
+2. `message_count_at_generation < current_message_count`.
 
-A conversation can be assigned to multiple users simultaneously; concurrent replies are allowed (send-race resolution deferred to the bridge/Matrix layer, not application-level locking).
-
-Every state-changing action writes an `audit_logs` row: actor, action, target, timestamp, metadata.
+If both conditions pass, the service extracts fields defined in the account's `summary_schema` and upserts the result into `conversation_summaries`.
 
 ---
 
-## 9. Multi-tenancy & isolation
+## 8. Role-Based Access Control (RBAC)
 
-- Single shared Postgres database, `account_id` foreign key on every tenant-scoped table, enforced via application-layer query scoping (middleware injects `account_id` filter on every query).
-- Redis Streams: single cluster, messages carry `account_id` in payload; no stream-per-tenant in v1 (simpler ops, revisit if noisy-neighbor issues appear).
-- File/media storage: namespaced by `account_id` in object storage path.
-- Self-hosted deployments run one account per instance in practice (though the schema doesn't forbid multiple) — this keeps the self-hosting story simple, as agreed.
+The system enforces two roles:
+
+- **`manager`**:
+  - Full access to account settings and deletion.
+  - Channel connection, configuration, and removal.
+  - Knowledge base editing, purge, and review.
+  - Lead pipeline configuration.
+  - User creation and deletion.
+  - View all conversations and leads.
+  - Approve or reject automation suggestions.
+  - View audit logs.
+- **`agent`**:
+  - View assigned conversations (and unassigned conversations if enabled by manager).
+  - Send messages and use AI reply drafts.
+  - Add notes and update lead stages.
+  - Set personal reply mode preference.
+  - Cannot modify account settings, channels, knowledge base, or other users.
+
+Every state-changing API request writes a record to `audit_logs`.
+
+---
+
+## 9. Multi-Tenancy and Isolation
+
+- **Database**: Single PostgreSQL database. Every tenant table contains an `account_id` foreign key. Services use `ScopedDB` query helpers to enforce `account_id` constraints on all operations.
+- **Event Bus**: Single Redis cluster. All event payloads include `account_id`.
+- **Media Storage**: Files and media URLs are namespaced by `account_id`.
 
 ---
 
 ## 10. Deployment
 
-Everything ships as Docker containers, same images for cloud and self-hosted:
+The system deploys through Docker Compose.
 
 ```
-docker-compose.yml (self-hosted reference)
-  - api-gateway
+docker-compose.yml (Development / Core Services)
+  - postgres (PostgreSQL 16 + pgvector)
+  - redis (Redis 7)
+  - migrate (Goose migration runner)
   - identity-svc
   - workspace-svc
   - conversation-svc
   - notification-svc
   - ai-answer-svc
   - ai-kb-compiler
-  - matrix-adapter
-  - synapse (matrix homeserver) + mautrix bridge containers
-  - postgres (+ pgvector extension)
-  - redis
-  - sveltekit frontend (or served static via a lightweight node/adapter)
+  - api-gateway
+  - matrix-init (Configuration provisioner)
+  - synapse (Matrix homeserver)
+  - mautrix-whatsapp (WhatsApp bridge)
+
+docker-compose.bridges.yml (Optional Bridge Stack)
+  - mautrix-telegram
+  - mautrix-messenger
+  - mautrix-instagram
+
+docker-compose.prod.yml (Hardened Production Stack)
+  - web (Nginx static frontend and reverse proxy)
+  - api-gateway
+  - Core and AI backend services with internal data network segmentation
 ```
 
-Cloud adds: managed Postgres, managed Redis, managed bridge fleet, backups, monitoring/alerting, TLS termination, zero-downtime deploys — none of this changes application code, it's operational wrapping.
-
 ---
 
-## 11. Tech stack summary
+## 11. Technology Stack Summary
 
-| Layer | Choice |
+| Component | Technology |
 |---|---|
-| Backend services | Go |
-| Frontend | SvelteKit, TypeScript, desktop-first |
-| Database | Postgres + pgvector |
-| Realtime | WebSocket |
-| Queue/event bus | Redis Streams |
-| Auth | Authboss (Go-native, lives in Identity Service) |
-| AI layer | Python, thin custom orchestrator (no LangChain/Haystack) |
-| AI provider | OpenAI-compatible API only, BYO key, account pays via own key |
-| Cheap-layer NLP | rapidfuzz → pgvector embeddings, no trained classifiers |
-| Knowledge format | Google OKF v0.1 (markdown + YAML frontmatter concepts) |
-| Channels | Matrix + mautrix bridges (WhatsApp, Instagram, Messenger, Telegram) |
-| License | AGPLv3, open-core |
-| Deployment | Docker Compose (self-host), same images on managed cloud |
+| Backend Core Services | Go |
+| Frontend Application | SvelteKit, TypeScript, Tailwind CSS |
+| Database | PostgreSQL 16 with `pgvector` extension |
+| Event Bus | Redis 7 Streams |
+| Realtime Push | WebSocket via `notification-svc` |
+| Authentication | PostgreSQL-backed session store with bcrypt hashing |
+| AI Services | Python (FastAPI, asyncpg, httpx, OpenAI client, Pydantic, RapidFuzz) |
+| AI Provider | OpenAI-compatible API (BYO Key) |
+| Channel Messaging | Matrix Client-Server API with Mautrix bridges |
+| License | AGPLv3 |
+| Deployment | Docker Compose |
 
 ---
 
-## 12. v2 backlog (explicitly deferred, not designed in detail here)
+## 12. Version 2 Backlog
 
-- Real connector/tool marketplace (MCP-inspired contract, per-tool mini-UI)
-- Official channel APIs (WhatsApp Cloud API, Instagram Graph API, Messenger Platform)
-- Mobile app
-- Analytics/reporting dashboard
-- Gmail-style advanced search operators
-- Local/self-hosted LLM inference option
-- Multi-business accounts
-- Custom roles beyond manager/agent
-- PDF ingestion for KB
+The following features are deferred to version 2:
+- Tool connector marketplace.
+- Official platform APIs (WhatsApp Cloud API, Instagram Graph API).
+- Native mobile application.
+- Analytics and reporting dashboards.
+- Advanced search operators.
+- Local LLM inference option.
+- Multi-business accounts under one login.
+- Custom user roles.
+- PDF and document ingestion for the knowledge base.
