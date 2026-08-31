@@ -927,19 +927,28 @@
 		<!-- --- Global Top Bar (Desktop) --- -->
 		<header class="hidden lg:flex h-16 px-6 sm:px-8 border-b border-slate-100 items-center justify-between shrink-0">
 			<!-- Search Bar -->
-			<div class="relative w-80 sm:w-96">
-				<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-					<MagnifyingGlassIcon class="w-4 h-4" />
-				</span>
-				<input
-					type="text"
-					bind:value={searchQuery}
-					placeholder={selectedNav === 'settings' ? 'Search settings...' : selectedNav === 'knowledge' ? 'Search knowledge...' : selectedNav === 'leads' ? 'Search leads...' : selectedNav === 'automation' ? 'Search anything...' : 'Search conversations...'}
-					class="w-full h-10 pl-10 pr-10 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 cursor-text transition"
-				/>
-				<span class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-					<kbd class="text-[11px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">/</kbd>
-				</span>
+			<div class="flex items-center gap-3">
+				<div class="relative w-80 sm:w-96">
+					<span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+						<MagnifyingGlassIcon class="w-4 h-4" />
+					</span>
+					<input
+						type="text"
+						bind:value={searchQuery}
+						placeholder={selectedNav === 'settings' ? 'Search settings...' : selectedNav === 'knowledge' ? 'Search knowledge...' : selectedNav === 'leads' ? 'Search leads...' : selectedNav === 'automation' ? 'Search anything...' : 'Search conversations...'}
+						class="w-full h-10 pl-10 pr-10 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 cursor-text transition"
+					/>
+					<span class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+						<kbd class="text-[11px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">/</kbd>
+					</span>
+				</div>
+
+				{#if inbox.wsStatus === 'disconnected'}
+					<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200/80 text-xs font-medium shadow-2xs shrink-0 animate-pulse" title="Disconnected from real-time server updates">
+						<span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
+						<span>Offline</span>
+					</span>
+				{/if}
 			</div>
 
 			<!-- Right Controls -->
@@ -1055,16 +1064,24 @@
 						</div>
 
 						<!-- Search bar (matching mobile mock) -->
-						<div class="relative w-full">
-							<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-								<MagnifyingGlassIcon class="w-4 h-4" />
-							</span>
-							<input
-								type="text"
-								bind:value={searchQuery}
-								placeholder="Search conversations"
-								class="w-full h-9 pl-9 pr-8 bg-slate-50 text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 transition"
-							/>
+						<div class="flex items-center gap-2 w-full">
+							<div class="relative flex-1">
+								<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+									<MagnifyingGlassIcon class="w-4 h-4" />
+								</span>
+								<input
+									type="text"
+									bind:value={searchQuery}
+									placeholder="Search conversations"
+									class="w-full h-9 pl-9 pr-8 bg-slate-50 text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 transition"
+								/>
+							</div>
+							{#if inbox.wsStatus === 'disconnected'}
+								<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200/80 text-[11px] font-medium shadow-2xs shrink-0 animate-pulse">
+									<span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
+									<span>Offline</span>
+								</span>
+							{/if}
 						</div>
 
 						{#if capabilities.leadTracking}
