@@ -109,8 +109,8 @@ The two functions share accounts, channel adapters, conversation data models, an
 ### Human Takeover Flow
 1. An agent replies directly from an external client (for example, native WhatsApp) or through the workspace.
 2. The Matrix adapter detects an outbound message from a human sender.
-3. The `conversation-svc` saves the message and sets `ai_mode_active = false`.
-4. Automated AI sending stops for this conversation until a user closes the conversation or re-enables AI mode.
+3. The `conversation-svc` saves the message and atomically moves `conversation_ai_state.state` to `paused_human`, increments the generation epoch, and records a state event.
+4. Automated inference and sending stop for this conversation until a user closes the conversation or explicitly resumes AI.
 
 ---
 
@@ -194,8 +194,37 @@ conversations
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
   assigned_user_ids UUID[] NOT NULL DEFAULT '{}',
   last_message_at TIMESTAMPTZ,
-  ai_mode_active BOOLEAN NOT NULL DEFAULT TRUE,
-  ai_auto_reply_enabled BOOLEAN,                      -- Optional per-chat override
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+conversation_ai_state
+  conversation_id UUID PRIMARY KEY REFERENCES conversations(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  state TEXT NOT NULL,                                -- active, paused_human, cooldown, review_required, blocked_spam, blocked_manual
+  state_reason TEXT,
+  reply_override TEXT NOT NULL DEFAULT 'inherit',     -- inherit, enabled, disabled
+  run_state TEXT NOT NULL DEFAULT 'idle',             -- idle, queued, replying
+  run_started_at TIMESTAMPTZ,
+  generation_epoch BIGINT NOT NULL DEFAULT 0,
+  cooldown_level SMALLINT NOT NULL DEFAULT 0,
+  next_review_at TIMESTAMPTZ,
+  unanswered_count INTEGER NOT NULL DEFAULT 0,
+  unanswered_window_started_at TIMESTAMPTZ,
+  last_acknowledgement_at TIMESTAMPTZ,
+  blocked_at TIMESTAMPTZ,
+  version BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+conversation_ai_state_events
+  id UUID PRIMARY KEY,
+  account_id UUID NOT NULL REFERENCES accounts(id),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  actor_user_id UUID REFERENCES users(id),
+  from_state TEXT,
+  to_state TEXT NOT NULL,
+  reason TEXT,
+  triggering_message_id UUID REFERENCES messages(id),
+  metadata JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 conversation_reads
@@ -215,6 +244,7 @@ messages
   content_type TEXT NOT NULL CHECK (content_type IN ('text', 'image', 'video', 'audio', 'document', 'reaction', 'location', 'contact')),
   content JSONB NOT NULL,
   external_message_id TEXT,
+  idempotency_key TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 lead_pipelines
@@ -291,7 +321,7 @@ kb_concepts
   type TEXT NOT NULL,                                 -- faq, policy, hours, service, pricing
   title TEXT NOT NULL,
   tags TEXT[] NOT NULL DEFAULT '{}',
-  body_markdown TEXT NOT NULL,
+  body_text TEXT NOT NULL,
   embedding VECTOR(1536),
   source TEXT NOT NULL CHECK (source IN ('owner_pasted', 'ai_compiled')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -302,7 +332,7 @@ patterns
   account_id UUID NOT NULL REFERENCES accounts(id),
   trigger_phrases TEXT[] NOT NULL,
   canonical_question TEXT NOT NULL,
-  answer_markdown TEXT NOT NULL,
+  answer_text TEXT NOT NULL,
   embedding VECTOR(1536),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -326,7 +356,7 @@ kb_ingestion_items
   type TEXT NOT NULL,
   title TEXT NOT NULL,
   tags TEXT[] NOT NULL DEFAULT '{}',
-  body_markdown TEXT NOT NULL,
+  body_text TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'published')),
   concept_id UUID REFERENCES kb_concepts(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -337,7 +367,7 @@ kb_ingestion_patterns
   ingestion_id UUID NOT NULL REFERENCES kb_ingestions(id),
   position INT NOT NULL,
   canonical_question TEXT NOT NULL,
-  answer_markdown TEXT NOT NULL,
+  answer_text TEXT NOT NULL,
   trigger_phrases TEXT[] NOT NULL DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'published')),
   pattern_id UUID REFERENCES patterns(id),
@@ -426,13 +456,16 @@ The `ai-answer-svc` consumes `conversation.updated` events from Redis Streams.
 #### Cascade Stages in Execution Order
 1. **Trigger Phrase Match**: The service uses `rapidfuzz` to compare message text against `patterns.trigger_phrases` (ratio threshold >= 90.0).
 2. **Pattern Embedding Match**: The service computes the query embedding and compares cosine similarity against `patterns.embedding` (similarity threshold >= 0.85).
-3. **Concept RAG Match**: The service retrieves the top 5 `kb_concepts` by embedding similarity. The LLM generates a grounded answer with a structured Pydantic response (`answer_markdown`, `confidence`, `needs_human`). The response requires confidence >= 0.70 and `needs_human = false`.
-4. **Fallback**: If all stages fail, the service creates an `ai_answer_events` record with `action = 'flagged_human'`.
+3. **Concept RAG Match**: The service retrieves the top 5 `kb_concepts` by embedding similarity. The LLM generates a grounded answer with a structured Pydantic response (`answer_text`, `confidence`, `needs_human`). The response requires confidence >= 0.70 and `needs_human = false`.
+4. **Fallback**: If all stages fail, the service sends the standard automated human-review acknowledgement, creates an `ai_answer_events` record with `action = 'flagged_human'`, and enters a cooldown.
 
 #### Reply Mode and Safety Guards
-- **Mode Resolution**: The effective reply mode is determined from the account default (`settings.ai_reply_mode_default`), user preference (`users.reply_mode_override`), and conversation override (`conversations.ai_auto_reply_enabled`).
-- **Human Takeover Guard**: If `ai_mode_active = false`, automatic sending pauses. The service continues generating drafts if mode is `draft_only`.
-- **LLM Judge Supervisor**: If the effective mode is `auto_send` and a human agent replied earlier in the conversation, the LLM Judge validates whether the automated reply is safe to send. If unsafe, the service flags the conversation for human review.
+- **Mode Resolution**: The effective reply mode is determined from the account default (`settings.ai_reply_mode_default`), user preference (`users.reply_mode_override`), and `conversation_ai_state.reply_override`.
+- **Durable Admission Control**: Normal inference runs only while the conversation state is `active`. Human takeover, review, cooldown, and blocked states are rejected before embeddings or completion calls.
+- **Generation Fencing**: Every model run has a generation epoch. The send boundary validates the epoch and state, so a result that finishes after pause, takeover, or a newer run cannot be delivered. Message idempotency keys prevent duplicate accepted sends.
+- **Unanswerable Cooldown**: Repeated unanswerable questions use 30-second, 1-minute, 2-minute, and 5-minute review intervals. Messages received during cooldown do not enter the normal inference pipeline.
+- **Isolated Spam Judge**: At the end of each cooldown, a classifier receives only the newest transcript content within a conservative 1,000-token bound. It receives no knowledge base context and has no tools or function calls. Its schema permits only `real_customer` or `likely_spam`. Suspected spam moves to `blocked_spam`; a genuine conversation resumes until the final level, which moves it to human review.
+- **Plain-Text Output Boundary**: All model-authored customer replies, summaries, knowledge concepts, and answer patterns are normalized to plain text before persistence or delivery. Markdown and HTML are not part of platform payload contracts.
 - **Draft Output**: When action is `drafted`, the service saves the draft to `ai_reply_drafts` and publishes `ai.reply_ready`.
 
 ### 5.3 Knowledge Base Compiler Contract (`ai-kb-compiler`)

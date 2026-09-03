@@ -180,4 +180,3 @@ func deleteReq(t *testing.T, client *http.Client, urlStr string) (*http.Response
 	json.NewDecoder(resp.Body).Decode(&result) //nolint:errcheck
 	return resp, result
 }
-
