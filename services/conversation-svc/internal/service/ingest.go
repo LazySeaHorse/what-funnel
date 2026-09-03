@@ -282,11 +282,32 @@ func (s *Service) IngestExternalOutbound(ctx context.Context, event types.Extern
 
 	_, err = tx.Exec(ctx, `
 		UPDATE conversations
-		SET last_message_at = $1, ai_mode_active = false
+		SET last_message_at = $1
 		WHERE id = $2 AND account_id = $3
 	`, timestamp, conversationID, accountID)
 	if err != nil {
 		return fmt.Errorf("update conversation: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+		WITH previous AS (
+			SELECT state FROM conversation_ai_state
+			WHERE conversation_id = $1 AND account_id = $2
+			FOR UPDATE
+		), updated AS (
+			UPDATE conversation_ai_state
+			SET state = 'paused_human', state_reason = 'external_human_message', run_state = 'idle',
+			    run_started_at = NULL,
+			    generation_epoch = generation_epoch + 1, next_review_at = NULL,
+			    version = version + 1, updated_at = NOW()
+			WHERE conversation_id = $1 AND account_id = $2
+		)
+		INSERT INTO conversation_ai_state_events (
+			account_id, conversation_id, from_state, to_state, reason, triggering_message_id
+		)
+		SELECT $2, $1, state, 'paused_human', 'external_human_message', $3 FROM previous
+	`, conversationID, accountID, messageID)
+	if err != nil {
+		return fmt.Errorf("pause AI after external human message: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

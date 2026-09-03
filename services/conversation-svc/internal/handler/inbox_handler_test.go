@@ -73,7 +73,7 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 	adminSess := &mockSessionStore{
 		userID:    adminID,
 		accountID: accountID,
-		role:      "admin",
+		role:      "manager",
 		loggedIn:  true,
 	}
 
@@ -197,30 +197,51 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rr.Code)
 	}
 
-	// Per-chat auto-reply can be disabled and reset to the workspace default.
+	// Per-chat AI can be disabled and reset to the workspace default.
 	{
 		h := handler.New(svc, memberSess)
 		r := mux.NewRouter()
 		h.RegisterRoutes(r)
 
-		req, _ := http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-auto-reply", bytes.NewBufferString(`{"enabled":false}`))
+		req, _ := http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-control", bytes.NewBufferString(`{"action":"block","reply_override":"disabled"}`))
 		rr := httptest.NewRecorder()
 		r.ServeHTTP(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
 
-		var enabled *bool
-		err = pool.QueryRow(context.Background(), `SELECT ai_auto_reply_enabled FROM conversations WHERE id = $1`, convoID).Scan(&enabled)
+		var state, replyOverride string
+		err = pool.QueryRow(context.Background(), `SELECT state, reply_override FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&state, &replyOverride)
 		require.NoError(t, err)
-		require.NotNil(t, enabled)
-		assert.False(t, *enabled)
+		assert.Equal(t, "blocked_manual", state)
+		assert.Equal(t, "disabled", replyOverride)
 
-		req, _ = http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-auto-reply", bytes.NewBufferString(`{"enabled":null}`))
+		req, _ = http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-control", bytes.NewBufferString(`{"action":"resume","reply_override":"inherit"}`))
 		rr = httptest.NewRecorder()
 		r.ServeHTTP(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
-		err = pool.QueryRow(context.Background(), `SELECT ai_auto_reply_enabled FROM conversations WHERE id = $1`, convoID).Scan(&enabled)
+		err = pool.QueryRow(context.Background(), `SELECT state, reply_override FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&state, &replyOverride)
 		require.NoError(t, err)
-		assert.Nil(t, enabled)
+		assert.Equal(t, "active", state)
+		assert.Equal(t, "inherit", replyOverride)
+
+		_, err = pool.Exec(context.Background(), `
+			UPDATE conversation_ai_state
+			SET state = 'blocked_spam', state_reason = 'judge_likely_spam'
+			WHERE conversation_id = $1
+		`, convoID)
+		require.NoError(t, err)
+
+		req, _ = http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-control", bytes.NewBufferString(`{"action":"resume"}`))
+		rr = httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+
+		adminHandler := handler.New(svc, adminSess)
+		adminRouter := mux.NewRouter()
+		adminHandler.RegisterRoutes(adminRouter)
+		req, _ = http.NewRequest(http.MethodPatch, "/conversations/"+convoID.String()+"/ai-control", bytes.NewBufferString(`{"action":"resume"}`))
+		rr = httptest.NewRecorder()
+		adminRouter.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	}
 
 	var sourceMessageID, draftID uuid.UUID

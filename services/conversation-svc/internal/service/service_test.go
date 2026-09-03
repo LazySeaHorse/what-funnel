@@ -286,7 +286,7 @@ func TestSendMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send outbound message
-	msg, err := svc.SendMessage(ctx, accountID, convoID, "human", &userID, "text", "Hello Alice from agent", "", &draftID)
+	msg, err := svc.SendMessage(ctx, accountID, convoID, "human", &userID, "text", "Hello Alice from agent", "", &draftID, nil, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, msg)
 
@@ -313,6 +313,27 @@ func TestSendMessage(t *testing.T) {
 	assert.Equal(t, channelID.String(), sent[0].ChannelID)
 	assert.Equal(t, "98765@s.whatsapp.net", sent[0].ExternalThreadID)
 	assert.Equal(t, "Hello Alice from agent", sent[0].Message.Text)
+
+	_, err = pool.Exec(ctx, `
+		UPDATE conversation_ai_state
+		SET state = 'active', run_state = 'replying', generation_epoch = 5
+		WHERE conversation_id = $1
+	`, convoID)
+	require.NoError(t, err)
+	staleEpoch := int64(4)
+	_, err = svc.SendMessage(ctx, accountID, convoID, "ai", nil, "text", "stale", "", nil, &staleEpoch, "reply", "ai-reply:stale")
+	require.ErrorContains(t, err, "stale or unauthorized")
+	require.Len(t, fakeAdapter.GetSentMessages(), 1)
+
+	currentEpoch := int64(5)
+	aiMessage, err := svc.SendMessage(ctx, accountID, convoID, "ai", nil, "text", "Current AI reply", "", nil, &currentEpoch, "reply", "ai-reply:current")
+	require.NoError(t, err)
+	require.Len(t, fakeAdapter.GetSentMessages(), 2)
+
+	retriedMessage, err := svc.SendMessage(ctx, accountID, convoID, "ai", nil, "text", "Current AI reply", "", nil, &currentEpoch, "reply", "ai-reply:current")
+	require.NoError(t, err)
+	assert.Equal(t, aiMessage.ID, retriedMessage.ID)
+	require.Len(t, fakeAdapter.GetSentMessages(), 2, "idempotent retry must not send twice")
 }
 
 func TestLeadManagement(t *testing.T) {
@@ -509,8 +530,8 @@ func TestIngestExternalOutbound(t *testing.T) {
 
 	var convoID uuid.UUID
 	err = pool.QueryRow(ctx, `
-		INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at, ai_mode_active)
-		VALUES ($1, $2, $3, NOW(), true) RETURNING id
+		INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at)
+		VALUES ($1, $2, $3, NOW()) RETURNING id
 	`, accountID, contactID, channelID).Scan(&convoID)
 	require.NoError(t, err)
 
@@ -551,11 +572,11 @@ func TestIngestExternalOutbound(t *testing.T) {
 	assert.Equal(t, "Reply from business phone", content["text"])
 	assert.Equal(t, true, content["external_origin"])
 
-	// Verify conversation updated: ai_mode_active = false
-	var aiModeActive bool
-	err = pool.QueryRow(ctx, `SELECT ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&aiModeActive)
+	// Verify durable AI control moved to human ownership.
+	var aiState string
+	err = pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState)
 	require.NoError(t, err)
-	assert.False(t, aiModeActive)
+	assert.Equal(t, "paused_human", aiState)
 }
 
 func TestCloseConversation_Workflow(t *testing.T) {
@@ -583,25 +604,30 @@ func TestCloseConversation_Workflow(t *testing.T) {
 	`, accountID, channelID).Scan(&contactID)
 	require.NoError(t, err)
 
-	// Create conversation that was taken over by human (ai_mode_active = false, status = 'open')
+	// Create a conversation and put it under human control.
 	var convoID uuid.UUID
 	err = pool.QueryRow(ctx, `
-		INSERT INTO conversations (account_id, contact_id, channel_id, status, last_message_at, ai_mode_active)
-		VALUES ($1, $2, $3, 'open', NOW(), false) RETURNING id
+		INSERT INTO conversations (account_id, contact_id, channel_id, status, last_message_at)
+		VALUES ($1, $2, $3, 'open', NOW()) RETURNING id
 	`, accountID, contactID, channelID).Scan(&convoID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE conversation_ai_state SET state = 'paused_human' WHERE conversation_id = $1`, convoID)
 	require.NoError(t, err)
 
 	// Close the conversation
 	err = svc.CloseConversation(ctx, accountID, userID, convoID, "manager")
 	require.NoError(t, err)
 
-	// Verify conversation updated in DB: status = 'closed', ai_mode_active = true
-	var status string
-	var aiModeActive bool
-	err = pool.QueryRow(ctx, `SELECT status, ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&status, &aiModeActive)
+	// Verify closing resets durable AI control.
+	var status, aiState string
+	err = pool.QueryRow(ctx, `
+		SELECT c.status, state.state
+		FROM conversations c JOIN conversation_ai_state state ON state.conversation_id = c.id
+		WHERE c.id = $1
+	`, convoID).Scan(&status, &aiState)
 	require.NoError(t, err)
 	assert.Equal(t, "closed", status)
-	assert.True(t, aiModeActive, "ai_mode_active must be reset to true upon closing conversation")
+	assert.Equal(t, "active", aiState)
 
 	// Verify audit log
 	var auditCount int

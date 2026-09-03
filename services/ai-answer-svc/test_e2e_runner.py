@@ -95,7 +95,7 @@ async def run_e2e_test():
 
     await conn.execute(
         """
-        INSERT INTO patterns (id, account_id, canonical_question, trigger_phrases, answer_markdown, embedding)
+        INSERT INTO patterns (id, account_id, canonical_question, trigger_phrases, answer_text, embedding)
         VALUES 
         ($1, $2, 'Emergency NOC Hotline', $3, 'Enterprise Sovereign customers can reach our 24/7 emergency NOC hotline at +1 (800) 555-APEX or ping your dedicated Matrix bridge.', $4::vector),
         ($5, $2, 'Corporate Headquarters Address', $6, 'ApexCloud corporate headquarters is located at 100 Mission Street, Floor 42, San Francisco, CA 94105.', $7::vector)
@@ -227,8 +227,8 @@ async def run_e2e_test():
         convo_id = uuid.uuid4()
         await conn.execute(
             """
-            INSERT INTO conversations (id, account_id, contact_id, channel_id, status, ai_mode_active)
-            VALUES ($1, $2, $3, $4, 'open', true)
+            INSERT INTO conversations (id, account_id, contact_id, channel_id, status)
+            VALUES ($1, $2, $3, $4, 'open')
             """,
             convo_id, account_id, contact_id, channel_id
         )

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -26,12 +27,15 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		ContentType    string `json:"content_type"`
-		Text           string `json:"text"`
-		MediaURL       string `json:"media_url"`
-		SenderType     string `json:"sender_type"`
-		SenderUserID   string `json:"sender_user_id"`
-		AIReplyDraftID string `json:"ai_reply_draft_id"`
+		ContentType     string `json:"content_type"`
+		Text            string `json:"text"`
+		MediaURL        string `json:"media_url"`
+		SenderType      string `json:"sender_type"`
+		SenderUserID    string `json:"sender_user_id"`
+		AIReplyDraftID  string `json:"ai_reply_draft_id"`
+		GenerationEpoch *int64 `json:"generation_epoch"`
+		MessagePurpose  string `json:"message_purpose"`
+		IdempotencyKey  string `json:"idempotency_key"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -63,7 +67,11 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		aiReplyDraftID = &draftID
 	}
 
-	msg, err := h.svc.SendMessage(r.Context(), accountID, convoID, body.SenderType, senderUserID, body.ContentType, body.Text, body.MediaURL, aiReplyDraftID)
+	msg, err := h.svc.SendMessage(
+		r.Context(), accountID, convoID, body.SenderType, senderUserID,
+		body.ContentType, body.Text, body.MediaURL, aiReplyDraftID,
+		body.GenerationEpoch, body.MessagePurpose, body.IdempotencyKey,
+	)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -324,7 +332,7 @@ func (h *Handler) AssignConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "assigned"})
 }
 
-func (h *Handler) SetConversationAIAutoReply(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) UpdateConversationAIControl(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	userID, _ := middleware.UserIDFromContext(r)
 	role, _ := middleware.RoleFromContext(r)
@@ -334,21 +342,31 @@ func (h *Handler) SetConversationAIAutoReply(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var body struct {
-		Enabled *bool `json:"enabled"`
+		Action        string `json:"action"`
+		ReplyOverride string `json:"reply_override"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.svc.SetConversationAIAutoReply(r.Context(), accountID, userID, conversationID, role, body.Enabled); err != nil {
+	state, err := h.svc.UpdateConversationAIControl(r.Context(), accountID, userID, conversationID, role, body.Action, body.ReplyOverride)
+	if err != nil {
 		if err.Error() == "conversation not found" {
 			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if strings.HasPrefix(err.Error(), "invalid ") || err.Error() == "an action or reply_override is required" {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "role required") {
+			writeError(w, http.StatusForbidden, err.Error())
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ai_auto_reply_enabled": body.Enabled})
+	writeJSON(w, http.StatusOK, map[string]any{"ai_control": state})
 }
 
 func (h *Handler) ReadConversation(w http.ResponseWriter, r *http.Request) {

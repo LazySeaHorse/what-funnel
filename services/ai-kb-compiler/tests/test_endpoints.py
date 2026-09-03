@@ -19,24 +19,24 @@ DATABASE_URL = os.getenv(
 # Mock concepts
 mock_concepts_3_or_fewer = {
     "concepts": [
-        {"type": "faq", "title": "About Us", "tags": ["info"], "body_markdown": "We are WhatFunnel."},
-        {"type": "hours", "title": "Opening Hours", "tags": ["schedule"], "body_markdown": "9 AM to 5 PM."}
+        {"type": "faq", "title": "About Us", "tags": ["info"], "body_text": "We are WhatFunnel."},
+        {"type": "hours", "title": "Opening Hours", "tags": ["schedule"], "body_text": "9 AM to 5 PM."}
     ],
     "patterns": [
-        {"canonical_question": "When are you open?", "answer_markdown": "9 AM to 5 PM.", "trigger_phrases": ["opening hours", "when are you open", "business hours"]}
+        {"canonical_question": "When are you open?", "answer_text": "9 AM to 5 PM.", "trigger_phrases": ["opening hours", "when are you open", "business hours"]}
     ],
 }
 
 mock_concepts_more_than_3 = {
     "concepts": [
-        {"type": "faq", "title": "FAQ 1", "tags": ["faq"], "body_markdown": "Answer 1"},
-        {"type": "faq", "title": "FAQ 2", "tags": ["faq"], "body_markdown": "Answer 2"},
-        {"type": "faq", "title": "FAQ 3", "tags": ["faq"], "body_markdown": "Answer 3"},
-        {"type": "faq", "title": "FAQ 4", "tags": ["faq"], "body_markdown": "Answer 4"}
+        {"type": "faq", "title": "FAQ 1", "tags": ["faq"], "body_text": "Answer 1"},
+        {"type": "faq", "title": "FAQ 2", "tags": ["faq"], "body_text": "Answer 2"},
+        {"type": "faq", "title": "FAQ 3", "tags": ["faq"], "body_text": "Answer 3"},
+        {"type": "faq", "title": "FAQ 4", "tags": ["faq"], "body_text": "Answer 4"}
     ],
     "patterns": [
-        {"canonical_question": "What does it cost?", "answer_markdown": "See our current pricing.", "trigger_phrases": ["pricing", "what does it cost", "how much"]},
-        {"canonical_question": "When are you open?", "answer_markdown": "We are open weekdays.", "trigger_phrases": ["opening hours", "when are you open", "business hours"]},
+        {"canonical_question": "What does it cost?", "answer_text": "See our current pricing.", "trigger_phrases": ["pricing", "what does it cost", "how much"]},
+        {"canonical_question": "When are you open?", "answer_text": "We are open weekdays.", "trigger_phrases": ["opening hours", "when are you open", "business hours"]},
     ],
 }
 
@@ -107,7 +107,7 @@ async def test_ingestion_review_and_idempotent_publish():
                     if ingestion["status"] == "review_required":
                         break
                     time.sleep(0.1)
-                assert ingestion["status"] == "review_required"
+                assert ingestion["status"] == "review_required", ingestion
                 assert len(ingestion["concepts"]) == 4
                 assert len(ingestion["patterns"]) == 2
 
@@ -119,7 +119,7 @@ async def test_ingestion_review_and_idempotent_publish():
                         "type": item["type"],
                         "title": "Edited FAQ" if index == 0 else item["title"],
                         "tags": item["tags"],
-                        "body_markdown": item["body_markdown"],
+                        "body_text": item["body_text"],
                     })
                 submitted_patterns = []
                 for item in ingestion["patterns"]:
@@ -127,7 +127,7 @@ async def test_ingestion_review_and_idempotent_publish():
                         "id": item["id"],
                         "approved": True,
                         "canonical_question": item["canonical_question"],
-                        "answer_markdown": item["answer_markdown"],
+                        "answer_text": item["answer_text"],
                         "trigger_phrases": item["trigger_phrases"],
                     })
                 publish = client.post(
@@ -266,8 +266,8 @@ async def test_slug_collision_resolution():
     try:
         with patch("main.complete", return_value={
             "concepts": [
-                {"type": "faq", "title": "Duplicate", "tags": [], "body_markdown": "First"},
-                {"type": "faq", "title": "Duplicate", "tags": [], "body_markdown": "Second"}
+                {"type": "faq", "title": "Duplicate", "tags": [], "body_text": "First"},
+                {"type": "faq", "title": "Duplicate", "tags": [], "body_text": "Second"}
             ]
         }), patch("main.embed", return_value=[0.01] * 1536):
             with TestClient(app) as client:
@@ -301,7 +301,7 @@ async def test_concept_list_and_delete():
             concept_id = uuid.uuid4()
             await conn.execute(
                 """
-                INSERT INTO kb_concepts (id, account_id, slug, type, title, body_markdown, source)
+                INSERT INTO kb_concepts (id, account_id, slug, type, title, body_text, source)
                 VALUES ($1, $2, 'test-slug', 'faq', 'Test Concept', 'Body text', 'owner_pasted')
                 """,
                 concept_id, account_id
@@ -353,7 +353,7 @@ async def test_purge_knowledge_base_is_scoped_and_audited():
             for target_account_id, slug in ((account_id, "mine"), (other_account_id, "theirs")):
                 await conn.execute(
                     """
-                    INSERT INTO kb_concepts (account_id, slug, type, title, body_markdown, source)
+                    INSERT INTO kb_concepts (account_id, slug, type, title, body_text, source)
                     VALUES ($1, $2, 'faq', 'Test Concept', 'Body text', 'owner_pasted')
                     """,
                     target_account_id,
@@ -361,7 +361,7 @@ async def test_purge_knowledge_base_is_scoped_and_audited():
                 )
                 await conn.execute(
                     """
-                    INSERT INTO patterns (account_id, trigger_phrases, canonical_question, answer_markdown)
+                    INSERT INTO patterns (account_id, trigger_phrases, canonical_question, answer_text)
                     VALUES ($1, ARRAY['test'], 'Test question?', 'Test answer')
                     """,
                     target_account_id,
@@ -432,7 +432,7 @@ async def test_suggestion_approve_reject():
         sugg_id = uuid.uuid4()
         proposed = {
             "title": "Approved Concept",
-            "body_markdown": "This concept is approved",
+            "body_text": "This concept is approved",
             "type": "faq",
             "tags": ["approved"]
         }
@@ -517,7 +517,7 @@ async def test_suggestion_approve_reject():
 
 @pytest.mark.asyncio
 async def test_list_concepts_response_shape():
-    """list_concepts must return concepts with type/body_markdown/source,
+    """list_concepts must return concepts with type/body_text/source,
     NOT concept_type/content/source_type (the old phantom field names)."""
     pool, account_id, user_id = await setup_test_data()
     try:
@@ -525,7 +525,7 @@ async def test_list_concepts_response_shape():
             concept_id = uuid.uuid4()
             await conn.execute(
                 """
-                INSERT INTO kb_concepts (id, account_id, slug, type, title, body_markdown, source)
+                INSERT INTO kb_concepts (id, account_id, slug, type, title, body_text, source)
                 VALUES ($1, $2, 'shape-test-slug', 'faq', 'Shape Test', 'Body text here', 'owner_pasted')
                 """,
                 concept_id, account_id
@@ -543,7 +543,7 @@ async def test_list_concepts_response_shape():
 
             # Fields the fixed frontend reads
             assert c["type"] == "faq"
-            assert c["body_markdown"] == "Body text here"
+            assert c["body_text"] == "Body text here"
             assert c["source"] == "owner_pasted"
             assert "title" in c
             assert "slug" in c
@@ -559,7 +559,7 @@ async def test_list_concepts_response_shape():
 
 @pytest.mark.asyncio
 async def test_list_patterns_response_shape():
-    """list_patterns must return patterns with canonical_question/answer_markdown/
+    """list_patterns must return patterns with canonical_question/answer_text/
     trigger_phrases, NOT pattern_name/representative_query/frequency_count/intent."""
     pool, account_id, user_id = await setup_test_data()
     try:
@@ -567,7 +567,7 @@ async def test_list_patterns_response_shape():
             pattern_id = uuid.uuid4()
             await conn.execute(
                 """
-                INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_markdown)
+                INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_text)
                 VALUES ($1, $2, $3, 'What are your hours?', 'We are open 9am–5pm.')
                 """,
                 pattern_id, account_id, ["hours", "open", "schedule"]
@@ -585,7 +585,7 @@ async def test_list_patterns_response_shape():
 
             # Fields the fixed frontend reads
             assert p["canonical_question"] == "What are your hours?"
-            assert p["answer_markdown"] == "We are open 9am–5pm."
+            assert p["answer_text"] == "We are open 9am–5pm."
             assert isinstance(p["trigger_phrases"], list)
             assert "id" in p
 
@@ -602,14 +602,14 @@ async def test_list_patterns_response_shape():
 async def test_list_suggestions_response_shape():
     """list_suggestions must return suggestions whose proposed_payload is a parseable
     dict (not None), and whose top-level fields include type, confidence, and status.
-    The frontend normalises proposed_payload into _payload to read title/body_markdown."""
+    The frontend normalises proposed_payload into _payload to read title/body_text."""
     pool, account_id, user_id = await setup_test_data()
     try:
         sugg_id = uuid.uuid4()
         proposed = {
             "type": "faq",
             "title": "Shape Test Concept",
-            "body_markdown": "Some body",
+            "body_text": "Some body",
             "tags": []
         }
         async with pool.acquire() as conn:
@@ -643,7 +643,7 @@ async def test_list_suggestions_response_shape():
             else:
                 payload = raw_payload
             assert payload["title"] == "Shape Test Concept"
-            assert payload["body_markdown"] == "Some body"
+            assert payload["body_text"] == "Some body"
 
             # Phantom top-level fields the old frontend expected (but never existed)
             assert "concept_type" not in s

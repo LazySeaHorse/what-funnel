@@ -180,16 +180,25 @@ type Contact struct {
 
 // Conversation is a thread with one contact on one channel.
 type Conversation struct {
-	ID                 uuid.UUID   `json:"id" db:"id"`
-	AccountID          uuid.UUID   `json:"account_id" db:"account_id"`
-	ContactID          uuid.UUID   `json:"contact_id" db:"contact_id"`
-	ChannelID          uuid.UUID   `json:"channel_id" db:"channel_id"`
-	Status             string      `json:"status" db:"status"`
-	AssignedUserIDs    []uuid.UUID `json:"assigned_user_ids" db:"assigned_user_ids"`
-	LastMessageAt      *time.Time  `json:"last_message_at" db:"last_message_at"`
-	AIModeActive       bool        `json:"ai_mode_active" db:"ai_mode_active"`
-	AIAutoReplyEnabled *bool       `json:"ai_auto_reply_enabled" db:"ai_auto_reply_enabled"`
-	CreatedAt          time.Time   `json:"created_at" db:"created_at"`
+	ID              uuid.UUID           `json:"id" db:"id"`
+	AccountID       uuid.UUID           `json:"account_id" db:"account_id"`
+	ContactID       uuid.UUID           `json:"contact_id" db:"contact_id"`
+	ChannelID       uuid.UUID           `json:"channel_id" db:"channel_id"`
+	Status          string              `json:"status" db:"status"`
+	AssignedUserIDs []uuid.UUID         `json:"assigned_user_ids" db:"assigned_user_ids"`
+	LastMessageAt   *time.Time          `json:"last_message_at" db:"last_message_at"`
+	AIControl       ConversationAIState `json:"ai_control"`
+	CreatedAt       time.Time           `json:"created_at" db:"created_at"`
+}
+
+// ConversationAIState is the durable source of truth for AI ownership,
+// execution, cooldowns, and per-chat reply policy.
+type ConversationAIState struct {
+	State         string     `json:"state" db:"state"`
+	StateReason   *string    `json:"state_reason,omitempty" db:"state_reason"`
+	ReplyOverride string     `json:"reply_override" db:"reply_override"`
+	RunState      string     `json:"run_state" db:"run_state"`
+	NextReviewAt  *time.Time `json:"next_review_at,omitempty" db:"next_review_at"`
 }
 
 // ConversationListItem is a list item representing a conversation with unread status and last message preview.
@@ -214,5 +223,6 @@ type Message struct {
 	ContentType       string          `json:"content_type" db:"content_type"`
 	Content           json.RawMessage `json:"content" db:"content"` // JSONB payload
 	ExternalMessageID *string         `json:"external_message_id" db:"external_message_id"`
+	IdempotencyKey    *string         `json:"-" db:"idempotency_key"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
 }

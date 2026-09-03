@@ -90,7 +90,7 @@ func TestAIAnswerE2E(t *testing.T) {
 	// 4. Create a trigger phrase pattern in database
 	patternID := uuid.New()
 	_, err = pool.Exec(ctx, `
-		INSERT INTO patterns (id, account_id, trigger_phrases, answer_markdown, canonical_question, created_at, updated_at)
+		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 	`, patternID, accountID, []string{"Do you offer house calls?"}, "Yes, we offer house calls.", "Do you offer house calls?")
 	require.NoError(t, err)
@@ -274,11 +274,11 @@ func TestAIAnswerE2E(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, sendResp.StatusCode, "human send must succeed: %v", sendBody)
 
-	// Verify that ai_mode_active is now false in DB
-	var aiModeActive bool
-	err = pool.QueryRow(ctx, `SELECT ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&aiModeActive)
+	// Verify that durable AI control is paused in DB.
+	var aiState string
+	err = pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState)
 	require.NoError(t, err)
-	assert.False(t, aiModeActive, "AI mode active should be paused (false) on human reply")
+	assert.Equal(t, "paused_human", aiState, "AI should pause on human reply")
 
 	// 11. Close Conversation to trigger AI-mode resumption and structured summary generation
 	t.Log("AI Answer E2E Step 12: Close conversation to trigger summary and AI resumption")
@@ -288,8 +288,8 @@ func TestAIAnswerE2E(t *testing.T) {
 	// Wait up to 5 seconds to let python background worker process the close event
 	time.Sleep(3 * time.Second)
 
-	// Verify that ai_mode_active flips back to true
-	err = pool.QueryRow(ctx, `SELECT ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&aiModeActive)
+	// Verify that AI control returns to active.
+	err = pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState)
 	require.NoError(t, err)
-	assert.True(t, aiModeActive, "AI mode should resume (true) after close and idle debounce")
+	assert.Equal(t, "active", aiState, "AI should resume after close and idle debounce")
 }

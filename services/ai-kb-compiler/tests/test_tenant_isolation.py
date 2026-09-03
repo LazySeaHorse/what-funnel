@@ -28,7 +28,7 @@ async def test_tenant_isolation():
                 concept_id_b = uuid.uuid4()
                 await conn.execute(
                     """
-                    INSERT INTO kb_concepts (id, account_id, slug, type, title, body_markdown, source)
+                    INSERT INTO kb_concepts (id, account_id, slug, type, title, body_text, source)
                     VALUES ($1, $2, 'b-slug', 'faq', 'B Title', 'B body', 'owner_pasted')
                     """,
                     concept_id_b, account_b

@@ -57,7 +57,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/conversations/{id}/reply-draft", auth(http.HandlerFunc(h.GetReplyDraft))).Methods(http.MethodGet)
 	r.Handle("/conversations/{id}/reply-draft/{draft_id}/dismiss", auth(http.HandlerFunc(h.DismissReplyDraft))).Methods(http.MethodPost)
 	r.Handle("/conversations/{id}/assign", auth(admin(http.HandlerFunc(h.AssignConversation)))).Methods(http.MethodPatch)
-	r.Handle("/conversations/{id}/ai-auto-reply", auth(http.HandlerFunc(h.SetConversationAIAutoReply))).Methods(http.MethodPatch)
+	r.Handle("/conversations/{id}/ai-control", auth(http.HandlerFunc(h.UpdateConversationAIControl))).Methods(http.MethodPatch)
 	r.Handle("/conversations/{id}/read", auth(http.HandlerFunc(h.ReadConversation))).Methods(http.MethodPost)
 	r.Handle("/conversations/{id}/close", auth(http.HandlerFunc(h.CloseConversation))).Methods(http.MethodPost)
 

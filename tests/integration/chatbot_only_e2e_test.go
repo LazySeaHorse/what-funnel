@@ -152,17 +152,19 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	// Wait for ingestion
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify conversation exists and has AI mode active (true)
+	// Verify conversation exists and is not under human control. The answer
+	// worker may already have moved an unconfigured workspace to review.
 	var convoID uuid.UUID
-	var aiModeActive bool
+	var aiState string
 	err = pool.QueryRow(ctx, `
-		SELECT c.id, c.ai_mode_active
+		SELECT c.id, ais.state
 		FROM conversations c
+		JOIN conversation_ai_state ais ON ais.conversation_id = c.id
 		JOIN contacts co ON c.contact_id = co.id
 		WHERE c.channel_id = $1 AND co.external_identity = 'whatsapp-bot-1'
-	`, uuid.MustParse(channelIDStr)).Scan(&convoID, &aiModeActive)
+	`, uuid.MustParse(channelIDStr)).Scan(&convoID, &aiState)
 	require.NoError(t, err)
-	assert.True(t, aiModeActive, "AI mode must be active initially")
+	assert.NotEqual(t, "paused_human", aiState, "AI control must not start under human ownership")
 
 	// 5. Ingest External Outbound Event (business owner replies from their phone)
 	t.Log("E2E Step 9: Ingest external outbound reply")
@@ -182,10 +184,10 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	// Wait for ingestion
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify AI mode is now false (takeover pause triggered!)
-	err = pool.QueryRow(ctx, `SELECT ai_mode_active FROM conversations WHERE id = $1`, convoID).Scan(&aiModeActive)
+	// Verify takeover paused the durable AI control state.
+	err = pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState)
 	require.NoError(t, err)
-	assert.False(t, aiModeActive, "AI mode must be deactivated (takeover paused) after external outbound reply")
+	assert.Equal(t, "paused_human", aiState, "AI must pause after external outbound reply")
 
 	// Verify the external outbound message is persisted in DB
 	var direction, senderType string

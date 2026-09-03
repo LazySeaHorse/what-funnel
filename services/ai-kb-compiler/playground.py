@@ -6,13 +6,14 @@ import os
 from typing import Optional
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from redis.asyncio import Redis
 
 from db import ScopedDB
 from crypto import encrypt, decrypt, get_key_bytes
 from config import config as app_config
 from llm import complete, embed, get_ai_config
+from plain_text import normalize_plain_text
 
 logger = logging.getLogger("ai-kb-compiler.playground")
 router = APIRouter(prefix="/playground", tags=["playground"])
@@ -65,10 +66,25 @@ class ConceptExtractionItem(BaseModel):
     content: str
     category: str
 
+    @field_validator("title", "summary", "content", "category")
+    @classmethod
+    def plain_fields(cls, value: str) -> str:
+        return normalize_plain_text(value)
+
 class PatternExtractionItem(BaseModel):
     canonical_question: str
     canned_response: str
     triggers: list[str]
+
+    @field_validator("canonical_question", "canned_response")
+    @classmethod
+    def plain_fields(cls, value: str) -> str:
+        return normalize_plain_text(value)
+
+    @field_validator("triggers")
+    @classmethod
+    def plain_triggers(cls, values: list[str]) -> list[str]:
+        return [normalize_plain_text(value) for value in values]
 
 class KnowledgeCompilationResponse(BaseModel):
     concepts: list[ConceptExtractionItem]
@@ -81,11 +97,11 @@ async def get_playground_state(request: Request):
 
     async with db_pool.acquire() as conn:
         concepts = await conn.fetch(
-            "SELECT id, slug, type, title, tags, body_markdown, created_at FROM kb_concepts WHERE account_id = $1 ORDER BY created_at DESC",
+            "SELECT id, slug, type, title, tags, body_text, created_at FROM kb_concepts WHERE account_id = $1 ORDER BY created_at DESC",
             account_id
         )
         patterns = await conn.fetch(
-            "SELECT id, canonical_question, answer_markdown, trigger_phrases, created_at FROM patterns WHERE account_id = $1 ORDER BY created_at DESC",
+            "SELECT id, canonical_question, answer_text, trigger_phrases, created_at FROM patterns WHERE account_id = $1 ORDER BY created_at DESC",
             account_id
         )
         recent_events = await conn.fetch(
@@ -101,8 +117,8 @@ async def get_playground_state(request: Request):
                     "slug": c["slug"],
                     "title": c["title"],
                     "category": c["type"] or (c["tags"][0] if c["tags"] else "general"),
-                    "summary": (c["body_markdown"][:140] + "...") if len(c["body_markdown"]) > 140 else c["body_markdown"],
-                    "content": c["body_markdown"],
+                    "summary": (c["body_text"][:140] + "...") if len(c["body_text"]) > 140 else c["body_text"],
+                    "content": c["body_text"],
                     "created_at": c["created_at"].isoformat() if c["created_at"] else None
                 }
                 for c in concepts
@@ -111,7 +127,7 @@ async def get_playground_state(request: Request):
                 {
                     "id": str(p["id"]),
                     "canonical_question": p["canonical_question"],
-                    "answer_markdown": p["answer_markdown"],
+                    "answer_text": p["answer_text"],
                     "triggers": p["trigger_phrases"] or [],
                     "created_at": p["created_at"].isoformat() if p["created_at"] else None
                 }
@@ -175,8 +191,8 @@ async def send_chat_message(req: ChatMessageReq, request: Request):
             if not convo_id:
                 convo_id = await conn.fetchval(
                     """
-                    INSERT INTO conversations (account_id, contact_id, channel_id, status, ai_mode_active)
-                    VALUES ($1, $2, $3, 'open', true)
+                    INSERT INTO conversations (account_id, contact_id, channel_id, status)
+                    VALUES ($1, $2, $3, 'open')
                     RETURNING id
                     """,
                     account_id, contact_id, channel_id
@@ -302,21 +318,21 @@ async def compile_raw_docs(req: CompileReq, request: Request):
             emb = await embed(api_key, base_url, embedding_model, f"{c['title']}\n{c['summary']}\n{c['content']}")
             
             category = c.get("category", "general")
-            body_md = f"## Summary\n{c['summary']}\n\n## Content\n{c['content']}"
+            body_text = f"{c['summary']}\n\n{c['content']}"
             cid = await conn.fetchval(
                 """
-                INSERT INTO kb_concepts (account_id, slug, title, type, tags, body_markdown, embedding, source)
+                INSERT INTO kb_concepts (account_id, slug, title, type, tags, body_text, embedding, source)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::vector, 'owner_pasted')
                 ON CONFLICT (account_id, slug) DO UPDATE
                 SET title = EXCLUDED.title,
                     type = EXCLUDED.type,
                     tags = EXCLUDED.tags,
-                    body_markdown = EXCLUDED.body_markdown,
+                    body_text = EXCLUDED.body_text,
                     embedding = EXCLUDED.embedding,
                     updated_at = NOW()
                 RETURNING id
                 """,
-                account_id, slug, c["title"], category, [category], body_md, str(emb)
+                account_id, slug, c["title"], category, [category], body_text, str(emb)
             )
             added_concepts.append({"id": str(cid), "title": c["title"], "category": category, "slug": slug})
 
@@ -330,7 +346,7 @@ async def compile_raw_docs(req: CompileReq, request: Request):
             emb = await embed(api_key, base_url, embedding_model, can_q)
             pid = await conn.fetchval(
                 """
-                INSERT INTO patterns (account_id, canonical_question, answer_markdown, trigger_phrases, embedding)
+                INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
                 VALUES ($1, $2, $3, $4, $5::vector)
                 RETURNING id
                 """,
@@ -388,7 +404,7 @@ async def add_pattern(req: PatternReq, request: Request):
         emb = await embed(api_key, base_url, embedding_model, req.canonical_question)
         pid = await conn.fetchval(
             """
-            INSERT INTO patterns (account_id, canonical_question, answer_markdown, trigger_phrases, embedding)
+            INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
             VALUES ($1, $2, $3, $4, $5::vector)
             RETURNING id
             """,
@@ -818,7 +834,7 @@ STUDIO_HTML = """<!DOCTYPE html>
               <button class="card-del-btn" onclick="deletePattern('${p.id}')">[ Delete ]</button>
             </div>
           </div>
-          <div class="card-summary" style="margin-bottom: 6px; font-style: italic;">"${escapeHtml(p.answer_markdown.slice(0, 120))}${p.answer_markdown.length > 120 ? '...' : ''}"</div>
+          <div class="card-summary" style="margin-bottom: 6px; font-style: italic;">"${escapeHtml(p.answer_text.slice(0, 120))}${p.answer_text.length > 120 ? '...' : ''}"</div>
           <div class="trigger-container">
             ${(p.triggers || []).map(t => `<span class="trigger-pill">${escapeHtml(t)}</span>`).join('')}
           </div>

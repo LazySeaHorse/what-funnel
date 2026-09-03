@@ -6,7 +6,9 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from plain_text import normalize_plain_text
 
 from db import ScopedDB
 from llm import get_ai_config, embed, complete
@@ -19,7 +21,12 @@ MINING_SIMILARITY_THRESHOLD = 0.85
 # Pydantic schema for mining suggestion drafting
 class MineClusterDraft(BaseModel):
     canonical_question: str = Field(description="The canonical question representing this cluster of user messages")
-    answer_markdown: str = Field(description="Proposed Markdown answer. Ground the answer using the provided KB concepts if relevant. If no concepts match, write a fresh drafted answer.")
+    answer_text: str = Field(description="Proposed plain-text answer. Ground it using the provided KB concepts when relevant. Never use Markdown or HTML.")
+
+    @field_validator("canonical_question", "answer_text")
+    @classmethod
+    def plain_fields(cls, value: str) -> str:
+        return normalize_plain_text(value)
 
 # Pure Python vector helpers
 def dot_product(v1: List[float], v2: List[float]) -> float:
@@ -205,7 +212,7 @@ async def run_mining(db: ScopedDB) -> dict:
         centroid_str = f"[{','.join(map(str, cluster.centroid))}]"
         concept_rows = await db.fetch(
             """
-            SELECT title, body_markdown
+            SELECT title, body_text
             FROM kb_concepts
             WHERE account_id = $1 AND embedding IS NOT NULL
             ORDER BY embedding <=> $2::vector
@@ -218,7 +225,7 @@ async def run_mining(db: ScopedDB) -> dict:
         kb_context = ""
         if concept_rows:
             kb_context = "\n".join(
-                f"Concept Title: {r['title']}\nContent: {r['body_markdown']}\n---"
+                f"Concept Title: {r['title']}\nContent: {r['body_text']}\n---"
                 for r in concept_rows
             )
 
@@ -235,7 +242,7 @@ async def run_mining(db: ScopedDB) -> dict:
             )
         prompt += (
             "Draft a single canonical question that summarizes this cluster, "
-            "and a proposed Markdown answer. Ground the answer in the provided concepts if they are relevant."
+            "and a proposed plain-text answer. Never use Markdown or HTML. Ground the answer in the provided concepts if they are relevant."
         )
 
         try:
@@ -260,7 +267,7 @@ async def run_mining(db: ScopedDB) -> dict:
         sugg_id = uuid.uuid4()
         proposed_payload = {
             "canonical_question": draft_result["canonical_question"],
-            "answer_markdown": draft_result["answer_markdown"],
+            "answer_text": draft_result["answer_text"],
             "trigger_phrases": cluster.texts
         }
 

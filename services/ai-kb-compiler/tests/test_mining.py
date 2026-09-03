@@ -186,7 +186,7 @@ async def test_mining_clustering_and_cutoff():
 
         mock_complete_resp = {
             "canonical_question": "Drafted question",
-            "answer_markdown": "Drafted answer"
+            "answer_text": "Drafted answer"
         }
 
         with patch("mining.embed", side_effect=mock_embed), \
@@ -211,7 +211,7 @@ async def test_mining_clustering_and_cutoff():
                     assert s["type"] == "new_pattern"
                     payload = json.loads(s["proposed_payload"])
                     assert "canonical_question" in payload
-                    assert "answer_markdown" in payload
+                    assert "answer_text" in payload
                     assert len(payload["trigger_phrases"]) == 3
                     
                     # Confidence for size 3 cluster should be calculated as min(1.0, 3/10) * avg_similarity = 0.3 * 1.0 = 0.3

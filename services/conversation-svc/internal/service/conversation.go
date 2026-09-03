@@ -88,8 +88,11 @@ func scanConversationRow(scanner interface {
 		&d.item.Conversation.Status,
 		&d.item.Conversation.AssignedUserIDs,
 		&d.item.Conversation.LastMessageAt,
-		&d.item.Conversation.AIModeActive,
-		&d.item.Conversation.AIAutoReplyEnabled,
+		&d.item.Conversation.AIControl.State,
+		&d.item.Conversation.AIControl.StateReason,
+		&d.item.Conversation.AIControl.ReplyOverride,
+		&d.item.Conversation.AIControl.RunState,
+		&d.item.Conversation.AIControl.NextReviewAt,
 		&d.item.Conversation.CreatedAt,
 		&d.item.ContactName,
 		&d.item.ContactAvatarURL,
@@ -145,7 +148,8 @@ func scanConversationRow(scanner interface {
 // sharedConversationSQL is the common SELECT / JOIN block used by both
 // ListConversations and GetConversation. Callers append their own WHERE clause.
 const sharedConversationSQL = `
-	SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at, c.ai_mode_active, c.ai_auto_reply_enabled, c.created_at,
+	SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at,
+	       ais.state, ais.state_reason, ais.reply_override, ais.run_state, ais.next_review_at, c.created_at,
 	       co.display_name, co.avatar_url,
 	       cr.last_read_at,
 	       ch.type as channel_type,
@@ -153,6 +157,7 @@ const sharedConversationSQL = `
 	       m.content_type, m.content, m.external_message_id, m.created_at,
 	       l.id, l.pipeline_id, l.current_state_key, l.tags, l.created_by, l.created_at, l.updated_at
 	FROM conversations c
+	JOIN conversation_ai_state ais ON ais.conversation_id = c.id AND ais.account_id = c.account_id
 	JOIN contacts co ON c.contact_id = co.id
 	LEFT JOIN channels ch ON c.channel_id = ch.id
 	LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
@@ -346,40 +351,111 @@ func (s *Service) AssignConversation(ctx context.Context, accountID, conversatio
 	return nil
 }
 
-// SetConversationAIAutoReply stores an optional per-chat restriction. Nil
-// means inherit the workspace default; false prevents automatic sends.
-func (s *Service) SetConversationAIAutoReply(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string, enabled *bool) error {
+// UpdateConversationAIControl atomically changes AI ownership and/or the
+// per-chat reply policy. A state change invalidates every in-flight generation
+// by advancing generation_epoch; workers must check that epoch before sending.
+func (s *Service) UpdateConversationAIControl(ctx context.Context, accountID, userID, conversationID uuid.UUID, role, action, replyOverride string) (*types.ConversationAIState, error) {
 	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
-		return err
+		return nil, err
+	}
+	if action == "" && replyOverride == "" {
+		return nil, errors.New("an action or reply_override is required")
+	}
+	if action != "" && action != "pause" && action != "resume" && action != "block" {
+		return nil, errors.New("invalid AI control action")
+	}
+	if replyOverride != "" && replyOverride != "inherit" && replyOverride != "enabled" && replyOverride != "disabled" {
+		return nil, errors.New("invalid reply_override")
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
-	result, err := tx.Exec(ctx, `
-		UPDATE conversations
-		SET ai_auto_reply_enabled = $1
-		WHERE id = $2 AND account_id = $3
-	`, enabled, conversationID, accountID)
-	if err != nil {
-		return fmt.Errorf("update conversation AI auto-reply: %w", err)
+	var previousState string
+	err = tx.QueryRow(ctx, `
+		SELECT state
+		FROM conversation_ai_state
+		WHERE conversation_id = $1 AND account_id = $2
+		FOR UPDATE
+	`, conversationID, accountID).Scan(&previousState)
+	if err == pgx.ErrNoRows {
+		return nil, errors.New("conversation not found")
 	}
-	if result.RowsAffected() == 0 {
-		return errors.New("conversation not found")
+	if err != nil {
+		return nil, fmt.Errorf("lock conversation AI state: %w", err)
+	}
+	if action == "resume" && previousState == "blocked_spam" && role != "admin" && role != "manager" {
+		return nil, errors.New("manager role required to unblock suspected spam")
+	}
+
+	nextState := previousState
+	reason := ""
+	switch action {
+	case "pause":
+		nextState, reason = "paused_human", "manual_pause"
+	case "resume":
+		nextState, reason = "active", "manual_resume"
+	case "block":
+		nextState, reason = "blocked_manual", "manual_block"
+	}
+
+	var state types.ConversationAIState
+	err = tx.QueryRow(ctx, `
+		UPDATE conversation_ai_state
+		SET state = $1,
+		    state_reason = CASE WHEN $2 = '' THEN state_reason ELSE NULLIF($2, '') END,
+		    reply_override = CASE WHEN $3 = '' THEN reply_override ELSE $3 END,
+		    run_state = CASE WHEN $2 = '' THEN run_state ELSE 'idle' END,
+		    run_started_at = CASE WHEN $2 = '' THEN run_started_at ELSE NULL END,
+		    generation_epoch = generation_epoch + CASE WHEN $2 = '' THEN 0 ELSE 1 END,
+		    cooldown_level = CASE WHEN $2 = 'manual_resume' THEN 0 ELSE cooldown_level END,
+		    next_review_at = CASE WHEN $2 = 'manual_resume' THEN NULL ELSE next_review_at END,
+		    unanswered_count = CASE WHEN $2 = 'manual_resume' THEN 0 ELSE unanswered_count END,
+		    unanswered_window_started_at = CASE WHEN $2 = 'manual_resume' THEN NULL ELSE unanswered_window_started_at END,
+		    blocked_at = CASE WHEN $1 LIKE 'blocked_%' THEN NOW() ELSE NULL END,
+		    version = version + 1,
+		    updated_at = NOW()
+		WHERE conversation_id = $4 AND account_id = $5
+		RETURNING state, state_reason, reply_override, run_state, next_review_at
+	`, nextState, reason, replyOverride, conversationID, accountID).Scan(
+		&state.State, &state.StateReason, &state.ReplyOverride, &state.RunState, &state.NextReviewAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update conversation AI state: %w", err)
+	}
+
+	if action != "" {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO conversation_ai_state_events (
+				account_id, conversation_id, actor_user_id, from_state, to_state, reason
+			) VALUES ($1, $2, $3, $4, $5, $6)
+		`, accountID, conversationID, userID, previousState, nextState, reason)
+		if err != nil {
+			return nil, fmt.Errorf("record conversation AI state event: %w", err)
+		}
 	}
 
 	aw := audit.NewWriterFromTx(tx)
 	if err = aw.Write(ctx, audit.Entry{
 		AccountID: accountID, ActorUserID: &userID,
-		Action: "conversation.ai_auto_reply_updated", TargetType: "conversation", TargetID: &conversationID,
-		Metadata: map[string]any{"enabled": enabled},
+		Action: "conversation.ai_control_updated", TargetType: "conversation", TargetID: &conversationID,
+		Metadata: map[string]any{"action": action, "reply_override": replyOverride, "state": nextState},
 	}); err != nil {
-		return fmt.Errorf("write audit log: %w", err)
+		return nil, fmt.Errorf("write audit log: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if _, publishErr := s.pubsub.Publish(ctx, "ai.control.updated", map[string]any{
+		"account_id": accountID, "conversation_id": conversationID,
+		"state": state.State, "state_reason": state.StateReason, "run_state": state.RunState,
+	}); publishErr != nil {
+		fmt.Printf("failed to publish AI control update: %v\n", publishErr)
+	}
+	return &state, nil
 }
 
 // ReadConversation upserts a read-receipt for the given user.
@@ -396,7 +472,8 @@ func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conve
 	return nil
 }
 
-// CloseConversation marks a conversation as closed, resets ai_mode_active to true for AI resumption,
+// CloseConversation marks a conversation as closed and resets AI control for
+// the next customer contact,
 // records an audit log, and publishes conversation.closed and conversation.updated events.
 func (s *Service) CloseConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) error {
 	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
@@ -411,11 +488,34 @@ func (s *Service) CloseConversation(ctx context.Context, accountID, userID, conv
 
 	_, err = tx.Exec(ctx, `
 		UPDATE conversations
-		SET status = 'closed', ai_mode_active = true
+		SET status = 'closed'
 		WHERE id = $1 AND account_id = $2
 	`, conversationID, accountID)
 	if err != nil {
 		return fmt.Errorf("update conversation close: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+		WITH previous AS (
+			SELECT state FROM conversation_ai_state
+			WHERE conversation_id = $1 AND account_id = $2
+			FOR UPDATE
+		), updated AS (
+			UPDATE conversation_ai_state
+			SET state = 'active', state_reason = 'conversation_closed', run_state = 'idle',
+			    run_started_at = NULL,
+			    generation_epoch = generation_epoch + 1, cooldown_level = 0,
+			    next_review_at = NULL, unanswered_count = 0,
+			    unanswered_window_started_at = NULL, blocked_at = NULL,
+			    version = version + 1, updated_at = NOW()
+			WHERE conversation_id = $1 AND account_id = $2
+		)
+		INSERT INTO conversation_ai_state_events (
+			account_id, conversation_id, actor_user_id, from_state, to_state, reason
+		)
+		SELECT $2, $1, $3, state, 'active', 'conversation_closed' FROM previous
+	`, conversationID, accountID, userID)
+	if err != nil {
+		return fmt.Errorf("reset conversation AI state: %w", err)
 	}
 
 	aw := audit.NewWriterFromTx(tx)
@@ -457,7 +557,16 @@ func (s *Service) CloseConversation(ctx context.Context, accountID, userID, conv
 
 // SendMessage sends an outbound message via the registered adapter and records
 // it in the database within a single transaction.
-func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uuid.UUID, senderType string, senderUserID *uuid.UUID, contentType, text, mediaURL string, aiReplyDraftID *uuid.UUID) (*types.Message, error) {
+func (s *Service) SendMessage(
+	ctx context.Context,
+	accountID, conversationID uuid.UUID,
+	senderType string,
+	senderUserID *uuid.UUID,
+	contentType, text, mediaURL string,
+	aiReplyDraftID *uuid.UUID,
+	generationEpoch *int64,
+	messagePurpose, idempotencyKey string,
+) (*types.Message, error) {
 	if senderType != "human" && senderType != "ai" {
 		return nil, fmt.Errorf("invalid sender_type: %q", senderType)
 	}
@@ -470,6 +579,53 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 		return nil, fmt.Errorf("begin send tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	if idempotencyKey != "" {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, accountID.String()+":"+idempotencyKey); err != nil {
+			return nil, fmt.Errorf("lock message idempotency key: %w", err)
+		}
+		var existing types.Message
+		err = tx.QueryRow(ctx, `
+			SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id,
+			       content_type, content, external_message_id, idempotency_key, created_at
+			FROM messages
+			WHERE account_id = $1 AND idempotency_key = $2
+		`, accountID, idempotencyKey).Scan(
+			&existing.ID, &existing.AccountID, &existing.ConversationID, &existing.Direction,
+			&existing.SenderType, &existing.SenderUserID, &existing.ContentType,
+			&existing.Content, &existing.ExternalMessageID, &existing.IdempotencyKey, &existing.CreatedAt,
+		)
+		if err == nil {
+			return &existing, nil
+		}
+		if err != pgx.ErrNoRows {
+			return nil, fmt.Errorf("check message idempotency key: %w", err)
+		}
+	}
+
+	if senderType == "ai" {
+		if generationEpoch == nil {
+			return nil, errors.New("generation_epoch is required for AI messages")
+		}
+		var state string
+		var currentEpoch int64
+		err = tx.QueryRow(ctx, `
+			SELECT state, generation_epoch
+			FROM conversation_ai_state
+			WHERE conversation_id = $1 AND account_id = $2
+			FOR UPDATE
+		`, conversationID, accountID).Scan(&state, &currentEpoch)
+		if err != nil {
+			return nil, fmt.Errorf("lock conversation AI state: %w", err)
+		}
+		allowed := messagePurpose == "reply" && state == "active"
+		if messagePurpose == "human_review_ack" {
+			allowed = state == "cooldown" || state == "review_required"
+		}
+		if !allowed || currentEpoch != *generationEpoch {
+			return nil, errors.New("stale or unauthorized AI message")
+		}
+	}
 
 	// Look up conversation, channel type, and contact's external identity.
 	var channelID uuid.UUID
@@ -557,12 +713,15 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 		Content:           contentRaw,
 		ExternalMessageID: extMsgPtr,
 	}
+	if idempotencyKey != "" {
+		msg.IdempotencyKey = &idempotencyKey
+	}
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO messages (account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		INSERT INTO messages (account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, idempotency_key, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 		RETURNING id, created_at
-	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content, msg.ExternalMessageID).
+	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content, msg.ExternalMessageID, msg.IdempotencyKey).
 		Scan(&msg.ID, &msg.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert outbound message: %w", err)
@@ -571,7 +730,7 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 	if senderType == "human" {
 		_, err = tx.Exec(ctx, `
 			UPDATE conversations
-			SET last_message_at = $1, ai_mode_active = false
+			SET last_message_at = $1
 			WHERE id = $2 AND account_id = $3
 		`, msg.CreatedAt, conversationID, accountID)
 	} else {
@@ -583,6 +742,30 @@ func (s *Service) SendMessage(ctx context.Context, accountID, conversationID uui
 	}
 	if err != nil {
 		return nil, fmt.Errorf("update conversation details: %w", err)
+	}
+	if senderType == "human" {
+		_, err = tx.Exec(ctx, `
+			WITH previous AS (
+				SELECT state FROM conversation_ai_state
+				WHERE conversation_id = $1 AND account_id = $2
+				FOR UPDATE
+			), updated AS (
+				UPDATE conversation_ai_state
+				SET state = 'paused_human', state_reason = 'human_message_sent', run_state = 'idle',
+				    run_started_at = NULL,
+				    generation_epoch = generation_epoch + 1, next_review_at = NULL,
+				    version = version + 1, updated_at = NOW()
+				WHERE conversation_id = $1 AND account_id = $2
+			)
+			INSERT INTO conversation_ai_state_events (
+				account_id, conversation_id, actor_user_id, from_state, to_state, reason,
+				triggering_message_id
+			)
+			SELECT $2, $1, $3, state, 'paused_human', 'human_message_sent', $4 FROM previous
+		`, conversationID, accountID, senderUserID, msg.ID)
+		if err != nil {
+			return nil, fmt.Errorf("pause AI after human message: %w", err)
+		}
 	}
 
 	var invalidatedDraftID *uuid.UUID

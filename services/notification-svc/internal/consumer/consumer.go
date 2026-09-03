@@ -40,6 +40,7 @@ func (c *Consumer) Start(ctx context.Context, consumerName string) {
 		{"lead.state_changed", c.handleLeadStateChanged},
 		{"ai.reply_ready", c.handleAIReplyReady},
 		{"ai.reply_draft.updated", c.handleAIReplyDraftUpdated},
+		{"ai.control.updated", c.handleAIControlUpdated},
 		{"automation_suggestion.created", c.handleAutomationSuggestionCreated},
 		{"conversation.summary_updated", c.handleConversationSummaryUpdated},
 	}
@@ -54,6 +55,39 @@ func (c *Consumer) Start(ctx context.Context, consumerName string) {
 			}
 		}()
 	}
+}
+
+func (c *Consumer) handleAIControlUpdated(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID      uuid.UUID `json:"account_id"`
+		ConversationID uuid.UUID `json:"conversation_id"`
+		State          string    `json:"state"`
+		StateReason    string    `json:"state_reason"`
+		RunState       string    `json:"run_state"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal ai.control.updated event", "error", err)
+		return nil
+	}
+
+	var assignedUserIDs []uuid.UUID
+	if err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	var settingsBytes []byte
+	if err := c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes); err != nil {
+		return err
+	}
+	c.hub.BroadcastToAccount(ev.AccountID, map[string]any{
+		"type": "ai.control.updated", "conversation_id": ev.ConversationID.String(),
+		"state": ev.State, "state_reason": ev.StateReason, "run_state": ev.RunState,
+	}, func(userID uuid.UUID, role string) bool {
+		return types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes))
+	})
+	return nil
 }
 
 func (c *Consumer) HandleConversationUpdatedForTest(ctx context.Context, id string, payload []byte) error {

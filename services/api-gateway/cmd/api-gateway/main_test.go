@@ -242,7 +242,7 @@ func TestGatewayForwardsKBResponseShape(t *testing.T) {
 	// The exact JSON shape the fixed frontend now reads.
 	kbBody := `{"concepts":[{
 		"id":"abc","slug":"test","type":"faq","title":"T",
-		"tags":[],"body_markdown":"B","source":"owner_pasted",
+		"tags":[],"body_text":"B","source":"owner_pasted",
 		"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"
 	}]}`
 
@@ -273,7 +273,7 @@ func TestGatewayForwardsKBResponseShape(t *testing.T) {
 	}
 
 	c := out.Concepts[0]
-	for _, field := range []string{"id", "slug", "type", "title", "body_markdown", "source"} {
+	for _, field := range []string{"id", "slug", "type", "title", "body_text", "source"} {
 		if _, ok := c[field]; !ok {
 			t.Errorf("concept response missing expected field %q", field)
 		}

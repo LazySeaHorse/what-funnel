@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, Any
 from datetime import datetime
 
 from fastapi import FastAPI, Header, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from config import config
 from db import ScopedDB, create_db_pool
@@ -17,6 +17,7 @@ from mining import run_mining
 from scheduler import start_scheduler
 from redis_client import publish_suggestion_created
 from ingestions import compilation_prompt, run_worker, stop_worker
+from plain_text import normalize_plain_text
 
 
 
@@ -126,15 +127,35 @@ class OKFConceptDraft(BaseModel):
     type: str = Field(description="OKF concept type, e.g. faq, policy, hours, service, pricing")
     title: str = Field(description="Concept title")
     tags: List[str] = Field(default_factory=list, description="Tags associated with the concept")
-    body_markdown: str = Field(description="Markdown body of the concept")
+    body_text: str = Field(description="Plain-text body of the concept; never Markdown or HTML")
+
+    @field_validator("type", "title", "body_text")
+    @classmethod
+    def plain_fields(cls, value: str) -> str:
+        return normalize_plain_text(value)
+
+    @field_validator("tags")
+    @classmethod
+    def plain_tags(cls, values: List[str]) -> List[str]:
+        return [normalize_plain_text(value) for value in values]
 
 class OKFPatternDraft(BaseModel):
     canonical_question: str = Field(description="The standard representative customer question")
-    answer_markdown: str = Field(description="The exact definitive answer in markdown")
+    answer_text: str = Field(description="The exact definitive answer in plain text; never Markdown or HTML")
     trigger_phrases: List[str] = Field(
         default_factory=list,
         description="Four to eight realistic lowercase customer query variations"
     )
+
+    @field_validator("canonical_question", "answer_text")
+    @classmethod
+    def plain_fields(cls, value: str) -> str:
+        return normalize_plain_text(value)
+
+    @field_validator("trigger_phrases")
+    @classmethod
+    def plain_triggers(cls, values: List[str]) -> List[str]:
+        return [normalize_plain_text(value) for value in values]
 
 class CompilePasteSchema(BaseModel):
     concepts: List[OKFConceptDraft] = Field(description="List of concepts compiled from raw text")
@@ -159,14 +180,14 @@ class PublishIngestionItem(BaseModel):
     type: str = Field(min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=500)
     tags: List[str] = Field(default_factory=list)
-    body_markdown: str = Field(min_length=1, max_length=100_000)
+    body_text: str = Field(min_length=1, max_length=100_000)
 
 
 class PublishIngestionPattern(BaseModel):
     id: uuid.UUID
     approved: bool = True
     canonical_question: str = Field(min_length=1, max_length=1000)
-    answer_markdown: str = Field(min_length=1, max_length=100_000)
+    answer_text: str = Field(min_length=1, max_length=100_000)
     trigger_phrases: List[str] = Field(default_factory=list, max_length=50)
 
 
@@ -242,7 +263,7 @@ async def get_latest_ingestion(db: ScopedDB = Depends(get_db)):
         return {"ingestion": None}
     concepts = await db.fetch(
         """
-        SELECT id, position, type, title, tags, body_markdown, status, concept_id
+        SELECT id, position, type, title, tags, body_text, status, concept_id
         FROM kb_ingestion_items
         WHERE ingestion_id = $1
         ORDER BY position
@@ -251,7 +272,7 @@ async def get_latest_ingestion(db: ScopedDB = Depends(get_db)):
     )
     patterns = await db.fetch(
         """
-        SELECT id, position, canonical_question, answer_markdown, trigger_phrases, status, pattern_id
+        SELECT id, position, canonical_question, answer_text, trigger_phrases, status, pattern_id
         FROM kb_ingestion_patterns
         WHERE ingestion_id = $1
         ORDER BY position
@@ -276,7 +297,7 @@ async def get_ingestion(ingestion_id: uuid.UUID, db: ScopedDB = Depends(get_db))
         raise HTTPException(status_code=404, detail="Knowledge ingestion not found")
     concepts = await db.fetch(
         """
-        SELECT id, position, type, title, tags, body_markdown, status, concept_id
+        SELECT id, position, type, title, tags, body_text, status, concept_id
         FROM kb_ingestion_items
         WHERE ingestion_id = $1
         ORDER BY position
@@ -285,7 +306,7 @@ async def get_ingestion(ingestion_id: uuid.UUID, db: ScopedDB = Depends(get_db))
     )
     patterns = await db.fetch(
         """
-        SELECT id, position, canonical_question, answer_markdown, trigger_phrases, status, pattern_id
+        SELECT id, position, canonical_question, answer_text, trigger_phrases, status, pattern_id
         FROM kb_ingestion_patterns
         WHERE ingestion_id = $1
         ORDER BY position
@@ -348,7 +369,7 @@ async def publish_ingestion(
                 await conn.execute(
                     """
                     UPDATE kb_ingestion_items
-                    SET type = $2, title = $3, tags = $4, body_markdown = $5,
+                    SET type = $2, title = $3, tags = $4, body_text = $5,
                         status = $6, updated_at = NOW()
                     WHERE id = $1 AND ingestion_id = $7
                     """,
@@ -356,7 +377,7 @@ async def publish_ingestion(
                     item.type.strip(),
                     item.title.strip(),
                     item.tags,
-                    item.body_markdown.strip(),
+                    item.body_text.strip(),
                     "approved" if item.approved else "rejected",
                     ingestion_id,
                 )
@@ -372,13 +393,13 @@ async def publish_ingestion(
                 await conn.execute(
                     """
                     UPDATE kb_ingestion_patterns
-                    SET canonical_question = $2, answer_markdown = $3, trigger_phrases = $4,
+                    SET canonical_question = $2, answer_text = $3, trigger_phrases = $4,
                         status = $5, updated_at = NOW()
                     WHERE id = $1 AND ingestion_id = $6
                     """,
                     pattern.id,
                     pattern.canonical_question.strip(),
-                    pattern.answer_markdown.strip(),
+                    pattern.answer_text.strip(),
                     triggers,
                     "approved" if pattern.approved else "rejected",
                     ingestion_id,
@@ -427,22 +448,22 @@ async def compile_paste(
             unique_slug = await get_unique_slug(db, base_slug)
 
             # Generate embedding
-            text_to_embed = f"{c['title']}\n{c['body_markdown']}"
+            text_to_embed = f"{c['title']}\n{c['body_text']}"
             vector = await embed(api_key, base_url, embedding_model, text_to_embed)
 
             # Insert
             row = await db.fetchrow(
                 """
-                INSERT INTO kb_concepts (account_id, slug, type, title, tags, body_markdown, embedding, source)
+                INSERT INTO kb_concepts (account_id, slug, type, title, tags, body_text, embedding, source)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::vector, 'owner_pasted')
-                RETURNING id, slug, type, title, tags, body_markdown, source, created_at, updated_at
+                RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
                 """,
                 db.account_id,
                 unique_slug,
                 c["type"],
                 c["title"],
                 c["tags"],
-                c["body_markdown"],
+                c["body_text"],
                 str(vector)
             )
 
@@ -462,7 +483,7 @@ async def compile_paste(
 
         for p in patterns:
             canonical_question = p["canonical_question"].strip()
-            answer_markdown = p["answer_markdown"].strip()
+            answer_text = p["answer_text"].strip()
             trigger_phrases = list(dict.fromkeys(
                 phrase.lower().strip()
                 for phrase in p.get("trigger_phrases", [])
@@ -474,13 +495,13 @@ async def compile_paste(
             vector = await embed(api_key, base_url, embedding_model, canonical_question)
             row = await db.fetchrow(
                 """
-                INSERT INTO patterns (account_id, canonical_question, answer_markdown, trigger_phrases, embedding)
+                INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
                 VALUES ($1, $2, $3, $4, $5::vector)
-                RETURNING id, canonical_question, answer_markdown, trigger_phrases, created_at, updated_at
+                RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
                 """,
                 db.account_id,
                 canonical_question,
-                answer_markdown,
+                answer_text,
                 trigger_phrases,
                 str(vector),
             )
@@ -553,7 +574,7 @@ async def compile_paste(
 async def list_concepts(db: ScopedDB = Depends(get_db)):
     rows = await db.fetch(
         """
-        SELECT id, slug, type, title, tags, body_markdown, source, created_at, updated_at
+        SELECT id, slug, type, title, tags, body_text, source, created_at, updated_at
         FROM kb_concepts
         WHERE account_id = $1
         ORDER BY created_at DESC
@@ -744,23 +765,23 @@ async def approve_suggestion(
     # Approve depending on type
     if sugg_type == "new_kb_concept":
         title = payload.get("title")
-        body_markdown = payload.get("body_markdown")
+        body_text = payload.get("body_text")
         c_type = payload.get("type", "faq")
         tags = payload.get("tags", [])
 
-        if not title or not body_markdown:
-            raise HTTPException(status_code=400, detail="Concept title and body_markdown are required")
+        if not title or not body_text:
+            raise HTTPException(status_code=400, detail="Concept title and body_text are required")
 
         base_slug = slugify(title) or "concept"
         unique_slug = await get_unique_slug(db, base_slug)
 
-        text_to_embed = f"{title}\n{body_markdown}"
+        text_to_embed = f"{title}\n{body_text}"
         vector = await embed(api_key, base_url, embedding_model, text_to_embed)
 
         concept_id = uuid.uuid4()
         await db.execute(
             """
-            INSERT INTO kb_concepts (id, account_id, slug, type, title, tags, body_markdown, embedding, source)
+            INSERT INTO kb_concepts (id, account_id, slug, type, title, tags, body_text, embedding, source)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, 'owner_pasted')
             """,
             concept_id,
@@ -769,7 +790,7 @@ async def approve_suggestion(
             c_type,
             title,
             tags,
-            body_markdown,
+            body_text,
             str(vector)
         )
 
@@ -785,26 +806,26 @@ async def approve_suggestion(
 
     elif sugg_type == "new_pattern":
         canonical_question = payload.get("canonical_question")
-        answer_markdown = payload.get("answer_markdown")
+        answer_text = payload.get("answer_text")
         trigger_phrases = payload.get("trigger_phrases", [])
 
-        if not canonical_question or not answer_markdown:
-            raise HTTPException(status_code=400, detail="Pattern canonical_question and answer_markdown are required")
+        if not canonical_question or not answer_text:
+            raise HTTPException(status_code=400, detail="Pattern canonical_question and answer_text are required")
 
-        text_to_embed = f"{canonical_question}\n{answer_markdown}"
+        text_to_embed = f"{canonical_question}\n{answer_text}"
         vector = await embed(api_key, base_url, embedding_model, text_to_embed)
 
         pattern_id = uuid.uuid4()
         await db.execute(
             """
-            INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_markdown, embedding)
+            INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_text, embedding)
             VALUES ($1, $2, $3, $4, $5, $6::vector)
             """,
             pattern_id,
             db.account_id,
             trigger_phrases,
             canonical_question,
-            answer_markdown,
+            answer_text,
             str(vector)
         )
 
@@ -821,10 +842,10 @@ async def approve_suggestion(
     elif sugg_type == "edited_answer":
         # Edited answer case
         pattern_id_str = payload.get("pattern_id")
-        answer_markdown = payload.get("answer_markdown")
+        answer_text = payload.get("answer_text")
 
-        if not pattern_id_str or not answer_markdown:
-            raise HTTPException(status_code=400, detail="pattern_id and answer_markdown are required")
+        if not pattern_id_str or not answer_text:
+            raise HTTPException(status_code=400, detail="pattern_id and answer_text are required")
 
         try:
             pattern_uuid = uuid.UUID(pattern_id_str)
@@ -838,16 +859,16 @@ async def approve_suggestion(
         if not pattern_row:
             raise HTTPException(status_code=404, detail="Pattern to edit not found")
 
-        text_to_embed = f"{pattern_row['canonical_question']}\n{answer_markdown}"
+        text_to_embed = f"{pattern_row['canonical_question']}\n{answer_text}"
         vector = await embed(api_key, base_url, embedding_model, text_to_embed)
 
         await db.execute(
             """
             UPDATE patterns
-            SET answer_markdown = $1, embedding = $2::vector, updated_at = NOW()
+            SET answer_text = $1, embedding = $2::vector, updated_at = NOW()
             WHERE id = $3 AND account_id = $4
             """,
-            answer_markdown,
+            answer_text,
             str(vector),
             pattern_uuid,
             db.account_id
@@ -938,7 +959,7 @@ async def reject_suggestion(
 async def list_patterns(db: ScopedDB = Depends(get_db)):
     rows = await db.fetch(
         """
-        SELECT id, canonical_question, answer_markdown, trigger_phrases, created_at, updated_at
+        SELECT id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
         FROM patterns
         WHERE account_id = $1
         ORDER BY created_at DESC
