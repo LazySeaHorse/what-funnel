@@ -217,16 +217,20 @@ export class InboxState {
 		}
 	}
 
-	async setConversationAIAutoReply(enabled: boolean | null) {
+	async updateConversationAIControl(action = '', replyOverride = '') {
 		if (!this.activeConvoID) return false;
 		try {
-			await apiRequest(`/conversations/${this.activeConvoID}/ai-auto-reply`, {
+			const response = await apiRequest(`/conversations/${this.activeConvoID}/ai-control`, {
 				method: 'PATCH',
-				body: { enabled }
+				body: {
+					...(action ? { action } : {}),
+					...(replyOverride ? { reply_override: replyOverride } : {})
+				}
 			});
-			if (this.activeConvo) this.activeConvo.ai_auto_reply_enabled = enabled;
+			const control = response?.ai_control;
+			if (this.activeConvo && control) this.activeConvo.ai_control = control;
 			const item = this.conversations.find((conversation) => conversation.id === this.activeConvoID);
-			if (item) item.ai_auto_reply_enabled = enabled;
+			if (item && control) item.ai_control = control;
 			return true;
 		} catch (err) {
 			console.error('Failed to update conversation AI auto-reply:', err);
@@ -241,12 +245,12 @@ export class InboxState {
 			await apiRequest(`/conversations/${id}/close`, { method: 'POST' });
 			if (this.activeConvo && this.activeConvo.id === id) {
 				this.activeConvo.status = 'closed';
-				this.activeConvo.ai_mode_active = true;
+				this.activeConvo.ai_control = { ...this.activeConvo.ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' };
 			}
 			const index = this.conversations.findIndex(c => c.id === id);
 			if (index !== -1) {
 				this.conversations[index].status = 'closed';
-				this.conversations[index].ai_mode_active = true;
+				this.conversations[index].ai_control = { ...this.conversations[index].ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' };
 			}
 			await this.loadConversations();
 		} catch (err) {
@@ -341,6 +345,21 @@ export class InboxState {
 							this.setReplyDraft(event.conversation_id, null);
 						}
 						break;
+
+					case 'ai.control.updated': {
+						const applyControl = (conversation: any) => {
+							if (!conversation) return;
+							conversation.ai_control = {
+								...(conversation.ai_control || { reply_override: 'inherit' }),
+								state: event.state,
+								state_reason: event.state_reason,
+								run_state: event.run_state
+							};
+						};
+						if (event.conversation_id === this.activeConvoID) applyControl(this.activeConvo);
+						applyControl(this.conversations.find((conversation) => conversation.id === event.conversation_id));
+						break;
+					}
 				}
 			} catch (err) {
 				console.error('Failed to handle WS message', err);

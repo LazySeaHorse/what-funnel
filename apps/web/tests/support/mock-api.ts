@@ -181,10 +181,19 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			if (conversation) conversation.assigned_user_ids = (body?.user_ids as string[]) ?? [];
 			return json({ status: 'assigned' });
 		}
-		if (/^\/conversations\/[^/]+\/ai-auto-reply$/.test(path) && request.method() === 'PATCH') {
+		if (/^\/conversations\/[^/]+\/ai-control$/.test(path) && request.method() === 'PATCH') {
 			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);
-			if (conversation) conversation.ai_auto_reply_enabled = body?.enabled ?? null;
-			return json({ ai_auto_reply_enabled: body?.enabled ?? null });
+			if (conversation) {
+				const action = String(body?.action || '');
+				const state = action === 'pause' ? 'paused_human' : action === 'block' ? 'blocked_manual' : action === 'resume' ? 'active' : conversation.ai_control?.state;
+				conversation.ai_control = {
+					...(conversation.ai_control || { state: 'active', reply_override: 'inherit', run_state: 'idle' }),
+					state,
+					reply_override: body?.reply_override || conversation.ai_control?.reply_override || 'inherit',
+					run_state: 'idle'
+				};
+			}
+			return json({ ai_control: conversation?.ai_control });
 		}
 		if (/^\/conversations\/[^/]+\/read$/.test(path)) return json({ status: 'read' });
 		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
@@ -212,8 +221,8 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 				ingestion = {
 					...ingestion,
 					status: 'review_required',
-					concepts: [{ id: '82111111-1111-4111-8111-111111111111', type: 'pricing', title: 'Pricing', tags: [], body_markdown: '$100 per hour.', status: 'draft' }],
-					patterns: [{ id: '83111111-1111-4111-8111-111111111111', canonical_question: 'What does it cost?', answer_markdown: '$100 per hour.', trigger_phrases: ['pricing', 'how much', 'what does it cost'], status: 'draft' }]
+					concepts: [{ id: '82111111-1111-4111-8111-111111111111', type: 'pricing', title: 'Pricing', tags: [], body_text: '$100 per hour.', status: 'draft' }],
+					patterns: [{ id: '83111111-1111-4111-8111-111111111111', canonical_question: 'What does it cost?', answer_text: '$100 per hour.', trigger_phrases: ['pricing', 'how much', 'what does it cost'], status: 'draft' }]
 				};
 			}
 			return json(ingestion);
@@ -315,14 +324,14 @@ export async function mockOnboardingApi(
 					...ingestion,
 					status: 'review_required',
 					concepts: [
-						{ id: '21111111-1111-4111-8111-111111111111', position: 0, type: 'service', title: 'Consulting', tags: [], body_markdown: 'Strategy consulting.', status: 'draft' },
-						{ id: '31111111-1111-4111-8111-111111111111', position: 1, type: 'pricing', title: 'Pricing', tags: [], body_markdown: '$100 per hour.', status: 'draft' },
-						{ id: '41111111-1111-4111-8111-111111111111', position: 2, type: 'hours', title: 'Hours', tags: [], body_markdown: 'Weekdays.', status: 'draft' },
-						{ id: '51111111-1111-4111-8111-111111111111', position: 3, type: 'policy', title: 'Cancellation', tags: [], body_markdown: '24 hours notice.', status: 'draft' }
+						{ id: '21111111-1111-4111-8111-111111111111', position: 0, type: 'service', title: 'Consulting', tags: [], body_text: 'Strategy consulting.', status: 'draft' },
+						{ id: '31111111-1111-4111-8111-111111111111', position: 1, type: 'pricing', title: 'Pricing', tags: [], body_text: '$100 per hour.', status: 'draft' },
+						{ id: '41111111-1111-4111-8111-111111111111', position: 2, type: 'hours', title: 'Hours', tags: [], body_text: 'Weekdays.', status: 'draft' },
+						{ id: '51111111-1111-4111-8111-111111111111', position: 3, type: 'policy', title: 'Cancellation', tags: [], body_text: '24 hours notice.', status: 'draft' }
 					],
 					patterns: [
-						{ id: '61111111-1111-4111-8111-111111111111', position: 0, canonical_question: 'What does consulting cost?', answer_markdown: '$100 per hour.', trigger_phrases: ['consulting price', 'what do you charge', 'hourly rate'], status: 'draft' },
-						{ id: '71111111-1111-4111-8111-111111111111', position: 1, canonical_question: 'When are you open?', answer_markdown: 'We are open weekdays.', trigger_phrases: ['opening hours', 'when are you open', 'business hours'], status: 'draft' }
+						{ id: '61111111-1111-4111-8111-111111111111', position: 0, canonical_question: 'What does consulting cost?', answer_text: '$100 per hour.', trigger_phrases: ['consulting price', 'what do you charge', 'hourly rate'], status: 'draft' },
+						{ id: '71111111-1111-4111-8111-111111111111', position: 1, canonical_question: 'When are you open?', answer_text: 'We are open weekdays.', trigger_phrases: ['opening hours', 'when are you open', 'business hours'], status: 'draft' }
 					]
 				};
 			}

@@ -68,6 +68,7 @@
 	let showWorkspaceDropdown = $state(false);
 	let showAssignDropdown = $state(false);
 	let showStatusDropdown = $state(false);
+	let showAIControlMenu = $state(false);
 	let showAddTagInput = $state(false);
 	let newTagText = $state('');
 
@@ -113,24 +114,21 @@
 			await apiRequest('/workspace/account/settings', {
 				method: 'PATCH',
 				body: {
-					ai_enabled: nextEnabled,
-					ai_reply_mode_default: nextEnabled ? 'auto_send' : aiReplyModeDefault
+					ai_reply_mode_default: nextEnabled ? 'auto_send' : 'draft_only'
 				}
 			});
-			aiEnabled = nextEnabled;
-			if (nextEnabled) aiReplyModeDefault = 'auto_send';
+			aiReplyModeDefault = nextEnabled ? 'auto_send' : 'draft_only';
 			await workspace.refreshAccount();
 		} finally {
 			togglingGlobalAI = false;
 		}
 	}
 
-	async function toggleChatAutoReply() {
+	async function setChatAIControl(action = '', replyOverride = '') {
 		if (!inbox.activeConvo || togglingChatAI) return;
 		togglingChatAI = true;
 		try {
-			const override = inbox.activeConvo.ai_auto_reply_enabled;
-			await inbox.setConversationAIAutoReply(override === false ? null : false);
+			await inbox.updateConversationAIControl(action, replyOverride);
 		} finally {
 			togglingChatAI = false;
 		}
@@ -746,6 +744,24 @@
 	let activeAIReplyDraft = $derived(
 		inbox.activeConvoID ? inbox.replyDrafts[inbox.activeConvoID] ?? null : null
 	);
+	let activeAIControl = $derived(inbox.activeConvo?.ai_control ?? { state: 'active', reply_override: 'inherit', run_state: 'idle' });
+	let chatAIReplyEnabled = $derived(
+		aiEnabled && aiProviderConfigured &&
+		(activeAIControl.reply_override === 'enabled' || (activeAIControl.reply_override === 'inherit' && aiAutoReplyEnabled)) &&
+		activeAIControl.state === 'active'
+	);
+	let chatAIProcessing = $derived(chatAIReplyEnabled && activeAIControl.run_state === 'replying');
+
+	function toggleChatAI() {
+		if (chatAIReplyEnabled) void setChatAIControl('', 'disabled');
+		else void setChatAIControl(activeAIControl.state === 'active' ? '' : 'resume', 'enabled');
+		showAIControlMenu = false;
+	}
+
+	function inheritGlobalAISetting() {
+		void setChatAIControl('', 'inherit');
+		showAIControlMenu = false;
+	}
 
 	function useAISuggestion() {
 		if (!activeAIReplyDraft) return;
@@ -953,24 +969,6 @@
 
 			<!-- Right Controls -->
 			<div class="flex items-center gap-3">
-				<!-- AI status reflects saved settings and provider configuration. -->
-				<button
-					type="button"
-					role="switch"
-					aria-label="Global AI auto-reply"
-					aria-checked={aiAutoReplyEnabled && aiProviderConfigured}
-					onclick={toggleGlobalAutoReply}
-					disabled={!capabilities.manageWorkspace || togglingGlobalAI || (!aiProviderConfigured && !aiAutoReplyEnabled)}
-					class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-default disabled:opacity-70"
-					title={!aiProviderStatusLoaded ? 'Checking AI configuration' : !aiProviderConfigured ? 'Configure an AI provider in Settings before enabling automatic replies' : undefined}
-				>
-					<span class="w-2 h-2 rounded-full {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
-					<span class="text-slate-700">AI auto-reply</span>
-					<span class="px-1.5 py-0.5 rounded text-[10px] font-medium {aiAutoReplyEnabled && aiProviderConfigured ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'}">
-						{!aiProviderStatusLoaded ? 'CHECKING' : !aiProviderConfigured ? 'NOT CONFIGURED' : aiAutoReplyEnabled ? 'ON' : 'OFF'}
-					</span>
-				</button>
-
 				<!-- User Name & Title Box (Outline only, matching height) -->
 				{#if capabilities.showOperatorIdentity}
 				<div data-testid="operator-identity" class="h-10 flex items-center gap-2.5 px-3.5 bg-white rounded-xl border border-slate-200 text-left">
@@ -1239,6 +1237,42 @@
 
 							<!-- Chat Action Buttons -->
 							<div class="flex items-center gap-2">
+								<div class="relative">
+									<div class="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
+										<button
+											type="button"
+											role="switch"
+											aria-label="AI replies for this chat"
+											aria-checked={chatAIReplyEnabled}
+											onclick={toggleChatAI}
+											disabled={togglingChatAI || !aiProviderConfigured}
+											class="h-8 px-2.5 flex items-center gap-1.5 text-[11px] font-medium transition {chatAIReplyEnabled ? 'text-emerald-700 bg-emerald-50' : activeAIControl.state === 'blocked_spam' ? 'text-rose-700 bg-rose-50' : 'text-slate-500 bg-slate-50'} disabled:opacity-60"
+										>
+											<span class="w-1.5 h-1.5 rounded-full {chatAIProcessing ? 'bg-blue-500 animate-pulse' : chatAIReplyEnabled ? 'bg-emerald-500' : activeAIControl.state === 'blocked_spam' ? 'bg-rose-500' : 'bg-slate-400'}"></span>
+											{chatAIProcessing ? 'AI replying' : activeAIControl.state === 'review_required' ? 'Needs review' : activeAIControl.state === 'blocked_spam' ? 'Spam blocked' : chatAIReplyEnabled ? 'AI replies on' : 'AI replies off'}
+										</button>
+										<button
+											type="button"
+											onclick={() => showAIControlMenu = !showAIControlMenu}
+											class="h-8 px-1.5 border-l border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+											aria-label="AI chat options"
+										>
+											<ChevronDownIcon class="w-3.5 h-3.5" />
+										</button>
+									</div>
+									{#if showAIControlMenu}
+										<div class="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs">
+											<button onclick={inheritGlobalAISetting} class="w-full px-3 py-2 text-left hover:bg-slate-50 text-slate-700">
+												Use global default ({aiAutoReplyEnabled ? 'on' : 'off'})
+											</button>
+											{#if activeAIControl.state !== 'active'}
+												<button onclick={() => { void setChatAIControl('resume', ''); showAIControlMenu = false; }} class="w-full px-3 py-2 text-left hover:bg-slate-50 text-slate-700">
+													Resume AI
+												</button>
+											{/if}
+										</div>
+									{/if}
+								</div>
 								<!-- Resolve / Close Conversation -->
 								<div class="relative">
 									<button
@@ -1366,6 +1400,22 @@
 								{/if}
 
 								{#if replyTab === 'reply'}
+									{#if chatAIReplyEnabled}
+										<div class="mx-3 my-2.5 min-h-16 rounded-xl border border-slate-200 bg-slate-100/90 px-4 py-3 flex items-center justify-between gap-4" aria-live="polite">
+											<div>
+												<div class="text-xs font-medium text-slate-700">{chatAIProcessing ? 'AI is replying...' : 'AI is handling this chat.'}</div>
+												<div class="text-[11px] text-slate-500 mt-0.5">Messages are locked to prevent simultaneous human and AI replies.</div>
+											</div>
+											<button
+												type="button"
+												onclick={() => setChatAIControl('pause', '')}
+												disabled={togglingChatAI}
+												class="shrink-0 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+											>
+												{chatAIProcessing ? 'Pause AI' : 'Take over'}
+											</button>
+										</div>
+									{:else}
 									<!-- Text Input Area -->
 									<div class="px-4 py-2.5">
 										<input
@@ -1405,6 +1455,7 @@
 											<PaperAirplaneIcon class="w-4 h-4" />
 										</button>
 									</div>
+									{/if}
 								{:else}
 									<!-- Internal Note Tab Content -->
 									<div class="p-3">
@@ -1827,7 +1878,15 @@
 			/>
 
 		{:else if selectedNav === 'knowledge'}
-			<KnowledgeView {searchQuery} reviewerID={inbox.currentUser?.user_id || inbox.currentUser?.id || ''} />
+			<KnowledgeView
+				{searchQuery}
+				reviewerID={inbox.currentUser?.user_id || inbox.currentUser?.id || ''}
+				autoReplyEnabled={aiAutoReplyEnabled}
+				providerConfigured={aiProviderConfigured}
+				canManageAI={capabilities.manageWorkspace}
+				togglingAI={togglingGlobalAI}
+				onToggleAI={toggleGlobalAutoReply}
+			/>
 		{:else if selectedNav === 'contacts'}
 			<ContactsView conversations={inbox.conversations} onOpenConversation={(id) => { void selectConvo(id); selectedNav = 'inbox'; }} />
 

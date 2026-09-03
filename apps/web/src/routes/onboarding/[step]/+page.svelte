@@ -85,8 +85,8 @@
 	// Step 6: Knowledge Base
 	let s6RawText = $state('');
 	let s6Status = $state<'input' | 'processing' | 'results' | 'publishing'>('input');
-	let s6Concepts = $state<Array<{ id: string; title: string; type: string; tags: string[]; body_markdown: string; approved: boolean }>>([]);
-	let s6Patterns = $state<Array<{ id: string; canonical_question: string; answer_markdown: string; trigger_phrases: string[]; approved: boolean }>>([]);
+	let s6Concepts = $state<Array<{ id: string; title: string; type: string; tags: string[]; body_text: string; approved: boolean }>>([]);
+	let s6Patterns = $state<Array<{ id: string; canonical_question: string; answer_text: string; trigger_phrases: string[]; approved: boolean }>>([]);
 	let s6Compiling = $state(false);
 	let s6Error = $state('');
 	let s6IngestionID = $state('');
@@ -187,7 +187,7 @@
 			title: item.title ?? '',
 			type: item.type ?? 'faq',
 			tags: Array.isArray(item.tags) ? item.tags : [],
-			body_markdown: item.body_markdown ?? '',
+			body_text: item.body_text ?? '',
 			approved: item.status !== 'rejected'
 		}));
 	}
@@ -196,7 +196,7 @@
 		return (items ?? []).map((item: any) => ({
 			id: item.id,
 			canonical_question: item.canonical_question ?? '',
-			answer_markdown: item.answer_markdown ?? '',
+			answer_text: item.answer_text ?? '',
 			trigger_phrases: Array.isArray(item.trigger_phrases) ? item.trigger_phrases : [],
 			approved: item.status !== 'rejected'
 		}));

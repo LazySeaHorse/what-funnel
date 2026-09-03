@@ -12,7 +12,23 @@
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 
-	let { reviewerID = '', searchQuery = '' }: { reviewerID?: string; searchQuery?: string } = $props();
+	let {
+		reviewerID = '',
+		searchQuery = '',
+		autoReplyEnabled = false,
+		providerConfigured = false,
+		canManageAI = false,
+		togglingAI = false,
+		onToggleAI = () => {}
+	}: {
+		reviewerID?: string;
+		searchQuery?: string;
+		autoReplyEnabled?: boolean;
+		providerConfigured?: boolean;
+		canManageAI?: boolean;
+		togglingAI?: boolean;
+		onToggleAI?: () => void;
+	} = $props();
 
 	let concepts = $state<any[]>([]);
 	let patterns = $state<any[]>([]);
@@ -40,7 +56,7 @@
 			? concepts
 			: concepts.filter((c) =>
 					(c.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(c.body_markdown || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+					(c.body_text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 					(c.type || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 					(c.tags || []).some((t: string) => t.toLowerCase().includes(searchQuery.toLowerCase()))
 				)
@@ -51,7 +67,7 @@
 			? patterns
 			: patterns.filter((p) =>
 					(p.canonical_question || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(p.answer_markdown || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+					(p.answer_text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 					(p.trigger_phrases || []).some((phrase: string) => phrase.toLowerCase().includes(searchQuery.toLowerCase()))
 				)
 	);
@@ -61,7 +77,7 @@
 			? suggestions
 			: suggestions.filter((s) => {
 					const title = s._payload?.title || s._payload?.canonical_question || '';
-					const body = s._payload?.body_markdown || s._payload?.answer_markdown || '';
+					const body = s._payload?.body_text || s._payload?.answer_text || '';
 					return (
 						title.toLowerCase().includes(searchQuery.toLowerCase()) ||
 						body.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -153,7 +169,7 @@
 			title: item.title ?? '',
 			type: item.type ?? 'faq',
 			tags: Array.isArray(item.tags) ? item.tags : [],
-			body_markdown: item.body_markdown ?? '',
+			body_text: item.body_text ?? '',
 			approved: item.status !== 'rejected'
 		}));
 	}
@@ -162,7 +178,7 @@
 		return (items ?? []).map((item: any) => ({
 			id: item.id,
 			canonical_question: item.canonical_question ?? '',
-			answer_markdown: item.answer_markdown ?? '',
+			answer_text: item.answer_text ?? '',
 			trigger_phrases: Array.isArray(item.trigger_phrases) ? item.trigger_phrases : [],
 			approved: item.status !== 'rejected'
 		}));
@@ -300,6 +316,22 @@
 				<p class="text-xs text-slate-500 mt-0.5">Manage pricing, FAQs, services, and policies for AI answers.</p>
 			</div>
 			<div class="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+				<button
+					type="button"
+					role="switch"
+					aria-label="Global AI auto-reply default"
+					aria-checked={autoReplyEnabled && providerConfigured}
+					onclick={onToggleAI}
+					disabled={!canManageAI || togglingAI || (!providerConfigured && !autoReplyEnabled)}
+					class="h-9 flex items-center gap-2 px-3 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-default disabled:opacity-60"
+					title={!providerConfigured ? 'Configure an AI provider in Settings before enabling automatic replies' : 'New chats inherit this setting unless they have a chat override'}
+				>
+					<span class="w-2 h-2 rounded-full {autoReplyEnabled && providerConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+					<span>Global AI auto-reply</span>
+					<span class="text-[10px] {autoReplyEnabled && providerConfigured ? 'text-emerald-600' : 'text-slate-400'}">
+						{autoReplyEnabled && providerConfigured ? 'ON' : 'OFF'}
+					</span>
+				</button>
 				<div class="text-left sm:text-right">
 					<div class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Last AI audit</div>
 					<div class="text-xs font-medium text-slate-700 mt-0.5">{formatDate(lastRun?.run_at)}</div>
@@ -458,7 +490,7 @@
 							</button>
 							{#if expandedConcept === concept.id}
 								<div class="px-4 pb-4 pt-1 border-t border-slate-100 bg-slate-50/40 text-xs space-y-2">
-									<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">{concept.body_markdown}</div>
+									<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">{concept.body_text}</div>
 									<div class="flex items-center justify-between pt-2 text-[11px] text-slate-400 border-t border-slate-100">
 										<span>Added {formatDate(concept.created_at)}</span>
 										<button onclick={() => deleteConcept(concept.id)} class="text-rose-500 hover:text-rose-700 transition cursor-pointer flex items-center gap-1">
@@ -502,7 +534,7 @@
 								{/each}
 							</div>
 						{/if}
-						<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap bg-slate-50/70 p-3 rounded-lg border border-slate-100">{pattern.answer_markdown}</div>
+						<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap bg-slate-50/70 p-3 rounded-lg border border-slate-100">{pattern.answer_text}</div>
 						<div class="flex justify-end pt-1 text-[11px]">
 							<button onclick={() => deletePattern(pattern.id)} class="text-rose-500 hover:text-rose-700 transition cursor-pointer flex items-center gap-1">
 								<TrashIcon class="w-3.5 h-3.5" />
@@ -539,7 +571,7 @@
 								{Math.round((suggestion.confidence ?? 0) * 100)}% match
 							</span>
 						</div>
-						<div class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl leading-relaxed whitespace-pre-wrap border border-slate-100">{suggestion._payload?.body_markdown ?? suggestion._payload?.answer_markdown ?? ''}</div>
+						<div class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl leading-relaxed whitespace-pre-wrap border border-slate-100">{suggestion._payload?.body_text ?? suggestion._payload?.answer_text ?? ''}</div>
 						<div class="flex items-center justify-end gap-2 pt-1 text-xs">
 							<button onclick={() => reviewSuggestion(suggestion.id, 'reject')} class="px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer font-medium">
 								Dismiss

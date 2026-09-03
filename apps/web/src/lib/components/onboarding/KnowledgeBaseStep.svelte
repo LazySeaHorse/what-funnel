@@ -2,8 +2,8 @@
 	import { SparklesIcon, ArrowRightIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 
-	type Concept = { id: string; title: string; type: string; tags: string[]; body_markdown: string; approved: boolean };
-	type Pattern = { id: string; canonical_question: string; answer_markdown: string; trigger_phrases: string[]; approved: boolean };
+	type Concept = { id: string; title: string; type: string; tags: string[]; body_text: string; approved: boolean };
+	type Pattern = { id: string; canonical_question: string; answer_text: string; trigger_phrases: string[]; approved: boolean };
 
 	let {
 		step,
