@@ -54,11 +54,11 @@
 	let aiReplyModeDefault = $state<'auto_send' | 'draft_only'>('draft_only');
 	let aiAutoReplyEnabled = $derived(aiEnabled && aiReplyModeDefault === 'auto_send');
 	let togglingGlobalAI = $state(false);
-	let togglingChatAI = $state(false);
+	let togglingChatAI = $derived(inbox.activeConvoID ? inbox.aiControlPending[inbox.activeConvoID] ?? false : false);
 	let aiProviderConfigured = $state(false);
 	let aiProviderStatusLoaded = $state(false);
-	let messageInput = $state('');
-	let appliedAIReplyDraftID = $state<string | null>(null);
+	const emptyComposer = { text: '', aiReplyDraftID: null, sending: false, error: '' };
+	let composer = $derived(inbox.activeConvoID ? inbox.composers[inbox.activeConvoID] ?? emptyComposer : emptyComposer);
 	let internalNoteInput = $state('');
 	let messageContainer: HTMLDivElement | null = $state(null);
 
@@ -126,12 +126,7 @@
 
 	async function setChatAIControl(action = '', replyOverride = '') {
 		if (!inbox.activeConvo || togglingChatAI) return;
-		togglingChatAI = true;
-		try {
-			await inbox.updateConversationAIControl(action, replyOverride);
-		} finally {
-			togglingChatAI = false;
-		}
+		await inbox.updateConversationAIControl(inbox.activeConvo.id, action, replyOverride);
 	}
 
 	$effect(() => {
@@ -611,19 +606,16 @@
 	}
 
 	async function selectConvo(id: string) {
-		appliedAIReplyDraftID = null;
 		await inbox.selectConversation(id);
 		await tick();
 		scrollToBottom();
 	}
 
 	async function handleSendMessage() {
-		if (!messageInput.trim() || !inbox.activeConvoID) return;
-		const text = messageInput.trim();
-		const sent = await inbox.sendMessage(text, appliedAIReplyDraftID ?? undefined);
-		if (!sent) return;
-		messageInput = '';
-		appliedAIReplyDraftID = null;
+		const conversationID = inbox.activeConvoID;
+		if (!composer.text.trim() || !conversationID || composer.sending) return;
+		const sent = await inbox.sendMessage(conversationID, composer.text.trim(), composer.aiReplyDraftID ?? undefined);
+		if (!sent || inbox.activeConvoID !== conversationID) return;
 		await tick();
 		scrollToBottom();
 	}
@@ -729,7 +721,7 @@
 		} else {
 			updated = [...current, userID];
 		}
-		inbox.assignConversation(updated);
+		inbox.assignConversation(inbox.activeConvo.id, updated);
 	}
 
 	async function handleLogout() {
@@ -765,16 +757,17 @@
 
 	function useAISuggestion() {
 		if (!activeAIReplyDraft) return;
-		messageInput = activeAIReplyDraft.draft_text;
-		appliedAIReplyDraftID = activeAIReplyDraft.id;
+		composer.text = activeAIReplyDraft.draft_text;
+		composer.aiReplyDraftID = activeAIReplyDraft.id;
 	}
 
 	async function dismissAISuggestion() {
 		if (!inbox.activeConvoID || !activeAIReplyDraft) return;
+		const targetComposer = composer;
 		const draftID = activeAIReplyDraft.id;
 		try {
 			await inbox.dismissReplyDraft(inbox.activeConvoID, draftID);
-			if (appliedAIReplyDraftID === draftID) appliedAIReplyDraftID = null;
+			if (targetComposer.aiReplyDraftID === draftID) targetComposer.aiReplyDraftID = null;
 		} catch (err) {
 			console.error('Failed to dismiss AI reply suggestion', err);
 		}
@@ -784,7 +777,6 @@
 		inbox.activeConvoID = null;
 		inbox.activeConvo = null;
 		inbox.messages = [];
-		appliedAIReplyDraftID = null;
 	}
 	$effect(() => {
 		if (selectedNav === 'leads' || selectedNav === 'inbox') void inbox.loadConversations();
@@ -1348,7 +1340,7 @@
 
 						<!-- --- Chat Composer & AI Suggestion (matching mock) --- -->
 						<div class="p-3 sm:p-4 bg-white border-t border-slate-100 shrink-0">
-							{#if capabilities.useReplyDrafts && activeAIReplyDraft && appliedAIReplyDraftID !== activeAIReplyDraft.id && replyTab === 'reply'}
+							{#if capabilities.useReplyDrafts && activeAIReplyDraft && composer.aiReplyDraftID !== activeAIReplyDraft.id && replyTab === 'reply'}
 								<!-- AI Suggested Response Box (floating above composer matching mock) -->
 								<div class="mb-3 p-3 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1.5 relative">
 									<div class="flex items-center justify-between">
@@ -1382,7 +1374,10 @@
 
 							<div class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden">
 								{#if capabilities.leadTracking}
-								<!-- Tabs: Reply | Internal Note -->
+							<!-- Tabs: Reply | Internal Note -->
+							{#if composer.error || (inbox.activeConvoID && inbox.mutationErrors[inbox.activeConvoID])}
+								<p role="alert" class="wf-alert-error">{composer.error || inbox.mutationErrors[inbox.activeConvoID!]}</p>
+							{/if}
 								<div class="flex items-center gap-6 px-4 pt-2.5 border-b border-slate-100 text-xs font-medium">
 									<button
 										onclick={() => replyTab = 'reply'}
@@ -1420,7 +1415,7 @@
 									<div class="px-4 py-2.5">
 										<input
 											type="text"
-											bind:value={messageInput}
+											bind:value={composer.text}
 											onkeydown={handleKeydown}
 											placeholder="Enter a message..."
 											class="compose-input w-full text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent"
@@ -1448,7 +1443,7 @@
 										<!-- Right Action: Circular Send button -->
 										<button
 											onclick={handleSendMessage}
-											disabled={!messageInput.trim() || !inbox.activeConvoID}
+											disabled={!composer.text.trim() || !inbox.activeConvoID || composer.sending}
 											class="send-btn w-8 h-8 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-full flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-40 shadow-xs cursor-pointer"
 											aria-label="Send message"
 										>
@@ -1579,6 +1574,7 @@
 											<button
 												type="button"
 												onclick={() => toggleUserAssignment(user.id)}
+												disabled={inbox.assignmentPending[inbox.activeConvo.id]}
 												class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between cursor-pointer {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
 											>
 												<span class="truncate">{user.name || user.email}</span>

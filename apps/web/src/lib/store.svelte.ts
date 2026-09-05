@@ -14,6 +14,10 @@ export interface AIReplyDraft {
 }
 
 export class InboxState {
+	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; sending: boolean; error: string }>>({});
+	aiControlPending = $state<Record<string, boolean>>({});
+	assignmentPending = $state<Record<string, boolean>>({});
+	mutationErrors = $state<Record<string, string>>({});
 	conversations = $state<any[]>([]);
 	activeConvoID = $state<string | null>(null);
 	pendingConvoID = $state<string | null>(null);
@@ -93,6 +97,7 @@ export class InboxState {
 			if (requestVersion !== this.conversationRequestVersion) return;
 
 			this.activeConvoID = convoID;
+			this.composers[convoID] ??= { text: '', aiReplyDraftID: null, sending: false, error: '' };
 			this.activeConvo = conversation;
 			this.messages = (messageResponse?.messages ?? []).reverse();
 			this.nextCursor = messageResponse?.next_cursor ?? null;
@@ -161,9 +166,13 @@ export class InboxState {
 		}
 	}
 	
-	async sendMessage(text: string, aiReplyDraftID?: string): Promise<boolean> {
-		const convoID = this.activeConvoID || this.pendingConvoID;
+	async sendMessage(convoID: string, text: string, aiReplyDraftID?: string): Promise<boolean> {
 		if (!convoID || !text.trim()) return false;
+		const composer = this.composers[convoID] ??= { text: '', aiReplyDraftID: null, sending: false, error: '' };
+		if (composer.sending) return false;
+		composer.sending = true;
+		composer.error = '';
+		const submittedText = composer.text;
 		const pendingDraftID = this.replyDrafts[convoID]?.id;
 		try {
 			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
@@ -182,45 +191,60 @@ export class InboxState {
 				method: 'POST',
 				body
 			});
-			if (res && res.id) {
+			if (this.activeConvoID === convoID && res && res.id) {
 				if (!this.messages.some(m => m.id === res.id)) {
 					this.messages = [...this.messages, res];
 				}
-			} else {
+			} else if (this.activeConvoID === convoID && !res?.id) {
 				await this.loadMessages(true);
 			}
 			await this.loadConversations();
 			if (pendingDraftID && this.replyDrafts[convoID]?.id === pendingDraftID) {
 				this.setReplyDraft(convoID, null);
 			}
-			window.dispatchEvent(new CustomEvent('dev-message-sent'));
+			if (composer.text === submittedText) {
+				composer.text = '';
+				composer.aiReplyDraftID = null;
+			}
 			return true;
 		} catch (err) {
 			console.error('Failed to send message:', err);
+			composer.error = 'Failed to send message. Please try again.';
 			return false;
+		} finally {
+			composer.sending = false;
 		}
 	}
 	
-	async assignConversation(userIDs: string[]) {
-		if (!this.activeConvoID) return;
+	async assignConversation(convoID: string, userIDs: string[]) {
+		if (!convoID || this.assignmentPending[convoID]) return;
+		this.assignmentPending[convoID] = true;
+		this.mutationErrors[convoID] = '';
 		try {
-			await apiRequest(`/conversations/${this.activeConvoID}/assign`, {
+			await apiRequest(`/conversations/${convoID}/assign`, {
 				method: 'PATCH',
 				body: { user_ids: userIDs }
 			});
-			if (this.activeConvo) {
+			if (this.activeConvo?.id === convoID) {
 				this.activeConvo.assigned_user_ids = userIDs;
 			}
+			const item = this.conversations.find((conversation) => conversation.id === convoID);
+			if (item) item.assigned_user_ids = userIDs;
 			await this.loadConversations();
 		} catch (err) {
 			console.error(err);
+			this.mutationErrors[convoID] = 'Failed to update assignment. Please try again.';
+		} finally {
+			this.assignmentPending[convoID] = false;
 		}
 	}
 
-	async updateConversationAIControl(action = '', replyOverride = '') {
-		if (!this.activeConvoID) return false;
+	async updateConversationAIControl(convoID: string, action = '', replyOverride = '') {
+		if (!convoID || this.aiControlPending[convoID]) return false;
+		this.aiControlPending[convoID] = true;
+		this.mutationErrors[convoID] = '';
 		try {
-			const response = await apiRequest(`/conversations/${this.activeConvoID}/ai-control`, {
+			const response = await apiRequest(`/conversations/${convoID}/ai-control`, {
 				method: 'PATCH',
 				body: {
 					...(action ? { action } : {}),
@@ -228,13 +252,16 @@ export class InboxState {
 				}
 			});
 			const control = response?.ai_control;
-			if (this.activeConvo && control) this.activeConvo.ai_control = control;
-			const item = this.conversations.find((conversation) => conversation.id === this.activeConvoID);
+			if (this.activeConvo?.id === convoID && control) this.activeConvo.ai_control = control;
+			const item = this.conversations.find((conversation) => conversation.id === convoID);
 			if (item && control) item.ai_control = control;
 			return true;
 		} catch (err) {
 			console.error('Failed to update conversation AI auto-reply:', err);
+			this.mutationErrors[convoID] = 'Failed to update AI controls. Please try again.';
 			return false;
+		} finally {
+			this.aiControlPending[convoID] = false;
 		}
 	}
 
