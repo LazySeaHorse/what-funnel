@@ -3,24 +3,30 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
+	"golang.org/x/sync/errgroup"
 )
+
+type streamConsumer interface {
+	Consume(context.Context, string, string, string, func(context.Context, string, []byte) error) error
+}
 
 type Consumer struct {
 	pool   *pgxpool.Pool
-	ps     *pubsub.Client
+	ps     streamConsumer
 	hub    *server.Hub
 	logger *slog.Logger
 }
 
-func NewConsumer(pool *pgxpool.Pool, ps *pubsub.Client, hub *server.Hub, logger *slog.Logger) *Consumer {
+func NewConsumer(pool *pgxpool.Pool, ps streamConsumer, hub *server.Hub, logger *slog.Logger) *Consumer {
 	return &Consumer{
 		pool:   pool,
 		ps:     ps,
@@ -29,7 +35,7 @@ func NewConsumer(pool *pgxpool.Pool, ps *pubsub.Client, hub *server.Hub, logger 
 	}
 }
 
-func (c *Consumer) Start(ctx context.Context, consumerName string) {
+func (c *Consumer) Run(ctx context.Context, consumerName string) error {
 	streams := []struct {
 		name    string
 		handler func(context.Context, string, []byte) error
@@ -45,16 +51,22 @@ func (c *Consumer) Start(ctx context.Context, consumerName string) {
 		{"conversation.summary_updated", c.handleConversationSummaryUpdated},
 	}
 
+	group, groupCtx := errgroup.WithContext(ctx)
 	for _, s := range streams {
 		stream := s
-		go func() {
+		group.Go(func() error {
 			c.logger.Info("starting stream consumer", "stream", stream.name)
-			err := c.ps.Consume(ctx, stream.name, "notification-svc", consumerName, stream.handler)
-			if err != nil && ctx.Err() == nil {
-				c.logger.Error("stream consumer failed", "stream", stream.name, "error", err)
+			err := c.ps.Consume(groupCtx, stream.name, "notification-svc", consumerName, stream.handler)
+			if groupCtx.Err() != nil && errors.Is(err, groupCtx.Err()) {
+				return nil
 			}
-		}()
+			if err != nil {
+				return fmt.Errorf("consume stream %s: %w", stream.name, err)
+			}
+			return fmt.Errorf("consume stream %s stopped unexpectedly", stream.name)
+		})
 	}
+	return group.Wait()
 }
 
 func (c *Consumer) handleAIControlUpdated(ctx context.Context, id string, payload []byte) error {

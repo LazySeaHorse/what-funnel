@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"testing"
@@ -19,6 +20,57 @@ import (
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/consumer"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
 )
+
+type blockingStreamConsumer struct {
+	started chan string
+}
+
+func (c *blockingStreamConsumer) Consume(ctx context.Context, stream, _, _ string, _ func(context.Context, string, []byte) error) error {
+	c.started <- stream
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestConsumer_RunWaitsForAllStreams(t *testing.T) {
+	streamClient := &blockingStreamConsumer{started: make(chan string, 9)}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := consumer.NewConsumer(nil, streamClient, nil, logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- c.Run(ctx, "test-consumer")
+	}()
+
+	started := make(map[string]struct{}, 9)
+	for range 9 {
+		select {
+		case stream := <-streamClient.started:
+			started[stream] = struct{}{}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for stream consumers to start")
+		}
+	}
+	if len(started) != 9 {
+		t.Fatalf("started %d distinct stream consumers, want 9", len(started))
+	}
+
+	select {
+	case err := <-done:
+		t.Fatalf("Run() returned before cancellation: %v", err)
+	default:
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() did not wait for stream consumers to stop")
+	}
+}
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()

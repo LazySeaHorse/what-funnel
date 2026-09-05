@@ -10,6 +10,7 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/whatfunnel/whatfunnel/packages/go-common v0.0.0
+	golang.org/x/sync v0.17.0
 )
 
 require (
@@ -20,7 +21,6 @@ require (
 	github.com/redis/go-redis/v9 v9.21.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
-	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
 

@@ -17,23 +17,29 @@ import (
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/consumer"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/session"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
-	cfg := config.MustLoad()
-
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
+	if err := run(logger); err != nil {
+		logger.Error("notification-svc stopped with an error", "error", err)
+		os.Exit(1)
+	}
+}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func run(logger *slog.Logger) error {
+	cfg := config.MustLoad()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// 1. Connect to Database
 	pool, err := db.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("failed to connect to database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to database: %w", err)
 	}
 	defer pool.Close()
 	logger.Info("connected to database")
@@ -41,8 +47,7 @@ func main() {
 	// 2. Connect to Redis
 	psClient, err := pubsub.NewClient(cfg.RedisURL)
 	if err != nil {
-		logger.Error("failed to connect to redis", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to redis: %w", err)
 	}
 	defer psClient.Close()
 	logger.Info("connected to redis")
@@ -55,7 +60,6 @@ func main() {
 	// 4. Initialize and Start Event Consumer
 	consumerName := fmt.Sprintf("notification-svc-%s", getHostname())
 	c := consumer.NewConsumer(pool, psClient, hub, logger)
-	c.Start(ctx, consumerName)
 
 	// 5. Initialize Server & Routes
 	srvHandler := server.NewServer(hub, sess, logger, cfg.AllowedOrigins, cfg.IsProduction())
@@ -78,27 +82,33 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	go func() {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		return c.Run(groupCtx, consumerName)
+	})
+	group.Go(func() error {
 		logger.Info("notification-svc listening", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("serve HTTP: %w", err)
 		}
-	}()
+		return nil
+	})
+	group.Go(func() error {
+		<-groupCtx.Done()
+		logger.Info("shutting down notification-svc...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shut down HTTP server: %w", err)
+		}
+		return nil
+	})
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	logger.Info("shutting down notification-svc...")
-	cancel()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("shutdown error", "error", err)
+	if err := group.Wait(); err != nil {
+		return err
 	}
 	logger.Info("notification-svc stopped")
+	return nil
 }
 
 func loggingMiddleware(logger *slog.Logger) mux.MiddlewareFunc {
