@@ -36,6 +36,8 @@ export class InboxState {
 	private conversationRequest: AbortController | null = null;
 	private conversationRequestVersion = 0;
 	private replyDraftsEnabled = false;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private running = false;
 
 	configureCapabilities(capabilities: UICapabilities) {
 		this.replyDraftsEnabled = capabilities.useReplyDrafts;
@@ -43,18 +45,48 @@ export class InboxState {
 	}
 	
 	async init() {
+		this.running = true;
 		try {
-			this.currentUser = await apiRequest('/auth/me');
+			const currentUser = await apiRequest('/auth/me');
+			if (!this.running) return;
+			this.currentUser = currentUser;
 			if (this.currentUser.role === 'manager') {
 				this.filter = 'all';
 			} else {
 				this.filter = 'mine';
 			}
 			await this.loadConversations();
+			if (!this.running) return;
 			this.connectWS();
 		} catch (err) {
-			console.error('Failed to init inbox', err);
+			if (this.running) console.error('Failed to init inbox', err);
 		}
+	}
+
+	dispose() {
+		this.running = false;
+		this.conversationRequestVersion++;
+		this.conversationRequest?.abort();
+		this.conversationRequest = null;
+		this.pendingConvoID = null;
+
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+
+		const socket = this.ws;
+		this.ws = null;
+		if (socket) {
+			socket.onopen = null;
+			socket.onmessage = null;
+			socket.onerror = null;
+			socket.onclose = null;
+			socket.close(1000, 'Inbox disposed');
+		}
+
+		this.reconnectAttempts = 0;
+		this.wsStatus = 'disconnected';
 	}
 
 	async loadConversations() {
@@ -286,24 +318,24 @@ export class InboxState {
 	}
 	
 	connectWS() {
-		if (this.ws) {
-			this.ws.close();
-		}
+		if (!this.running || this.ws) return;
 		
 		this.wsStatus = 'connecting';
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${window.location.host}/ws`;
+		const socket = new WebSocket(wsUrl);
+		this.ws = socket;
 		
-		this.ws = new WebSocket(wsUrl);
-		
-		this.ws.onopen = () => {
+		socket.onopen = () => {
+			if (!this.running || this.ws !== socket) return;
 			this.wsStatus = 'connected';
 			this.reconnectAttempts = 0;
 			console.log('WS connected');
 			if (this.replyDraftsEnabled) void this.loadReplyDraft();
 		};
 		
-		this.ws.onmessage = async (e) => {
+		socket.onmessage = async (e) => {
+			if (!this.running || this.ws !== socket) return;
 			try {
 				const event = JSON.parse(e.data);
 				console.log('WS event received:', event);
@@ -393,23 +425,28 @@ export class InboxState {
 			}
 		};
 		
-		this.ws.onclose = () => {
+		socket.onclose = () => {
+			if (this.ws !== socket) return;
+			this.ws = null;
 			this.wsStatus = 'disconnected';
-			this.reconnect();
+			if (this.running) this.reconnect();
 		};
 		
-		this.ws.onerror = (err) => {
+		socket.onerror = (err) => {
+			if (this.ws !== socket) return;
 			console.error('WS error', err);
-			this.ws?.close();
+			socket.close();
 		};
 	}
 	
 	reconnect() {
+		if (!this.running || this.reconnectTimer) return;
 		this.reconnectAttempts++;
 		const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
 		console.log(`WS reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-		setTimeout(() => {
-			if (this.wsStatus === 'disconnected') {
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = null;
+			if (this.running && this.wsStatus === 'disconnected') {
 				this.connectWS();
 			}
 		}, delay);

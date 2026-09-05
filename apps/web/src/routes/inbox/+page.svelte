@@ -487,6 +487,7 @@
 			clearInterval(pollTimer);
 			window.removeEventListener('lead-state-changed', handleLeadStateChange as EventListener);
 			window.removeEventListener('dev-message-sent', handleDevMessageSent);
+			inbox.dispose();
 		};
 	});
 
