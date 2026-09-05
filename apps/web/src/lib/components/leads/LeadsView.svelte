@@ -60,11 +60,11 @@
 		onToggleAllCheckboxes: (e: MouseEvent) => void;
 		onCloseDrawer: () => void;
 		onOpenChat: (convoId: string) => void;
-		onChangeState: (stateKey: string) => void;
-		onToggleAssignee: (userId: string) => void;
-		onAddTag: (tag: string) => void;
-		onRemoveTag: (tag: string) => void;
-		onSaveNote: (text: string) => void;
+		onChangeState: (leadId: string, stateKey: string) => void;
+		onToggleAssignee: (conversationId: string, userId: string) => void;
+		onAddTag: (leadId: string, tag: string) => void;
+		onRemoveTag: (leadId: string, tag: string) => void;
+		onSaveNote: (leadId: string, text: string) => void;
 	} = $props();
 </script>
 

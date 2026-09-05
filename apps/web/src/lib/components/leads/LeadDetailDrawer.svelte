@@ -34,11 +34,11 @@
 		canManageAssignments?: boolean;
 		onClose: () => void;
 		onOpenChat: (convoId: string) => void;
-		onChangeState: (stateKey: string) => void;
-		onToggleAssignee: (userId: string) => void;
-		onAddTag: (tag: string) => void;
-		onRemoveTag: (tag: string) => void;
-		onSaveNote: (text: string) => void;
+		onChangeState: (leadId: string, stateKey: string) => void;
+		onToggleAssignee: (conversationId: string, userId: string) => void;
+		onAddTag: (leadId: string, tag: string) => void;
+		onRemoveTag: (leadId: string, tag: string) => void;
+		onSaveNote: (leadId: string, text: string) => void;
 	} = $props();
 
 	let activeTab = $state<'overview' | 'details' | 'notes' | 'activity'>('overview');
@@ -64,14 +64,14 @@
 
 	function submitTag() {
 		if (!tagInputText.trim()) return;
-		onAddTag(tagInputText.trim());
+		onAddTag(lead.leadId, tagInputText.trim());
 		tagInputText = '';
 		showTagInput = false;
 	}
 
 	function submitNote() {
 		if (!noteInputText.trim()) return;
-		onSaveNote(noteInputText.trim());
+		onSaveNote(lead.leadId, noteInputText.trim());
 		noteInputText = '';
 		showAddNoteInput = false;
 	}
@@ -156,7 +156,7 @@
 					<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50">
 						{#each availableStates as state}
 							<button
-								onclick={() => { showStateDropdown = false; onChangeState(state.key); }}
+								onclick={() => { showStateDropdown = false; onChangeState(lead.leadId, state.key); }}
 								class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
 							>
 								<LeadStateBadge stateKey={state.key} label={state.label} size="xs" class="border-0 bg-transparent p-0" />
@@ -192,7 +192,7 @@
 						{#each users as user}
 							{@const isAssigned = assignedUserIds.includes(user.id)}
 							<button
-								onclick={() => onToggleAssignee(user.id)}
+								onclick={() => onToggleAssignee(lead.convoId, user.id)}
 								class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 font-medium cursor-pointer {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
 							>
 								<span class="truncate">{user.name || user.email}</span>
@@ -211,7 +211,7 @@
 					{#each lead.tags || [] as tag}
 						<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-violet-50 text-violet-600 text-xs font-medium border border-violet-200">
 							{tag}
-							<button onclick={() => onRemoveTag(tag)} aria-label="Remove tag {tag}" class="text-violet-600/60 hover:text-violet-600 cursor-pointer">×</button>
+							<button onclick={() => onRemoveTag(lead.leadId, tag)} aria-label="Remove tag {tag}" class="text-violet-600/60 hover:text-violet-600 cursor-pointer">×</button>
 						</span>
 					{/each}
 					{#if showTagInput}

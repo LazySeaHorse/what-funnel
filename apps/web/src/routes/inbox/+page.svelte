@@ -80,6 +80,7 @@
 	let notes = $state<any[]>([]);
 	let history = $state<any[]>([]);
 	let loadingNotes = $state(false);
+	let leadDetailsRequestVersion = 0;
 	let isTyping = $state(false);
 
 	function canOpenNav(tab: typeof selectedNav): boolean {
@@ -219,6 +220,7 @@
 			return {
 				id: c.id,
 				convoId: c.id,
+				leadId: c.lead.id,
 				name: getContactName(c),
 				avatar: c.contact?.avatar_url || '',
 				avatarBg: 'bg-blue-100 text-blue-700',
@@ -308,11 +310,8 @@
 		showLeadDrawer = true;
 
 		if (lead.convoId) {
-			await inbox.selectConversation(lead.convoId);
-			const targetLeadId = inbox.activeConvo?.lead?.id || lead.realConvo?.lead?.id;
-			if (targetLeadId) {
-				await loadLeadDetails(targetLeadId);
-			}
+			void inbox.selectConversation(lead.convoId);
+			if (lead.leadId) await loadLeadDetails(lead.leadId);
 		}
 	}
 
@@ -340,19 +339,19 @@
 		}
 	}
 
-	async function handleDrawerStateChange(newKey: string) {
-		const targetLeadId = inbox.activeConvo?.lead?.id || activeLead?.realConvo?.lead?.id;
+	async function handleDrawerStateChange(targetLeadId: string, newKey: string) {
 		if (targetLeadId) {
 			try {
 				const lead = await apiRequest(`/leads/${targetLeadId}/state`, {
 					method: 'PATCH',
 					body: { state_key: newKey }
 				});
-				if (inbox.activeConvo?.lead) {
+				if (inbox.activeConvo?.lead?.id === targetLeadId) {
 					inbox.activeConvo.lead.current_state_key = lead.current_state_key;
 				}
-				if (activeLead?.realConvo?.lead) {
-					activeLead.realConvo.lead.current_state_key = lead.current_state_key;
+				const item = inbox.conversations.find((conversation) => conversation.lead?.id === targetLeadId);
+				if (item?.lead) {
+					item.lead.current_state_key = lead.current_state_key;
 				}
 				await inbox.loadConversations();
 			} catch (err) {
@@ -361,20 +360,20 @@
 		}
 	}
 
-	async function handleDrawerAddTag(tag: string) {
-		const lead = inbox.activeConvo?.lead || activeLead?.realConvo?.lead;
-		if (lead?.id && tag.trim()) {
+	async function handleDrawerAddTag(leadId: string, tag: string) {
+		const target = inbox.conversations.find((conversation) => conversation.lead?.id === leadId)?.lead;
+		if (target && tag.trim()) {
 			const tagClean = tag.trim();
-			const currentTags = lead.tags || [];
+			const currentTags = target.tags || [];
 			if (!currentTags.includes(tagClean)) {
 				const newTags = [...currentTags, tagClean];
 				try {
-					const updated = await apiRequest(`/leads/${lead.id}/tags`, {
+					const updated = await apiRequest(`/leads/${leadId}/tags`, {
 						method: 'PATCH',
 						body: { tags: newTags }
 					});
-					lead.tags = updated.tags;
-					if (inbox.activeConvo?.lead) {
+					target.tags = updated.tags;
+					if (inbox.activeConvo?.lead?.id === leadId) {
 						inbox.activeConvo.lead.tags = updated.tags;
 					}
 					await inbox.loadConversations();
@@ -385,18 +384,18 @@
 		}
 	}
 
-	async function handleDrawerRemoveTag(tagToRemove: string) {
-		const lead = inbox.activeConvo?.lead || activeLead?.realConvo?.lead;
-		if (!lead?.id) return;
-		const currentTags = lead.tags || [];
+	async function handleDrawerRemoveTag(leadId: string, tagToRemove: string) {
+		const target = inbox.conversations.find((conversation) => conversation.lead?.id === leadId)?.lead;
+		if (!target) return;
+		const currentTags = target.tags || [];
 		const newTags = currentTags.filter((t: string) => t !== tagToRemove);
 		try {
-			const updated = await apiRequest(`/leads/${lead.id}/tags`, {
+			const updated = await apiRequest(`/leads/${leadId}/tags`, {
 				method: 'PATCH',
 				body: { tags: newTags }
 			});
-			lead.tags = updated.tags;
-			if (inbox.activeConvo?.lead) {
+			target.tags = updated.tags;
+			if (inbox.activeConvo?.lead?.id === leadId) {
 				inbox.activeConvo.lead.tags = updated.tags;
 			}
 			await inbox.loadConversations();
@@ -405,8 +404,7 @@
 		}
 	}
 
-	async function handleDrawerSaveNote(text: string) {
-		const leadId = inbox.activeConvo?.lead?.id || activeLead?.realConvo?.lead?.id;
+	async function handleDrawerSaveNote(leadId: string, text: string) {
 		if (leadId && text.trim()) {
 			try {
 				await apiRequest(`/leads/${leadId}/notes`, {
@@ -634,14 +632,20 @@
 	}
 
 	async function loadLeadDetails(leadId: string) {
+		const requestVersion = ++leadDetailsRequestVersion;
 		loadingNotes = true;
 		try {
-			notes = await apiRequest(`/leads/${leadId}/notes`);
-			history = await apiRequest(`/leads/${leadId}/history`);
+			const [nextNotes, nextHistory] = await Promise.all([
+				apiRequest(`/leads/${leadId}/notes`),
+				apiRequest(`/leads/${leadId}/history`)
+			]);
+			if (requestVersion !== leadDetailsRequestVersion) return;
+			notes = nextNotes;
+			history = nextHistory;
 		} catch (err) {
 			console.error('Failed to load lead details', err);
 		} finally {
-			loadingNotes = false;
+			if (requestVersion === leadDetailsRequestVersion) loadingNotes = false;
 		}
 	}
 
@@ -712,16 +716,17 @@
 		}
 	}
 
-	function toggleUserAssignment(userID: string) {
-		if (!inbox.activeConvo) return;
-		const current = inbox.activeConvo.assigned_user_ids || [];
+	function toggleUserAssignment(conversationID: string, userID: string) {
+		const conversation = inbox.conversations.find((item) => item.id === conversationID);
+		if (!conversation) return;
+		const current = conversation.assigned_user_ids || [];
 		let updated: string[];
 		if (current.includes(userID)) {
 			updated = current.filter((id: string) => id !== userID);
 		} else {
 			updated = [...current, userID];
 		}
-		inbox.assignConversation(inbox.activeConvo.id, updated);
+		inbox.assignConversation(conversationID, updated);
 	}
 
 	async function handleLogout() {
@@ -1573,7 +1578,7 @@
 											{@const isAssigned = inbox.activeConvo?.assigned_user_ids?.includes(user.id)}
 											<button
 												type="button"
-												onclick={() => toggleUserAssignment(user.id)}
+												onclick={() => inbox.activeConvo && toggleUserAssignment(inbox.activeConvo.id, user.id)}
 												disabled={inbox.assignmentPending[inbox.activeConvo.id]}
 												class="w-full px-3 py-1.5 text-left hover:bg-slate-50 font-medium flex items-center justify-between cursor-pointer {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
 											>
@@ -1850,7 +1855,7 @@
 					pipelineStates={pipelineStates}
 					users={inbox.users}
 					notes={notes}
-					assignedUserIds={inbox.activeConvo?.assigned_user_ids || []}
+				assignedUserIds={activeLead?.realConvo?.assigned_user_ids || []}
 					canManageAssignments={capabilities.manageAssignments}
 					onSelectFilter={(key) => leadsFilterTab = key}
 					onSelectLead={handleSelectLeadRow}
