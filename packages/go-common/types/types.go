@@ -28,6 +28,7 @@ type BridgeConnection struct {
 	ManagementRoomID string    `json:"management_room_id,omitempty" db:"management_room_id"`
 	State            string    `json:"state" db:"state"`
 	Detail           string    `json:"detail,omitempty" db:"detail"`
+	LastEventID      string    `json:"-" db:"last_event_id"`
 	CreatedAt        time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }

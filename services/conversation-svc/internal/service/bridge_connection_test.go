@@ -34,3 +34,26 @@ func TestInterpretBridgeMessagesRecognizesFreshQRCode(t *testing.T) {
 	assert.Equal(t, "awaiting_scan", state)
 	assert.Contains(t, detail, "fresh QR")
 }
+
+func TestBridgeSetupInProgress(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+		want  bool
+	}{
+		{name: "waiting for scan", state: "awaiting_scan", want: true},
+		{name: "waiting for phone", state: "awaiting_phone", want: true},
+		{name: "waiting for code", state: "awaiting_code", want: true},
+		{name: "waiting for session", state: "awaiting_session", want: true},
+		{name: "connecting", state: "connecting", want: true},
+		{name: "connected", state: "connected", want: false},
+		{name: "failed", state: "failed", want: false},
+		{name: "cancelled", state: "cancelled", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, bridgeSetupInProgress(tt.state))
+		})
+	}
+}

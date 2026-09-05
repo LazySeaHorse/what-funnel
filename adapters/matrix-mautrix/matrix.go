@@ -420,31 +420,6 @@ func (a *Adapter) ReadManagementMessagesSince(ctx context.Context, creds Credent
 	return nil, fmt.Errorf("management command event %s was not found in room history", commandEventID)
 }
 
-// ReadManagementMessages reads the most recent management-room events. New
-// setup lifecycle code should prefer ReadManagementMessagesSince so replies
-// from separate command attempts cannot be mixed.
-func (a *Adapter) ReadManagementMessages(ctx context.Context, creds Credentials, roomID string) ([]BridgeMessage, error) {
-	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=b&limit=30", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(roomID))
-	var result struct {
-		Chunk []struct {
-			EventID string         `json:"event_id"`
-			Sender  string         `json:"sender"`
-			Type    string         `json:"type"`
-			Content map[string]any `json:"content"`
-		} `json:"chunk"`
-	}
-	if err := a.matrixJSON(ctx, creds, http.MethodGet, endpoint, nil, &result); err != nil {
-		return nil, fmt.Errorf("read bridge management messages: %w", err)
-	}
-	messages := make([]BridgeMessage, 0, len(result.Chunk))
-	for _, event := range result.Chunk {
-		body, _ := event.Content["body"].(string)
-		mediaURL, _ := event.Content["url"].(string)
-		messages = append(messages, BridgeMessage{EventID: event.EventID, Sender: event.Sender, Type: event.Type, Body: body, MediaURL: mediaURL})
-	}
-	return messages, nil
-}
-
 // DownloadMedia retrieves a bridge-issued QR image using the server-side
 // Matrix token. The token itself is never sent to the browser.
 func (a *Adapter) DownloadMedia(ctx context.Context, creds Credentials, mxcURL string) ([]byte, string, error) {
