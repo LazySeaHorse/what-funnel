@@ -124,6 +124,101 @@ func TestDownloadMediaUsesAuthenticatedClientMediaEndpoint(t *testing.T) {
 	assert.Equal(t, []byte("png-data"), body)
 }
 
+func TestReadManagementMessagesSinceStopsAtCommandBoundary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "b", r.URL.Query().Get("dir"))
+		assert.Equal(t, "30", r.URL.Query().Get("limit"))
+		assert.Empty(t, r.URL.Query().Get("from"))
+		assert.Equal(t, "Bearer matrix-token", r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"chunk": []map[string]any{
+				{"event_id": "$new-qr", "sender": "@whatsappbot:localhost", "type": "m.room.message", "content": map[string]any{"body": "qr.png", "url": "mxc://localhost/new-qr"}},
+				{"event_id": "$login-command", "sender": "@user:localhost", "type": "m.room.message", "content": map[string]any{"body": "login qr"}},
+				{"event_id": "$old-timeout", "sender": "@whatsappbot:localhost", "type": "m.room.message", "content": map[string]any{"body": "Login failed: timed out"}},
+			},
+			"end": "older-page",
+		})
+	}))
+	defer server.Close()
+
+	adapter := New()
+	messages, err := adapter.ReadManagementMessagesSince(context.Background(), Credentials{
+		HomeserverURL: server.URL,
+		AccessToken:   "matrix-token",
+	}, "!setup:localhost", "$login-command")
+
+	assert.NoError(t, err)
+	if assert.Len(t, messages, 1) {
+		assert.Equal(t, "$new-qr", messages[0].EventID)
+		assert.Equal(t, "mxc://localhost/new-qr", messages[0].MediaURL)
+	}
+}
+
+func TestReadManagementMessagesSincePaginatesToCommandBoundary(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Query().Get("from") {
+		case "":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"chunk": []map[string]any{{"event_id": "$reply", "sender": "@whatsappbot:localhost", "content": map[string]any{"body": "Working"}}},
+				"end":   "page-2",
+			})
+		case "page-2":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"chunk": []map[string]any{
+					{"event_id": "$login-command", "sender": "@user:localhost", "content": map[string]any{"body": "login qr"}},
+					{"event_id": "$stale", "sender": "@whatsappbot:localhost", "content": map[string]any{"body": "Login failed"}},
+				},
+				"end": "page-3",
+			})
+		default:
+			t.Fatalf("unexpected pagination token %q", r.URL.Query().Get("from"))
+		}
+	}))
+	defer server.Close()
+
+	adapter := New()
+	messages, err := adapter.ReadManagementMessagesSince(context.Background(), Credentials{
+		HomeserverURL: server.URL,
+		AccessToken:   "matrix-token",
+	}, "!setup:localhost", "$login-command")
+
+	assert.NoError(t, err)
+	assert.Equal(t, 2, requests)
+	if assert.Len(t, messages, 1) {
+		assert.Equal(t, "$reply", messages[0].EventID)
+	}
+}
+
+func TestReadManagementMessagesSinceRejectsMissingBoundary(t *testing.T) {
+	adapter := New()
+	_, err := adapter.ReadManagementMessagesSince(context.Background(), Credentials{}, "!setup:localhost", "")
+	assert.EqualError(t, err, "management command event ID is required")
+}
+
+func TestReadManagementMessagesSinceFailsClosedWhenBoundaryIsAbsent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"chunk": []map[string]any{{
+				"event_id": "$stale-timeout",
+				"sender":   "@whatsappbot:localhost",
+				"content":  map[string]any{"body": "Login failed: timed out"},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	adapter := New()
+	messages, err := adapter.ReadManagementMessagesSince(context.Background(), Credentials{
+		HomeserverURL: server.URL,
+		AccessToken:   "matrix-token",
+	}, "!setup:localhost", "$unknown-command")
+
+	assert.Nil(t, messages)
+	assert.EqualError(t, err, "management command event $unknown-command was not found in room history")
+}
+
 func TestRegistrationMACUsesSynapseSharedSecretFormat(t *testing.T) {
 	assert.Equal(t,
 		"2d26005ec6579eb9293b5aeb2a3eefd4427fa361",

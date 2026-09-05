@@ -369,8 +369,60 @@ func (a *Adapter) SendManagementCommand(ctx context.Context, creds Credentials, 
 	return result.EventID, nil
 }
 
-// ReadManagementMessages reads recent bridge replies without exposing the
-// Matrix access token to the browser.
+// ReadManagementMessagesSince reads bridge replies that were sent after the
+// given command event. Matrix returns room history newest-first, so the command
+// itself is the stable boundary between the current login attempt and stale
+// replies from earlier attempts in the same management room.
+func (a *Adapter) ReadManagementMessagesSince(ctx context.Context, creds Credentials, roomID, commandEventID string) ([]BridgeMessage, error) {
+	if commandEventID == "" {
+		return nil, fmt.Errorf("management command event ID is required")
+	}
+
+	baseURL := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(roomID))
+	messages := make([]BridgeMessage, 0, 30)
+	from := ""
+
+	for page := 0; page < 100; page++ {
+		query := url.Values{"dir": {"b"}, "limit": {"30"}}
+		if from != "" {
+			query.Set("from", from)
+		}
+
+		var result struct {
+			Chunk []struct {
+				EventID string         `json:"event_id"`
+				Sender  string         `json:"sender"`
+				Type    string         `json:"type"`
+				Content map[string]any `json:"content"`
+			} `json:"chunk"`
+			End string `json:"end"`
+		}
+		endpoint := baseURL + "?" + query.Encode()
+		if err := a.matrixJSON(ctx, creds, http.MethodGet, endpoint, nil, &result); err != nil {
+			return nil, fmt.Errorf("read bridge management messages: %w", err)
+		}
+
+		for _, event := range result.Chunk {
+			if event.EventID == commandEventID {
+				return messages, nil
+			}
+			body, _ := event.Content["body"].(string)
+			mediaURL, _ := event.Content["url"].(string)
+			messages = append(messages, BridgeMessage{EventID: event.EventID, Sender: event.Sender, Type: event.Type, Body: body, MediaURL: mediaURL})
+		}
+
+		if result.End == "" || result.End == from || len(result.Chunk) == 0 {
+			break
+		}
+		from = result.End
+	}
+
+	return nil, fmt.Errorf("management command event %s was not found in room history", commandEventID)
+}
+
+// ReadManagementMessages reads the most recent management-room events. New
+// setup lifecycle code should prefer ReadManagementMessagesSince so replies
+// from separate command attempts cannot be mixed.
 func (a *Adapter) ReadManagementMessages(ctx context.Context, creds Credentials, roomID string) ([]BridgeMessage, error) {
 	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=b&limit=30", strings.TrimRight(creds.HomeserverURL, "/"), url.PathEscape(roomID))
 	var result struct {
