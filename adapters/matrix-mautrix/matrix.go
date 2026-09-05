@@ -54,6 +54,7 @@ type Adapter struct {
 	ctx          context.Context
 	onInbound    func(types.InboundEvent)
 	onOutbound   func(types.ExternalOutboundEvent)
+	workers      sync.WaitGroup
 }
 
 // New creates a new Matrix Adapter instance.
@@ -77,11 +78,18 @@ func (a *Adapter) Configure(channelID string, creds Credentials) {
 	ctx := a.ctx
 	publishInbound := a.onInbound
 	publishExternalOutbound := a.onOutbound
+	startSync := ctx != nil && ctx.Err() == nil && publishInbound != nil && publishExternalOutbound != nil
+	if startSync {
+		a.workers.Add(1)
+	}
 	a.mu.Unlock()
 
 	// If already started, dynamically spin up the sync loop for the new channel
-	if ctx != nil && publishInbound != nil && publishExternalOutbound != nil {
-		go a.syncLoop(ctx, channelID, publishInbound, publishExternalOutbound)
+	if startSync {
+		go func() {
+			defer a.workers.Done()
+			a.syncLoop(ctx, channelID, publishInbound, publishExternalOutbound)
+		}()
 	}
 }
 
@@ -120,6 +128,10 @@ func (a *Adapter) SetStatus(channelID string, status, detail string) {
 // Start spawns a background sync loop for each configured channel and blocks.
 func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) error {
 	a.mu.Lock()
+	if a.ctx != nil {
+		a.mu.Unlock()
+		return fmt.Errorf("matrix adapter already started")
+	}
 	a.ctx = ctx
 	a.onInbound = publishInbound
 	a.onOutbound = publishExternalOutbound
@@ -128,19 +140,23 @@ func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEv
 	for cid := range a.creds {
 		channelIDs = append(channelIDs, cid)
 	}
+	a.workers.Add(len(channelIDs))
 	a.mu.Unlock()
 
-	var wg sync.WaitGroup
 	for _, cid := range channelIDs {
-		wg.Add(1)
 		go func(channelID string) {
-			defer wg.Done()
+			defer a.workers.Done()
 			a.syncLoop(ctx, channelID, publishInbound, publishExternalOutbound)
 		}(cid)
 	}
 
 	<-ctx.Done()
-	wg.Wait()
+	a.mu.Lock()
+	a.ctx = nil
+	a.onInbound = nil
+	a.onOutbound = nil
+	a.mu.Unlock()
+	a.workers.Wait()
 	return nil
 }
 
@@ -495,7 +511,7 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 			if failCount > 5 {
 				a.SetStatus(channelID, "error", fmt.Sprintf("homeserver connection failed: %v", err))
 			}
-			time.Sleep(5 * time.Second)
+			waitForRetry(ctx, 5*time.Second)
 			continue
 		}
 		failCount = 0
@@ -503,13 +519,13 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 		bodyBytes, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			time.Sleep(1 * time.Second)
+			waitForRetry(ctx, time.Second)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			a.SetStatus(channelID, "error", fmt.Sprintf("sync HTTP error %d: %s", resp.StatusCode, string(bodyBytes)))
-			time.Sleep(5 * time.Second)
+			waitForRetry(ctx, 5*time.Second)
 			continue
 		}
 
@@ -531,7 +547,7 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 		}
 
 		if err := json.Unmarshal(bodyBytes, &syncResp); err != nil {
-			time.Sleep(2 * time.Second)
+			waitForRetry(ctx, 2*time.Second)
 			continue
 		}
 
@@ -574,6 +590,16 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 				publishInbound(inboundEv)
 			}
 		}
+	}
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
 	}
 }
 

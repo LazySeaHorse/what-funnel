@@ -3,13 +3,83 @@ package matrix
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+type blockingTransport struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (t *blockingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	close(t.started)
+	<-t.release
+	return nil, errors.New("request released")
+}
+
+func TestAdapter_StartWaitsForDynamicallyConfiguredChannels(t *testing.T) {
+	transport := &blockingTransport{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	adapter := New()
+	adapter.client = &http.Client{Transport: transport}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- adapter.Start(ctx, func(types.InboundEvent) {}, func(types.ExternalOutboundEvent) {})
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		adapter.mu.RLock()
+		started := adapter.ctx != nil
+		adapter.mu.RUnlock()
+		if started {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Start() did not initialize adapter lifecycle")
+		}
+		runtime.Gosched()
+	}
+
+	adapter.Configure("dynamic-channel", Credentials{
+		HomeserverURL: "http://matrix.example",
+		AccessToken:   "token",
+	})
+	select {
+	case <-transport.started:
+	case <-time.After(time.Second):
+		t.Fatal("dynamic sync loop did not start")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		t.Fatalf("Start() returned before dynamic sync loop stopped: %v", err)
+	default:
+	}
+
+	close(transport.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Start() did not return after dynamic sync loop stopped")
+	}
+}
 
 func TestWaitForManagementRoomReadyWaitsForBridgeJoin(t *testing.T) {
 	requests := 0
