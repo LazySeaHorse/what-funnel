@@ -50,7 +50,7 @@ func main() {
 	// 3. Initialize Session Store & Hub
 	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 	hub := server.NewHub(logger)
-	go hub.Run(ctx)
+	defer hub.Close()
 
 	// 4. Initialize and Start Event Consumer
 	consumerName := fmt.Sprintf("notification-svc-%s", getHostname())

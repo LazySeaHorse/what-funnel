@@ -61,7 +61,7 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 
 	logger := slog.Default()
 	hub := server.NewHub(logger)
-	go hub.Run(ctx)
+	defer hub.Close()
 
 	// Register Admin and Member clients
 	adminClient := &server.Client{
@@ -76,8 +76,8 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 		Role:      types.RoleMember,
 		Send:      make(chan []byte, 20),
 	}
-	hub.RegisterClient(adminClient)
-	hub.RegisterClient(memberClient)
+	require.NoError(t, hub.RegisterClient(adminClient))
+	require.NoError(t, hub.RegisterClient(memberClient))
 
 	c := consumer.NewConsumer(pool, ps, hub, logger)
 	// Start the table-driven consumer loop

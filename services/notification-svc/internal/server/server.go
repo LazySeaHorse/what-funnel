@@ -1,8 +1,8 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -31,48 +31,57 @@ type Client struct {
 }
 
 type Hub struct {
-	clients    map[*Client]bool
-	register   chan *Client
-	unregister chan *Client
-	mu         sync.RWMutex
-	logger     *slog.Logger
+	clients map[*Client]struct{}
+	closed  bool
+	mu      sync.RWMutex
+	logger  *slog.Logger
 }
+
+var ErrHubClosed = errors.New("websocket hub is closed")
 
 func NewHub(logger *slog.Logger) *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		logger:     logger,
+		clients: make(map[*Client]struct{}),
+		logger:  logger,
 	}
 }
 
-func (h *Hub) Run(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case client := <-h.register:
-			h.mu.Lock()
-			h.clients[client] = true
-			h.mu.Unlock()
-			h.logger.Debug("client registered", "user_id", client.UserID)
-		case client := <-h.unregister:
-			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.Send)
-				h.logger.Debug("client unregistered", "user_id", client.UserID)
-			}
-			h.mu.Unlock()
-		}
-	}
-}
-
-func (h *Hub) RegisterClient(client *Client) {
+func (h *Hub) RegisterClient(client *Client) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.clients[client] = true
+
+	if h.closed {
+		return ErrHubClosed
+	}
+	h.clients[client] = struct{}{}
+	h.logger.Debug("client registered", "user_id", client.UserID)
+	return nil
+}
+
+func (h *Hub) UnregisterClient(client *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if _, ok := h.clients[client]; !ok {
+		return
+	}
+	delete(h.clients, client)
+	close(client.Send)
+	h.logger.Debug("client unregistered", "user_id", client.UserID)
+}
+
+func (h *Hub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.closed {
+		return
+	}
+	h.closed = true
+	for client := range h.clients {
+		delete(h.clients, client)
+		close(client.Send)
+	}
 }
 
 func (h *Hub) BroadcastToAccount(accountID uuid.UUID, event any, filterFunc func(userID uuid.UUID, role string) bool) {
@@ -213,7 +222,10 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		Hub:       s.hub,
 	}
 
-	s.hub.register <- client
+	if err := s.hub.RegisterClient(client); err != nil {
+		_ = conn.Close()
+		return
+	}
 
 	// Start loops
 	go client.writePump()
@@ -253,7 +265,7 @@ func (c *Client) writePump() {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.Hub.unregister <- c
+		c.Hub.UnregisterClient(c)
 		_ = c.Conn.Close()
 	}()
 	c.Conn.SetReadLimit(512)

@@ -121,7 +121,7 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 	// Setup Hub and logger
 	logger := slog.Default()
 	hub := server.NewHub(logger)
-	go hub.Run(ctx)
+	defer hub.Close()
 
 	// Register two mock websocket clients: clientA (Member A) and clientB (Member B)
 	clientA := &server.Client{
@@ -137,8 +137,8 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 		Send:      make(chan []byte, 10),
 	}
 
-	hub.RegisterClient(clientA)
-	hub.RegisterClient(clientB)
+	require.NoError(t, hub.RegisterClient(clientA))
+	require.NoError(t, hub.RegisterClient(clientB))
 
 	// Create Consumer and invoke handler manually to test synchronously
 	c := consumer.NewConsumer(pool, ps, hub, logger)
