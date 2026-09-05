@@ -436,12 +436,6 @@
 		window.addEventListener('lead-state-changed', handleLeadStateChange as EventListener);
 		window.addEventListener('dev-message-sent', handleDevMessageSent);
 
-		const pollTimer = setInterval(() => {
-			if (selectedNav === 'leads' || selectedNav === 'inbox') {
-				void inbox.loadConversations();
-			}
-		}, 1500);
-
 		(async () => {
 			try {
 				await inbox.init();
@@ -484,7 +478,6 @@
 		})();
 
 		return () => {
-			clearInterval(pollTimer);
 			window.removeEventListener('lead-state-changed', handleLeadStateChange as EventListener);
 			window.removeEventListener('dev-message-sent', handleDevMessageSent);
 			inbox.dispose();
@@ -958,7 +951,7 @@
 				</div>
 
 				{#if inbox.wsStatus === 'disconnected'}
-					<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200/80 text-xs font-medium shadow-2xs shrink-0 animate-pulse" title="Disconnected from real-time server updates">
+					<span data-testid="offline-indicator" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200/80 text-xs font-medium shadow-2xs shrink-0 animate-pulse" title="Disconnected from real-time server updates">
 						<span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
 						<span>Offline</span>
 					</span>
@@ -1072,12 +1065,6 @@
 									class="w-full h-9 pl-9 pr-8 bg-slate-50 text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 transition"
 								/>
 							</div>
-							{#if inbox.wsStatus === 'disconnected'}
-								<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200/80 text-[11px] font-medium shadow-2xs shrink-0 animate-pulse">
-									<span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
-									<span>Offline</span>
-								</span>
-							{/if}
 						</div>
 
 						{#if capabilities.leadTracking}

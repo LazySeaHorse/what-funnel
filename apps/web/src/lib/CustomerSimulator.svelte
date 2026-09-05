@@ -26,8 +26,10 @@
 	let convoMessages = $state<any[]>([]);
 	let activeConvoID = $state<string | null>(null);
 	let isConvoLoading = $state(false);
-	let pollInterval = $state<any>(null);
 	let chatScrollContainer: HTMLDivElement | null = $state(null);
+	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	let polling = false;
+	let conversationLoadVersion = 0;
 
 	// ─── Persistent test contacts (stored in localStorage) ────────────────────
 	const STORAGE_KEY = 'wf_dev_test_contacts';
@@ -98,6 +100,14 @@
 		channelType?: string;
 		latencyMs?: number;
 		timestamp?: string;
+	}
+
+	interface ConversationSnapshot {
+		contactID: string;
+		platform: string;
+		conversationID: string | null;
+		messages: any[];
+		telemetry: Partial<CascadeTelemetry> | null;
 	}
 
 	let currentTelemetry = $state<CascadeTelemetry>({
@@ -233,6 +243,7 @@
 	}
 
 	onMount(() => {
+		polling = true;
 		(async () => {
 			try {
 				const stored = localStorage.getItem(STORAGE_KEY);
@@ -243,22 +254,30 @@
 
 			await loadChannels();
 			await refreshCurrentConvo();
+			schedulePoll();
 		})();
 
-		pollInterval = setInterval(() => {
-			refreshCurrentConvo(false);
-		}, 2500);
-
 		const handleSent = () => {
-			refreshCurrentConvo(false);
+			void refreshCurrentConvo(false);
 		};
 		window.addEventListener('dev-message-sent', handleSent);
 
 		return () => {
-			if (pollInterval) clearInterval(pollInterval);
+			polling = false;
+			conversationLoadVersion++;
+			if (pollTimer) clearTimeout(pollTimer);
 			window.removeEventListener('dev-message-sent', handleSent);
 		};
 	});
+
+	function schedulePoll() {
+		if (!polling || pollTimer) return;
+		pollTimer = setTimeout(async () => {
+			pollTimer = null;
+			await refreshCurrentConvo(false);
+			schedulePoll();
+		}, 2500);
+	}
 
 	async function ensureChannelForPlatform(platformKey: string): Promise<string | null> {
 		try {
@@ -309,60 +328,78 @@
 		await refreshCurrentConvo(false);
 	}
 
+	function findConversation(conversations: any[], contact: TestContact) {
+		return conversations.find((conversation: any) =>
+			(conversation.contact_name && (conversation.contact_name.startsWith(contact.name) || conversation.contact_name.includes(contact.name))) ||
+			(conversation.contact?.display_name && (conversation.contact.display_name.startsWith(contact.name) || conversation.contact.display_name.includes(contact.name))) ||
+			(conversation.contact?.external_identity && conversation.contact.external_identity === contact.externalID) ||
+			(conversation.external_identity && conversation.external_identity === contact.externalID) ||
+			(conversation.display_name && (conversation.display_name.startsWith(contact.name) || conversation.display_name.includes(contact.name))) ||
+			(conversation.contact_display_name && (conversation.contact_display_name.startsWith(contact.name) || conversation.contact_display_name.includes(contact.name)))
+		);
+	}
+
+	async function loadConversationSnapshot(contact: TestContact, platform: string): Promise<ConversationSnapshot> {
+		const conversations = await apiRequest('/conversations?filter=all');
+		const match = findConversation(Array.isArray(conversations) ? conversations : [], contact);
+		if (!match) {
+			return { contactID: contact.id, platform, conversationID: null, messages: [], telemetry: null };
+		}
+
+		const [messageResponse, draftResponse] = await Promise.all([
+			apiRequest(`/conversations/${match.id}/messages?limit=30`),
+			apiRequest(`/conversations/${match.id}/reply-draft`).catch(() => null)
+		]);
+		const draft = draftResponse?.draft;
+
+		return {
+			contactID: contact.id,
+			platform,
+			conversationID: match.id,
+			messages: Array.isArray(messageResponse?.messages) ? [...messageResponse.messages].reverse() : [],
+			telemetry: draft ? {
+				stageMatched: draft.stage_matched || 'none',
+				confidence: draft.confidence,
+				action: 'drafted',
+				draftText: draft.draft_text,
+				draftStatus: draft.status,
+				channelID: match.channel_id,
+				channelType: match.channel_type || `matrix_${platform}`,
+				timestamp: new Date().toISOString()
+			} : null
+		};
+	}
+
 	async function refreshCurrentConvo(showLoading = true) {
-		const contact = testContacts.find((c) => c.id === selectedContactID);
-		if (!contact) return;
+		const requestVersion = ++conversationLoadVersion;
+		const contactID = selectedContactID;
+		const platform = selectedPlatform;
+		const selectedContact = testContacts.find((contact) => contact.id === contactID);
+		if (!selectedContact) return;
+		const contact = { ...selectedContact };
 
 		if (showLoading && !convoMessages.length) isConvoLoading = true;
 
 		try {
-			const convos = await apiRequest('/conversations?filter=all');
-			if (Array.isArray(convos)) {
-				const match = convos.find((c: any) => 
-					(c.contact_name && (c.contact_name.startsWith(contact.name) || c.contact_name.includes(contact.name))) ||
-					(c.contact?.display_name && (c.contact.display_name.startsWith(contact.name) || c.contact.display_name.includes(contact.name))) ||
-					(c.contact?.external_identity && c.contact.external_identity === contact.externalID) ||
-					(c.external_identity && c.external_identity === contact.externalID) ||
-					(c.display_name && (c.display_name.startsWith(contact.name) || c.display_name.includes(contact.name))) ||
-					(c.contact_display_name && (c.contact_display_name.startsWith(contact.name) || c.contact_display_name.includes(contact.name)))
-				);
+			const snapshot = await loadConversationSnapshot(contact, platform);
+			if (
+				requestVersion !== conversationLoadVersion ||
+				selectedContactID !== snapshot.contactID ||
+				selectedPlatform !== snapshot.platform
+			) return;
 
-				if (match) {
-					activeConvoID = match.id;
-					const msgRes = await apiRequest(`/conversations/${match.id}/messages?limit=30`);
-					if (msgRes && msgRes.messages) {
-						convoMessages = msgRes.messages.reverse();
-						await tick();
-						if (chatScrollContainer) {
-							chatScrollContainer.scrollTop = chatScrollContainer.scrollHeight;
-						}
-					}
+			activeConvoID = snapshot.conversationID;
+			convoMessages = snapshot.messages;
+			if (snapshot.telemetry) currentTelemetry = { ...currentTelemetry, ...snapshot.telemetry };
 
-					// Also load AI reply draft to inspect backend decision
-					try {
-						const draftRes = await apiRequest(`/conversations/${match.id}/reply-draft`);
-						if (draftRes && draftRes.draft) {
-							currentTelemetry = {
-								...currentTelemetry,
-								stageMatched: draftRes.draft.stage_matched || 'none',
-								confidence: draftRes.draft.confidence,
-								action: 'drafted',
-								draftText: draftRes.draft.draft_text,
-								draftStatus: draftRes.draft.status,
-								channelID: match.channel_id,
-								channelType: match.channel_type || `matrix_${selectedPlatform}`,
-								timestamp: new Date().toISOString()
-							};
-						}
-					} catch {}
-				} else {
-					convoMessages = [];
-				}
+			await tick();
+			if (requestVersion === conversationLoadVersion && chatScrollContainer) {
+				chatScrollContainer.scrollTop = chatScrollContainer.scrollHeight;
 			}
-		} catch (err) {
-			// Ignore polling error
+		} catch {
+			// Polling failures are transient; keep the last complete snapshot visible.
 		} finally {
-			if (showLoading) isConvoLoading = false;
+			if (showLoading && requestVersion === conversationLoadVersion) isConvoLoading = false;
 		}
 	}
 
@@ -373,9 +410,9 @@
 		const contact = testContacts.find(c => c.id === id);
 		if (contact && contact.platform) {
 			selectedPlatform = contact.platform;
-			ensureChannelForPlatform(contact.platform);
+			void ensureChannelForPlatform(contact.platform);
 		}
-		refreshCurrentConvo(true);
+		void refreshCurrentConvo(true);
 	}
 
 	function buildNativePayload(platform: string, contact: TestContact, text: string) {

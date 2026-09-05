@@ -38,6 +38,17 @@ export class InboxState {
 	private replyDraftsEnabled = false;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private running = false;
+	private conversationRefreshPending = false;
+	private conversationRefreshPromise: Promise<void> | null = null;
+	private fallbackPollTimer: ReturnType<typeof setInterval> | null = null;
+	private consecutiveFetchFailures = 0;
+	private onlineHandler: (() => void) | null = null;
+	private offlineHandler: (() => void) | null = null;
+	private visibilityHandler: (() => void) | null = null;
+
+	private isOnline(): boolean {
+		return typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' || navigator.onLine;
+	}
 
 	configureCapabilities(capabilities: UICapabilities) {
 		this.replyDraftsEnabled = capabilities.useReplyDrafts;
@@ -46,6 +57,58 @@ export class InboxState {
 	
 	async init() {
 		this.running = true;
+
+		if (typeof window !== 'undefined') {
+			this.onlineHandler = () => {
+				if (!this.running) return;
+				console.log('Network online');
+				this.reconnectAttempts = 0;
+				if (this.reconnectTimer) {
+					clearTimeout(this.reconnectTimer);
+					this.reconnectTimer = null;
+				}
+				this.connectWS();
+				void this.loadConversations();
+			};
+			this.offlineHandler = () => {
+				if (!this.running) return;
+				console.log('Network offline');
+				const socket = this.ws;
+				this.ws = null;
+				if (socket) {
+					socket.onopen = null;
+					socket.onmessage = null;
+					socket.onerror = null;
+					socket.onclose = null;
+					socket.close();
+				}
+				this.wsStatus = 'disconnected';
+				if (this.reconnectTimer) {
+					clearTimeout(this.reconnectTimer);
+					this.reconnectTimer = null;
+				}
+			};
+			this.visibilityHandler = () => {
+				if (!this.running) return;
+				if (document.visibilityState === 'visible' && this.isOnline()) {
+					if (this.wsStatus === 'connected') {
+						void this.loadConversations();
+					} else {
+						this.connectWS();
+					}
+				}
+			};
+			window.addEventListener('online', this.onlineHandler);
+			window.addEventListener('offline', this.offlineHandler);
+			document.addEventListener('visibilitychange', this.visibilityHandler);
+
+			this.fallbackPollTimer = setInterval(() => {
+				if (!this.running) return;
+				if (this.wsStatus === 'connected' || !this.isOnline()) return;
+				void this.loadConversations();
+			}, 30000);
+		}
+
 		try {
 			const currentUser = await apiRequest('/auth/me');
 			if (!this.running) return;
@@ -65,14 +128,35 @@ export class InboxState {
 
 	dispose() {
 		this.running = false;
+		this.conversationRefreshPending = false;
 		this.conversationRequestVersion++;
 		this.conversationRequest?.abort();
 		this.conversationRequest = null;
 		this.pendingConvoID = null;
 
+		if (this.fallbackPollTimer) {
+			clearInterval(this.fallbackPollTimer);
+			this.fallbackPollTimer = null;
+		}
+
 		if (this.reconnectTimer) {
 			clearTimeout(this.reconnectTimer);
 			this.reconnectTimer = null;
+		}
+
+		if (typeof window !== 'undefined') {
+			if (this.onlineHandler) {
+				window.removeEventListener('online', this.onlineHandler);
+				this.onlineHandler = null;
+			}
+			if (this.offlineHandler) {
+				window.removeEventListener('offline', this.offlineHandler);
+				this.offlineHandler = null;
+			}
+			if (this.visibilityHandler) {
+				document.removeEventListener('visibilitychange', this.visibilityHandler);
+				this.visibilityHandler = null;
+			}
 		}
 
 		const socket = this.ws;
@@ -89,16 +173,38 @@ export class InboxState {
 		this.wsStatus = 'disconnected';
 	}
 
-	async loadConversations() {
-		try {
-			let url = `/conversations?filter=${this.filter}`;
-			if (this.stateFilter) {
-				url += `&state=${this.stateFilter}`;
+	loadConversations(): Promise<void> {
+		if (!this.running) return Promise.resolve();
+
+		this.conversationRefreshPending = true;
+		if (!this.conversationRefreshPromise) {
+			this.conversationRefreshPromise = this.drainConversationRefreshes().finally(() => {
+				this.conversationRefreshPromise = null;
+			});
+		}
+		return this.conversationRefreshPromise;
+	}
+
+	private async drainConversationRefreshes() {
+		while (this.running && this.conversationRefreshPending) {
+			this.conversationRefreshPending = false;
+			const filter = this.filter;
+			const stateFilter = this.stateFilter;
+			const params = new URLSearchParams({ filter });
+			if (stateFilter) params.set('state', stateFilter);
+
+			try {
+				const conversations = await apiRequest(`/conversations?${params}`);
+				if (!this.running) return;
+				if (filter !== this.filter || stateFilter !== this.stateFilter) continue;
+				this.conversations = Array.isArray(conversations) ? conversations : [];
+				this.consecutiveFetchFailures = 0;
+			} catch (err) {
+				this.consecutiveFetchFailures++;
+				if (this.running && this.consecutiveFetchFailures <= 1 && this.isOnline()) {
+					console.error(err);
+				}
 			}
-			const conversations = await apiRequest(url);
-			this.conversations = Array.isArray(conversations) ? conversations : [];
-		} catch (err) {
-			console.error(err);
 		}
 	}
 	
@@ -330,7 +436,12 @@ export class InboxState {
 			if (!this.running || this.ws !== socket) return;
 			this.wsStatus = 'connected';
 			this.reconnectAttempts = 0;
+			this.consecutiveFetchFailures = 0;
 			console.log('WS connected');
+			void this.loadConversations();
+			if (this.activeConvoID) {
+				void this.loadMessages(true);
+			}
 			if (this.replyDraftsEnabled) void this.loadReplyDraft();
 		};
 		
@@ -441,12 +552,13 @@ export class InboxState {
 	
 	reconnect() {
 		if (!this.running || this.reconnectTimer) return;
+		if (!this.isOnline()) return;
 		this.reconnectAttempts++;
 		const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
 		console.log(`WS reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 		this.reconnectTimer = setTimeout(() => {
 			this.reconnectTimer = null;
-			if (this.running && this.wsStatus === 'disconnected') {
+			if (this.running && this.wsStatus === 'disconnected' && this.isOnline()) {
 				this.connectWS();
 			}
 		}, delay);

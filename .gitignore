@@ -51,3 +51,11 @@ crap/
 # Generated mautrix bridge configs contain appservice tokens and local bridge state.
 /adapters/matrix-mautrix/bridges/*
 !/adapters/matrix-mautrix/bridges/.gitkeep
+
+# Agent skills
+.agents/skills/
+skills/
+
+# Python
+__pycache__/
+*.py[cod]
