@@ -5,7 +5,7 @@ test.describe('visual regression', () => {
 	test('login page remains visually stable', async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await page.goto('/login');
-		await expect(page.getByRole('heading', { name: 'Welcome back', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
 		await expect(page).toHaveScreenshot('login-desktop.png', { animations: 'disabled', fullPage: true });
 	});
 
