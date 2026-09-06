@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { apiRequest } from "$lib/api";
   import type { InboxState } from "$lib/store.svelte";
   import type { UICapabilities } from "$lib/ui-capabilities";
   import {
@@ -15,15 +14,18 @@
   } from "@fvilers/heroicons-svelte/24/outline";
   import LeadsView from "./LeadsView.svelte";
   import { getLeadStateInfo } from "./presentation";
+  import type { LeadEditor } from "$lib/leads/lead-editor.svelte";
 
   let {
     inbox,
+    leadEditor,
     capabilities,
     pipelineStates,
     searchQuery,
     onOpenChat,
   }: {
     inbox: InboxState;
+    leadEditor: LeadEditor;
     capabilities: UICapabilities;
     pipelineStates: any[];
     searchQuery: string;
@@ -38,7 +40,6 @@
   let selectedLeadID = $state<string | null>(null);
   let showDrawer = $state(true);
   let selectedRowIDs = $state<string[]>([]);
-  let notes = $state<any[]>([]);
 
   let activeFilterCount = $derived(
     (channelFilter !== "all" ? 1 : 0) + (assigneeFilter !== "all" ? 1 : 0),
@@ -161,9 +162,8 @@
     selectedLeadID = lead.id;
     selectedRowIDs = [lead.id];
     showDrawer = true;
+    void leadEditor.open(lead.realConvo);
     if (lead.convoId) void inbox.selectConversation(lead.convoId);
-    if (lead.leadId)
-      notes = await apiRequest(`/leads/${lead.leadId}/notes`).catch(() => []);
   }
   function toggleRow(id: string, event: MouseEvent) {
     event.stopPropagation();
@@ -177,37 +177,6 @@
       selectedRowIDs.length === filteredLeads.length
         ? []
         : filteredLeads.map((lead) => lead.id);
-  }
-  async function changeState(leadID: string, stateKey: string) {
-    await apiRequest(`/leads/${leadID}/state`, {
-      method: "PATCH",
-      body: { state_key: stateKey },
-    });
-    await inbox.loadConversations();
-  }
-  async function updateTags(leadID: string, tags: string[]) {
-    const updated = await apiRequest(`/leads/${leadID}/tags`, {
-      method: "PATCH",
-      body: { tags },
-    });
-    const target = inbox.conversations.find(
-      (conversation) => conversation.lead?.id === leadID,
-    )?.lead;
-    if (target) target.tags = updated.tags;
-    await inbox.loadConversations();
-  }
-  function toggleAssignee(conversationID: string, userID: string) {
-    const conversation = inbox.conversations.find(
-      (item) => item.id === conversationID,
-    );
-    if (!conversation) return;
-    const current = conversation.assigned_user_ids || [];
-    inbox.assignConversation(
-      conversationID,
-      current.includes(userID)
-        ? current.filter((id: string) => id !== userID)
-        : [...current, userID],
-    );
   }
 </script>
 
@@ -320,10 +289,9 @@
     selectedRowIds={selectedRowIDs}
     {showDrawer}
     {activeLead}
+    editor={leadEditor}
     {pipelineStates}
     users={inbox.users}
-    {notes}
-    assignedUserIds={activeLead?.realConvo?.assigned_user_ids || []}
     canManageAssignments={capabilities.manageAssignments}
     onSelectFilter={(key) => (filterTab = key)}
     onSelectLead={selectLead}
@@ -333,29 +301,8 @@
       showDrawer = false;
       selectedLeadID = null;
       selectedRowIDs = [];
+      leadEditor.clear();
     }}
     {onOpenChat}
-    onChangeState={changeState}
-    onToggleAssignee={toggleAssignee}
-    onAddTag={(id, tag) =>
-      updateTags(id, [
-        ...(inbox.conversations.find((c) => c.lead?.id === id)?.lead?.tags ||
-          []),
-        tag,
-      ])}
-    onRemoveTag={(id, tag) =>
-      updateTags(
-        id,
-        (
-          inbox.conversations.find((c) => c.lead?.id === id)?.lead?.tags || []
-        ).filter((value: string) => value !== tag),
-      )}
-    onSaveNote={async (id, text) => {
-      await apiRequest(`/leads/${id}/notes`, {
-        method: "POST",
-        body: { body: text.trim() },
-      });
-      notes = await apiRequest(`/leads/${id}/notes`);
-    }}
   />
 </div>

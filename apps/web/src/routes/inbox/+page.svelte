@@ -15,10 +15,12 @@
   import SimulatorView from "$lib/components/inbox/SimulatorView.svelte";
   import KnowledgeView from "$lib/components/knowledge/KnowledgeView.svelte";
   import LeadsDashboard from "$lib/components/leads/LeadsDashboard.svelte";
+  import { LeadEditor } from "$lib/leads/lead-editor.svelte";
   import PersonalPreferences from "$lib/components/settings/PersonalPreferences.svelte";
   import SettingsView from "$lib/components/settings/SettingsView.svelte";
 
   const inbox = new InboxState();
+  const leadEditor = new LeadEditor(inbox);
   const workspace = new WorkspaceState();
   let selectedSection = $state<DashboardSection>("inbox");
   let searchQuery = $state("");
@@ -69,6 +71,7 @@
     void initialize();
     return () => {
       window.removeEventListener("dev-message-sent", handleSimulatedMessage);
+      leadEditor.dispose();
       inbox.dispose();
     };
   });
@@ -190,6 +193,7 @@
     {#if selectedSection === "inbox"}
       <InboxWorkspace
         {inbox}
+        {leadEditor}
         {capabilities}
         {pipelineStates}
         bind:searchQuery
@@ -201,6 +205,7 @@
     {:else if selectedSection === "leads"}
       <LeadsDashboard
         {inbox}
+        {leadEditor}
         {capabilities}
         {pipelineStates}
         {searchQuery}

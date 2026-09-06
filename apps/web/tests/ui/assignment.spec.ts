@@ -54,4 +54,29 @@ test.describe('conversation assignment UI workflows', () => {
 		await assignBtn.click();
 		await expect(leadPanel.getByText('Assign team member')).not.toBeVisible();
 	});
+
+	test('shared lead controls mutate the explicitly displayed inbox lead', async ({ page }) => {
+		const api = await mockWorkspaceApi(page, {
+			role: 'manager',
+			productMode: 'full_workspace',
+			conversations: [{ ...conversation, lead: { ...conversation.lead, tags: ['lead'] } }]
+		});
+
+		await page.goto('/inbox');
+		const leadPanel = page.locator('.lead-panel');
+		await expect(leadPanel).toBeVisible();
+
+		await leadPanel.getByLabel('Change lead stage').click();
+		await leadPanel.getByRole('button', { name: 'Set lead stage to New lead' }).click();
+		await leadPanel.getByTitle('Add tag').click();
+		await leadPanel.getByLabel('Tag name').fill('priority');
+		await leadPanel.getByLabel('Save tag').click();
+		await leadPanel.getByRole('button', { name: '+ Add note' }).click();
+		await leadPanel.getByPlaceholder('Add an internal note...').fill('Follow up tomorrow');
+		await leadPanel.getByRole('button', { name: 'Save', exact: true }).click();
+
+		await expect.poll(() => api.requests.filter((request) => request.method !== 'GET').map((request) => request.path)).toEqual(
+			expect.arrayContaining(['/leads/lead-1/state', '/leads/lead-1/tags', '/leads/lead-1/notes'])
+		);
+	});
 });

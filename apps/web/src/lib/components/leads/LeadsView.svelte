@@ -2,6 +2,7 @@
 	import LeadStageFilters from './LeadStageFilters.svelte';
 	import LeadsTable from './LeadsTable.svelte';
 	import LeadDetailDrawer from './LeadDetailDrawer.svelte';
+	import type { LeadEditor } from '$lib/leads/lead-editor.svelte';
 
 	let {
 		leads = [],
@@ -18,22 +19,16 @@
 		selectedRowIds = [],
 		showDrawer = false,
 		activeLead = null,
+		editor,
 		pipelineStates = [],
 		users = [],
-		notes = [],
-		assignedUserIds = [],
 		canManageAssignments = false,
 		onSelectFilter = () => {},
 		onSelectLead = () => {},
 		onToggleCheckbox = () => {},
 		onToggleAllCheckboxes = () => {},
 		onCloseDrawer = () => {},
-		onOpenChat = () => {},
-		onChangeState = () => {},
-		onToggleAssignee = () => {},
-		onAddTag = () => {},
-		onRemoveTag = () => {},
-		onSaveNote = () => {}
+		onOpenChat = () => {}
 	}: {
 		leads: any[];
 		counts: {
@@ -49,10 +44,9 @@
 		selectedRowIds: string[];
 		showDrawer: boolean;
 		activeLead: any;
+		editor: LeadEditor;
 		pipelineStates?: any[];
 		users?: any[];
-		notes?: any[];
-		assignedUserIds?: string[];
 		canManageAssignments?: boolean;
 		onSelectFilter: (key: string) => void;
 		onSelectLead: (lead: any) => void;
@@ -60,11 +54,6 @@
 		onToggleAllCheckboxes: (e: MouseEvent) => void;
 		onCloseDrawer: () => void;
 		onOpenChat: (convoId: string) => void;
-		onChangeState: (leadId: string, stateKey: string) => void;
-		onToggleAssignee: (conversationId: string, userId: string) => void;
-		onAddTag: (leadId: string, tag: string) => void;
-		onRemoveTag: (leadId: string, tag: string) => void;
-		onSaveNote: (leadId: string, text: string) => void;
 	} = $props();
 </script>
 
@@ -93,18 +82,12 @@
 		{#if showDrawer && activeLead}
 			<LeadDetailDrawer
 				lead={activeLead}
+				{editor}
 				{pipelineStates}
 				{users}
-				{notes}
-				{assignedUserIds}
 				{canManageAssignments}
 				onClose={onCloseDrawer}
 				{onOpenChat}
-				{onChangeState}
-				{onToggleAssignee}
-				{onAddTag}
-				{onRemoveTag}
-				{onSaveNote}
 			/>
 		{/if}
 	</div>

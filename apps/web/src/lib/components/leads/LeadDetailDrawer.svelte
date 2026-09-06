@@ -1,53 +1,37 @@
 <script lang="ts">
 	import ChannelBadge from '../ChannelBadge.svelte';
-	import LeadStateBadge from '../LeadStateBadge.svelte';
 	import UserAvatar from '../UserAvatar.svelte';
+	import LeadStagePicker from './LeadStagePicker.svelte';
+	import LeadAssigneePicker from './LeadAssigneePicker.svelte';
+	import LeadTagsEditor from './LeadTagsEditor.svelte';
+	import LeadNotesEditor from './LeadNotesEditor.svelte';
+	import type { LeadEditor } from '$lib/leads/lead-editor.svelte';
 	import {
 		PlusIcon,
 		XMarkIcon,
 		EllipsisVerticalIcon,
 		ChevronDownIcon,
-		PencilSquareIcon,
-		CheckIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 
 	let {
 		lead,
+		editor,
 		pipelineStates = [],
 		users = [],
-		notes = [],
-		assignedUserIds = [],
 		canManageAssignments = false,
 		onClose = () => {},
-		onOpenChat = () => {},
-		onChangeState = () => {},
-		onToggleAssignee = () => {},
-		onAddTag = () => {},
-		onRemoveTag = () => {},
-		onSaveNote = () => {}
+		onOpenChat = () => {}
 	}: {
 		lead: any;
+		editor: LeadEditor;
 		pipelineStates?: any[];
 		users?: any[];
-		notes?: any[];
-		assignedUserIds?: string[];
 		canManageAssignments?: boolean;
 		onClose: () => void;
 		onOpenChat: (convoId: string) => void;
-		onChangeState: (leadId: string, stateKey: string) => void;
-		onToggleAssignee: (conversationId: string, userId: string) => void;
-		onAddTag: (leadId: string, tag: string) => void;
-		onRemoveTag: (leadId: string, tag: string) => void;
-		onSaveNote: (leadId: string, text: string) => void;
 	} = $props();
 
 	let activeTab = $state<'overview' | 'details' | 'notes' | 'activity'>('overview');
-	let showStateDropdown = $state(false);
-	let showAssignDropdown = $state(false);
-	let showTagInput = $state(false);
-	let tagInputText = $state('');
-	let showAddNoteInput = $state(false);
-	let noteInputText = $state('');
 
 	const defaultStates = [
 		{ key: 'new', label: 'New Lead' },
@@ -57,28 +41,10 @@
 		{ key: 'converted', label: 'Converted' }
 	];
 
-	const availableStates = $derived(pipelineStates.length > 0 ? pipelineStates : defaultStates);
 	const channelName = $derived(
 		lead.channel ? lead.channel.charAt(0).toUpperCase() + lead.channel.slice(1) : 'Unknown channel'
 	);
 
-	function submitTag() {
-		if (!tagInputText.trim()) return;
-		onAddTag(lead.leadId, tagInputText.trim());
-		tagInputText = '';
-		showTagInput = false;
-	}
-
-	function submitNote() {
-		if (!noteInputText.trim()) return;
-		onSaveNote(lead.leadId, noteInputText.trim());
-		noteInputText = '';
-		showAddNoteInput = false;
-	}
-
-	function formatTime(timestamp?: string | number): string {
-		return timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-	}
 </script>
 
 <aside class="lead-panel w-[320px] xl:w-[350px] bg-white flex flex-col shrink-0 overflow-y-auto min-h-0 h-full border-l border-slate-100 select-none">
@@ -141,131 +107,14 @@
 	<!-- Drawer Content -->
 	<div class="p-5 space-y-4 flex-1 text-xs">
 		{#if activeTab === 'overview'}
-			<!-- Lead Stage Section -->
-			<div class="space-y-1.5 relative">
-				<span class="font-medium text-slate-700">Lead stage</span>
-				<button
-					onclick={() => showStateDropdown = !showStateDropdown}
-					class="w-full flex items-center justify-between p-2.5 bg-amber-50/50 rounded-xl border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition text-left"
-				>
-					<LeadStateBadge stateKey={lead.stateKey} label={lead.stateLabel} size="sm" class="border-0 bg-transparent p-0" />
-					<ChevronDownIcon class="w-3.5 h-3.5 text-amber-500" />
-				</button>
-
-				{#if showStateDropdown}
-					<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50">
-						{#each availableStates as state}
-							<button
-								onclick={() => { showStateDropdown = false; onChangeState(lead.leadId, state.key); }}
-								class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
-							>
-								<LeadStateBadge stateKey={state.key} label={state.label} size="xs" class="border-0 bg-transparent p-0" />
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
+			<LeadStagePicker stateKey={lead.stateKey} stateLabel={lead.stateLabel} states={pipelineStates.length ? pipelineStates : defaultStates} onchange={(key) => editor.changeStage(key)} />
 
 			{#if canManageAssignments}
-			<!-- Assigned to Section -->
-			<div class="space-y-1.5 relative">
-				<span class="font-medium text-slate-700">Assigned to</span>
-				<div class="flex items-center gap-2">
-					{#if lead.assignees && lead.assignees.length > 0}
-						{#each lead.assignees as usr}
-							<UserAvatar name={usr.name} avatar={usr.avatar} size="md" class="ring-2 ring-white" />
-						{/each}
-					{/if}
-					<button
-						onclick={() => showAssignDropdown = !showAssignDropdown}
-						title="Add assignee"
-						aria-label="Add assignee"
-						class="w-8 h-8 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-sm transition cursor-pointer"
-					>
-						+
-					</button>
-				</div>
-
-				{#if showAssignDropdown}
-					<div class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50 text-xs">
-						<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">Assign team member</div>
-						{#each users as user}
-							{@const isAssigned = assignedUserIds.includes(user.id)}
-							<button
-								onclick={() => onToggleAssignee(lead.convoId, user.id)}
-								class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 font-medium cursor-pointer {isAssigned ? 'text-blue-600 bg-blue-50/50' : 'text-slate-700'}"
-							>
-								<span class="truncate">{user.name || user.email}</span>
-								{#if isAssigned}<span>✓</span>{/if}
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
+				<LeadAssigneePicker {users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
 			{/if}
 
-			<!-- Tags Section -->
-			<div class="space-y-1.5">
-				<span class="font-medium text-slate-700">Tags</span>
-				<div class="flex flex-wrap items-center gap-1.5">
-					{#each lead.tags || [] as tag}
-						<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-violet-50 text-violet-600 text-xs font-medium border border-violet-200">
-							{tag}
-							<button onclick={() => onRemoveTag(lead.leadId, tag)} aria-label="Remove tag {tag}" class="text-violet-600/60 hover:text-violet-600 cursor-pointer">×</button>
-						</span>
-					{/each}
-					{#if showTagInput}
-						<input
-							aria-label="Tag name"
-							bind:value={tagInputText}
-							onkeydown={(e) => e.key === 'Enter' && submitTag()}
-							placeholder="Tag..."
-							class="w-20 px-2 py-1 text-xs border border-blue-200 rounded-lg focus:outline-none"
-						/>
-						<button aria-label="Save tag" onclick={submitTag} class="text-xs font-medium text-blue-600 px-1 cursor-pointer">✓</button>
-					{:else}
-						<button
-							onclick={() => showTagInput = true}
-							title="Add tag"
-							aria-label="Add tag"
-							class="w-7 h-7 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-xs transition cursor-pointer"
-						>
-							+
-						</button>
-					{/if}
-				</div>
-			</div>
-
-			<!-- Notes Section -->
-			<div class="space-y-1.5">
-				<div class="flex items-center justify-between">
-					<span class="font-medium text-slate-700">Notes</span>
-				</div>
-				{#if notes.length > 0}
-					<div class="bg-slate-50 border border-slate-100 rounded-xl p-3.5 flex items-start justify-between gap-2">
-						<div class="text-slate-600 leading-relaxed flex-1">{notes[0].body || notes[0].text}</div>
-						<button onclick={() => showAddNoteInput = !showAddNoteInput} class="text-slate-400 hover:text-slate-600 shrink-0 p-0.5 cursor-pointer" title="Edit note" aria-label="Edit note">
-							<PencilSquareIcon class="w-3.5 h-3.5" />
-						</button>
-					</div>
-				{:else}
-					<p class="rounded-xl border border-slate-100 bg-slate-50 p-3.5 text-slate-400">No notes recorded.</p>
-				{/if}
-				{#if showAddNoteInput}
-					<div class="p-3 bg-slate-50 rounded-xl space-y-2">
-						<textarea
-							bind:value={noteInputText}
-							rows="2"
-							placeholder="Add an internal note..."
-							class="w-full p-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 resize-none"
-						></textarea>
-						<div class="flex justify-end gap-2">
-							<button onclick={() => { showAddNoteInput = false; noteInputText = ''; }} class="text-xs text-slate-500 cursor-pointer">Cancel</button>
-							<button onclick={submitNote} class="px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs cursor-pointer">Save</button>
-						</div>
-					</div>
-				{/if}
-			</div>
+			<LeadTagsEditor tags={editor.lead?.tags ?? lead.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
+			<LeadNotesEditor notes={editor.notes} loading={editor.loading} onadd={(body) => editor.addNote(body)} />
 
 			<!-- Contact info Section -->
 			<div class="space-y-2">
@@ -310,33 +159,7 @@
 			</div>
 
 		{:else if activeTab === 'notes'}
-			<div class="space-y-3">
-				<div class="flex items-center justify-between">
-					<span class="font-medium text-slate-700">Internal notes</span>
-					<button onclick={() => showAddNoteInput = true} class="text-[11px] text-blue-600 font-medium hover:underline cursor-pointer">+ Add note</button>
-				</div>
-				{#if showAddNoteInput}
-					<div class="p-3 bg-slate-50 rounded-xl space-y-2">
-						<textarea bind:value={noteInputText} rows="2" placeholder="Add an internal note..." class="w-full p-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 resize-none"></textarea>
-						<div class="flex justify-end gap-2">
-							<button onclick={() => { showAddNoteInput = false; noteInputText = ''; }} class="text-xs text-slate-500 cursor-pointer">Cancel</button>
-							<button onclick={submitNote} class="px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs cursor-pointer">Save</button>
-						</div>
-					</div>
-				{/if}
-				{#if notes.length === 0}
-					<div class="p-3 bg-slate-50 rounded-xl text-xs text-slate-400">No notes found. Add an internal note for team members.</div>
-				{:else}
-					<div class="space-y-2">
-						{#each notes as note}
-							<div class="p-3 rounded-xl bg-white border border-slate-200/80 text-xs text-slate-600 leading-relaxed">
-								{note.body || note.text}
-								<div class="text-[10px] text-slate-400 mt-1">{formatTime(note.created_at)}</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
+			<LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
 
 		{:else}
 			<div class="space-y-3 text-xs">

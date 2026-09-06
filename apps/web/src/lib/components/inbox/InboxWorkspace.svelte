@@ -3,6 +3,7 @@
   import { apiRequest } from "$lib/api";
   import type { InboxState } from "$lib/store.svelte";
   import type { UICapabilities } from "$lib/ui-capabilities";
+  import type { LeadEditor } from "$lib/leads/lead-editor.svelte";
   import {
     formatTime,
     getContactHandle,
@@ -28,6 +29,7 @@
 
   let {
     inbox,
+    leadEditor,
     capabilities,
     pipelineStates,
     searchQuery = $bindable(),
@@ -37,6 +39,7 @@
     onSimulate,
   }: {
     inbox: InboxState;
+    leadEditor: LeadEditor;
     capabilities: UICapabilities;
     pipelineStates: any[];
     searchQuery: string;
@@ -439,6 +442,7 @@
   </div>
   {#if capabilities.showConversationSidePanel}<ConversationDetailsPanel
       {inbox}
+      editor={leadEditor}
       {capabilities}
       {pipelineStates}
       {onSimulate}

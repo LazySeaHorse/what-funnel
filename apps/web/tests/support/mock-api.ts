@@ -197,6 +197,16 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			return json({ ai_control: conversation?.ai_control });
 		}
 		if (/^\/conversations\/[^/]+\/read$/.test(path)) return json({ status: 'read' });
+		if (/^\/leads\/[^/]+\/state$/.test(path) && request.method() === 'PATCH') {
+			const lead = (options.conversations ?? []).find((item) => item.lead?.id === path.split('/')[2])?.lead;
+			if (lead) lead.current_state_key = String(body?.state_key || lead.current_state_key);
+			return json(lead ?? {});
+		}
+		if (/^\/leads\/[^/]+\/tags$/.test(path) && request.method() === 'PATCH') {
+			const lead = (options.conversations ?? []).find((item) => item.lead?.id === path.split('/')[2])?.lead;
+			if (lead) lead.tags = Array.isArray(body?.tags) ? body.tags : [];
+			return json({ tags: lead?.tags ?? [] });
+		}
 		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
 		if (path === '/api/kb/concepts') return json({ concepts: knowledgeConcepts });
 		if (path === '/api/kb/patterns') return json({ patterns: knowledgePatterns });
