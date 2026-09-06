@@ -122,6 +122,27 @@ test('a delayed tag update cannot change the next conversation', async ({ page }
 	await expect(panel.getByText('priority', { exact: true })).toHaveCount(0);
 });
 
+test('back to conversations cancels a pending conversation selection', async ({ page }) => {
+	await mockWorkspaceApi(page, { conversations: conversations() });
+	const selection = await holdRequest(page, '**/api-gateway/conversations/conversation-2');
+	await page.goto('/inbox');
+	await expect(page.getByRole('heading', { name: 'Alice', exact: true })).toBeVisible();
+	await page.getByText('Bob', { exact: true }).first().click();
+	const request = await selection.wait();
+
+	await page.setViewportSize({ width: 375, height: 812 });
+	await page.getByRole('button', { name: 'Back to conversations' }).click();
+	await request.fulfill({
+		status: 200,
+		contentType: 'application/json',
+		body: JSON.stringify(conversations()[1])
+	}).catch(() => {});
+	await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+	await expect(page.getByPlaceholder('Search conversations', { exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toHaveCount(0);
+});
+
 test('a delayed AI control update does not change or lock the next chat', async ({ page }) => {
 	const records = conversations();
 	await mockWorkspaceApi(page, { conversations: records, aiConfigured: true, autoReplyEnabled: false });

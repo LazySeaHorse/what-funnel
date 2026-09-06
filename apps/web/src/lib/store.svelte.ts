@@ -129,10 +129,7 @@ export class InboxState {
 	dispose() {
 		this.running = false;
 		this.conversationRefreshPending = false;
-		this.conversationRequestVersion++;
-		this.conversationRequest?.abort();
-		this.conversationRequest = null;
-		this.pendingConvoID = null;
+		this.cancelConversationLoad();
 
 		if (this.fallbackPollTimer) {
 			clearInterval(this.fallbackPollTimer);
@@ -171,6 +168,21 @@ export class InboxState {
 
 		this.reconnectAttempts = 0;
 		this.wsStatus = 'disconnected';
+	}
+
+	clearConversationSelection() {
+		this.cancelConversationLoad();
+		this.activeConvoID = null;
+		this.activeConvo = null;
+		this.messages = [];
+		this.nextCursor = null;
+	}
+
+	private cancelConversationLoad() {
+		this.conversationRequestVersion++;
+		this.conversationRequest?.abort();
+		this.conversationRequest = null;
+		this.pendingConvoID = null;
 	}
 
 	loadConversations(): Promise<void> {
@@ -214,10 +226,10 @@ export class InboxState {
 		// Keep the existing conversation rendered until the replacement is complete.
 		// This avoids a blank pane on slow connections and prevents late responses
 		// from overwriting a newer selection.
-		this.conversationRequest?.abort();
+		this.cancelConversationLoad();
 		const controller = new AbortController();
 		this.conversationRequest = controller;
-		const requestVersion = ++this.conversationRequestVersion;
+		const requestVersion = this.conversationRequestVersion;
 		this.pendingConvoID = convoID;
 
 		try {

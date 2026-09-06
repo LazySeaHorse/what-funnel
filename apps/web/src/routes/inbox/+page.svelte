@@ -779,9 +779,7 @@
 	}
 
 	function handleBackToConversations() {
-		inbox.activeConvoID = null;
-		inbox.activeConvo = null;
-		inbox.messages = [];
+		inbox.clearConversationSelection();
 	}
 	$effect(() => {
 		if (selectedNav === 'leads' || selectedNav === 'inbox') void inbox.loadConversations();
