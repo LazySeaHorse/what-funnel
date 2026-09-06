@@ -22,6 +22,9 @@
 <div class="space-y-1.5">
 	<span class="font-medium text-slate-700">Tags</span>
 	<div class="flex flex-wrap items-center gap-1.5">
+		{#if tags.length === 0}
+			<span class="text-xs text-slate-400">No tags</span>
+		{/if}
 		{#each tags as tag (tag)}
 			<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-violet-50 text-violet-600 text-xs font-medium border border-violet-200">
 				{tag}
