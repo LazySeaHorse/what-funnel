@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,6 +52,43 @@ type BridgeMessage struct {
 	MediaURL string
 }
 
+type syncEvent struct {
+	Type           string         `json:"type"`
+	Sender         string         `json:"sender"`
+	StateKey       string         `json:"state_key"`
+	EventID        string         `json:"event_id"`
+	OriginServerTs int64          `json:"origin_server_ts"`
+	Content        map[string]any `json:"content"`
+}
+
+type syncResponse struct {
+	NextBatch string `json:"next_batch"`
+	Rooms     struct {
+		Invite map[string]struct {
+			InviteState struct {
+				Events []syncEvent `json:"events"`
+			} `json:"invite_state"`
+		} `json:"invite"`
+		Join map[string]struct {
+			Timeline struct {
+				Events []syncEvent `json:"events"`
+			} `json:"timeline"`
+		} `json:"join"`
+	} `json:"rooms"`
+}
+
+// Option configures an Adapter.
+type Option func(*Adapter)
+
+// WithLogger sends adapter lifecycle events to logger.
+func WithLogger(logger *slog.Logger) Option {
+	return func(adapter *Adapter) {
+		if logger != nil {
+			adapter.logger = logger
+		}
+	}
+}
+
 // Adapter implements types.ChannelAdapter for Matrix client-server API.
 type Adapter struct {
 	mu           sync.RWMutex
@@ -58,6 +96,7 @@ type Adapter struct {
 	status       map[string]types.ChannelStatus
 	sentEventIDs map[string]bool
 	client       *http.Client
+	logger       *slog.Logger
 	ctx          context.Context
 	onInbound    func(types.InboundEvent)
 	onOutbound   func(types.ExternalOutboundEvent)
@@ -65,13 +104,18 @@ type Adapter struct {
 }
 
 // New creates a new Matrix Adapter instance.
-func New() *Adapter {
-	return &Adapter{
+func New(options ...Option) *Adapter {
+	adapter := &Adapter{
 		channels:     make(map[string]ChannelConfig),
 		status:       make(map[string]types.ChannelStatus),
 		sentEventIDs: make(map[string]bool),
 		client:       &http.Client{Timeout: 45 * time.Second},
+		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
+	for _, option := range options {
+		option(adapter)
+	}
+	return adapter
 }
 
 // Configure registers credentials and status for a channel.
@@ -514,6 +558,7 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 
 	since := ""
 	failCount := 0
+	pendingInvites := make(map[string]struct{})
 
 	for {
 		select {
@@ -565,28 +610,25 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 			continue
 		}
 
-		var syncResp struct {
-			NextBatch string `json:"next_batch"`
-			Rooms     struct {
-				Join map[string]struct {
-					Timeline struct {
-						Events []struct {
-							Type           string         `json:"type"`
-							Sender         string         `json:"sender"`
-							EventID        string         `json:"event_id"`
-							OriginServerTs int64          `json:"origin_server_ts"`
-							Content        map[string]any `json:"content"`
-						} `json:"events"`
-					} `json:"timeline"`
-				} `json:"join"`
-			} `json:"rooms"`
-		}
+		var syncResp syncResponse
 
 		if err := json.Unmarshal(bodyBytes, &syncResp); err != nil {
 			waitForRetry(ctx, 2*time.Second)
 			continue
 		}
 
+		for roomID, roomData := range syncResp.Rooms.Invite {
+			if trustedBridgeInvite(config, roomData.InviteState.Events) {
+				pendingInvites[roomID] = struct{}{}
+				continue
+			}
+			a.logger.Warn("ignored untrusted Matrix room invitation",
+				"channel_id", channelID,
+				"room_id", roomID,
+			)
+		}
+
+		a.joinPendingRooms(ctx, channelID, config, pendingInvites)
 		since = syncResp.NextBatch
 
 		for roomID, roomData := range syncResp.Rooms.Join {
@@ -626,6 +668,49 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 				publishInbound(inboundEv)
 			}
 		}
+	}
+}
+
+func trustedBridgeInvite(config ChannelConfig, events []syncEvent) bool {
+	if config.BridgeIdentity == "" || config.Credentials.UserID == "" {
+		return false
+	}
+	for _, event := range events {
+		membership, _ := event.Content["membership"].(string)
+		if event.Type == "m.room.member" &&
+			event.Sender == config.BridgeIdentity &&
+			event.StateKey == config.Credentials.UserID &&
+			membership == "invite" {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Adapter) joinPendingRooms(ctx context.Context, channelID string, config ChannelConfig, pending map[string]struct{}) {
+	for roomID := range pending {
+		endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/join",
+			strings.TrimRight(config.Credentials.HomeserverURL, "/"),
+			url.PathEscape(roomID),
+		)
+		if err := a.matrixJSON(ctx, config.Credentials, http.MethodPost, endpoint, []byte("{}"), nil); err != nil {
+			a.SetStatus(channelID, "error", fmt.Sprintf("failed to join invited room %s: %v", roomID, err))
+			a.logger.Error("failed to join trusted Matrix room invitation",
+				"channel_id", channelID,
+				"room_id", roomID,
+				"bridge_identity", config.BridgeIdentity,
+				"error", err,
+			)
+			continue
+		}
+
+		delete(pending, roomID)
+		a.SetStatus(channelID, "connected", "Syncing events from homeserver")
+		a.logger.Info("joined trusted Matrix room invitation",
+			"channel_id", channelID,
+			"room_id", roomID,
+			"bridge_identity", config.BridgeIdentity,
+		)
 	}
 }
 

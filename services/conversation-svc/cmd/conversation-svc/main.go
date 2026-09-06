@@ -81,7 +81,7 @@ func run(logger *slog.Logger) error {
 	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 
 	// 5. Initialize and Register Matrix Adapter
-	matrixAdapter := matrixadapter.New()
+	matrixAdapter := matrixadapter.New(matrixadapter.WithLogger(logger))
 	svc.RegisterAdapter("matrix_whatsapp", matrixAdapter)
 	svc.RegisterAdapter("matrix_instagram", matrixAdapter)
 	svc.RegisterAdapter("matrix_messenger", matrixAdapter)

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,6 +84,188 @@ func TestAdapter_StartWaitsForDynamicallyConfiguredChannels(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Start() did not return after dynamic sync loop stopped")
 	}
+}
+
+func TestAdapter_StartJoinsTrustedInviteAndRetriesBeforePublishing(t *testing.T) {
+	const (
+		channelID     = "whatsapp-channel"
+		roomID        = "!customer:localhost"
+		channelUserID = "@wf_whatsapp:localhost"
+		bridgeUserID  = "@whatsappbot:localhost"
+	)
+
+	var syncRequests atomic.Int32
+	var joinRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authorization := r.Header.Get("Authorization"); authorization != "Bearer matrix-token" {
+			t.Errorf("Authorization = %q, want Bearer matrix-token", authorization)
+		}
+
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sync"):
+			switch syncRequests.Add(1) {
+			case 1:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"next_batch": "after-invite",
+					"rooms": map[string]any{"invite": map[string]any{
+						roomID: map[string]any{"invite_state": map[string]any{"events": []map[string]any{{
+							"type":      "m.room.member",
+							"sender":    bridgeUserID,
+							"state_key": channelUserID,
+							"content":   map[string]any{"membership": "invite"},
+						}}}},
+					}},
+				})
+			case 2:
+				if since := r.URL.Query().Get("since"); since != "after-invite" {
+					t.Errorf("second sync since = %q, want after-invite", since)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"next_batch": "after-retry",
+					"rooms":      map[string]any{},
+				})
+			case 3:
+				if since := r.URL.Query().Get("since"); since != "after-retry" {
+					t.Errorf("third sync since = %q, want after-retry", since)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"next_batch": "after-message",
+					"rooms": map[string]any{"join": map[string]any{
+						roomID: map[string]any{"timeline": map[string]any{"events": []map[string]any{{
+							"type":             "m.room.message",
+							"sender":           "@whatsapp_customer:localhost",
+							"event_id":         "$first-message",
+							"origin_server_ts": int64(1_788_622_527_000),
+							"content":          map[string]any{"msgtype": "m.text", "body": "hello"},
+						}}}},
+					}},
+				})
+			default:
+				<-r.Context().Done()
+			}
+		case strings.HasSuffix(r.URL.Path, "/join"):
+			if r.Method != http.MethodPost {
+				t.Errorf("join method = %s, want POST", r.Method)
+			}
+			if request := joinRequests.Add(1); request == 1 {
+				http.Error(w, "temporary failure", http.StatusBadGateway)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"room_id": roomID})
+		default:
+			t.Errorf("unexpected Matrix request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	adapter := New()
+	adapter.Configure(channelID, ChannelConfig{
+		Credentials: Credentials{
+			HomeserverURL: server.URL,
+			UserID:        channelUserID,
+			AccessToken:   "matrix-token",
+		},
+		BridgeIdentity: bridgeUserID,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	published := make(chan types.InboundEvent, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- adapter.Start(ctx, func(event types.InboundEvent) {
+			published <- event
+		}, func(types.ExternalOutboundEvent) {})
+	}()
+
+	select {
+	case event := <-published:
+		assert.Equal(t, channelID, event.ChannelID)
+		assert.Equal(t, roomID, event.ExternalThreadID)
+		assert.Equal(t, "$first-message", event.Message.ExternalMessageID)
+		assert.Equal(t, "hello", event.Message.Text)
+	case <-time.After(time.Second):
+		t.Fatal("trusted room message was not published")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("adapter did not stop after cancellation")
+	}
+	assert.Equal(t, int32(2), joinRequests.Load())
+	assert.GreaterOrEqual(t, syncRequests.Load(), int32(3))
+}
+
+func TestAdapter_StartIgnoresUntrustedInvite(t *testing.T) {
+	const roomID = "!untrusted:localhost"
+
+	var syncRequests atomic.Int32
+	var joinRequests atomic.Int32
+	secondSync := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/join") {
+			joinRequests.Add(1)
+			http.Error(w, "unexpected join", http.StatusInternalServerError)
+			return
+		}
+		if !strings.HasSuffix(r.URL.Path, "/sync") {
+			http.NotFound(w, r)
+			return
+		}
+
+		if syncRequests.Add(1) == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"next_batch": "after-untrusted-invite",
+				"rooms": map[string]any{"invite": map[string]any{
+					roomID: map[string]any{"invite_state": map[string]any{"events": []map[string]any{{
+						"type":      "m.room.member",
+						"sender":    "@attacker:localhost",
+						"state_key": "@wf_whatsapp:localhost",
+						"content":   map[string]any{"membership": "invite"},
+					}}}},
+				}},
+			})
+			return
+		}
+
+		close(secondSync)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	adapter := New()
+	adapter.Configure("whatsapp-channel", ChannelConfig{
+		Credentials: Credentials{
+			HomeserverURL: server.URL,
+			UserID:        "@wf_whatsapp:localhost",
+			AccessToken:   "matrix-token",
+		},
+		BridgeIdentity: "@whatsappbot:localhost",
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- adapter.Start(ctx, func(types.InboundEvent) {}, func(types.ExternalOutboundEvent) {})
+	}()
+
+	select {
+	case <-secondSync:
+	case <-time.After(time.Second):
+		t.Fatal("adapter did not continue syncing after untrusted invite")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("adapter did not stop after cancellation")
+	}
+	assert.Zero(t, joinRequests.Load())
 }
 
 func TestWaitForManagementRoomReadyWaitsForBridgeJoin(t *testing.T) {
