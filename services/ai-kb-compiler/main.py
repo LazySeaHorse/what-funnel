@@ -46,20 +46,15 @@ async def lifespan(app: FastAPI):
     await app.state.db.close()
     logger.info("Database pool closed.")
 
-from playground import router as playground_router
-from fastapi.responses import RedirectResponse
-
 app = FastAPI(
     title="WhatFunnel AI KB Compiler",
     version="1.0.0",
     lifespan=lifespan
 )
 
-app.include_router(playground_router)
-
 @app.get("/", include_in_schema=False)
-async def root_redirect():
-    return RedirectResponse(url="/playground")
+async def root():
+    return {"status": "ok", "service": "ai-kb-compiler"}
 
 # Dependency to retrieve a tenant-scoped database client.
 async def get_db(x_account_id: str = Header(..., alias="X-Account-ID")) -> ScopedDB:
