@@ -4,1037 +4,189 @@
 	import type { InboxState } from '$lib/store.svelte';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
 	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
-	import PipelineSettings from './PipelineSettings.svelte';
-	import SettingsSidebar from './SettingsSidebar.svelte';
-	import SettingsInfoPanel from './SettingsInfoPanel.svelte';
+	import { CheckIcon, ExclamationCircleIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import AIProviderSettings from './AIProviderSettings.svelte';
+	import BusinessProfileSection from './BusinessProfileSection.svelte';
 	import ChannelsSettings from './ChannelsSettings.svelte';
-	import {
-		CheckIcon,
-		ExclamationCircleIcon,
-		ExclamationTriangleIcon,
-		ChevronDownIcon,
-		PlusIcon,
-		TrashIcon,
-		XMarkIcon
-	} from '@fvilers/heroicons-svelte/24/outline';
+	import DeleteWorkspaceDialog from './DeleteWorkspaceDialog.svelte';
+	import GeneralSettingsSection from './GeneralSettingsSection.svelte';
+	import PipelineSettings from './PipelineSettings.svelte';
+	import SettingsInfoPanel from './SettingsInfoPanel.svelte';
+	import SettingsSidebar from './SettingsSidebar.svelte';
+	import UsersPermissionsSection from './UsersPermissionsSection.svelte';
+	import WorkspacePlanDialog from './WorkspacePlanDialog.svelte';
+	import { normalizeSavedTimeZone } from './timezones';
+	import type { SettingsSection, WorkspaceSettingsForm } from './types';
 
-	let {
-		inbox,
-		workspace,
-		initialSection = 'general',
-		onNavigate
-	}: {
+	let { inbox, workspace, initialSection = 'general' }: {
 		inbox?: InboxState;
 		workspace?: WorkspaceState;
 		initialSection?: string;
 		onNavigate?: (tab: string) => void;
 	} = $props();
 
-	// Navigation sections (Only the 4 workspace subsections)
-	type SettingsSection =
-		| 'general'
-		| 'business_profile'
-		| 'ai_provider'
-		| 'users_permissions'
-		| 'channels'
-		| 'pipeline';
-
 	let activeSection = $state<SettingsSection>('general');
-
-	type IntlWithTimeZones = typeof Intl & {
-		supportedValuesOf?: (key: 'timeZone') => string[];
-	};
-
-	const supportedTimeZones = (() => {
-		const zones = (Intl as IntlWithTimeZones).supportedValuesOf?.('timeZone') ?? [];
-		return ['UTC', ...zones.filter((zone) => zone !== 'UTC')];
-	})();
-
-	function normalizeGMTOffset(offset: string): string {
-		if (offset === 'GMT' || offset === 'UTC') return 'GMT+00:00';
-		const match = offset.match(/^(?:GMT|UTC)([+-])(\d{1,2})(?::(\d{2}))?$/);
-		if (!match) return offset;
-		return `GMT${match[1]}${match[2].padStart(2, '0')}:${match[3] ?? '00'}`;
-	}
-
-	function formatTimeZoneLabel(zone: string): string {
-		try {
-			const offset = new Intl.DateTimeFormat('en-US', {
-				timeZone: zone,
-				timeZoneName: 'shortOffset'
-			}).formatToParts(new Date()).find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
-			return `(${normalizeGMTOffset(offset)}) ${zone.replaceAll('_', ' ').replaceAll('/', ' / ')}`;
-		} catch {
-			return zone;
-		}
-	}
-
-	function normalizeSavedTimeZone(value: string): string {
-		if (value === 'UTC' || value.includes('UTC')) return 'UTC';
-		const compactValue = value.replace(/\s*\/\s*/g, '/');
-		return supportedTimeZones.find((zone) => compactValue.includes(zone)) ?? value;
-	}
-
-	// Form & state variables
 	let loading = $state(false);
 	let saving = $state(false);
 	let successMsg = $state('');
 	let errorMsg = $state('');
-
-	// General settings fields (matches crap/tabz.webp settings UI)
-	let workspaceName = $state('');
-	let defaultTimeZone = $state('UTC');
-	let language = $state('English');
-	let dateFormat = $state('DD MMM YYYY');
-	let timeFormat = $state<'12' | '24'>('12');
-
-	// Business profile fields
-	let businessCategory = $state('');
-	let businessPhone = $state('');
-	let businessEmail = $state('');
-	let businessAddress = $state('');
-	let businessWebsite = $state('');
-	let businessHours = $state('');
-
-	// Plan & storage details
-	let currentPlan = $state('Pro Plan');
-	let storageUsedGB = $state(4.2);
-	let storageTotalGB = $state(20);
-	let storagePercent = $derived(Math.round((storageUsedGB / storageTotalGB) * 100));
-
-	// Modals & UI
 	let showDeleteModal = $state(false);
-	let deleteConfirmationInput = $state('');
 	let showPlanModal = $state(false);
-
-	// User Management State
-	let accountSlug = $state('');
-	let savingSlug = $state(false);
-	let showAddUserModal = $state(false);
-	let newUsername = $state('');
-	let newPassword = $state('');
-	let newRole = $state<'agent' | 'manager'>('agent');
-	let addingUser = $state(false);
-	let userModalError = $state('');
-
-	let createdUserResult = $state<{ username: string; plaintextPassword?: string; role: string } | null>(null);
-	let copiedPassword = $state(false);
-
-	let showResetPasswordModal = $state(false);
-	let resetUserTarget = $state<any | null>(null);
-	let resetNewPassword = $state('');
-	let resettingPassword = $state(false);
-	let resetPasswordError = $state('');
-
-	let showDeleteUserModal = $state(false);
-	let deleteUserTarget = $state<any | null>(null);
-	let deletingUser = $state(false);
-
-	// Team users
-	let teamUsers = $state<any[]>([]);
-	let productMode = $state('full_workspace');
-	let leadTracking = $state(true);
-	let unassignedVisible = $state(true);
-	let canManageTeam = $derived(workspace?.capabilities.manageTeam ?? false);
-
-	$effect(() => {
-		if ((!canManageTeam && activeSection === 'users_permissions') || (productMode !== 'full_workspace' && activeSection === 'pipeline')) {
-			activeSection = 'general';
-		}
+	let statusTimer: ReturnType<typeof setTimeout> | null = null;
+	let form = $state<WorkspaceSettingsForm>({
+		workspaceName: '', defaultTimeZone: 'UTC', language: 'English', dateFormat: 'DD MMM YYYY', timeFormat: '12',
+		businessCategory: '', businessPhone: '', businessEmail: '', businessAddress: '', businessWebsite: '', businessHours: '',
+		productMode: 'full_workspace', leadTracking: true, unassignedVisible: true
 	});
 
-	function closeModal() {
-		showAddUserModal = false;
-		showDeleteUserModal = false;
-		showResetPasswordModal = false;
-		createdUserResult = null;
-		deleteUserTarget = null;
-		resetUserTarget = null;
-		showDeleteModal = false;
-		showPlanModal = false;
-		deleteConfirmationInput = '';
-		userModalError = '';
-		resetPasswordError = '';
-	}
+	let canManageTeam = $derived(workspace?.capabilities.manageTeam ?? false);
+	const currentPlan = 'Pro Plan';
+	const storageUsedGB = 4.2;
+	const storageTotalGB = 20;
+	const storagePercent = Math.round((storageUsedGB / storageTotalGB) * 100);
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') closeModal();
-	}
+	$effect(() => {
+		if ((!canManageTeam && activeSection === 'users_permissions') || (form.productMode !== 'full_workspace' && activeSection === 'pipeline')) activeSection = 'general';
+	});
 
-	function applyWorkspaceData(account: any) {
-		if (!account) return;
-		if (account.name) workspaceName = account.name;
-		productMode = account.product_mode || 'full_workspace';
-		if (!account.settings) return;
-		try {
-			const parsed = decodeWorkspaceSettings(account.settings);
-			if (parsed.timezone) defaultTimeZone = normalizeSavedTimeZone(parsed.timezone);
-			if (parsed.language) language = parsed.language;
-			if (parsed.date_format) dateFormat = parsed.date_format;
-			if (parsed.time_format) timeFormat = parsed.time_format;
-			if (parsed.business_category) businessCategory = parsed.business_category;
-			if (parsed.business_phone) businessPhone = parsed.business_phone;
-			if (parsed.business_email) businessEmail = parsed.business_email;
-			if (parsed.business_address) businessAddress = parsed.business_address;
-			if (parsed.business_website) businessWebsite = parsed.business_website;
-			if (parsed.business_hours) businessHours = parsed.business_hours;
-			leadTracking = parsed.lead_tracking_enabled !== false;
-			unassignedVisible = parsed.unassigned_conversations_visible_to_members !== false;
-		} catch (err) {
-			console.error('Failed to parse settings', err);
-		}
-	}
+	onMount(() => {
+		if (isSettingsSection(initialSection)) activeSection = initialSection;
+		void loadSettings();
+		return () => {
+			if (statusTimer) clearTimeout(statusTimer);
+		};
+	});
 
-	onMount(async () => {
-		if (initialSection && ['general', 'business_profile', 'ai_provider', 'users_permissions', 'channels', 'pipeline'].includes(initialSection)) {
-			activeSection = initialSection as SettingsSection;
-		}
-
+	async function loadSettings() {
 		try {
 			loading = !(workspace?.settingsReady ?? false);
 			if (workspace) {
 				await workspace.loadSettings(inbox?.currentUser);
 				applyWorkspaceData(workspace.account);
-				teamUsers = workspace.users;
-				await loadAccountSlug();
 			} else {
-				const [account, users] = await Promise.all([
-					apiRequest('/workspace/account'),
-					apiRequest('/workspace/users')
-				]);
-				applyWorkspaceData(account);
-				teamUsers = users;
-				await loadAccountSlug();
+				applyWorkspaceData(await apiRequest('/workspace/account'));
 			}
-		} catch (err: any) {
-			errorMsg = err?.message || 'Failed to load workspace settings.';
+		} catch (error) {
+			setStatus('error', error instanceof Error ? error.message : 'Failed to load workspace settings.');
 		} finally {
 			loading = false;
 		}
-	});
-
-	async function handleSaveGeneral() {
-		if (!workspaceName.trim()) {
-			errorMsg = 'Workspace name is required.';
-			return;
-		}
-
-		saving = true;
-		errorMsg = '';
-		successMsg = '';
-
-		try {
-			// Update workspace name
-			await apiRequest('/workspace/account', {
-				method: 'PATCH',
-				body: { name: workspaceName.trim() }
-			});
-
-			// Update settings object
-			const settingsPayload = {
-				timezone: defaultTimeZone,
-				language,
-				date_format: dateFormat,
-				time_format: timeFormat,
-				business_category: businessCategory,
-				business_phone: businessPhone,
-				business_email: businessEmail,
-				business_address: businessAddress,
-				business_website: businessWebsite,
-				business_hours: businessHours,
-				...(productMode === 'full_workspace' ? {
-					lead_tracking_enabled: leadTracking,
-					unassigned_conversations_visible_to_members: unassignedVisible
-				} : {})
-			};
-
-			await apiRequest('/workspace/account/settings', {
-				method: 'PATCH',
-				body: settingsPayload
-			});
-			await workspace?.refreshAccount();
-
-			successMsg = 'Settings saved successfully';
-			setTimeout(() => {
-				successMsg = '';
-			}, 3000);
-		} catch (err: any) {
-			errorMsg = err?.message || 'Failed to save settings';
-		} finally {
-			saving = false;
-		}
 	}
 
-	async function updateUserRole(userID: string, role: string) {
+	function applyWorkspaceData(account: any) {
+		if (!account) return;
+		form.workspaceName = account.name || form.workspaceName;
+		form.productMode = account.product_mode || 'full_workspace';
+		const settings = decodeWorkspaceSettings(account.settings);
+		if (settings.timezone) form.defaultTimeZone = normalizeSavedTimeZone(settings.timezone);
+		if (settings.language) form.language = settings.language;
+		if (settings.date_format) form.dateFormat = settings.date_format;
+		if (settings.time_format) form.timeFormat = settings.time_format;
+		form.businessCategory = settings.business_category || '';
+		form.businessPhone = settings.business_phone || '';
+		form.businessEmail = settings.business_email || '';
+		form.businessAddress = settings.business_address || '';
+		form.businessWebsite = settings.business_website || '';
+		form.businessHours = settings.business_hours || '';
+		form.leadTracking = settings.lead_tracking_enabled !== false;
+		form.unassignedVisible = settings.unassigned_conversations_visible_to_members !== false;
+	}
+
+	async function saveSettings() {
+		if (!form.workspaceName.trim()) return setStatus('error', 'Workspace name is required.');
+		saving = true;
+		successMsg = '';
 		errorMsg = '';
 		try {
-			await apiRequest(`/workspace/users/${userID}/role`, { method: 'PUT', body: { role } });
-			if (workspace) {
-				await workspace.refreshUsers();
-				teamUsers = workspace.users;
-			} else {
-				teamUsers = await apiRequest('/workspace/users');
-			}
-			successMsg = 'User role updated.';
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to update user role.';
+			await apiRequest('/workspace/account', { method: 'PATCH', body: { name: form.workspaceName.trim() } });
+			await apiRequest('/workspace/account/settings', {
+				method: 'PATCH',
+				body: {
+					timezone: form.defaultTimeZone, language: form.language, date_format: form.dateFormat, time_format: form.timeFormat,
+					business_category: form.businessCategory, business_phone: form.businessPhone, business_email: form.businessEmail,
+					business_address: form.businessAddress, business_website: form.businessWebsite, business_hours: form.businessHours,
+					...(form.productMode === 'full_workspace' ? { lead_tracking_enabled: form.leadTracking, unassigned_conversations_visible_to_members: form.unassignedVisible } : {})
+				}
+			});
+			await workspace?.refreshAccount();
+			setStatus('success', 'Settings saved successfully');
+		} catch (error) {
+			setStatus('error', error instanceof Error ? error.message : 'Failed to save settings');
+		} finally {
+			saving = false;
 		}
 	}
 
 	async function updateProductMode(mode: string) {
-		if (mode === productMode) return;
+		if (mode === form.productMode) return;
 		try {
 			await apiRequest('/workspace/account/product-mode', { method: 'PATCH', body: { product_mode: mode } });
-			productMode = mode;
+			form.productMode = mode;
 			await workspace?.refreshAccount();
-			successMsg = 'Workspace type updated.';
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to update workspace type.';
+			setStatus('success', 'Workspace type updated.');
+		} catch (error) {
+			setStatus('error', error instanceof Error ? error.message : 'Failed to update workspace type.');
 		}
 	}
 
 	async function deleteWorkspace() {
-		if (deleteConfirmationInput !== workspaceName) return;
 		saving = true;
-		errorMsg = '';
 		try {
-			await apiRequest('/workspace/account', { method: 'DELETE', body: { confirmation: workspaceName } });
+			await apiRequest('/workspace/account', { method: 'DELETE', body: { confirmation: form.workspaceName } });
 			await apiRequest('/auth/logout', { method: 'POST' }).catch(() => null);
 			window.location.assign('/signup');
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to delete workspace.';
+		} catch (error) {
+			setStatus('error', error instanceof Error ? error.message : 'Failed to delete workspace.');
 			saving = false;
 		}
 	}
 
-	async function loadAccountSlug() {
-		try {
-			const res = await apiRequest('/workspace/account/slug');
-			if (res?.slug) accountSlug = res.slug;
-		} catch {}
-	}
-
-	async function handleSaveSlug() {
-		if (!accountSlug.trim()) {
-			errorMsg = 'Slug cannot be empty.';
-			return;
-		}
-		savingSlug = true;
-		errorMsg = '';
-		successMsg = '';
-		try {
-			await apiRequest('/workspace/account/slug', {
-				method: 'PUT',
-				body: { slug: accountSlug.trim() }
-			});
-			successMsg = 'Workspace slug updated.';
-			setTimeout(() => successMsg = '', 3000);
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to update workspace slug.';
-		} finally {
-			savingSlug = false;
+	function setStatus(kind: 'success' | 'error', message: string) {
+		if (kind === 'success') {
+			successMsg = message;
+			errorMsg = '';
+			if (statusTimer) clearTimeout(statusTimer);
+			statusTimer = setTimeout(() => successMsg = '', 3000);
+		} else {
+			errorMsg = message;
+			successMsg = '';
 		}
 	}
 
-	function generateNewUserPassword() {
-		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-		let pass = '';
-		for (let i = 0; i < 12; i++) {
-			pass += chars.charAt(Math.floor(Math.random() * chars.length));
-		}
-		newPassword = pass;
+	function isSettingsSection(value: string): value is SettingsSection {
+		return ['general', 'business_profile', 'ai_provider', 'users_permissions', 'channels', 'pipeline'].includes(value);
 	}
 
-	function generateResetPassword() {
-		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-		let pass = '';
-		for (let i = 0; i < 12; i++) {
-			pass += chars.charAt(Math.floor(Math.random() * chars.length));
-		}
-		resetNewPassword = pass;
-	}
-
-	async function handleAddUser() {
-		userModalError = '';
-		if (!newUsername.trim()) {
-			userModalError = 'Username is required.';
-			return;
-		}
-		if (!newPassword.trim()) {
-			userModalError = 'Password is required.';
-			return;
-		}
-		addingUser = true;
-		try {
-			const res = await apiRequest('/workspace/users', {
-				method: 'POST',
-				body: {
-					username: newUsername.trim(),
-					password: newPassword.trim(),
-					role: newRole
-				}
-			});
-			createdUserResult = {
-				username: res.username || newUsername.trim(),
-				role: res.role || newRole,
-				plaintextPassword: res.password || newPassword.trim()
-			};
-			newUsername = '';
-			newPassword = '';
-			newRole = 'agent';
-			showAddUserModal = false;
-			if (workspace) {
-				await workspace.refreshUsers();
-				teamUsers = workspace.users;
-			} else {
-				teamUsers = await apiRequest('/workspace/users');
-			}
-		} catch (err: any) {
-			userModalError = err.message || 'Failed to create user.';
-		} finally {
-			addingUser = false;
-		}
-	}
-
-	async function handleDeleteUser() {
-		if (!deleteUserTarget) return;
-		deletingUser = true;
-		errorMsg = '';
-		try {
-			await apiRequest(`/workspace/users/${deleteUserTarget.id}`, {
-				method: 'DELETE'
-			});
-			showDeleteUserModal = false;
-			deleteUserTarget = null;
-			if (workspace) {
-				await workspace.refreshUsers();
-				teamUsers = workspace.users;
-			} else {
-				teamUsers = await apiRequest('/workspace/users');
-			}
-			successMsg = 'User deleted and conversations unassigned.';
-			setTimeout(() => successMsg = '', 3000);
-		} catch (err: any) {
-			errorMsg = err.message || 'Failed to delete user.';
-		} finally {
-			deletingUser = false;
-		}
-	}
-
-	async function handleResetPassword() {
-		if (!resetUserTarget || !resetNewPassword.trim()) {
-			resetPasswordError = 'New password is required.';
-			return;
-		}
-		resettingPassword = true;
-		resetPasswordError = '';
-		try {
-			await apiRequest(`/workspace/users/${resetUserTarget.id}/password`, {
-				method: 'PUT',
-				body: { password: resetNewPassword.trim() }
-			});
-			showResetPasswordModal = false;
-			createdUserResult = {
-				username: resetUserTarget.username || resetUserTarget.email,
-				role: resetUserTarget.role,
-				plaintextPassword: resetNewPassword.trim()
-			};
-			resetUserTarget = null;
-			resetNewPassword = '';
-			successMsg = 'Password reset successfully.';
-			setTimeout(() => successMsg = '', 3000);
-		} catch (err: any) {
-			resetPasswordError = err.message || 'Failed to reset password.';
-		} finally {
-			resettingPassword = false;
-		}
-	}
-
-	async function copyPasswordText(text: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			copiedPassword = true;
-			setTimeout(() => copiedPassword = false, 2000);
-		} catch {}
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		showPlanModal = false;
+		showDeleteModal = false;
 	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="flex-1 flex flex-col h-full overflow-y-auto bg-white p-8" aria-busy={loading}>
-
-	<!-- Top Title Header -->
-	<div class="mb-7">
-		<h1 class="text-2xl font-medium text-slate-900 tracking-tight font-sans">Settings</h1>
-		<p class="text-xs text-slate-500 mt-1">Manage your workspace and preferences.</p>
-	</div>
-
-	<!-- Alert Banners -->
-	{#if successMsg}
-		<div class="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl flex items-center justify-between">
-			<div class="flex items-center gap-2">
-				<CheckIcon class="w-4 h-4 text-emerald-600 shrink-0" />
-				<span>{successMsg}</span>
-			</div>
-			<button onclick={() => successMsg = ''} class="text-emerald-500 hover:text-emerald-700 text-sm font-medium">×</button>
-		</div>
-	{/if}
-
-	{#if errorMsg}
-		<div class="mb-5 px-4 py-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between">
-			<div class="flex items-center gap-2">
-				<ExclamationCircleIcon class="w-4 h-4 text-rose-600 shrink-0" />
-				<span>{errorMsg}</span>
-			</div>
-			<button onclick={() => errorMsg = ''} class="text-rose-500 hover:text-rose-700 text-sm font-medium">×</button>
-		</div>
-	{/if}
-
+	<div class="mb-7"><h1 class="text-2xl font-medium text-slate-900 tracking-tight font-sans">Settings</h1><p class="text-xs text-slate-500 mt-1">Manage your workspace and preferences.</p></div>
+	{#if successMsg}<div class="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl flex items-center justify-between"><div class="flex items-center gap-2"><CheckIcon class="w-4 h-4" /><span>{successMsg}</span></div><button onclick={() => successMsg = ''} aria-label="Dismiss success message">×</button></div>{/if}
+	{#if errorMsg}<div class="mb-5 px-4 py-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between"><div class="flex items-center gap-2"><ExclamationCircleIcon class="w-4 h-4" /><span>{errorMsg}</span></div><button onclick={() => errorMsg = ''} aria-label="Dismiss error message">×</button></div>{/if}
 	{#if loading}
 		<div role="status" class="py-10 text-xs text-slate-500">Loading workspace settings…</div>
 	{:else}
-		<!-- 3-Column Layout: Subnav | Active Section Content | Right Info Cards -->
 		<div class="grid grid-cols-12 gap-8 items-start">
-
-		<SettingsSidebar bind:activeSection {productMode} {canManageTeam} />
-
-		<!-- ================= CENTER CONTENT PANEL ================= -->
-		<div
-			class="col-span-12 md:col-span-9 lg:col-span-6"
-			role="tabpanel"
-				id={activeSection === 'general' ? 'settings-panel-general' : activeSection === 'business_profile' ? 'settings-panel-business_profile' : activeSection === 'ai_provider' ? 'settings-panel-ai_provider' : activeSection === 'users_permissions' ? 'settings-panel-users_permissions' : activeSection === 'pipeline' ? 'settings-panel-pipeline' : 'settings-panel-channels'}
-		>
-
-			<!-- SECTION: GENERAL -->
-			{#if activeSection === 'general'}
-				<div class="space-y-6">
-					<div>
-						<h2 class="text-base font-medium text-slate-900">General</h2>
-					</div>
-
-					<div class="space-y-5 text-xs">
-						<!-- Workspace Name Field -->
-						<div class="space-y-1.5">
-							<label for="inputWorkspaceName" class="block font-medium text-slate-700">Workspace name</label>
-							<input
-								id="inputWorkspaceName"
-								type="text"
-								bind:value={workspaceName}
-								class="wf-input"
-								placeholder="Enter workspace name"
-							/>
-						</div>
-
-						<!-- Default Time Zone Select -->
-						<div class="space-y-1.5">
-							<label for="selectTimeZone" class="block font-medium text-slate-700">Default time zone</label>
-							<div class="relative">
-								<select
-									id="selectTimeZone"
-									bind:value={defaultTimeZone}
-									class="wf-select"
-								>
-									{#if !supportedTimeZones.includes(defaultTimeZone)}
-										<option value={defaultTimeZone}>{formatTimeZoneLabel(defaultTimeZone)}</option>
-									{/if}
-									{#each supportedTimeZones as zone}
-										<option value={zone}>{formatTimeZoneLabel(zone)}</option>
-									{/each}
-								</select>
-								<div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-									<ChevronDownIcon class="w-4 h-4" />
-								</div>
-							</div>
-						</div>
-
-						<!-- Language Select -->
-						<div class="space-y-1.5">
-							<label for="selectLanguage" class="block font-medium text-slate-700">Language</label>
-							<div class="relative">
-								<select
-									id="selectLanguage"
-									bind:value={language}
-									class="wf-select"
-								>
-									<option value="English">English</option>
-									<option value="Spanish">Spanish (Español)</option>
-									<option value="French">French (Français)</option>
-									<option value="German">German (Deutsch)</option>
-									<option value="Italian">Italian (Italiano)</option>
-									<option value="Portuguese">Portuguese (Português)</option>
-									<option value="Japanese">Japanese (日本語)</option>
-									<option value="Chinese">Chinese (Simplified)</option>
-									<option value="Arabic">Arabic (العربية)</option>
-								</select>
-								<div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-									<ChevronDownIcon class="w-4 h-4" />
-								</div>
-							</div>
-						</div>
-
-						<!-- Date Format Select -->
-						<div class="space-y-1.5">
-							<label for="selectDateFormat" class="block font-medium text-slate-700">Date format</label>
-							<div class="relative">
-								<select
-									id="selectDateFormat"
-									bind:value={dateFormat}
-									class="wf-select"
-								>
-									<option value="DD MMM YYYY">DD MMM YYYY (e.g. 20 May 2024)</option>
-									<option value="MM/DD/YYYY">MM/DD/YYYY (e.g. 05/20/2024)</option>
-									<option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 20/05/2024)</option>
-									<option value="YYYY-MM-DD">YYYY-MM-DD (e.g. 2024-05-20)</option>
-								</select>
-								<div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-									<ChevronDownIcon class="w-4 h-4" />
-								</div>
-							</div>
-						</div>
-
-						<!-- Time Format Radio Options -->
-						<div class="space-y-2 pt-1">
-							<span class="block font-medium text-slate-700">Time format</span>
-							<div class="flex items-center gap-6">
-								<label class="flex items-center gap-2 cursor-pointer select-none">
-									<input
-										type="radio"
-										name="timeFormat"
-										value="12"
-										checked={timeFormat === '12'}
-										onchange={() => timeFormat = '12'}
-										class="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500 accent-blue-600"
-									/>
-									<span class="text-xs text-slate-700 font-medium">12 hour (1:30 PM)</span>
-								</label>
-
-								<label class="flex items-center gap-2 cursor-pointer select-none">
-									<input
-										type="radio"
-										name="timeFormat"
-										value="24"
-										checked={timeFormat === '24'}
-										onchange={() => timeFormat = '24'}
-										class="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500 accent-blue-600"
-									/>
-									<span class="text-xs text-slate-700 font-medium">24 hour (13:30)</span>
-								</label>
-							</div>
-						</div>
-
-							<!-- Save Changes Button -->
-							<div class="space-y-2 border-t border-slate-100 pt-5">
-								<span class="block font-medium text-slate-700">Workspace type</span>
-								<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-									<label class="flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs {productMode === 'full_workspace' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200'}">
-										<input type="radio" name="workspace-mode" checked={productMode === 'full_workspace'} onchange={() => updateProductMode('full_workspace')} />
-										<span><span class="block font-medium text-slate-800">Full workspace</span>Inbox and lead tracking</span>
-									</label>
-									<label class="flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs {productMode === 'chatbot_only' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200'}">
-										<input type="radio" name="workspace-mode" checked={productMode === 'chatbot_only'} onchange={() => updateProductMode('chatbot_only')} />
-										<span><span class="block font-medium text-slate-800">Chatbot only</span>Automated replies only</span>
-									</label>
-								</div>
-							</div>
-
-							<!-- Save Changes Button -->
-						<div class="pt-6 flex justify-end">
-							<button
-								onclick={handleSaveGeneral}
-								disabled={saving}
-								class="wf-button-primary px-5 py-2.5"
-							>
-								{#if saving}
-									<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-									</svg>
-									<span>Saving...</span>
-								{:else}
-									<span>Save changes</span>
-								{/if}
-							</button>
-						</div>
-					</div>
-				</div>
-
-			<!-- SECTION: BUSINESS PROFILE -->
-			{:else if activeSection === 'business_profile'}
-				<div class="space-y-6">
-					<div>
-						<h2 class="text-base font-medium text-slate-900">Business profile</h2>
-						<p class="text-xs text-slate-500 mt-0.5">Details used by AI and customer communications</p>
-					</div>
-
-					<div class="space-y-4 text-xs">
-						<div class="space-y-1.5">
-							<label for="inputCategory" class="block font-medium text-slate-700">Business category</label>
-							<input id="inputCategory" type="text" bind:value={businessCategory} class="wf-input" />
-						</div>
-
-						<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-							<div class="space-y-1.5">
-								<label for="inputPhone" class="block font-medium text-slate-700">Phone number</label>
-								<input id="inputPhone" type="text" bind:value={businessPhone} class="wf-input" />
-							</div>
-							<div class="space-y-1.5">
-								<label for="inputEmail" class="block font-medium text-slate-700">Public email</label>
-								<input id="inputEmail" type="email" bind:value={businessEmail} class="wf-input" />
-							</div>
-						</div>
-
-						<div class="space-y-1.5">
-							<label for="inputAddress" class="block font-medium text-slate-700">Address / Location</label>
-							<input id="inputAddress" type="text" bind:value={businessAddress} class="wf-input" />
-						</div>
-
-						<div class="space-y-1.5">
-							<label for="inputHours" class="block font-medium text-slate-700">Operating hours</label>
-							<input id="inputHours" type="text" bind:value={businessHours} class="wf-input" />
-						</div>
-
-						<div class="pt-4 flex justify-end">
-							<button onclick={handleSaveGeneral} class="wf-button-primary px-5 py-2.5">
-								Save profile
-							</button>
-						</div>
-					</div>
-				</div>
-
-			<!-- SECTION: AI PROVIDER -->
-			{:else if activeSection === 'ai_provider'}
-				<AIProviderSettings />
-			<!-- SECTION: USERS & PERMISSIONS -->
-			{:else if activeSection === 'users_permissions'}
-				<div class="space-y-6">
-					<div class="flex items-center justify-between">
-						<div>
-							<h2 class="text-base font-medium text-slate-900">Users & permissions</h2>
-							<p class="text-xs text-slate-500 mt-0.5">Manage team members and their workspace access.</p>
-						</div>
-						<button
-							onclick={() => { userModalError = ''; generateNewUserPassword(); showAddUserModal = true; }}
-							class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-						>
-							<PlusIcon class="w-3.5 h-3.5" />
-							<span>Add user</span>
-						</button>
-					</div>
-
-					<!-- Workspace Slug Box -->
-					<div class="p-4 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-2.5">
-						<div class="flex items-center justify-between">
-							<label for="settings-workspace-slug" class="text-xs font-medium text-slate-900">Workspace login prefix</label>
-							<button
-								type="button"
-								onclick={handleSaveSlug}
-								disabled={savingSlug}
-								class="px-3 py-1 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-medium text-slate-700 transition cursor-pointer disabled:opacity-50"
-							>
-								{savingSlug ? 'Saving...' : 'Update prefix'}
-							</button>
-						</div>
-						<input
-							id="settings-workspace-slug"
-							type="text"
-							bind:value={accountSlug}
-							placeholder="company-prefix"
-							class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
-						/>
-						<div class="space-y-1 text-[11px] text-slate-500 font-normal">
-							<p>
-								Team members log in with: <span class="font-mono font-medium text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">{accountSlug || 'prefix'}-[username]</span>
-							</p>
-							<p>
-								Agents only see their assigned leads. Managers see all workspace leads.
-							</p>
-						</div>
-					</div>
-
-					<!-- Team Users Table -->
-					<div class="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 text-xs bg-white">
-						{#each teamUsers as user}
-							<div class="p-4 flex items-center justify-between hover:bg-slate-50/50 transition">
-								<div class="flex items-center gap-3 min-w-0">
-									<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-xs shrink-0">
-										{user.username ? user.username.charAt(0).toUpperCase() : (user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase())}
-									</div>
-									<div class="min-w-0">
-										<div class="font-medium text-slate-800 truncate">
-											{user.username || user.name || user.email.split('@')[0]}
-										</div>
-										<div class="text-[11px] text-slate-400 font-mono truncate">
-											{user.email ? user.email : (accountSlug ? `${accountSlug}-${user.username}` : user.username)}
-										</div>
-									</div>
-								</div>
-
-								<div class="flex items-center gap-2.5 shrink-0">
-									<select
-										aria-label="Role for {user.username || user.email}"
-										value={user.role}
-										onchange={(event) => updateUserRole(user.id, (event.currentTarget as HTMLSelectElement).value)}
-										class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium capitalize text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"
-									>
-										<option value="agent">Agent</option>
-										<option value="manager">Manager</option>
-									</select>
-
-									<button
-										type="button"
-										class="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer"
-										onclick={() => { resetUserTarget = user; resetPasswordError = ''; generateResetPassword(); showResetPasswordModal = true; }}
-										title="Reset Password"
-									>
-										Reset password
-									</button>
-
-									{#if user.id !== inbox?.currentUser?.id}
-										<button
-											type="button"
-											class="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-											onclick={() => { deleteUserTarget = user; showDeleteUserModal = true; }}
-											title="Delete user"
-										>
-											<TrashIcon class="w-4 h-4" />
-										</button>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-
-				<!-- SECTION: CHANNELS -->
-				{:else if activeSection === 'channels'}
-					<ChannelsSettings {workspace} />
-				{:else if activeSection === 'pipeline'}
-					<PipelineSettings {workspace} />
-			{/if}
-
+			<SettingsSidebar bind:activeSection productMode={form.productMode} {canManageTeam} />
+			<div class="col-span-12 md:col-span-9 lg:col-span-6" role="tabpanel" id={`settings-panel-${activeSection}`}>
+				{#if activeSection === 'general'}<GeneralSettingsSection bind:form {saving} onSave={() => void saveSettings()} onChangeProductMode={(mode) => void updateProductMode(mode)} />
+				{:else if activeSection === 'business_profile'}<BusinessProfileSection bind:form {saving} onSave={() => void saveSettings()} />
+				{:else if activeSection === 'ai_provider'}<AIProviderSettings />
+				{:else if activeSection === 'users_permissions'}<UsersPermissionsSection {inbox} {workspace} onStatus={setStatus} />
+				{:else if activeSection === 'channels'}<ChannelsSettings {workspace} />
+				{:else if activeSection === 'pipeline'}<PipelineSettings {workspace} />{/if}
+			</div>
+			<SettingsInfoPanel {currentPlan} {storageUsedGB} {storageTotalGB} {storagePercent} onManagePlan={() => showPlanModal = true} onDelete={() => showDeleteModal = true} />
 		</div>
-
-		<SettingsInfoPanel
-			{currentPlan}
-			{storageUsedGB}
-			{storageTotalGB}
-			{storagePercent}
-			onManagePlan={() => showPlanModal = true}
-			onDelete={() => showDeleteModal = true}
-		/>
-
-	</div>
 	{/if}
-
 </div>
 
-<!-- Plan modal -->
-{#if showPlanModal}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-plan-title">
-			<div class="flex items-center justify-between">
-				<h3 id="workspace-plan-title" class="text-sm font-medium text-slate-900">Workspace Plan</h3>
-				<button onclick={() => showPlanModal = false} aria-label="Close workspace plan" class="text-slate-400 hover:text-slate-600 text-lg font-medium cursor-pointer">×</button>
-			</div>
-			<div class="p-4 rounded-xl bg-blue-50/60 border border-blue-100 space-y-2 text-xs">
-				<div class="flex justify-between font-medium text-slate-900">
-					<span>Pro Plan</span>
-					<span class="text-blue-600">$49 / mo</span>
-				</div>
-				<p class="text-slate-600 text-[11px]">Unlimited channels, 10 team seats, 20 GB media storage, and autonomous AI replies.</p>
-			</div>
-			<div class="flex justify-end pt-2">
-				<button onclick={() => showPlanModal = false} class="wf-button-primary">
-					Done
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Delete Confirmation Modal -->
-{#if showDeleteModal}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="delete-workspace-title">
-			<div class="flex items-center gap-3 text-red-600">
-				<div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
-					<ExclamationTriangleIcon class="w-5 h-5" />
-				</div>
-				<div>
-					<h3 id="delete-workspace-title" class="text-sm font-medium text-slate-900">Delete Workspace</h3>
-					<p class="text-xs text-slate-500">This will permanently delete all leads, messages, and settings.</p>
-				</div>
-			</div>
-
-			<div class="text-xs text-slate-600 space-y-2">
-				<p>Please type <span class="font-medium text-slate-900 select-all">{workspaceName}</span> to confirm:</p>
-				<input
-					type="text"
-					bind:value={deleteConfirmationInput}
-					placeholder={workspaceName}
-					class="wf-input focus:border-red-500 focus:ring-red-100"
-				/>
-			</div>
-
-			<div class="flex items-center justify-end gap-3 pt-2">
-				<button
-					onclick={() => { showDeleteModal = false; deleteConfirmationInput = ''; }}
-					class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-				>
-					Cancel
-				</button>
-				<button
-					disabled={deleteConfirmationInput !== workspaceName}
-					onclick={deleteWorkspace}
-					class="wf-button-danger"
-				>
-					Delete permanently
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Add User Modal -->
-{#if showAddUserModal}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="add-team-member-title">
-			<h3 id="add-team-member-title" class="text-sm font-medium text-slate-900">Add team member</h3>
-			<div class="space-y-3.5 text-xs">
-				<div class="space-y-1">
-					<label for="newUsernameInput" class="font-medium text-slate-700">Username</label>
-					<input id="newUsernameInput" type="text" bind:value={newUsername} placeholder="e.g. john" class="wf-input" />
-					<p class="text-[11px] text-slate-400">Login username: <span class="font-mono">{accountSlug || 'prefix'}-{newUsername || '[username]'}</span></p>
-				</div>
-				<div class="space-y-1">
-					<div class="flex items-center justify-between">
-						<label for="newPasswordInput" class="font-medium text-slate-700">Initial password</label>
-						<button type="button" onclick={generateNewUserPassword} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
-					</div>
-					<input id="newPasswordInput" type="text" bind:value={newPassword} placeholder="Password" class="wf-input font-mono" />
-				</div>
-				<div class="space-y-1">
-					<label for="newRoleSelect" class="font-medium text-slate-700">Role</label>
-					<select id="newRoleSelect" bind:value={newRole} class="wf-select">
-						<option value="agent">Agent</option>
-						<option value="manager">Manager</option>
-					</select>
-				</div>
-				{#if userModalError}
-					<p class="text-xs text-rose-600 font-medium">{userModalError}</p>
-				{/if}
-			</div>
-			<div class="flex items-center justify-end gap-3 pt-2">
-				<button onclick={closeModal} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
-					Cancel
-				</button>
-				<button onclick={handleAddUser} disabled={addingUser || !newUsername.trim() || !newPassword.trim()} class="wf-button-primary disabled:opacity-50">
-					{addingUser ? 'Saving...' : 'Add user'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Created / Reset User Credentials Modal (Plaintext shown once) -->
-{#if createdUserResult}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal max-w-md" role="dialog" aria-modal="true" aria-labelledby="user-credentials-title">
-			<div class="flex items-center gap-3">
-				<div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-					<CheckIcon class="w-5 h-5" />
-				</div>
-				<div>
-					<h3 id="user-credentials-title" class="text-sm font-medium text-slate-900">User credentials</h3>
-					<p class="text-xs text-slate-500">Save these credentials now. The system does not show this password again.</p>
-				</div>
-			</div>
-
-			<div class="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
-				<div class="flex items-center justify-between">
-					<span class="text-slate-500 font-sans text-[11px]">Login username:</span>
-					<span class="font-medium text-slate-900 font-mono">{accountSlug ? `${accountSlug}-${createdUserResult.username}` : createdUserResult.username}</span>
-				</div>
-				<div class="flex items-center justify-between">
-					<span class="text-slate-500 font-sans text-[11px]">Role:</span>
-					<span class="font-medium text-slate-900 font-sans capitalize">{createdUserResult.role}</span>
-				</div>
-				{#if createdUserResult.plaintextPassword}
-					<div class="flex items-center justify-between">
-						<span class="text-slate-500 font-sans text-[11px]">Password:</span>
-						<span class="font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">{createdUserResult.plaintextPassword}</span>
-					</div>
-				{/if}
-			</div>
-
-			<div class="flex items-center justify-end gap-3 pt-2">
-				{#if createdUserResult.plaintextPassword}
-					<button
-						type="button"
-						onclick={() => copyPasswordText(`Login: ${accountSlug ? `${accountSlug}-${createdUserResult!.username}` : createdUserResult!.username}\nPassword: ${createdUserResult!.plaintextPassword}`)}
-						class="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
-					>
-						{copiedPassword ? 'Copied!' : 'Copy credentials'}
-					</button>
-				{/if}
-				<button onclick={closeModal} class="wf-button-primary px-4 py-2">
-					Done
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Reset Password Modal -->
-{#if showResetPasswordModal && resetUserTarget}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="reset-user-password-title">
-			<h3 id="reset-user-password-title" class="text-sm font-medium text-slate-900">Reset User Password</h3>
-			<p class="text-xs text-slate-500">Set a new password for <span class="font-medium text-slate-800">{resetUserTarget.username || resetUserTarget.email}</span>.</p>
-
-			<div class="space-y-3.5 text-xs">
-				<div class="space-y-1">
-					<div class="flex items-center justify-between">
-						<label for="resetPasswordInput" class="font-medium text-slate-700">New Password</label>
-						<button type="button" onclick={generateResetPassword} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
-					</div>
-					<input id="resetPasswordInput" type="text" bind:value={resetNewPassword} placeholder="New password" class="wf-input font-mono" />
-				</div>
-				{#if resetPasswordError}
-					<p class="text-xs text-rose-600 font-medium">{resetPasswordError}</p>
-				{/if}
-			</div>
-
-			<div class="flex items-center justify-end gap-3 pt-2">
-				<button onclick={closeModal} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
-					Cancel
-				</button>
-				<button onclick={handleResetPassword} disabled={resettingPassword || !resetNewPassword.trim()} class="wf-button-primary disabled:opacity-50">
-					{resettingPassword ? 'Updating...' : 'Set Password'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Delete User Confirmation Modal -->
-{#if showDeleteUserModal && deleteUserTarget}
-	<div class="wf-modal-backdrop">
-		<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="delete-user-modal-title">
-			<h3 id="delete-user-modal-title" class="text-sm font-medium text-slate-900">Delete User</h3>
-			<p class="text-xs text-slate-600 leading-relaxed">
-				Are you sure you want to delete <span class="font-medium text-slate-900">{deleteUserTarget.username || deleteUserTarget.email}</span>?
-				Any conversations currently assigned to them will be unassigned. This action cannot be undone.
-			</p>
-			<div class="flex items-center justify-end gap-3 pt-2">
-				<button onclick={closeModal} class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
-					Cancel
-				</button>
-				<button onclick={handleDeleteUser} disabled={deletingUser} class="wf-button-danger disabled:opacity-50">
-					{deletingUser ? 'Deleting...' : 'Delete User'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+{#if showPlanModal}<WorkspacePlanDialog onClose={() => showPlanModal = false} />{/if}
+{#if showDeleteModal}<DeleteWorkspaceDialog workspaceName={form.workspaceName} {saving} onDelete={() => void deleteWorkspace()} onClose={() => showDeleteModal = false} />{/if}
