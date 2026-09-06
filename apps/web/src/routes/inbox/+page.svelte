@@ -658,13 +658,16 @@
 	});
 
 	async function updateLeadState(stateKey: string) {
-		if (!inbox.activeConvo?.lead) return;
+		const leadID = inbox.activeConvo?.lead?.id;
+		if (!leadID) return;
 		try {
-			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/state`, {
+			const lead = await apiRequest(`/leads/${leadID}/state`, {
 				method: 'PATCH',
 				body: { state_key: stateKey }
 			});
-			inbox.activeConvo.lead.current_state_key = lead.current_state_key;
+			if (inbox.activeConvo?.lead?.id === leadID) {
+				inbox.activeConvo.lead.current_state_key = lead.current_state_key;
+			}
 			showLeadStateDropdown = false;
 			await inbox.loadConversations();
 		} catch (err) {
@@ -673,7 +676,8 @@
 	}
 
 	async function addTag() {
-		if (!newTagText.trim() || !inbox.activeConvo?.lead) return;
+		const leadID = inbox.activeConvo?.lead?.id;
+		if (!newTagText.trim() || !leadID) return;
 		const tag = newTagText.trim();
 		newTagText = '';
 		showAddTagInput = false;
@@ -683,11 +687,13 @@
 		const newTags = [...currentTags, tag];
 
 		try {
-			const lead = await apiRequest(`/leads/${inbox.activeConvo.lead.id}/tags`, {
+			const lead = await apiRequest(`/leads/${leadID}/tags`, {
 				method: 'PATCH',
 				body: { tags: newTags }
 			});
-			inbox.activeConvo.lead.tags = lead.tags;
+			if (inbox.activeConvo?.lead?.id === leadID) {
+				inbox.activeConvo.lead.tags = lead.tags;
+			}
 		} catch (err) {
 			console.error(err);
 		}

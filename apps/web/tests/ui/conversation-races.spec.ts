@@ -90,6 +90,38 @@ test('a delayed assignment updates Alice without changing Bob', async ({ page })
 	await expect(panel.getByText('Unassigned', { exact: true })).toHaveCount(0);
 });
 
+test('a delayed lead state update cannot change the next conversation', async ({ page }) => {
+	await mockWorkspaceApi(page, { conversations: conversations() });
+	const stateUpdate = await holdRequest(page, '**/api-gateway/leads/*/state');
+	await page.goto('/inbox');
+	const panel = page.locator('.lead-panel');
+	await panel.getByRole('button', { name: 'Change lead stage' }).click();
+	await panel.getByRole('button', { name: 'Set lead stage to New lead' }).click();
+	const request = await stateUpdate.wait();
+	expect(request.request().url()).toContain('/leads/lead-1/state');
+	await page.getByText('Bob', { exact: true }).first().click();
+	await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toBeVisible();
+	await stateUpdate.release({ id: 'lead-1', current_state_key: 'interested' });
+	await expect(panel.getByRole('button', { name: 'Change lead stage' })).toContainText('new');
+});
+
+test('a delayed tag update cannot change the next conversation', async ({ page }) => {
+	await mockWorkspaceApi(page, { conversations: conversations() });
+	const tagUpdate = await holdRequest(page, '**/api-gateway/leads/*/tags');
+	await page.goto('/inbox');
+	const panel = page.locator('.lead-panel');
+	await panel.getByTitle('Add tag').click();
+	await panel.getByLabel('Tag name').fill('priority');
+	await panel.getByRole('button', { name: 'Save tag' }).click();
+	const request = await tagUpdate.wait();
+	expect(request.request().url()).toContain('/leads/lead-1/tags');
+	await page.getByText('Bob', { exact: true }).first().click();
+	await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toBeVisible();
+	await tagUpdate.release({ id: 'lead-1', tags: ['priority'] });
+	await expect(panel.getByText('No tags', { exact: true })).toBeVisible();
+	await expect(panel.getByText('priority', { exact: true })).toHaveCount(0);
+});
+
 test('a delayed AI control update does not change or lock the next chat', async ({ page }) => {
 	const records = conversations();
 	await mockWorkspaceApi(page, { conversations: records, aiConfigured: true, autoReplyEnabled: false });
