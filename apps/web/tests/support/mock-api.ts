@@ -30,6 +30,7 @@ export interface MockWorkspaceOptions {
 	conversations?: any[];
 	replyDraft?: any | null;
 	knowledge?: { concepts?: any[]; patterns?: any[] };
+	activeIngestion?: any;
 	aiConfigured?: boolean;
 	autoReplyEnabled?: boolean;
 }
@@ -57,7 +58,7 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			ai_reply_mode_default: options.autoReplyEnabled ? 'auto_send' : 'draft_only'
 		});
 	}
-	let ingestion: any = null;
+	let ingestion: any = options.activeIngestion ?? null;
 	let knowledgeConcepts = options.knowledge?.concepts ?? [];
 	let knowledgePatterns = options.knowledge?.patterns ?? [];
 

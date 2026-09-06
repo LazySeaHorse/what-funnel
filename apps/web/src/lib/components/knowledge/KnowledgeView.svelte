@@ -11,6 +11,7 @@
 		ChatBubbleLeftRightIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
+	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
 
 	let {
 		reviewerID = '',
@@ -37,13 +38,8 @@
 	let loading = $state(true);
 	let activeTab = $state<'concepts' | 'patterns' | 'suggestions'>('concepts');
 	let pasteText = $state('');
-	let pasting = $state(false);
 	let pasteResult = $state<{ added?: number; patternsAdded?: number; error?: string } | null>(null);
-	let ingestionID = $state('');
-	let ingestionPhase = $state<'idle' | 'processing' | 'review' | 'publishing'>('idle');
-	let ingestionConcepts = $state<any[]>([]);
-	let ingestionPatterns = $state<any[]>([]);
-	let pollGeneration = 0;
+	const ingestion = new KnowledgeIngestionController();
 	let expandedConcept = $state<string | null>(null);
 	let mining = $state(false);
 	let miningResult = $state<{ messages_scanned?: number; clusters_found?: number; suggestions_created?: number } | null>(null);
@@ -116,7 +112,7 @@
 		void load();
 		void resumeLatestIngestion();
 	});
-	onDestroy(() => { pollGeneration++; });
+	onDestroy(() => ingestion.dispose());
 
 	async function deleteConcept(id: string) {
 		if (!confirm('Delete this knowledge concept?')) return;
@@ -132,7 +128,7 @@
 	}
 
 	async function purgeKnowledgeBase() {
-		if (ingestionPhase !== 'idle') return;
+		if (ingestion.phase !== 'idle') return;
 		if (!confirm('Permanently delete all concepts and deterministic patterns in this workspace? This cannot be undone.')) return;
 
 		purging = true;
@@ -156,118 +152,42 @@
 	}
 
 	function discardIngestion() {
-		ingestionPhase = 'idle';
-		ingestionID = '';
-		ingestionConcepts = [];
-		ingestionPatterns = [];
+		ingestion.discard();
 		pasteResult = null;
 	}
 
-	function mapConcepts(items: any[]) {
-		return (items ?? []).map((item: any) => ({
-			id: item.id,
-			title: item.title ?? '',
-			type: item.type ?? 'faq',
-			tags: Array.isArray(item.tags) ? item.tags : [],
-			body_text: item.body_text ?? '',
-			approved: item.status !== 'rejected'
-		}));
-	}
-
-	function mapPatterns(items: any[]) {
-		return (items ?? []).map((item: any) => ({
-			id: item.id,
-			canonical_question: item.canonical_question ?? '',
-			answer_text: item.answer_text ?? '',
-			trigger_phrases: Array.isArray(item.trigger_phrases) ? item.trigger_phrases : [],
-			approved: item.status !== 'rejected'
-		}));
-	}
-
-	async function pollIngestion(id: string, generation: number) {
-		while (generation === pollGeneration) {
-			const ingestion = await apiRequest(`/api/kb/ingestions/${id}`);
-			if (ingestion.status === 'review_required') {
-				ingestionConcepts = mapConcepts(ingestion.concepts);
-				ingestionPatterns = mapPatterns(ingestion.patterns);
-				ingestionPhase = 'review';
-				pasting = false;
-				return;
-			}
-			if (ingestion.status === 'complete') {
-				const added = ingestionConcepts.filter((item) => item.approved).length;
-				const patternsAdded = ingestionPatterns.filter((item) => item.approved).length;
-				pasteResult = { added, patternsAdded };
-				pasteText = '';
-				ingestionID = '';
-				ingestionConcepts = [];
-				ingestionPatterns = [];
-				ingestionPhase = 'idle';
-				pasting = false;
-				await load(true);
-				return;
-			}
-			if (ingestion.status === 'failed') {
-				throw new Error(ingestion.error || 'Knowledge ingestion failed.');
-			}
-			ingestionPhase = ingestion.status === 'publishing' ? 'publishing' : 'processing';
-			await new Promise((resolve) => setTimeout(resolve, 750));
-		}
+	async function handleIngestionResult(result: Awaited<ReturnType<KnowledgeIngestionController['start']>>) {
+		if (result.status !== 'complete') return;
+		pasteResult = { added: result.conceptsAdded, patternsAdded: result.patternsAdded };
+		pasteText = '';
+		await load(true);
 	}
 
 	async function resumeLatestIngestion() {
 		try {
-			const response = await apiRequest('/api/kb/ingestions/latest');
-			const ingestion = response?.ingestion;
-			if (!ingestion || !['queued', 'processing', 'review_required', 'publishing'].includes(ingestion.status)) return;
-			ingestionID = ingestion.id;
-			pasting = true;
-			const generation = ++pollGeneration;
-			await pollIngestion(ingestion.id, generation);
+			const result = await ingestion.resumeLatest();
+			if (result) await handleIngestionResult(result);
 		} catch (error: any) {
 			pasteResult = { error: error.message || 'Failed to resume knowledge ingestion' };
-			pasting = false;
-			ingestionPhase = 'idle';
 		}
 	}
 
 	async function compilePaste() {
 		if (!pasteText.trim()) return;
-		pasting = true;
-		ingestionPhase = 'processing';
 		pasteResult = null;
 		try {
-			const ingestion = await apiRequest('/api/kb/ingestions', { method: 'POST', body: { raw_text: pasteText.trim() } });
-			ingestionID = ingestion.id;
-			const generation = ++pollGeneration;
-			await pollIngestion(ingestion.id, generation);
+			await handleIngestionResult(await ingestion.start(pasteText));
 		} catch (error: any) {
 			pasteResult = { error: error.message || 'Failed to compile' };
-			pasting = false;
-			ingestionPhase = 'idle';
 		}
 	}
 
 	async function publishIngestion() {
-		if (!ingestionID) return;
-		if (!ingestionConcepts.some((item) => item.approved) && !ingestionPatterns.some((item) => item.approved)) {
-			pasteResult = { error: 'Select at least one concept or pattern to add.' };
-			return;
-		}
-		pasting = true;
-		ingestionPhase = 'publishing';
 		pasteResult = null;
 		try {
-			await apiRequest(`/api/kb/ingestions/${ingestionID}/publish`, {
-				method: 'POST',
-				body: { concepts: ingestionConcepts, patterns: ingestionPatterns }
-			});
-			const generation = ++pollGeneration;
-			await pollIngestion(ingestionID, generation);
+			await handleIngestionResult(await ingestion.publish());
 		} catch (error: any) {
 			pasteResult = { error: error.message || 'Failed to publish knowledge' };
-			pasting = false;
-			ingestionPhase = 'review';
 		}
 	}
 
@@ -341,7 +261,7 @@
 					<SparklesIcon class="w-3.5 h-3.5" />
 					<span>{mining ? 'Scanning…' : 'Run audit now'}</span>
 				</button>
-				<button onclick={purgeKnowledgeBase} disabled={purging || ingestionPhase !== 'idle'} class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-rose-200 text-xs font-medium text-rose-600 hover:bg-rose-50 transition disabled:opacity-40 cursor-pointer">
+				<button onclick={purgeKnowledgeBase} disabled={purging || ingestion.phase !== 'idle'} class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-rose-200 text-xs font-medium text-rose-600 hover:bg-rose-50 transition disabled:opacity-40 cursor-pointer">
 					<TrashIcon class="w-3.5 h-3.5" />
 					<span>{purging ? 'Purging…' : 'Purge knowledge base'}</span>
 				</button>
@@ -396,18 +316,18 @@
 	{:else if activeTab === 'concepts'}
 		<div class="flex-1 overflow-y-auto min-h-0 flex flex-col">
 			<div class="px-6 py-4 border-b border-slate-100 shrink-0">
-				{#if ingestionPhase === 'review'}
+				{#if ingestion.phase === 'review'}
 					<div class="flex items-center justify-between mb-3">
 						<div>
 							<div class="text-sm font-medium text-slate-800">Review structured knowledge</div>
 							<div class="text-[11px] text-slate-500">The same concept and deterministic-pattern review used during onboarding.</div>
 						</div>
 						<div class="flex items-center gap-2">
-							<button onclick={discardIngestion} disabled={pasting} class="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-medium transition cursor-pointer disabled:opacity-50">
+							<button onclick={discardIngestion} disabled={ingestion.busy} class="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-medium transition cursor-pointer disabled:opacity-50">
 								Discard
 							</button>
-							<button onclick={publishIngestion} disabled={pasting} class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer">
-								{pasting ? 'Publishing…' : 'Add selected to Knowledge Base'}
+							<button onclick={publishIngestion} disabled={ingestion.busy} class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer">
+								{ingestion.busy ? 'Publishing…' : 'Add selected to Knowledge Base'}
 							</button>
 						</div>
 					</div>
@@ -417,10 +337,10 @@
 							<span>{pasteResult.error}</span>
 						</div>
 					{/if}
-					<div class="max-h-[52vh] overflow-y-auto pr-1"><IngestionReview bind:concepts={ingestionConcepts} bind:patterns={ingestionPatterns} /></div>
+					<div class="max-h-[52vh] overflow-y-auto pr-1"><IngestionReview bind:concepts={ingestion.concepts} bind:patterns={ingestion.patterns} /></div>
 				{:else}
 					<div class="text-xs font-medium text-slate-700 mb-2">Add business knowledge</div>
-					<textarea bind:value={pasteText} disabled={pasting} placeholder="Paste business information, pricing, business hours, and policies. The system extracts concepts and answer patterns." class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 resize-none leading-relaxed disabled:opacity-60"></textarea>
+					<textarea bind:value={pasteText} disabled={ingestion.busy} placeholder="Paste business information, pricing, business hours, and policies. The system extracts concepts and answer patterns." class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 resize-none leading-relaxed disabled:opacity-60"></textarea>
 					<div class="flex items-center justify-between mt-2">
 						<div class="flex items-center gap-2">
 							{#if pasteResult?.added !== undefined}
@@ -433,21 +353,21 @@
 									<XMarkIcon class="w-3.5 h-3.5" />
 									<span>{pasteResult.error}</span>
 								</div>
-							{:else if ingestionPhase === 'processing'}
+							{:else if ingestion.phase === 'processing'}
 								<div class="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
 									<span class="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
 									<span>Extracting concepts and answer patterns…</span>
 								</div>
-							{:else if ingestionPhase === 'publishing'}
+							{:else if ingestion.phase === 'publishing'}
 								<div class="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
 									<span class="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
 									<span>Publishing reviewed knowledge…</span>
 								</div>
 							{/if}
 						</div>
-						<button onclick={compilePaste} disabled={pasting || !pasteText.trim()} class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer">
+						<button onclick={compilePaste} disabled={ingestion.busy || !pasteText.trim()} class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer">
 							<SparklesIcon class="w-3.5 h-3.5 text-white" />
-							<span>{pasting ? 'Processing…' : 'Extract with AI'}</span>
+							<span>{ingestion.busy ? 'Processing…' : 'Extract with AI'}</span>
 						</button>
 					</div>
 				{/if}

@@ -84,3 +84,19 @@ test('Knowledge tab can discard a reviewed ingestion to return to paste state', 
 	await expect(page.getByText('Review structured knowledge', { exact: true })).not.toBeVisible();
 	await expect(page.getByRole('button', { name: 'Extract with AI', exact: true })).toBeVisible();
 });
+
+test('Knowledge tab resumes the latest active ingestion through the shared workflow', async ({ page }) => {
+	await mockWorkspaceApi(page, {
+		activeIngestion: {
+			id: '81111111-1111-4111-8111-111111111111',
+			status: 'queued',
+			concepts: [],
+			patterns: []
+		}
+	});
+
+	await page.goto('/inbox?tab=knowledge');
+	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Concept title')).toHaveValue('Pricing');
+	await expect(page.getByLabel('Canonical question')).toHaveValue('What does it cost?');
+});
