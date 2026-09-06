@@ -84,6 +84,41 @@ test.describe('in-app settings safety net', () => {
 		await expect(dialog).not.toBeVisible();
 	});
 
+	test('user dialogs complete add, credential, reset, and delete workflows', async ({ page }) => {
+		const api = await mockWorkspaceApi(page);
+		await page.goto('/inbox?tab=settings');
+		await page.getByRole('tab', { name: 'Users & permissions', exact: true }).click();
+
+		await page.getByRole('button', { name: 'Add user' }).click();
+		const addDialog = page.getByRole('dialog', { name: 'Add Team Member' });
+		await addDialog.getByLabel('Username').fill('newagent');
+		await addDialog.getByRole('button', { name: 'Add user' }).click();
+
+		const credentialsDialog = page.getByRole('dialog', { name: 'User credentials' });
+		await expect(credentialsDialog).toContainText('test-slug-newagent');
+		await credentialsDialog.getByRole('button', { name: 'Done' }).click();
+		const userRow = page.getByText('newagent', { exact: true }).locator('..').locator('..').locator('..');
+		await userRow.getByTitle('Reset Password').click();
+
+		const resetDialog = page.getByRole('dialog', { name: 'Reset User Password' });
+		await resetDialog.getByLabel('New Password').fill('Replacement99!');
+		await resetDialog.getByRole('button', { name: 'Set Password' }).click();
+		await expect(credentialsDialog).toContainText('Replacement99!');
+		await credentialsDialog.getByRole('button', { name: 'Done' }).click();
+
+		await userRow.getByTitle('Delete user').click();
+		const deleteDialog = page.getByRole('dialog', { name: 'Delete User' });
+		await deleteDialog.getByRole('button', { name: 'Delete User' }).click();
+		await expect(deleteDialog).not.toBeVisible();
+		await expect(page.locator('.font-medium.text-slate-800', { hasText: 'newagent' })).not.toBeVisible();
+
+		expect(api.requests).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: '/workspace/users', method: 'POST' }),
+			expect.objectContaining({ path: '/workspace/users/user-2/password', method: 'PUT' }),
+			expect.objectContaining({ path: '/workspace/users/user-2', method: 'DELETE' })
+		]));
+	});
+
 	test('channel connection dialog can be cancelled with Escape', async ({ page }) => {
 		await openMockedSettings(page);
 		await page.getByRole('tab', { name: 'Channels', exact: true }).click();
@@ -141,13 +176,20 @@ test.describe('in-app settings safety net', () => {
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 	});
 
-	test('pipeline editor rejects duplicate stage keys before it can create an invalid pipeline', async ({ page }) => {
-		await openMockedSettings(page);
+	test('pipeline editor generates unique keys for duplicate stage labels', async ({ page }) => {
+		const api = await mockWorkspaceApi(page);
+		await page.goto('/inbox?tab=settings');
+		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 		await page.getByRole('tab', { name: /Lead pipeline/ }).click();
-		await page.getByPlaceholder('Stage key').fill('new');
-		await page.getByRole('button', { name: 'Add stage' }).click();
-		await expect(page.getByText('Stage keys must be unique.', { exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Save pipeline' })).toBeVisible();
+		await page.getByRole('button', { name: 'Add another stage' }).click();
+		await page.getByLabel('Stage label').nth(1).fill('New lead');
+		await page.getByRole('button', { name: 'Save pipeline' }).click();
+		await expect(page.getByText('Pipeline saved.', { exact: true })).toBeVisible();
+		const save = api.requests.find((request) => request.path === '/workspace/pipelines/pipeline-1' && request.method === 'PUT');
+		expect(save?.body?.states).toEqual([
+			expect.objectContaining({ key: 'new_lead', label: 'New lead' }),
+			expect.objectContaining({ key: 'new_lead_2', label: 'New lead' })
+		]);
 	});
 
 	test('workspace deletion cannot be submitted until the exact workspace name is entered', async ({ page }) => {
