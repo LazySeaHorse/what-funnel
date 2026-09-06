@@ -668,14 +668,18 @@ func (s *Service) SendMessage(
 
 	// Refresh adapter credentials from DB before sending (ensures freshness).
 	var dbCreds []byte
-	if err = tx.QueryRow(ctx, `SELECT bridge_credentials FROM channels WHERE id = $1`, channelID).Scan(&dbCreds); err == nil && len(dbCreds) > 0 {
+	var bridgeIdentity string
+	if err = tx.QueryRow(ctx, `SELECT bridge_credentials, COALESCE(bridge_identity, '') FROM channels WHERE id = $1`, channelID).Scan(&dbCreds, &bridgeIdentity); err == nil && len(dbCreds) > 0 {
 		if decrypted, err := s.DecryptCredentials(dbCreds); err == nil {
 			if configurable, ok := adapter.(interface {
-				Configure(channelID string, creds matrixadapter.Credentials)
+				Configure(channelID string, config matrixadapter.ChannelConfig)
 			}); ok {
 				var mc matrixadapter.Credentials
 				if json.Unmarshal(decrypted, &mc) == nil {
-					configurable.Configure(channelID.String(), mc)
+					configurable.Configure(channelID.String(), matrixadapter.ChannelConfig{
+						Credentials:    mc,
+						BridgeIdentity: bridgeIdentity,
+					})
 				}
 			}
 		}

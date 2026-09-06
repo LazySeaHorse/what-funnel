@@ -18,14 +18,14 @@ import (
 // mockConfigurableAdapter implements types.ChannelAdapter & Configure
 type mockConfigurableAdapter struct {
 	types.ChannelAdapter
-	configured map[string]matrixadapter.Credentials
+	configured map[string]matrixadapter.ChannelConfig
 }
 
-func (m *mockConfigurableAdapter) Configure(channelID string, creds matrixadapter.Credentials) {
+func (m *mockConfigurableAdapter) Configure(channelID string, config matrixadapter.ChannelConfig) {
 	if m.configured == nil {
-		m.configured = make(map[string]matrixadapter.Credentials)
+		m.configured = make(map[string]matrixadapter.ChannelConfig)
 	}
-	m.configured[channelID] = creds
+	m.configured[channelID] = config
 }
 
 func (m *mockConfigurableAdapter) Status(channelID string) types.ChannelStatus {
@@ -47,7 +47,7 @@ func TestInitAdapters_CredentialsFormats(t *testing.T) {
 
 	mockAdapter := &mockConfigurableAdapter{
 		ChannelAdapter: fakeadapter.New(),
-		configured:     make(map[string]matrixadapter.Credentials),
+		configured:     make(map[string]matrixadapter.ChannelConfig),
 	}
 	svc.RegisterAdapter("matrix_telegram", mockAdapter)
 
@@ -63,8 +63,8 @@ func TestInitAdapters_CredentialsFormats(t *testing.T) {
 
 	var ch1ID uuid.UUID
 	err = pool.QueryRow(ctx, `
-		INSERT INTO channels (account_id, type, bridge_credentials, status)
-		VALUES ($1, 'matrix_telegram', $2, 'connected') RETURNING id
+		INSERT INTO channels (account_id, type, bridge_identity, bridge_credentials, status)
+		VALUES ($1, 'matrix_telegram', '@telegrambot:matrix.org', $2, 'connected') RETURNING id
 	`, accountID, flatEnc).Scan(&ch1ID)
 	require.NoError(t, err)
 
@@ -75,8 +75,8 @@ func TestInitAdapters_CredentialsFormats(t *testing.T) {
 
 	var ch2ID uuid.UUID
 	err = pool.QueryRow(ctx, `
-		INSERT INTO channels (account_id, type, bridge_credentials, status)
-		VALUES ($1, 'matrix_telegram', $2, 'connected') RETURNING id
+		INSERT INTO channels (account_id, type, bridge_identity, bridge_credentials, status)
+		VALUES ($1, 'matrix_telegram', '@telegrambot:matrix.org', $2, 'connected') RETURNING id
 	`, accountID, doubleEnc).Scan(&ch2ID)
 	require.NoError(t, err)
 
@@ -85,15 +85,17 @@ func TestInitAdapters_CredentialsFormats(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both channels were properly configured with decrypted credentials
-	creds1, ok1 := mockAdapter.configured[ch1ID.String()]
+	config1, ok1 := mockAdapter.configured[ch1ID.String()]
 	assert.True(t, ok1, "flat credentials channel must be configured")
-	assert.Equal(t, "https://matrix.org", creds1.HomeserverURL)
-	assert.Equal(t, "flat_token_123", creds1.AccessToken)
+	assert.Equal(t, "https://matrix.org", config1.Credentials.HomeserverURL)
+	assert.Equal(t, "flat_token_123", config1.Credentials.AccessToken)
+	assert.Equal(t, "@telegrambot:matrix.org", config1.BridgeIdentity)
 
-	creds2, ok2 := mockAdapter.configured[ch2ID.String()]
+	config2, ok2 := mockAdapter.configured[ch2ID.String()]
 	assert.True(t, ok2, "double-encoded credentials channel must be configured")
-	assert.Equal(t, "https://matrix.org", creds2.HomeserverURL)
-	assert.Equal(t, "flat_token_123", creds2.AccessToken)
+	assert.Equal(t, "https://matrix.org", config2.Credentials.HomeserverURL)
+	assert.Equal(t, "flat_token_123", config2.Credentials.AccessToken)
+	assert.Equal(t, "@telegrambot:matrix.org", config2.BridgeIdentity)
 }
 
 func TestScanConversationRow_EdgeCases(t *testing.T) {

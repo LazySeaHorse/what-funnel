@@ -27,6 +27,13 @@ type Credentials struct {
 	ManagementRoomID string `json:"management_room_id,omitempty"`
 }
 
+// ChannelConfig binds Matrix credentials to the mautrix bot trusted to invite
+// the channel user into bridged conversation rooms.
+type ChannelConfig struct {
+	Credentials    Credentials
+	BridgeIdentity string
+}
+
 // ProvisioningConfig is held only in service configuration. Never serialize it
 // to a channel record or return it from an API.
 type ProvisioningConfig struct {
@@ -47,7 +54,7 @@ type BridgeMessage struct {
 // Adapter implements types.ChannelAdapter for Matrix client-server API.
 type Adapter struct {
 	mu           sync.RWMutex
-	creds        map[string]Credentials
+	channels     map[string]ChannelConfig
 	status       map[string]types.ChannelStatus
 	sentEventIDs map[string]bool
 	client       *http.Client
@@ -60,7 +67,7 @@ type Adapter struct {
 // New creates a new Matrix Adapter instance.
 func New() *Adapter {
 	return &Adapter{
-		creds:        make(map[string]Credentials),
+		channels:     make(map[string]ChannelConfig),
 		status:       make(map[string]types.ChannelStatus),
 		sentEventIDs: make(map[string]bool),
 		client:       &http.Client{Timeout: 45 * time.Second},
@@ -68,9 +75,9 @@ func New() *Adapter {
 }
 
 // Configure registers credentials and status for a channel.
-func (a *Adapter) Configure(channelID string, creds Credentials) {
+func (a *Adapter) Configure(channelID string, config ChannelConfig) {
 	a.mu.Lock()
-	a.creds[channelID] = creds
+	a.channels[channelID] = config
 	a.status[channelID] = types.ChannelStatus{
 		Status: "disconnected",
 		Detail: "Configured, not started",
@@ -98,7 +105,7 @@ func (a *Adapter) Configure(channelID string, creds Credentials) {
 func (a *Adapter) Remove(channelID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	delete(a.creds, channelID)
+	delete(a.channels, channelID)
 	delete(a.status, channelID)
 }
 
@@ -136,8 +143,8 @@ func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEv
 	a.onInbound = publishInbound
 	a.onOutbound = publishExternalOutbound
 
-	channelIDs := make([]string, 0, len(a.creds))
-	for cid := range a.creds {
+	channelIDs := make([]string, 0, len(a.channels))
+	for cid := range a.channels {
 		channelIDs = append(channelIDs, cid)
 	}
 	a.workers.Add(len(channelIDs))
@@ -163,8 +170,9 @@ func (a *Adapter) Start(ctx context.Context, publishInbound func(types.InboundEv
 // SendMessage delivers a normalized message to a Matrix room.
 func (a *Adapter) SendMessage(ctx context.Context, channelID, externalThreadID string, msg types.NormalizedMessage) (string, error) {
 	a.mu.RLock()
-	creds, exists := a.creds[channelID]
+	config, exists := a.channels[channelID]
 	a.mu.RUnlock()
+	creds := config.Credentials
 	if !exists || creds.HomeserverURL == "mock" || creds.HomeserverURL == "" {
 		return fmt.Sprintf("mock-event-id-%d", time.Now().UnixNano()), nil
 	}
@@ -488,8 +496,9 @@ func (a *Adapter) matrixJSON(ctx context.Context, creds Credentials, method, end
 
 func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound func(types.InboundEvent), publishExternalOutbound func(types.ExternalOutboundEvent)) {
 	a.mu.RLock()
-	creds, exists := a.creds[channelID]
+	config, exists := a.channels[channelID]
 	a.mu.RUnlock()
+	creds := config.Credentials
 	if !exists {
 		return
 	}
@@ -514,7 +523,7 @@ func (a *Adapter) syncLoop(ctx context.Context, channelID string, publishInbound
 		default:
 		}
 		a.mu.RLock()
-		_, configured := a.creds[channelID]
+		_, configured := a.channels[channelID]
 		a.mu.RUnlock()
 		if !configured {
 			return

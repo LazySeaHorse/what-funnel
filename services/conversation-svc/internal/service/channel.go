@@ -41,16 +41,19 @@ func (s *Service) CreateChannel(ctx context.Context, accountID uuid.UUID, channe
 	if len(rawCredentials) > 0 {
 		if adapter, err := s.GetAdapter(channelType); err == nil {
 			if configurable, ok := adapter.(interface {
-				Configure(channelID string, creds matrixadapter.Credentials)
+				Configure(channelID string, config matrixadapter.ChannelConfig)
 			}); ok {
 				var mc matrixadapter.Credentials
 				if json.Unmarshal(rawCredentials, &mc) == nil {
-					configurable.Configure(ch.ID.String(), mc)
+					config := matrixadapter.ChannelConfig{Credentials: mc}
+					if bridgeIdentity != nil {
+						config.BridgeIdentity = *bridgeIdentity
+					}
+					configurable.Configure(ch.ID.String(), config)
 				}
 			}
 		}
 	}
-
 
 	return ch, nil
 }
@@ -305,5 +308,3 @@ func (s *Service) GetChannelWebhookCredentials(ctx context.Context, channelID uu
 	}
 	return creds, ch, nil
 }
-
-

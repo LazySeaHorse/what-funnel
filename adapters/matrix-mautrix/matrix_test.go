@@ -53,9 +53,12 @@ func TestAdapter_StartWaitsForDynamicallyConfiguredChannels(t *testing.T) {
 		runtime.Gosched()
 	}
 
-	adapter.Configure("dynamic-channel", Credentials{
-		HomeserverURL: "http://matrix.example",
-		AccessToken:   "token",
+	adapter.Configure("dynamic-channel", ChannelConfig{
+		Credentials: Credentials{
+			HomeserverURL: "http://matrix.example",
+			AccessToken:   "token",
+		},
+		BridgeIdentity: "@whatsappbot:matrix.example",
 	})
 	select {
 	case <-transport.started:

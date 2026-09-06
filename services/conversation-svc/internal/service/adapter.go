@@ -34,7 +34,7 @@ func (s *Service) GetAdapter(channelType string) (types.ChannelAdapter, error) {
 // configures each registered adapter. A legacy double-encoded credential format
 // is handled by attempting to unwrap a JSON-string before the final unmarshal.
 func (s *Service) InitAdapters(ctx context.Context) error {
-	rows, err := s.pool.Query(ctx, `SELECT id, type, bridge_credentials FROM channels`)
+	rows, err := s.pool.Query(ctx, `SELECT id, type, COALESCE(bridge_identity, ''), bridge_credentials FROM channels`)
 	if err != nil {
 		return err
 	}
@@ -43,8 +43,9 @@ func (s *Service) InitAdapters(ctx context.Context) error {
 	for rows.Next() {
 		var id uuid.UUID
 		var channelType string
+		var bridgeIdentity string
 		var dbCreds []byte
-		if err := rows.Scan(&id, &channelType, &dbCreds); err != nil {
+		if err := rows.Scan(&id, &channelType, &bridgeIdentity, &dbCreds); err != nil {
 			return err
 		}
 		if len(dbCreds) == 0 {
@@ -61,7 +62,7 @@ func (s *Service) InitAdapters(ctx context.Context) error {
 			continue
 		}
 		configurable, ok := adapter.(interface {
-			Configure(channelID string, creds matrixadapter.Credentials)
+			Configure(channelID string, config matrixadapter.ChannelConfig)
 		})
 		if !ok {
 			continue
@@ -77,7 +78,10 @@ func (s *Service) InitAdapters(ctx context.Context) error {
 
 		var mc matrixadapter.Credentials
 		if err := json.Unmarshal(plainCreds, &mc); err == nil {
-			configurable.Configure(id.String(), mc)
+			configurable.Configure(id.String(), matrixadapter.ChannelConfig{
+				Credentials:    mc,
+				BridgeIdentity: bridgeIdentity,
+			})
 		}
 	}
 	return nil
