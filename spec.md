@@ -125,9 +125,18 @@ accounts
   slug TEXT UNIQUE,
   plan TEXT NOT NULL DEFAULT 'self_hosted',
   product_mode TEXT NOT NULL DEFAULT 'full_workspace', -- full_workspace | chatbot_only
-  ai_provider_config TEXT,                            -- AES-256-GCM encrypted string
   settings JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+account_ai_providers
+  account_id UUID PRIMARY KEY REFERENCES accounts(id),
+  base_url TEXT NOT NULL,
+  encrypted_api_key TEXT NOT NULL,                    -- AES-256-GCM encrypted string
+  analysis_model TEXT NOT NULL,                       -- ingestion, spam, summaries
+  reply_model TEXT NOT NULL,                          -- customer-facing generated replies
+  embedding_model TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 users
   id UUID PRIMARY KEY,
@@ -403,12 +412,12 @@ kb_mining_runs
 
 ### 5.0 Cryptography Specification (Go and Python)
 
-The system encrypts `accounts.ai_provider_config` and `channels.bridge_credentials` at rest.
+The system encrypts `account_ai_providers.encrypted_api_key` and `channels.bridge_credentials` at rest. Provider URLs and model routing are stored as queryable workspace configuration; credentials remain opaque.
 
 - **Algorithm**: AES-256-GCM.
 - **Key**: 32 raw bytes, configured via `ENCRYPTION_KEY` or `APP_ENCRYPTION_KEY`.
 - **Nonce**: 12 random bytes, generated per operation and prepended to the ciphertext.
-- **Encoding**: Go encodes ciphertext as a hexadecimal string `hex(nonce || ciphertext_with_tag)`. Python supports decoding both hexadecimal and Base64 strings.
+- **Encoding**: Both Go and Python encode ciphertext as a hexadecimal string `hex(nonce || ciphertext_with_tag)`.
 - **Decryption Procedure**: Decode string to bytes, extract the first 12 bytes as the nonce, and decrypt the remaining bytes with the shared key.
 
 Cross-language tests in `tests/integration/crypto_interop_test.go` verify encryption and decryption between Go and Python.

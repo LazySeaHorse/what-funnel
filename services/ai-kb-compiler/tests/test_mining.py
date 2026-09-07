@@ -2,7 +2,7 @@ import os
 import uuid
 import json
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from datetime import datetime, timedelta, timezone
 
 from db import ScopedDB, create_db_pool
@@ -19,18 +19,21 @@ async def setup_test_data():
     pool = await create_db_pool(DATABASE_URL)
     account_id = uuid.uuid4()
     
-    # Encrypted config
-    provider_json = json.dumps({
-        "api_key": "sk-test",
-        "base_url": "https://api.openai.com/v1"
-    })
     key = get_key_bytes(config.APP_ENCRYPTION_KEY)
-    encrypted_config = encrypt(key, provider_json.encode("utf-8"))
+    encrypted_api_key = encrypt(key, b"sk-test")
 
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO accounts (id, name, plan, ai_provider_config, created_at) VALUES ($1, 'Mining Account', 'self_hosted', $2, $3)",
-            account_id, encrypted_config, datetime.now(timezone.utc) - timedelta(days=1)
+            "INSERT INTO accounts (id, name, plan, created_at) VALUES ($1, 'Mining Account', 'self_hosted', $2)",
+            account_id, datetime.now(timezone.utc) - timedelta(days=1)
+        )
+        await conn.execute(
+            """
+            INSERT INTO account_ai_providers
+                (account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
+            VALUES ($1, 'https://api.openai.com/v1', $2, 'analysis-test', 'reply-test', 'embedding-test')
+            """,
+            account_id, encrypted_api_key,
         )
     return pool, account_id
 
@@ -181,7 +184,7 @@ async def test_mining_clustering_and_cutoff():
             "do you have parking?": vC,
         }
 
-        async def mock_embed(key, base_url, model, text):
+        async def mock_embed(model, text):
             return embeddings_map[text]
 
         mock_complete_resp = {
@@ -189,8 +192,10 @@ async def test_mining_clustering_and_cutoff():
             "answer_text": "Drafted answer"
         }
 
-        with patch("mining.embed", side_effect=mock_embed), \
-             patch("mining.complete", return_value=mock_complete_resp):
+        client = MagicMock()
+        client.embed = AsyncMock(side_effect=mock_embed)
+        client.complete = AsyncMock(return_value=mock_complete_resp)
+        with patch("mining.provider_client", return_value=client):
 
             result = await run_mining(db)
             
@@ -199,6 +204,8 @@ async def test_mining_clustering_and_cutoff():
             assert result["clusters_found"] == 3
             # Group A and Group B created suggestions, Message C discarded because size < 3
             assert result["suggestions_created"] == 2
+            assert {call.args[0] for call in client.embed.await_args_list} == {"embedding-test"}
+            assert {call.args[0] for call in client.complete.await_args_list} == {"analysis-test"}
 
             # Verify suggestions in DB
             async with pool.acquire() as conn:

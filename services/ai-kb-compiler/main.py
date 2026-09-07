@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from config import config
 from db import ScopedDB, create_db_pool
-from llm import get_ai_config, embed, complete
+from llm import get_ai_config, provider_client
 from mining import run_mining
 from scheduler import start_scheduler
 from redis_client import publish_suggestion_created
@@ -424,10 +424,15 @@ async def compile_paste(
         except ValueError:
             pass
 
-    api_key, base_url, completion_model, embedding_model = await get_ai_config(db)
+    config = await get_ai_config(db)
+    client = provider_client(config)
 
     prompt = compilation_prompt(req.raw_text)
-    result = await complete(api_key, base_url, completion_model, prompt, CompilePasteSchema)
+    result = await client.complete(
+        config.analysis_model,
+        [{"role": "user", "content": prompt}],
+        CompilePasteSchema,
+    )
     concepts = result.get("concepts", [])
     patterns = result.get("patterns", [])
 
@@ -444,7 +449,7 @@ async def compile_paste(
 
             # Generate embedding
             text_to_embed = f"{c['title']}\n{c['body_text']}"
-            vector = await embed(api_key, base_url, embedding_model, text_to_embed)
+            vector = await client.embed(config.embedding_model, text_to_embed)
 
             # Insert
             row = await db.fetchrow(
@@ -487,7 +492,7 @@ async def compile_paste(
             canonical_trigger = canonical_question.lower()
             if canonical_trigger not in trigger_phrases:
                 trigger_phrases.append(canonical_trigger)
-            vector = await embed(api_key, base_url, embedding_model, canonical_question)
+            vector = await client.embed(config.embedding_model, canonical_question)
             row = await db.fetchrow(
                 """
                 INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
@@ -755,7 +760,8 @@ async def approve_suggestion(
     sugg_type = row["type"]
 
 
-    api_key, base_url, _, embedding_model = await get_ai_config(db)
+    config = await get_ai_config(db)
+    client = provider_client(config)
 
     # Approve depending on type
     if sugg_type == "new_kb_concept":
@@ -771,7 +777,7 @@ async def approve_suggestion(
         unique_slug = await get_unique_slug(db, base_slug)
 
         text_to_embed = f"{title}\n{body_text}"
-        vector = await embed(api_key, base_url, embedding_model, text_to_embed)
+        vector = await client.embed(config.embedding_model, text_to_embed)
 
         concept_id = uuid.uuid4()
         await db.execute(
@@ -808,7 +814,7 @@ async def approve_suggestion(
             raise HTTPException(status_code=400, detail="Pattern canonical_question and answer_text are required")
 
         text_to_embed = f"{canonical_question}\n{answer_text}"
-        vector = await embed(api_key, base_url, embedding_model, text_to_embed)
+        vector = await client.embed(config.embedding_model, text_to_embed)
 
         pattern_id = uuid.uuid4()
         await db.execute(
@@ -855,7 +861,7 @@ async def approve_suggestion(
             raise HTTPException(status_code=404, detail="Pattern to edit not found")
 
         text_to_embed = f"{pattern_row['canonical_question']}\n{answer_text}"
-        vector = await embed(api_key, base_url, embedding_model, text_to_embed)
+        vector = await client.embed(config.embedding_model, text_to_embed)
 
         await db.execute(
             """

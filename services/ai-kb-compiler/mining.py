@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from plain_text import normalize_plain_text
 
 from db import ScopedDB
-from llm import get_ai_config, embed, complete
+from llm import get_ai_config, provider_client
 from redis_client import publish_suggestion_created
 
 logger = logging.getLogger("ai-kb-compiler")
@@ -158,14 +158,15 @@ async def run_mining(db: ScopedDB) -> dict:
         }
 
     # 4. Generate embeddings in parallel
-    api_key, base_url, completion_model, embedding_model = await get_ai_config(db)
+    config = await get_ai_config(db)
+    client = provider_client(config)
 
     async def embed_msg(row) -> Optional[dict]:
         text = row["text"]
         if not text or not text.strip():
             return None
         try:
-            emb = await embed(api_key, base_url, embedding_model, text)
+            emb = await client.embed(config.embedding_model, text)
             return {
                 "id": row["id"],
                 "text": text,
@@ -246,12 +247,10 @@ async def run_mining(db: ScopedDB) -> dict:
         )
 
         try:
-            draft_result = await complete(
-                api_key,
-                base_url,
-                completion_model,
-                prompt,
-                MineClusterDraft
+            draft_result = await client.complete(
+                config.analysis_model,
+                [{"role": "user", "content": prompt}],
+                MineClusterDraft,
             )
         except Exception as e:
             logger.error(f"Failed to draft pattern suggestion for cluster: {e}")

@@ -6,7 +6,7 @@ from contextlib import suppress
 from typing import Any
 
 from db import ScopedDB
-from llm import complete, embed, get_ai_config
+from llm import get_ai_config, provider_client
 
 
 logger = logging.getLogger("ai-kb-compiler")
@@ -68,9 +68,14 @@ async def _fail(pool, ingestion_id: uuid.UUID, error: Exception) -> None:
 
 async def _extract(pool, job: dict[str, Any], response_schema: Any) -> None:
     db = ScopedDB(pool, job["account_id"])
-    api_key, base_url, completion_model, _ = await get_ai_config(db)
+    config = await get_ai_config(db)
+    client = provider_client(config)
     prompt = compilation_prompt(job["raw_text"])
-    result = await complete(api_key, base_url, completion_model, prompt, response_schema)
+    result = await client.complete(
+        config.analysis_model,
+        [{"role": "user", "content": prompt}],
+        response_schema,
+    )
     concepts = result.get("concepts", [])
     patterns = result.get("patterns", [])
     if not concepts and not patterns:
@@ -160,16 +165,17 @@ async def _publish(pool, job: dict[str, Any]) -> None:
         raise ValueError("No ingestion concepts or patterns were approved for publishing.")
 
     db = ScopedDB(pool, job["account_id"])
-    api_key, base_url, _, embedding_model = await get_ai_config(db)
+    config = await get_ai_config(db)
+    client = provider_client(config)
     concept_vectors = await asyncio.gather(
         *[
-            embed(api_key, base_url, embedding_model, f"{row['title']}\n{row['body_text']}")
+            client.embed(config.embedding_model, f"{row['title']}\n{row['body_text']}")
             for row in concept_rows
         ]
     )
     pattern_vectors = await asyncio.gather(
         *[
-            embed(api_key, base_url, embedding_model, row["canonical_question"])
+            client.embed(config.embedding_model, row["canonical_question"])
             for row in pattern_rows
         ]
     )

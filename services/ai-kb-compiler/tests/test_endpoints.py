@@ -3,7 +3,7 @@ import uuid
 import json
 import time
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from main import app
@@ -40,6 +40,13 @@ mock_concepts_more_than_3 = {
     ],
 }
 
+
+def mock_provider(complete_result=None, embedding=None):
+    client = MagicMock()
+    client.complete = AsyncMock(return_value=complete_result)
+    client.embed = AsyncMock(return_value=embedding or [0.05] * 1536)
+    return client
+
 async def setup_test_data():
     pool = await create_db_pool(DATABASE_URL)
     app.state.db = pool
@@ -47,18 +54,21 @@ async def setup_test_data():
     account_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
-    # Create hex encrypted provider config
-    provider_json = json.dumps({
-        "api_key": "sk-test",
-        "base_url": "https://api.openai.com/v1"
-    })
     key = get_key_bytes(config.APP_ENCRYPTION_KEY)
-    encrypted_config = encrypt(key, provider_json.encode("utf-8"))
+    encrypted_api_key = encrypt(key, b"sk-test")
 
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO accounts (id, name, plan, ai_provider_config) VALUES ($1, 'Test Account', 'self_hosted', $2)",
-            account_id, encrypted_config
+            "INSERT INTO accounts (id, name, plan) VALUES ($1, 'Test Account', 'self_hosted')",
+            account_id,
+        )
+        await conn.execute(
+            """
+            INSERT INTO account_ai_providers
+                (account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
+            VALUES ($1, 'https://api.openai.com/v1', $2, 'analysis-test', 'reply-test', 'embedding-test')
+            """,
+            account_id, encrypted_api_key,
         )
         await conn.execute(
             "INSERT INTO users (id, account_id, email, role) VALUES ($1, $2, 'test@example.com', 'manager')",
@@ -84,8 +94,7 @@ async def test_ingestion_review_and_idempotent_publish():
     pool, account_id, user_id = await setup_test_data()
 
     try:
-        with patch("ingestions.complete", return_value=mock_concepts_more_than_3), \
-             patch("ingestions.embed", return_value=[0.05] * 1536):
+        with patch("ingestions.provider_client", return_value=mock_provider(mock_concepts_more_than_3)):
             with TestClient(app) as client:
                 headers = {
                     "X-Account-ID": str(account_id),
@@ -178,8 +187,7 @@ async def test_compile_paste_three_or_fewer():
     try:
         # Mock complete to return 2 concepts
         # Mock embed to return 1536 float list
-        with patch("main.complete", return_value=mock_concepts_3_or_fewer), \
-             patch("main.embed", return_value=[0.05] * 1536):
+        with patch("main.provider_client", return_value=mock_provider(mock_concepts_3_or_fewer)):
 
             with TestClient(app) as client:
                 headers = {
@@ -222,7 +230,7 @@ async def test_compile_paste_more_than_three():
     pool, account_id, user_id = await setup_test_data()
 
     try:
-        with patch("main.complete", return_value=mock_concepts_more_than_3):
+        with patch("main.provider_client", return_value=mock_provider(mock_concepts_more_than_3)):
             with TestClient(app) as client:
                 headers = {
                     "X-Account-ID": str(account_id),
@@ -264,12 +272,12 @@ async def test_slug_collision_resolution():
     pool, account_id, user_id = await setup_test_data()
 
     try:
-        with patch("main.complete", return_value={
+        with patch("main.provider_client", return_value=mock_provider({
             "concepts": [
                 {"type": "faq", "title": "Duplicate", "tags": [], "body_text": "First"},
                 {"type": "faq", "title": "Duplicate", "tags": [], "body_text": "Second"}
             ]
-        }), patch("main.embed", return_value=[0.01] * 1536):
+        }, [0.01] * 1536)):
             with TestClient(app) as client:
                 headers = {
                     "X-Account-ID": str(account_id),
@@ -445,7 +453,7 @@ async def test_suggestion_approve_reject():
                 sugg_id, account_id, json.dumps(proposed)
             )
 
-        with patch("main.embed", return_value=[0.02] * 1536):
+        with patch("main.provider_client", return_value=mock_provider(embedding=[0.02] * 1536)):
             with TestClient(app) as client:
                 headers = {
                     "X-Account-ID": str(account_id),

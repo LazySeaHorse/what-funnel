@@ -8,5 +8,6 @@ class Config:
     REDIS_URL: str = os.getenv("REDIS_URL", "localhost:6379")
     APP_ENCRYPTION_KEY: str = os.getenv("APP_ENCRYPTION_KEY", "")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60"))
 
 config = Config()

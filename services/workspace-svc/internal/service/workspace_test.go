@@ -89,32 +89,48 @@ func TestAIProviderConfig_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	accountID, userID := setupTestTenant(t, pool, "AI Config Account", "ai@example.com")
-	configured, err := svc.HasAIProviderConfig(ctx, accountID)
+	status, err := svc.GetAIProviderStatus(ctx, accountID)
 	require.NoError(t, err)
-	assert.False(t, configured)
+	assert.False(t, status.Configured)
 
-	plaintext := `{"api_key":"sk-test-12345","base_url":"https://api.openai.com/v1"}`
-
-	// Store encrypted
-	err = svc.UpdateAIProviderConfig(ctx, accountID, userID, plaintext)
+	config := service.AIProviderConfig{
+		APIKey:         "sk-test-12345",
+		BaseURL:        "https://generativelanguage.googleapis.com/v1beta/openai/",
+		AnalysisModel:  "gemma-4-26b-a4b-it",
+		ReplyModel:     "gemini-flash-lite-latest",
+		EmbeddingModel: "gemini-embedding-001",
+	}
+	err = svc.UpdateAIProviderConfig(ctx, accountID, userID, config)
 	require.NoError(t, err, "UpdateAIProviderConfig must not fail")
-	configured, err = svc.HasAIProviderConfig(ctx, accountID)
+	status, err = svc.GetAIProviderStatus(ctx, accountID)
 	require.NoError(t, err)
-	assert.True(t, configured)
+	assert.True(t, status.Configured)
+	assert.Equal(t, "gemini-flash-lite-latest", status.ReplyModel)
 
-	// Read back — must decrypt to original plaintext
 	recovered, err := svc.GetAIProviderConfig(ctx, accountID)
 	require.NoError(t, err)
-	assert.Equal(t, plaintext, recovered, "decrypted value must match original plaintext")
+	require.NotNil(t, recovered)
+	assert.Equal(t, "sk-test-12345", recovered.APIKey)
+	assert.Equal(t, "https://generativelanguage.googleapis.com/v1beta/openai", recovered.BaseURL)
+	assert.Equal(t, config.AnalysisModel, recovered.AnalysisModel)
+	assert.Equal(t, config.ReplyModel, recovered.ReplyModel)
+	assert.Equal(t, config.EmbeddingModel, recovered.EmbeddingModel)
 
-	// Verify the database does NOT contain the plaintext
-	var storedRaw *string
+	var encryptedAPIKey string
 	err = pool.QueryRow(ctx,
-		`SELECT ai_provider_config FROM accounts WHERE id = $1`, accountID).Scan(&storedRaw)
+		`SELECT encrypted_api_key FROM account_ai_providers WHERE account_id = $1`, accountID).Scan(&encryptedAPIKey)
 	require.NoError(t, err)
-	require.NotNil(t, storedRaw)
-	assert.NotEqual(t, plaintext, *storedRaw, "plaintext must NOT be stored in the database")
-	assert.NotContains(t, *storedRaw, "sk-test-12345", "API key must not appear in plaintext in the database")
+	assert.NotEqual(t, config.APIKey, encryptedAPIKey)
+	assert.NotContains(t, encryptedAPIKey, config.APIKey)
+
+	config.APIKey = ""
+	config.ReplyModel = "custom-reply"
+	require.NoError(t, svc.UpdateAIProviderConfig(ctx, accountID, userID, config))
+	recovered, err = svc.GetAIProviderConfig(ctx, accountID)
+	require.NoError(t, err)
+	require.NotNil(t, recovered)
+	assert.Equal(t, "sk-test-12345", recovered.APIKey)
+	assert.Equal(t, "custom-reply", recovered.ReplyModel)
 }
 
 func TestDeleteAccount_CascadesTenantData(t *testing.T) {

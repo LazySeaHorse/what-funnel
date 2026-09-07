@@ -1,6 +1,6 @@
 // Package service implements workspace-svc business logic:
 // user management (list, invite, role change), account settings
-// (with encrypted ai_provider_config), and pipeline management.
+// (with an encrypted AI provider API key), and pipeline management.
 // All state-changing operations write audit_logs rows.
 package service
 

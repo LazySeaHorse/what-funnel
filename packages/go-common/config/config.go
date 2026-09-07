@@ -10,7 +10,7 @@ import (
 type Config struct {
 	DatabaseURL   string
 	SessionSecret string
-	// EncryptionKey is a 32-byte hex-encoded AES-256 key for ai_provider_config.
+	// EncryptionKey is a 32-byte hex-encoded AES-256 key for sensitive fields.
 	// In production, source this from a secrets manager.
 	EncryptionKey string
 	RedisURL      string

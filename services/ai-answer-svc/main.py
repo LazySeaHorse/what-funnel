@@ -13,7 +13,7 @@ from pydantic import BaseModel, create_model
 
 from config import config
 from db import ScopedDB, create_db_pool
-from llm import get_ai_config, embed, complete
+from llm import get_ai_config, provider_client
 from plain_text import normalize_plain_text
 from control import (
     COOLDOWN_DELAYS,
@@ -301,8 +301,9 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     if stage_matched == "none" and patterns:
         try:
             # Fetch AI config
-            api_key, base_url, comp_model, embed_model = await get_ai_config(db)
-            inbound_emb = await embed(api_key, base_url, embed_model, inbound_text)
+            config = await get_ai_config(db)
+            client = provider_client(config)
+            inbound_emb = await client.embed(config.embedding_model, inbound_text)
 
             # Query database for closest pattern
             # pgvector distance operator: <=> (cosine distance). Cosine similarity = 1 - distance.
@@ -327,8 +328,9 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     # Step 3: Concept RAG stage
     if stage_matched == "none":
         try:
-            api_key, base_url, comp_model, embed_model = await get_ai_config(db)
-            inbound_emb = await embed(api_key, base_url, embed_model, inbound_text)
+            config = await get_ai_config(db)
+            client = provider_client(config)
+            inbound_emb = await client.embed(config.embedding_model, inbound_text)
 
             # Retrieve top-5 kb_concepts
             concepts = await db.fetch(
@@ -387,7 +389,11 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                         )
                     }
                 ]
-                llm_res = await complete(api_key, base_url, comp_model, prompt_msgs, CascadeLLMResponse)
+                llm_res = await client.complete(
+                    config.reply_model,
+                    prompt_msgs,
+                    CascadeLLMResponse,
+                )
                 
                 stage_matched = "llm_grounded"
                 confidence = float(llm_res["confidence"])
@@ -588,11 +594,10 @@ async def review_due_cooldown(db_pool, redis_client) -> bool:
         class SpamJudgeResponse(BaseModel):
             verdict: Literal["real_customer", "likely_spam"]
 
-        api_key, base_url, completion_model, _ = await get_ai_config(db)
-        result = await complete(
-            api_key,
-            base_url,
-            completion_model,
+        config = await get_ai_config(db)
+        client = provider_client(config)
+        result = await client.complete(
+            config.analysis_model,
             [{
                 "role": "user",
                 "content": (
@@ -759,7 +764,8 @@ async def process_conversation_closed(data: dict, db_pool, redis_client):
         fields = {item["key"]: (str, ...) for item in summary_schema}
         DynamicSummarySchema = create_model("DynamicSummarySchema", **fields)
 
-        api_key, base_url, comp_model, embed_model = await get_ai_config(db)
+        config = await get_ai_config(db)
+        client = provider_client(config)
         prompt_msgs = [
             {
                 "role": "user",
@@ -771,7 +777,11 @@ async def process_conversation_closed(data: dict, db_pool, redis_client):
                 )
             }
         ]
-        summary_data = await complete(api_key, base_url, comp_model, prompt_msgs, DynamicSummarySchema)
+        summary_data = await client.complete(
+            config.analysis_model,
+            prompt_msgs,
+            DynamicSummarySchema,
+        )
         summary_data = {key: normalize_plain_text(value) for key, value in summary_data.items()}
 
         # Upsert summary

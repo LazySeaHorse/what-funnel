@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,26 +12,113 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 )
 
-// UpdateAIProviderConfig encrypts and stores the AI provider config.
-// The plaintext is never stored; only the AES-256-GCM ciphertext reaches Postgres.
-func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actorID uuid.UUID, plaintext string) error {
-	encrypted, err := svc.cipher.Encrypt([]byte(plaintext))
-	if err != nil {
-		return fmt.Errorf("encrypt ai_provider_config: %w", err)
+const (
+	DefaultAIBaseURL      = "https://generativelanguage.googleapis.com/v1beta/openai"
+	DefaultAnalysisModel  = "gemma-4-26b-a4b-it"
+	DefaultReplyModel     = "gemini-flash-lite-latest"
+	DefaultEmbeddingModel = "gemini-embedding-001"
+)
+
+var ErrAIProviderNotConfigured = errors.New("ai provider is not configured")
+
+// AIProviderConfig is the private provider configuration used to make AI calls.
+// APIKey is accepted from and returned only to trusted service code.
+type AIProviderConfig struct {
+	APIKey         string `json:"api_key"`
+	BaseURL        string `json:"base_url"`
+	AnalysisModel  string `json:"analysis_model"`
+	ReplyModel     string `json:"reply_model"`
+	EmbeddingModel string `json:"embedding_model"`
+}
+
+// AIProviderStatus is safe to return over the workspace API.
+type AIProviderStatus struct {
+	Configured     bool   `json:"configured"`
+	BaseURL        string `json:"base_url,omitempty"`
+	AnalysisModel  string `json:"analysis_model,omitempty"`
+	ReplyModel     string `json:"reply_model,omitempty"`
+	EmbeddingModel string `json:"embedding_model,omitempty"`
+}
+
+func (cfg AIProviderConfig) normalized() AIProviderConfig {
+	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
+	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.AnalysisModel = strings.TrimSpace(cfg.AnalysisModel)
+	cfg.ReplyModel = strings.TrimSpace(cfg.ReplyModel)
+	cfg.EmbeddingModel = strings.TrimSpace(cfg.EmbeddingModel)
+	return cfg
+}
+
+func (cfg AIProviderConfig) validate(requireAPIKey bool) error {
+	if requireAPIKey && cfg.APIKey == "" {
+		return fmt.Errorf("ai provider api key is required")
+	}
+	if cfg.BaseURL == "" {
+		return fmt.Errorf("ai provider base url is required")
+	}
+	if cfg.AnalysisModel == "" {
+		return fmt.Errorf("ai provider analysis model is required")
+	}
+	if cfg.ReplyModel == "" {
+		return fmt.Errorf("ai provider reply model is required")
+	}
+	if cfg.EmbeddingModel == "" {
+		return fmt.Errorf("ai provider embedding model is required")
+	}
+	return nil
+}
+
+// UpdateAIProviderConfig encrypts the API key and atomically upserts the
+// provider settings. An empty API key retains the currently stored key.
+func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actorID uuid.UUID, cfg AIProviderConfig) error {
+	cfg = cfg.normalized()
+	if err := cfg.validate(false); err != nil {
+		return err
 	}
 
 	tx, err := svc.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin ai provider update: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	_, err = tx.Exec(ctx, `UPDATE accounts SET ai_provider_config = $1 WHERE id = $2`, encrypted, accountID)
+	var encryptedAPIKey string
+	if cfg.APIKey == "" {
+		err = tx.QueryRow(ctx,
+			`SELECT encrypted_api_key FROM account_ai_providers WHERE account_id = $1 FOR UPDATE`,
+			accountID,
+		).Scan(&encryptedAPIKey)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrAIProviderNotConfigured
+		}
+		if err != nil {
+			return fmt.Errorf("get existing ai provider key: %w", err)
+		}
+	} else {
+		encryptedAPIKey, err = svc.cipher.Encrypt([]byte(cfg.APIKey))
+		if err != nil {
+			return fmt.Errorf("encrypt ai provider api key: %w", err)
+		}
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO account_ai_providers
+			(account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (account_id) DO UPDATE SET
+			base_url = EXCLUDED.base_url,
+			encrypted_api_key = EXCLUDED.encrypted_api_key,
+			analysis_model = EXCLUDED.analysis_model,
+			reply_model = EXCLUDED.reply_model,
+			embedding_model = EXCLUDED.embedding_model,
+			updated_at = NOW()
+	`, accountID, cfg.BaseURL, encryptedAPIKey, cfg.AnalysisModel, cfg.ReplyModel, cfg.EmbeddingModel)
 	if err != nil {
-		return fmt.Errorf("store ai_provider_config: %w", err)
+		return fmt.Errorf("store ai provider config: %w", err)
 	}
 
 	aw := audit.NewWriterFromTx(tx)
@@ -40,7 +128,11 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 		Action:      "account.ai_provider_config_updated",
 		TargetType:  audit.TargetAccount,
 		TargetID:    &accountID,
-		Metadata:    map[string]any{"note": "encrypted value stored"},
+		Metadata: map[string]any{
+			"analysis_model":  cfg.AnalysisModel,
+			"reply_model":     cfg.ReplyModel,
+			"embedding_model": cfg.EmbeddingModel,
+		},
 	}); err != nil {
 		return err
 	}
@@ -48,44 +140,56 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 	return tx.Commit(ctx)
 }
 
-// GetAIProviderConfig decrypts and returns the AI provider config plaintext.
-// Returns empty string if not configured.
-func (svc *Service) GetAIProviderConfig(ctx context.Context, accountID uuid.UUID) (string, error) {
-	var encrypted *string
-	err := svc.pool.QueryRow(ctx,
-		`SELECT ai_provider_config FROM accounts WHERE id = $1`, accountID).
-		Scan(&encrypted)
+// GetAIProviderConfig returns the private configuration for trusted service use.
+func (svc *Service) GetAIProviderConfig(ctx context.Context, accountID uuid.UUID) (*AIProviderConfig, error) {
+	var cfg AIProviderConfig
+	var encryptedAPIKey string
+	err := svc.pool.QueryRow(ctx, `
+		SELECT base_url, encrypted_api_key, analysis_model, reply_model, embedding_model
+		FROM account_ai_providers
+		WHERE account_id = $1
+	`, accountID).Scan(
+		&cfg.BaseURL,
+		&encryptedAPIKey,
+		&cfg.AnalysisModel,
+		&cfg.ReplyModel,
+		&cfg.EmbeddingModel,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
-		return "", fmt.Errorf("get ai_provider_config: %w", err)
+		return nil, fmt.Errorf("get ai provider config: %w", err)
 	}
-	if encrypted == nil || *encrypted == "" {
-		return "", nil
-	}
-	plain, err := svc.cipher.Decrypt(*encrypted)
+	plain, err := svc.cipher.Decrypt(encryptedAPIKey)
 	if err != nil {
-		return "", fmt.Errorf("decrypt ai_provider_config: %w", err)
+		return nil, fmt.Errorf("decrypt ai provider api key: %w", err)
 	}
-	return string(plain), nil
+	cfg.APIKey = string(plain)
+	return &cfg, nil
 }
 
-// HasAIProviderConfig reports configuration presence without exposing or
-// decrypting provider credentials.
-func (svc *Service) HasAIProviderConfig(ctx context.Context, accountID uuid.UUID) (bool, error) {
-	var configured bool
-	err := svc.pool.QueryRow(ctx,
-		`SELECT ai_provider_config IS NOT NULL AND ai_provider_config <> '' FROM accounts WHERE id = $1`,
-		accountID).Scan(&configured)
-	if err != nil {
-		return false, fmt.Errorf("get ai provider status: %w", err)
+// GetAIProviderStatus returns non-secret provider settings.
+func (svc *Service) GetAIProviderStatus(ctx context.Context, accountID uuid.UUID) (AIProviderStatus, error) {
+	status := AIProviderStatus{}
+	err := svc.pool.QueryRow(ctx, `
+		SELECT base_url, analysis_model, reply_model, embedding_model
+		FROM account_ai_providers
+		WHERE account_id = $1
+	`, accountID).Scan(
+		&status.BaseURL,
+		&status.AnalysisModel,
+		&status.ReplyModel,
+		&status.EmbeddingModel,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return status, nil
 	}
-	return configured, nil
-}
-
-type AIProviderConfig struct {
-	APIKey          string `json:"api_key"`
-	BaseURL         string `json:"base_url"`
-	CompletionModel string `json:"completion_model"`
-	EmbeddingModel  string `json:"embedding_model"`
+	if err != nil {
+		return status, fmt.Errorf("get ai provider status: %w", err)
+	}
+	status.Configured = true
+	return status, nil
 }
 
 type openAIErrObj struct {
@@ -129,38 +233,18 @@ func extractAIErrorMessage(statusCode int, body []byte) string {
 	return fmt.Sprintf("HTTP status %d", statusCode)
 }
 
-// TestAIProviderConfig validates the configuration against the AI provider.
-func (svc *Service) TestAIProviderConfig(ctx context.Context, configJSON string) error {
+// TestAIProviderConfig validates both completion roles and the embedding model.
+func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConfig) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var cfg AIProviderConfig
-	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
-		return fmt.Errorf("invalid AI provider config format: %w", err)
-	}
-
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" {
-		return fmt.Errorf("AI provider API key is required")
-	}
-
-	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
-	if baseURL == "" {
-		baseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
-	}
-
-	completionModel := strings.TrimSpace(cfg.CompletionModel)
-	if completionModel == "" {
-		completionModel = "gemma-4-26b-a4b-it"
-	}
-
-	embeddingModel := strings.TrimSpace(cfg.EmbeddingModel)
-	if embeddingModel == "" {
-		embeddingModel = "gemini-embedding-001"
+	cfg = cfg.normalized()
+	if err := cfg.validate(true); err != nil {
+		return err
 	}
 
 	// In automated test environments with synthetic keys, bypass external network requests
-	if apiKey == "e2e-provider-key" || strings.HasPrefix(apiKey, "e2e-") || strings.HasPrefix(apiKey, "sk-test-") || apiKey == "test-provider-key" || strings.Contains(baseURL, "example.test") {
+	if cfg.APIKey == "e2e-provider-key" || strings.HasPrefix(cfg.APIKey, "e2e-") || strings.HasPrefix(cfg.APIKey, "sk-test-") || cfg.APIKey == "test-provider-key" || strings.Contains(cfg.BaseURL, "example.test") {
 		return nil
 	}
 
@@ -168,47 +252,31 @@ func (svc *Service) TestAIProviderConfig(ctx context.Context, configJSON string)
 		Timeout: 10 * time.Second,
 	}
 
-	// 1. Test chat completions
-	chatURL := baseURL + "/chat/completions"
-	chatPayload, _ := json.Marshal(map[string]any{
-		"model": completionModel,
-		"messages": []map[string]string{
-			{"role": "user", "content": "ping"},
-		},
-		"max_tokens": 5,
-	})
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(chatPayload))
-	if err != nil {
-		return fmt.Errorf("failed to create completion request: %w", err)
+	completionModels := []struct {
+		role  string
+		model string
+	}{
+		{role: "analysis", model: cfg.AnalysisModel},
+		{role: "reply", model: cfg.ReplyModel},
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to connect to AI provider completion endpoint (%s): %w", chatURL, err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errMsg := extractAIErrorMessage(resp.StatusCode, bodyBytes)
-		return fmt.Errorf("chat completion test failed (%s): %s", completionModel, errMsg)
+	for _, candidate := range completionModels {
+		if err := testCompletionModel(ctx, client, cfg, candidate.role, candidate.model); err != nil {
+			return err
+		}
 	}
 
-	// 2. Test embeddings
-	embedURL := baseURL + "/embeddings"
+	embedURL := cfg.BaseURL + "/embeddings"
 	embedPayload, _ := json.Marshal(map[string]any{
-		"model": embeddingModel,
-		"input": "ping",
+		"model":      cfg.EmbeddingModel,
+		"input":      "ping",
+		"dimensions": 1536,
 	})
 
 	reqEmb, err := http.NewRequestWithContext(ctx, http.MethodPost, embedURL, bytes.NewReader(embedPayload))
 	if err != nil {
 		return fmt.Errorf("failed to create embedding request: %w", err)
 	}
-	reqEmb.Header.Set("Authorization", "Bearer "+apiKey)
+	reqEmb.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	reqEmb.Header.Set("Content-Type", "application/json")
 
 	respEmb, err := client.Do(reqEmb)
@@ -220,9 +288,40 @@ func (svc *Service) TestAIProviderConfig(ctx context.Context, configJSON string)
 	bodyEmbBytes, _ := io.ReadAll(respEmb.Body)
 	if respEmb.StatusCode < 200 || respEmb.StatusCode >= 300 {
 		errMsg := extractAIErrorMessage(respEmb.StatusCode, bodyEmbBytes)
-		return fmt.Errorf("embedding test failed (%s): %s", embeddingModel, errMsg)
+		return fmt.Errorf("embedding test failed (%s): %s", cfg.EmbeddingModel, errMsg)
 	}
 
 	return nil
 }
 
+func testCompletionModel(ctx context.Context, client *http.Client, cfg AIProviderConfig, role, model string) error {
+	chatURL := cfg.BaseURL + "/chat/completions"
+	chatPayload, _ := json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": `Return exactly {"ok":true} as JSON.`},
+		},
+		"response_format": map[string]string{"type": "json_object"},
+		"max_tokens":      20,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(chatPayload))
+	if err != nil {
+		return fmt.Errorf("create %s model test request: %w", role, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect to ai provider %s model endpoint (%s): %w", role, chatURL, err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read ai provider %s model response: %w", role, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errMsg := extractAIErrorMessage(resp.StatusCode, bodyBytes)
+		return fmt.Errorf("%s model test failed (%s): %s", role, model, errMsg)
+	}
+	return nil
+}

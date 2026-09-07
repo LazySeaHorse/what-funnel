@@ -7,7 +7,7 @@ import asyncpg
 from redis.asyncio import Redis
 
 from crypto import encrypt, get_key_bytes
-from llm import embed, complete
+from whatfunnel_ai import ProviderClient
 
 DATABASE_URL = "postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable"
 REDIS_HOST = "redis"
@@ -15,9 +15,10 @@ REDIS_PORT = 6379
 KB_COMPILER_URL = "http://ai-kb-compiler:8085"
 APP_ENCRYPTION_KEY = "change-me-32-byte-hex-key-padded"
 
-GOOGLE_AI_KEY = "AIzaSyDHposTMMGjfF1egwfn-YpnDit1jEUvCN0"
+GOOGLE_AI_KEY = os.environ["GOOGLE_AI_KEY"]
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-COMPLETION_MODEL = "gemma-4-26b-a4b-it"
+ANALYSIS_MODEL = "gemma-4-26b-a4b-it"
+REPLY_MODEL = "gemini-flash-lite-latest"
 EMBEDDING_MODEL = "gemini-embedding-001"
 
 ENTERPRISE_RAW_DOCS = """
@@ -55,21 +56,15 @@ async def run_e2e_test():
     user_id = uuid.uuid4()
     print(f"Creating test account: {account_id}")
 
-    # 2. Encrypt AI Provider Config
-    ai_cfg = {
-        "api_key": GOOGLE_AI_KEY,
-        "base_url": BASE_URL,
-        "completion_model": COMPLETION_MODEL,
-        "embedding_model": EMBEDDING_MODEL
-    }
+    # 2. Encrypt the AI provider credential
     key_bytes = get_key_bytes(APP_ENCRYPTION_KEY)
-    encrypted_ai_cfg = encrypt(key_bytes, json.dumps(ai_cfg).encode("utf-8"))
+    encrypted_api_key = encrypt(key_bytes, GOOGLE_AI_KEY.encode("utf-8"))
 
     # 3. Insert Account & Admin User
     await conn.execute(
         """
-        INSERT INTO accounts (id, name, settings, ai_provider_config)
-        VALUES ($1, 'ApexCloud Security Enterprise', $2, $3)
+        INSERT INTO accounts (id, name, settings)
+        VALUES ($1, 'ApexCloud Security Enterprise', $2)
         """,
         account_id,
         json.dumps({
@@ -77,7 +72,15 @@ async def run_e2e_test():
             "allow_member_reply_mode_override": True,
             "ai_may_auto_answer_mixed_conversations": True
         }),
-        encrypted_ai_cfg
+    )
+    await conn.execute(
+        """
+        INSERT INTO account_ai_providers
+            (account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        """,
+        account_id, BASE_URL.rstrip("/"), encrypted_api_key,
+        ANALYSIS_MODEL, REPLY_MODEL, EMBEDDING_MODEL,
     )
 
     await conn.execute(
@@ -90,8 +93,9 @@ async def run_e2e_test():
 
     # 4. Insert Patterns for Layer 1 & Layer 2
     print("\n--- [1] Setting up Quick Patterns & Trigger Embeddings ---")
-    noc_emb = await embed(GOOGLE_AI_KEY, BASE_URL, EMBEDDING_MODEL, "What is your emergency NOC hotline?")
-    hq_emb = await embed(GOOGLE_AI_KEY, BASE_URL, EMBEDDING_MODEL, "Where is your corporate headquarters located?")
+    provider = ProviderClient(api_key=GOOGLE_AI_KEY, base_url=BASE_URL)
+    noc_emb = await provider.embed(EMBEDDING_MODEL, "What is your emergency NOC hotline?")
+    hq_emb = await provider.embed(EMBEDDING_MODEL, "Where is your corporate headquarters located?")
 
     await conn.execute(
         """

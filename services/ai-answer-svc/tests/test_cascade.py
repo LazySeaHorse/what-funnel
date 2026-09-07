@@ -11,6 +11,17 @@ from main import (
 )
 from control import HUMAN_REVIEW_REPLY
 from db import ScopedDB
+from whatfunnel_ai import AIConfiguration
+
+
+def ai_config():
+    return AIConfiguration(
+        api_key="key",
+        base_url="https://provider.example/v1",
+        analysis_model="analysis-model",
+        reply_model="reply-model",
+        embedding_model="embedding-model",
+    )
 
 # A mock Record class to simulate asyncpg row returns
 class MockRecord(dict):
@@ -109,6 +120,76 @@ async def test_rapidfuzz_matching():
         assert payload["action"] == "drafted"
         assert payload["draft_id"] == str(draft_id)
         assert payload["draft_text"] == "Yes, we offer house calls."
+
+
+@pytest.mark.asyncio
+async def test_customer_facing_rag_uses_reply_model():
+    db_pool = MagicMock()
+    redis_client = AsyncMock()
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+
+    async def mock_fetchrow(query, *args):
+        if "SELECT direction, content_type" in query:
+            return MockRecord({
+                "direction": "inbound",
+                "content_type": "text",
+                "content": json.dumps({"text": "What are your hours?"}),
+            })
+        if "SELECT c.assigned_user_ids" in query:
+            return MockRecord({
+                "assigned_user_ids": [], "state": "active", "state_reason": None,
+                "reply_override": "inherit", "run_state": "idle", "generation_epoch": 0,
+                "cooldown_level": 0, "unanswered_count": 0,
+                "unanswered_window_started_at": None,
+            })
+        if "SELECT settings FROM accounts" in query:
+            return MockRecord({"settings": json.dumps({
+                "ai_enabled": True, "ai_reply_mode_default": "draft_only",
+            })})
+        if "SET run_state = 'replying'" in query:
+            return MockRecord({"generation_epoch": 1})
+        return None
+
+    async def mock_fetch(query, *args):
+        if "FROM patterns" in query:
+            return []
+        if "FROM kb_concepts" in query:
+            return [MockRecord({"title": "Hours", "body_text": "Open weekdays."})]
+        if "FROM messages" in query:
+            return [MockRecord({
+                "direction": "inbound", "sender_type": "contact",
+                "content": json.dumps({"text": "What are your hours?"}),
+            })]
+        return []
+
+    client = MagicMock()
+    client.embed = AsyncMock(return_value=[0.1] * 1536)
+    client.complete = AsyncMock(return_value={
+        "answer_text": "We are open weekdays.",
+        "confidence": 0.95,
+        "needs_human": False,
+    })
+
+    with patch("main.ScopedDB") as MockScopedDB, \
+         patch("main.get_ai_config", AsyncMock(return_value=ai_config())), \
+         patch("main.provider_client", return_value=client):
+        db = MockScopedDB.return_value
+        db.account_id = account_id
+        db.fetchrow = mock_fetchrow
+        db.fetch = mock_fetch
+        db.fetchval = AsyncMock(return_value=uuid.uuid4())
+        db.execute = AsyncMock()
+
+        await process_conversation_updated({
+            "account_id": str(account_id),
+            "conversation_id": str(convo_id),
+            "message_id": str(message_id),
+        }, db_pool, redis_client)
+
+    assert client.embed.await_args.args[0] == "embedding-model"
+    assert client.complete.await_args.args[0] == "reply-model"
 
 @pytest.mark.asyncio
 async def test_human_takeover_pauses_ai():
@@ -241,9 +322,11 @@ async def test_due_cooldown_judge_blocks_likely_spam_without_knowledge_or_tools(
     })
     redis_client = AsyncMock()
 
+    client = MagicMock()
+    client.complete = AsyncMock(return_value={"verdict": "likely_spam"})
     with patch("main.ScopedDB") as MockScopedDB, \
-         patch("main.get_ai_config", AsyncMock(return_value=("key", "url", "judge", "embed"))), \
-         patch("main.complete", AsyncMock(return_value={"verdict": "likely_spam"})) as complete:
+         patch("main.get_ai_config", AsyncMock(return_value=ai_config())), \
+         patch("main.provider_client", return_value=client):
         db = MockScopedDB.return_value
         db.fetch = AsyncMock(return_value=[
             MockRecord({"sender_type": "contact", "content": json.dumps({"text": "same unknown question"})}),
@@ -252,7 +335,8 @@ async def test_due_cooldown_judge_blocks_likely_spam_without_knowledge_or_tools(
 
         assert await review_due_cooldown(db_pool, redis_client) is True
 
-        prompt = complete.await_args.args[3]
+        assert client.complete.await_args.args[0] == "analysis-model"
+        prompt = client.complete.await_args.args[1]
         assert len(prompt) == 1
         assert "UNTRUSTED TRANSCRIPT" in prompt[0]["content"]
         assert "same unknown question" in prompt[0]["content"]
@@ -424,14 +508,16 @@ async def test_summary_debounce():
         db_instance.execute = AsyncMock()
 
         # Mock LLM calls
-        mock_ai_cfg = ("key", "url", "model", "embed")
         mock_summary = {"customer_wants": "Help with code"}
+        client = MagicMock()
+        client.complete = AsyncMock(return_value=mock_summary)
 
-        with patch("main.get_ai_config", AsyncMock(return_value=mock_ai_cfg)), \
-             patch("main.complete", AsyncMock(return_value=mock_summary)):
+        with patch("main.get_ai_config", AsyncMock(return_value=ai_config())), \
+             patch("main.provider_client", return_value=client):
 
             await process_conversation_closed(data, db_pool, redis_client)
 
+            assert client.complete.await_args.args[0] == "analysis-model"
             assert db_instance.execute.call_count == 1
             summary_call_args = db_instance.execute.call_args_list[0][0]
             assert "INSERT INTO conversation_summaries" in summary_call_args[0]

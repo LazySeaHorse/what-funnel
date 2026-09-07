@@ -2,11 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
 )
 
 func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
@@ -116,36 +118,17 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	actorID, _ := middleware.UserIDFromContext(r)
 
-	var body struct {
-		Config string `json:"config"` // raw JSON string — will be encrypted before storage
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	var config service.AIProviderConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	config, err := mergeAIProviderConfig(body.Config, "")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
-		return
-	}
-	if !aiProviderConfigHasKey(config) {
-		existing, err := h.svc.GetAIProviderConfig(r.Context(), accountID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		config, err = mergeAIProviderConfig(body.Config, existing)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
-			return
-		}
-		if !aiProviderConfigHasKey(config) {
-			writeError(w, http.StatusBadRequest, "AI provider API key is required")
-			return
-		}
-	}
 	if err := h.svc.UpdateAIProviderConfig(r.Context(), accountID, actorID, config); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrAIProviderNotConfigured) || strings.Contains(err.Error(), "is required") {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -154,50 +137,23 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) TestAIConfig(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 
-	var body struct {
-		Config          string `json:"config"`
-		APIKey          string `json:"api_key"`
-		BaseURL         string `json:"base_url"`
-		CompletionModel string `json:"completion_model"`
-		EmbeddingModel  string `json:"embedding_model"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+	var config service.AIProviderConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil && err != io.EOF {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 
-	configJSON := body.Config
-	if configJSON == "" && (body.APIKey != "" || body.BaseURL != "" || body.CompletionModel != "" || body.EmbeddingModel != "") {
-		b, _ := json.Marshal(map[string]string{
-			"api_key":          body.APIKey,
-			"base_url":         body.BaseURL,
-			"completion_model": body.CompletionModel,
-			"embedding_model":  body.EmbeddingModel,
-		})
-		configJSON = string(b)
-	}
-
-	config, err := mergeAIProviderConfig(configJSON, "")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
-		return
-	}
-
-	if !aiProviderConfigHasKey(config) {
+	if strings.TrimSpace(config.APIKey) == "" {
 		existing, err := h.svc.GetAIProviderConfig(r.Context(), accountID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		config, err = mergeAIProviderConfig(configJSON, existing)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "AI provider config must be valid JSON")
+		if existing == nil {
+			writeError(w, http.StatusBadRequest, "ai provider api key is required")
 			return
 		}
-		if !aiProviderConfigHasKey(config) {
-			writeError(w, http.StatusBadRequest, "AI provider API key is required")
-			return
-		}
+		config.APIKey = existing.APIKey
 	}
 
 	if err := h.svc.TestAIProviderConfig(r.Context(), config); err != nil {
@@ -216,66 +172,12 @@ func (h *Handler) TestAIConfig(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetAIConfigStatus(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
-	config, err := h.svc.GetAIProviderConfig(r.Context(), accountID)
+	status, err := h.svc.GetAIProviderStatus(r.Context(), accountID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, publicAIProviderConfig(config))
-}
-
-func mergeAIProviderConfig(nextJSON, existingJSON string) (string, error) {
-	var next map[string]any
-	if err := json.Unmarshal([]byte(nextJSON), &next); err != nil {
-		return "", err
-	}
-	mergedConfig := make(map[string]any)
-	if strings.TrimSpace(existingJSON) != "" {
-		if err := json.Unmarshal([]byte(existingJSON), &mergedConfig); err != nil {
-			return "", err
-		}
-	}
-	for key, value := range next {
-		if key == "api_key" {
-			if apiKey, _ := value.(string); strings.TrimSpace(apiKey) == "" {
-				continue
-			}
-		}
-		mergedConfig[key] = value
-	}
-	merged, err := json.Marshal(mergedConfig)
-	return string(merged), err
-}
-
-func aiProviderConfigHasKey(configJSON string) bool {
-	var config struct {
-		APIKey string `json:"api_key"`
-	}
-	return json.Unmarshal([]byte(configJSON), &config) == nil && strings.TrimSpace(config.APIKey) != ""
-}
-
-func publicAIProviderConfig(configJSON string) map[string]any {
-	response := map[string]any{"configured": false}
-	if configJSON == "" {
-		return response
-	}
-	var config struct {
-		APIKey          string `json:"api_key"`
-		BaseURL         string `json:"base_url"`
-		CompletionModel string `json:"completion_model"`
-		EmbeddingModel  string `json:"embedding_model"`
-	}
-	if json.Unmarshal([]byte(configJSON), &config) != nil {
-		return response
-	}
-	response["configured"] = strings.TrimSpace(config.APIKey) != ""
-	if response["configured"] != true {
-		return response
-	}
-	response["base_url"] = config.BaseURL
-	response["completion_model"] = config.CompletionModel
-	response["embedding_model"] = config.EmbeddingModel
-	return response
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (h *Handler) UpdateProductMode(w http.ResponseWriter, r *http.Request) {

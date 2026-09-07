@@ -55,12 +55,12 @@ func TestParseSettings(t *testing.T) {
 
 func TestBoolSetting(t *testing.T) {
 	settings := map[string]any{
-		"bool_true":     true,
-		"bool_false":    false,
-		"string_val":    "true",
-		"int_val":       1,
-		"nil_val":       nil,
-		"slice_val":     []string{"a"},
+		"bool_true":  true,
+		"bool_false": false,
+		"string_val": "true",
+		"int_val":    1,
+		"nil_val":    nil,
+		"slice_val":  []string{"a"},
 	}
 
 	tests := []struct {
@@ -217,11 +217,16 @@ func ptr[T any](v T) *T {
 }
 
 func TestTestAIProviderConfig_Success(t *testing.T) {
-	var chatCalled, embedCalled bool
+	chatModels := make([]string, 0, 2)
+	var embedCalled bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 		if r.URL.Path == "/chat/completions" {
-			chatCalled = true
+			var payload struct {
+				Model string `json:"model"`
+			}
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+			chatModels = append(chatModels, payload.Model)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
@@ -239,17 +244,15 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	configJSON, err := json.Marshal(map[string]string{
-		"api_key":          "test-key",
-		"base_url":         srv.URL,
-		"completion_model": "test-model",
-		"embedding_model":  "test-embed",
+	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+		APIKey:         "test-key",
+		BaseURL:        srv.URL,
+		AnalysisModel:  "analysis-model",
+		ReplyModel:     "reply-model",
+		EmbeddingModel: "test-embed",
 	})
 	assert.NoError(t, err)
-
-	err = svc.TestAIProviderConfig(context.Background(), string(configJSON))
-	assert.NoError(t, err)
-	assert.True(t, chatCalled)
+	assert.ElementsMatch(t, []string{"analysis-model", "reply-model"}, chatModels)
 	assert.True(t, embedCalled)
 }
 
@@ -266,15 +269,13 @@ func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	configJSON, err := json.Marshal(map[string]string{
-		"api_key":          "leaked-key",
-		"base_url":         srv.URL,
-		"completion_model": "test-model",
-		"embedding_model":  "test-embed",
+	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+		APIKey:         "leaked-key",
+		BaseURL:        srv.URL,
+		AnalysisModel:  "analysis-model",
+		ReplyModel:     "reply-model",
+		EmbeddingModel: "test-embed",
 	})
-	assert.NoError(t, err)
-
-	err = svc.TestAIProviderConfig(context.Background(), string(configJSON))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Your API key was reported as leaked. Please use another API key.")
 }
@@ -298,16 +299,34 @@ func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	configJSON, err := json.Marshal(map[string]string{
-		"api_key":          "test-key",
-		"base_url":         srv.URL,
-		"completion_model": "test-model",
-		"embedding_model":  "unknown-embed",
+	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+		APIKey:         "test-key",
+		BaseURL:        srv.URL,
+		AnalysisModel:  "analysis-model",
+		ReplyModel:     "reply-model",
+		EmbeddingModel: "unknown-embed",
 	})
-	assert.NoError(t, err)
-
-	err = svc.TestAIProviderConfig(context.Background(), string(configJSON))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Model 'unknown-embed' not found.")
 }
 
+func TestAIProviderConfigValidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   AIProviderConfig
+		expected string
+	}{
+		{name: "missing key", config: AIProviderConfig{BaseURL: "url", AnalysisModel: "analysis", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "api key"},
+		{name: "missing base url", config: AIProviderConfig{APIKey: "key", AnalysisModel: "analysis", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "base url"},
+		{name: "missing analysis model", config: AIProviderConfig{APIKey: "key", BaseURL: "url", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "analysis model"},
+		{name: "missing reply model", config: AIProviderConfig{APIKey: "key", BaseURL: "url", AnalysisModel: "analysis", EmbeddingModel: "embed"}, expected: "reply model"},
+		{name: "missing embedding model", config: AIProviderConfig{APIKey: "key", BaseURL: "url", AnalysisModel: "analysis", ReplyModel: "reply"}, expected: "embedding model"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.normalized().validate(true)
+			assert.ErrorContains(t, err, tt.expected)
+		})
+	}
+}

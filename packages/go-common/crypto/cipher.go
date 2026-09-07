@@ -1,5 +1,4 @@
-// Package crypto provides AES-256-GCM encrypt/decrypt for sensitive fields
-// (specifically ai_provider_config on the accounts table).
+// Package crypto provides AES-256-GCM encryption for sensitive fields.
 //
 // Key management: the encryption key is sourced from ENCRYPTION_KEY env var,
 // expected as a 32-character raw string (or 64-char hex — see NewKey).
