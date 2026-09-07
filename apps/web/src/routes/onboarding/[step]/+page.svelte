@@ -80,7 +80,8 @@
 	let aiProviderConfigured = $state(false);
 	let aiProviderApiKey = $state('');
 	let aiProviderBaseURL = $state('https://generativelanguage.googleapis.com/v1beta/openai/');
-	let aiCompletionModel = $state('gemma-4-26b-a4b-it');
+	let aiAnalysisModel = $state('gemma-4-26b-a4b-it');
+	let aiReplyModel = $state('gemini-flash-lite-latest');
 	let aiEmbeddingModel = $state('gemini-embedding-001');
 
 	// Step 6: Knowledge Base
@@ -123,7 +124,8 @@
 			]);
 			aiProviderConfigured = aiStatus?.configured === true;
 			if (aiStatus?.base_url) aiProviderBaseURL = aiStatus.base_url;
-			if (aiStatus?.completion_model) aiCompletionModel = aiStatus.completion_model;
+			if (aiStatus?.analysis_model) aiAnalysisModel = aiStatus.analysis_model;
+			if (aiStatus?.reply_model) aiReplyModel = aiStatus.reply_model;
 			if (aiStatus?.embedding_model) aiEmbeddingModel = aiStatus.embedding_model;
 			if (account.name) {
 				s1BusinessName = account.name;
@@ -394,24 +396,22 @@
 					await apiRequest('/workspace/account/ai-config/test', {
 						method: 'POST',
 						body: {
-							config: JSON.stringify({
-								api_key: aiProviderApiKey.trim(),
-								base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
-								completion_model: aiCompletionModel.trim(),
-								embedding_model: aiEmbeddingModel.trim()
-							})
+							api_key: aiProviderApiKey.trim(),
+							base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
+							analysis_model: aiAnalysisModel.trim(),
+							reply_model: aiReplyModel.trim(),
+							embedding_model: aiEmbeddingModel.trim()
 						}
 					});
 
 					await apiRequest('/workspace/account/ai-config', {
 						method: 'PUT',
 						body: {
-							config: JSON.stringify({
-								api_key: aiProviderApiKey.trim(),
-								base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
-								completion_model: aiCompletionModel.trim(),
-								embedding_model: aiEmbeddingModel.trim()
-							})
+							api_key: aiProviderApiKey.trim(),
+							base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
+							analysis_model: aiAnalysisModel.trim(),
+							reply_model: aiReplyModel.trim(),
+							embedding_model: aiEmbeddingModel.trim()
 						}
 					});
 					aiProviderConfigured = true;
@@ -537,7 +537,7 @@
 						<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
 					<!-- STEP 5: AI ASSISTANT -->
 					{:else if stepNum === 5}
-						<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:completionModel={aiCompletionModel} bind:embeddingModel={aiEmbeddingModel} />
+						<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:analysisModel={aiAnalysisModel} bind:replyModel={aiReplyModel} bind:embeddingModel={aiEmbeddingModel} />
 
 					<!-- STEP 6: KNOWLEDGE BASE -->
 					{:else if stepNum === 6}

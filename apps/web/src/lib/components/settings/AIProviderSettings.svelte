@@ -7,7 +7,8 @@
   let baseURL = $state(
     "https://generativelanguage.googleapis.com/v1beta/openai/",
   );
-  let completionModel = $state("gemma-4-26b-a4b-it");
+  let analysisModel = $state("gemma-4-26b-a4b-it");
+  let replyModel = $state("gemini-flash-lite-latest");
   let embeddingModel = $state("gemini-embedding-001");
   let showKey = $state(false);
   let loading = $state(true);
@@ -22,7 +23,8 @@
       const status = await apiRequest("/workspace/account/ai-config/status");
       configured = status?.configured === true;
       if (status?.base_url) baseURL = status.base_url;
-      if (status?.completion_model) completionModel = status.completion_model;
+      if (status?.analysis_model) analysisModel = status.analysis_model;
+      if (status?.reply_model) replyModel = status.reply_model;
       if (status?.embedding_model) embeddingModel = status.embedding_model;
     } catch (error: any) {
       message = {
@@ -42,10 +44,10 @@
       };
       return;
     }
-    if (!baseURL.trim() || !completionModel.trim() || !embeddingModel.trim()) {
+    if (!baseURL.trim() || !analysisModel.trim() || !replyModel.trim() || !embeddingModel.trim()) {
       message = {
         kind: "error",
-        text: "Base URL, completion model, and embedding model are required.",
+        text: "Base URL and all three model names are required.",
       };
       return;
     }
@@ -56,12 +58,11 @@
       const res = await apiRequest("/workspace/account/ai-config/test", {
         method: "POST",
         body: {
-          config: JSON.stringify({
-            api_key: apiKey.trim(),
-            base_url: baseURL.trim().replace(/\/$/, ""),
-            completion_model: completionModel.trim(),
-            embedding_model: embeddingModel.trim(),
-          }),
+          api_key: apiKey.trim(),
+          base_url: baseURL.trim().replace(/\/$/, ""),
+          analysis_model: analysisModel.trim(),
+          reply_model: replyModel.trim(),
+          embedding_model: embeddingModel.trim(),
         },
       });
       message = {
@@ -83,10 +84,10 @@
       message = { kind: "error", text: "API key is required." };
       return;
     }
-    if (!baseURL.trim() || !completionModel.trim() || !embeddingModel.trim()) {
+    if (!baseURL.trim() || !analysisModel.trim() || !replyModel.trim() || !embeddingModel.trim()) {
       message = {
         kind: "error",
-        text: "Base URL, completion model, and embedding model are required.",
+        text: "Base URL and all three model names are required.",
       };
       return;
     }
@@ -98,24 +99,22 @@
       await apiRequest("/workspace/account/ai-config/test", {
         method: "POST",
         body: {
-          config: JSON.stringify({
-            api_key: apiKey.trim(),
-            base_url: baseURL.trim().replace(/\/$/, ""),
-            completion_model: completionModel.trim(),
-            embedding_model: embeddingModel.trim(),
-          }),
+          api_key: apiKey.trim(),
+          base_url: baseURL.trim().replace(/\/$/, ""),
+          analysis_model: analysisModel.trim(),
+          reply_model: replyModel.trim(),
+          embedding_model: embeddingModel.trim(),
         },
       });
 
       await apiRequest("/workspace/account/ai-config", {
         method: "PUT",
         body: {
-          config: JSON.stringify({
-            api_key: apiKey.trim(),
-            base_url: baseURL.trim().replace(/\/$/, ""),
-            completion_model: completionModel.trim(),
-            embedding_model: embeddingModel.trim(),
-          }),
+          api_key: apiKey.trim(),
+          base_url: baseURL.trim().replace(/\/$/, ""),
+          analysis_model: analysisModel.trim(),
+          reply_model: replyModel.trim(),
+          embedding_model: embeddingModel.trim(),
         },
       });
       apiKey = "";
@@ -222,17 +221,30 @@
         required
       />
     </div>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <div class="space-y-1.5">
         <label
-          for="aiSettingsCompletionModel"
-          class="block font-medium text-slate-700">Completion model</label
+          for="aiSettingsAnalysisModel"
+          class="block font-medium text-slate-700">Analysis model</label
         ><input
-          id="aiSettingsCompletionModel"
-          bind:value={completionModel}
+          id="aiSettingsAnalysisModel"
+          bind:value={analysisModel}
           class="wf-input"
           required
         />
+        <p class="text-[11px] leading-relaxed text-slate-500">Knowledge ingestion, spam checks, and summaries.</p>
+      </div>
+      <div class="space-y-1.5">
+        <label
+          for="aiSettingsReplyModel"
+          class="block font-medium text-slate-700">Customer reply model</label
+        ><input
+          id="aiSettingsReplyModel"
+          bind:value={replyModel}
+          class="wf-input"
+          required
+        />
+        <p class="text-[11px] leading-relaxed text-slate-500">Customer-facing generated replies only.</p>
       </div>
       <div class="space-y-1.5">
         <label

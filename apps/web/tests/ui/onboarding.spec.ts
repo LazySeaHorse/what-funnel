@@ -58,7 +58,15 @@ test.describe('onboarding persistence', () => {
 
 		await expect(page).toHaveURL(/\/onboarding\/6$/);
 		expect(api.isAIConfigured()).toBe(true);
-		expect(api.requests).toContainEqual(expect.objectContaining({ path: '/workspace/account/ai-config', method: 'PUT' }));
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/workspace/account/ai-config',
+			method: 'PUT',
+			body: expect.objectContaining({
+				analysis_model: 'gemma-4-26b-a4b-it',
+				reply_model: 'gemini-flash-lite-latest',
+				embedding_model: 'gemini-embedding-001'
+			})
+		}));
 	});
 
 	test('chatbot-only onboarding skips lead and team setup without requesting their APIs', async ({ page }) => {

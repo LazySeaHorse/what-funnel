@@ -9,7 +9,8 @@
 		providerConfigured,
 		providerApiKey = $bindable(),
 		providerBaseURL = $bindable(),
-		completionModel = $bindable(),
+		analysisModel = $bindable(),
+		replyModel = $bindable(),
 		embeddingModel = $bindable()
 	}: {
 		step: number;
@@ -18,7 +19,8 @@
 		providerConfigured: boolean;
 		providerApiKey: string;
 		providerBaseURL: string;
-		completionModel: string;
+		analysisModel: string;
+		replyModel: string;
 		embeddingModel: string;
 	} = $props();
 
@@ -30,8 +32,8 @@
 			testResult = { ok: false, message: 'API key is required to test the connection.' };
 			return;
 		}
-		if (!providerBaseURL.trim() || !completionModel.trim() || !embeddingModel.trim()) {
-			testResult = { ok: false, message: 'Base URL, completion model, and embedding model are required.' };
+		if (!providerBaseURL.trim() || !analysisModel.trim() || !replyModel.trim() || !embeddingModel.trim()) {
+			testResult = { ok: false, message: 'Base URL and all three model names are required.' };
 			return;
 		}
 
@@ -41,12 +43,11 @@
 			const res = await apiRequest('/workspace/account/ai-config/test', {
 				method: 'POST',
 				body: {
-					config: JSON.stringify({
-						api_key: providerApiKey.trim(),
-						base_url: providerBaseURL.trim().replace(/\/$/, ''),
-						completion_model: completionModel.trim(),
-						embedding_model: embeddingModel.trim()
-					})
+					api_key: providerApiKey.trim(),
+					base_url: providerBaseURL.trim().replace(/\/$/, ''),
+					analysis_model: analysisModel.trim(),
+					reply_model: replyModel.trim(),
+					embedding_model: embeddingModel.trim()
 				}
 			});
 			testResult = { ok: true, message: res?.message || 'Connection verified successfully.' };
@@ -154,8 +155,9 @@
 								<label for="ai-provider-url" class="block text-xs font-medium text-slate-700">OpenAI-compatible base URL</label>
 								<input id="ai-provider-url" type="url" bind:value={providerBaseURL} class="wf-input" required />
 							</div>
-							<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-								<label class="space-y-1.5 text-xs font-medium text-slate-700">Completion model<input aria-label="Completion model" bind:value={completionModel} class="wf-input" required /></label>
+							<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+								<label class="space-y-1.5 text-xs font-medium text-slate-700">Analysis model<input aria-label="Analysis model" bind:value={analysisModel} class="wf-input" required /><span class="block text-[11px] font-normal text-slate-500">Ingestion, spam, summaries</span></label>
+								<label class="space-y-1.5 text-xs font-medium text-slate-700">Customer reply model<input aria-label="Customer reply model" bind:value={replyModel} class="wf-input" required /><span class="block text-[11px] font-normal text-slate-500">Generated replies only</span></label>
 								<label class="space-y-1.5 text-xs font-medium text-slate-700">Embedding model<input aria-label="Embedding model" bind:value={embeddingModel} class="wf-input" required /></label>
 							</div>
 							<div class="flex items-center justify-between pt-1">

@@ -28,13 +28,16 @@ test.describe('in-app settings safety net', () => {
 	});
 
 	test('a manager can save a BYOK provider configuration without the key being displayed again', async ({ page }) => {
-		await openMockedSettings(page);
+		const api = await mockWorkspaceApi(page);
+		await page.goto('/inbox?tab=settings');
+		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 		await page.getByRole('tab', { name: 'AI provider', exact: true }).click();
 
 		await expect(page.getByText('Not configured', { exact: true })).toBeVisible();
 		await page.getByLabel('API key', { exact: true }).fill('sk-test-private-key');
 		await page.getByLabel('OpenAI-compatible base URL').fill('https://provider.example.test/v1/');
-		await page.getByLabel('Completion model').fill('provider-chat-model');
+		await page.getByLabel('Analysis model').fill('provider-analysis-model');
+		await page.getByLabel('Customer reply model').fill('provider-reply-model');
 		await page.getByLabel('Embedding model').fill('provider-embedding-model');
 		await page.getByRole('button', { name: 'Save provider' }).click();
 
@@ -42,6 +45,17 @@ test.describe('in-app settings safety net', () => {
 		await expect(page.getByText('Configured', { exact: true })).toBeVisible();
 		await expect(page.getByLabel('New API key', { exact: true })).toHaveValue('');
 		await expect(page.getByText('sk-test-private-key')).not.toBeVisible();
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/workspace/account/ai-config',
+			method: 'PUT',
+			body: {
+				api_key: 'sk-test-private-key',
+				base_url: 'https://provider.example.test/v1',
+				analysis_model: 'provider-analysis-model',
+				reply_model: 'provider-reply-model',
+				embedding_model: 'provider-embedding-model'
+			}
+		}));
 	});
 
 	test('general settings persist through a full page refresh', async ({ page }) => {
