@@ -51,7 +51,7 @@
           : 'hover:text-slate-700'}">{key}</button
       >{/each}
   </div>
-  <div class="p-4 space-y-5 flex-1">
+  <div class="p-4 space-y-5 flex-1 text-xs">
     {#if !inbox.activeConvo}<div
         class="p-6 text-center text-xs text-slate-400 space-y-2"
       >
