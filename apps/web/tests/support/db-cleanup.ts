@@ -44,7 +44,17 @@ export function runSql(sql: string): void {
 				timeout: 10000
 			}
 		);
-	} catch (err) {
+	} catch (err: any) {
+		const stderr = err?.stderr?.toString?.() || '';
+		if (
+			stderr.includes('is not running') ||
+			stderr.includes('No such container') ||
+			stderr.includes('Cannot connect to the Docker daemon') ||
+			err?.code === 'ENOENT'
+		) {
+			// Database service is not running (e.g. running standalone UI tests in CI); skip cleanup.
+			return;
+		}
 		console.warn('DB cleanup execution failed:', err);
 	}
 }

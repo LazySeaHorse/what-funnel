@@ -63,6 +63,21 @@
       void inbox.loadConversations();
   });
 
+  let initialSelectionDone = false;
+  $effect(() => {
+    if (
+      workspace.coreReady &&
+      !initialSelectionDone &&
+      selectedSection === "inbox" &&
+      !inbox.activeConvoID &&
+      !inbox.pendingConvoID &&
+      inbox.conversations[0]
+    ) {
+      initialSelectionDone = true;
+      void inbox.selectConversation(inbox.conversations[0].id);
+    }
+  });
+
   onMount(() => {
     const handleSimulatedMessage = async () => {
       await inbox.loadConversations();
@@ -87,8 +102,6 @@
       const requested = new URLSearchParams(window.location.search).get("tab");
       if (requested && isDashboardSection(requested) && canOpen(requested))
         selectedSection = requested;
-      if (inbox.conversations[0] && !inbox.activeConvoID)
-        await inbox.selectConversation(inbox.conversations[0].id);
       void loadAIProviderStatus();
       if (capabilities.manageWorkspace)
         void workspace.loadSettings(inbox.currentUser).catch(console.error);

@@ -118,7 +118,7 @@ export class InboxState {
 			} else {
 				this.filter = 'mine';
 			}
-			await this.loadConversations();
+			void this.loadConversations();
 			if (!this.running) return;
 			this.connectWS();
 		} catch (err) {

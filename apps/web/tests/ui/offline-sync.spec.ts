@@ -5,6 +5,8 @@ test.describe('offline handling and deduplicated indicator', () => {
 	test('only top bar displays offline indicator when disconnected, inbox does not duplicate it', async ({ page }) => {
 		// Intercept WebSocket creation to keep it in disconnected/closing state
 		await page.addInitScript(() => {
+			const OriginalWebSocket = window.WebSocket;
+
 			class DisconnectedWebSocket {
 				static readonly CONNECTING = 0;
 				static readonly OPEN = 1;
@@ -18,8 +20,11 @@ test.describe('offline handling and deduplicated indicator', () => {
 				onerror: ((event: Event) => void) | null = null;
 				onclose: ((event: CloseEvent) => void) | null = null;
 
-				constructor(url: string | URL) {
+				constructor(url: string | URL, protocols?: string | string[]) {
 					this.url = String(url);
+					if (!this.url.includes('/ws')) {
+						return new OriginalWebSocket(url, protocols) as any;
+					}
 					queueMicrotask(() => {
 						this.onerror?.(new Event('error'));
 						this.onclose?.(new CloseEvent('close'));
@@ -57,6 +62,8 @@ test.describe('offline handling and deduplicated indicator', () => {
 		});
 
 		await page.addInitScript(() => {
+			const OriginalWebSocket = window.WebSocket;
+
 			class ConnectedWebSocket {
 				static readonly CONNECTING = 0;
 				static readonly OPEN = 1;
@@ -70,8 +77,11 @@ test.describe('offline handling and deduplicated indicator', () => {
 				onerror: ((event: Event) => void) | null = null;
 				onclose: ((event: CloseEvent) => void) | null = null;
 
-				constructor(url: string | URL) {
+				constructor(url: string | URL, protocols?: string | string[]) {
 					this.url = String(url);
+					if (!this.url.includes('/ws')) {
+						return new OriginalWebSocket(url, protocols) as any;
+					}
 					queueMicrotask(() => {
 						this.readyState = ConnectedWebSocket.OPEN;
 						this.onopen?.(new Event('open'));
@@ -115,6 +125,7 @@ test.describe('offline handling and deduplicated indicator', () => {
 
 		await page.addInitScript(() => {
 			const activeSockets: any[] = [];
+			const OriginalWebSocket = window.WebSocket;
 
 			class ControllableWebSocket {
 				static readonly CONNECTING = 0;
@@ -129,8 +140,11 @@ test.describe('offline handling and deduplicated indicator', () => {
 				onerror: ((event: Event) => void) | null = null;
 				onclose: ((event: CloseEvent) => void) | null = null;
 
-				constructor(url: string | URL) {
+				constructor(url: string | URL, protocols?: string | string[]) {
 					this.url = String(url);
+					if (!this.url.includes('/ws')) {
+						return new OriginalWebSocket(url, protocols) as any;
+					}
 					activeSockets.push(this);
 					queueMicrotask(() => {
 						if (this.readyState === ControllableWebSocket.CONNECTING) {
@@ -163,16 +177,19 @@ test.describe('offline handling and deduplicated indicator', () => {
 
 		// 1. Initial state: wait for WebSocket to be open
 		const topbarIndicator = page.getByTestId('offline-indicator');
-		await expect.poll(async () => page.evaluate(() => (window as any).__activeSockets?.[0]?.readyState === 1)).toBe(true);
+		await expect.poll(async () => page.evaluate(() => {
+			const sockets = (window as any).__activeSockets;
+			const ws = sockets?.find((s: any) => s.url.includes('/ws'));
+			return ws && ws.readyState === 1;
+		})).toBe(true);
 		await expect(topbarIndicator).not.toBeVisible();
 		const countBeforeDisconnect = conversationFetches;
 
 		// 2. Simulate socket disconnect
 		await page.evaluate(() => {
 			const sockets = (window as any).__activeSockets;
-			if (sockets && sockets.length > 0) {
-				sockets[sockets.length - 1].dropConnection();
-			}
+			const ws = sockets?.find((s: any) => s.url.includes('/ws') && s.readyState === 1) || sockets?.[sockets.length - 1];
+			ws?.dropConnection();
 		});
 
 		// 3. Offline indicator becomes visible
@@ -186,6 +203,8 @@ test.describe('offline handling and deduplicated indicator', () => {
 
 	test('browser online and offline events toggle offline indicator', async ({ page }) => {
 		await page.addInitScript(() => {
+			const OriginalWebSocket = window.WebSocket;
+
 			class ConnectedWebSocket {
 				static readonly CONNECTING = 0;
 				static readonly OPEN = 1;
@@ -199,8 +218,11 @@ test.describe('offline handling and deduplicated indicator', () => {
 				onerror: ((event: Event) => void) | null = null;
 				onclose: ((event: CloseEvent) => void) | null = null;
 
-				constructor(url: string | URL) {
+				constructor(url: string | URL, protocols?: string | string[]) {
 					this.url = String(url);
+					if (!this.url.includes('/ws')) {
+						return new OriginalWebSocket(url, protocols) as any;
+					}
 					queueMicrotask(() => {
 						this.readyState = ConnectedWebSocket.OPEN;
 						this.onopen?.(new Event('open'));
