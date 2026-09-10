@@ -194,11 +194,11 @@ type Conversation struct {
 // ConversationAIState is the durable source of truth for AI ownership,
 // execution, cooldowns, and per-chat reply policy.
 type ConversationAIState struct {
-	State         string     `json:"state" db:"state"`
-	StateReason   *string    `json:"state_reason,omitempty" db:"state_reason"`
-	ReplyOverride string     `json:"reply_override" db:"reply_override"`
-	RunState      string     `json:"run_state" db:"run_state"`
-	NextReviewAt  *time.Time `json:"next_review_at,omitempty" db:"next_review_at"`
+	State         AIState         `json:"state" db:"state"`
+	StateReason   *AIStateReason  `json:"state_reason,omitempty" db:"state_reason"`
+	ReplyOverride AIReplyOverride `json:"reply_override" db:"reply_override"`
+	RunState      AIRunState      `json:"run_state" db:"run_state"`
+	NextReviewAt  *time.Time      `json:"next_review_at,omitempty" db:"next_review_at"`
 }
 
 // ConversationListItem is a list item representing a conversation with unread status and last message preview.

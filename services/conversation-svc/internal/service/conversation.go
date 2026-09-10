@@ -374,7 +374,7 @@ func (s *Service) UpdateConversationAIControl(ctx context.Context, accountID, us
 	}
 	defer tx.Rollback(ctx)
 
-	var previousState string
+	var previousState types.AIState
 	err = tx.QueryRow(ctx, `
 		SELECT state
 		FROM conversation_ai_state
@@ -387,19 +387,19 @@ func (s *Service) UpdateConversationAIControl(ctx context.Context, accountID, us
 	if err != nil {
 		return nil, fmt.Errorf("lock conversation AI state: %w", err)
 	}
-	if action == "resume" && previousState == "blocked_spam" && role != "admin" && role != "manager" {
+	if action == string(types.AIControlActionResume) && previousState == types.AIStateBlockedSpam && role != types.RoleAdmin && role != types.RoleManager {
 		return nil, errors.New("manager role required to unblock suspected spam")
 	}
 
 	nextState := previousState
 	reason := ""
 	switch action {
-	case "pause":
-		nextState, reason = "paused_human", "manual_pause"
-	case "resume":
-		nextState, reason = "active", "manual_resume"
-	case "block":
-		nextState, reason = "blocked_manual", "manual_block"
+	case string(types.AIControlActionPause):
+		nextState, reason = types.AIStatePausedHuman, string(types.AIStateReasonManualPause)
+	case string(types.AIControlActionResume):
+		nextState, reason = types.AIStateActive, string(types.AIStateReasonManualResume)
+	case string(types.AIControlActionBlock):
+		nextState, reason = types.AIStateBlockedManual, string(types.AIStateReasonManualBlock)
 	}
 
 	var state types.ConversationAIState
@@ -607,7 +607,7 @@ func (s *Service) SendMessage(
 		if generationEpoch == nil {
 			return nil, errors.New("generation_epoch is required for AI messages")
 		}
-		var state string
+		var state types.AIState
 		var currentEpoch int64
 		err = tx.QueryRow(ctx, `
 			SELECT state, generation_epoch
@@ -618,9 +618,9 @@ func (s *Service) SendMessage(
 		if err != nil {
 			return nil, fmt.Errorf("lock conversation AI state: %w", err)
 		}
-		allowed := messagePurpose == "reply" && state == "active"
+		allowed := messagePurpose == "reply" && state == types.AIStateActive
 		if messagePurpose == "human_review_ack" {
-			allowed = state == "cooldown" || state == "review_required"
+			allowed = state == types.AIStateCooldown || state == types.AIStateReviewRequired
 		}
 		if !allowed || currentEpoch != *generationEpoch {
 			return nil, errors.New("stale or unauthorized AI message")
