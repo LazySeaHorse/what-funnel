@@ -218,7 +218,7 @@ type Message struct {
 	AccountID         uuid.UUID       `json:"account_id" db:"account_id"`
 	ConversationID    uuid.UUID       `json:"conversation_id" db:"conversation_id"`
 	Direction         string          `json:"direction" db:"direction"`
-	SenderType        string          `json:"sender_type" db:"sender_type"`
+	SenderType        MessageSender   `json:"sender_type" db:"sender_type"`
 	SenderUserID      *uuid.UUID      `json:"sender_user_id" db:"sender_user_id"`
 	ContentType       string          `json:"content_type" db:"content_type"`
 	Content           json.RawMessage `json:"content" db:"content"` // JSONB payload

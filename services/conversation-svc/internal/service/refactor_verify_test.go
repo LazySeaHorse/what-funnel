@@ -171,7 +171,7 @@ func TestScanConversationRow_EdgeCases(t *testing.T) {
 	require.NotNil(t, itemWithData.LastMessagePreview)
 	assert.Equal(t, msgID, itemWithData.LastMessagePreview.ID)
 	assert.Equal(t, "inbound", itemWithData.LastMessagePreview.Direction)
-	assert.Equal(t, "contact", itemWithData.LastMessagePreview.SenderType)
+	assert.Equal(t, types.MessageSenderContact, itemWithData.LastMessagePreview.SenderType)
 	assert.Equal(t, "text", itemWithData.LastMessagePreview.ContentType)
 	assert.Equal(t, "ext-1", *itemWithData.LastMessagePreview.ExternalMessageID)
 	assert.True(t, itemWithData.Unread, "unread should be true when no read receipt exists")
