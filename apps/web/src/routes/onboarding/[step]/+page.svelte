@@ -15,6 +15,7 @@
 	import ReviewStep from '$lib/components/onboarding/ReviewStep.svelte';
 	import CompleteStep from '$lib/components/onboarding/CompleteStep.svelte';
 	import { ChevronLeftIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { fade } from 'svelte/transition';
 	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
 
 	// Step number from route: 1..8
@@ -526,43 +527,47 @@
 					</div>
 
 					<!-- Steps own their presentation and form-local behavior; this page coordinates persistence and navigation. -->
-					{#if stepNum === 1}
-						<BusinessInfoStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:businessName={s1BusinessName} bind:businessType={s1BusinessType} bind:timezone={s1Timezone} />
-					{:else if stepNum === 2}
-						<ChannelsStep step={displayStepNum} totalSteps={visibleStepItems.length} {channels} onConnect={toggleChannel} />
-					{:else if stepNum === 3}
-						<PipelineStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:stages={pipelineStages} />
-					<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
-					{:else if stepNum === 4}
-						<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
-					<!-- STEP 5: AI ASSISTANT -->
-					{:else if stepNum === 5}
-						<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:analysisModel={aiAnalysisModel} bind:replyModel={aiReplyModel} bind:embeddingModel={aiEmbeddingModel} />
+					{#key stepNum}
+						<div in:fade={{ duration: 140 }}>
+							{#if stepNum === 1}
+								<BusinessInfoStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:businessName={s1BusinessName} bind:businessType={s1BusinessType} bind:timezone={s1Timezone} />
+							{:else if stepNum === 2}
+								<ChannelsStep step={displayStepNum} totalSteps={visibleStepItems.length} {channels} onConnect={toggleChannel} />
+							{:else if stepNum === 3}
+								<PipelineStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:stages={pipelineStages} />
+							<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
+							{:else if stepNum === 4}
+								<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
+							<!-- STEP 5: AI ASSISTANT -->
+							{:else if stepNum === 5}
+								<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:analysisModel={aiAnalysisModel} bind:replyModel={aiReplyModel} bind:embeddingModel={aiEmbeddingModel} />
 
-					<!-- STEP 6: KNOWLEDGE BASE -->
-					{:else if stepNum === 6}
-						<KnowledgeBaseStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:rawText={s6RawText} status={s6Status} bind:concepts={knowledgeIngestion.concepts} bind:patterns={knowledgeIngestion.patterns} compiling={knowledgeIngestion.busy} errorMessage={s6Error} onSkipWaiting={skipWaitingToNextStep} onEditNotes={editKnowledgeNotes} />
+							<!-- STEP 6: KNOWLEDGE BASE -->
+							{:else if stepNum === 6}
+								<KnowledgeBaseStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:rawText={s6RawText} status={s6Status} bind:concepts={knowledgeIngestion.concepts} bind:patterns={knowledgeIngestion.patterns} compiling={knowledgeIngestion.busy} errorMessage={s6Error} onSkipWaiting={skipWaitingToNextStep} onEditNotes={editKnowledgeNotes} />
 
-					<!-- STEP 7: REVIEW AND FINISH -->
-					{:else if stepNum === 7}
-						<ReviewStep
-							step={displayStepNum}
-							totalSteps={visibleStepItems.length}
-							{productMode}
-							businessName={s1BusinessName}
-							channelsText={connectedChannelsText()}
-							pipelineStageCount={pipelineStages.length}
-							teamMemberCount={s4Users.length}
-							slug={s4Slug}
-							aiMode={aiModeLabel()}
-							knowledgeSummary={kbTopicsSummary()}
-							onEdit={goToStep}
-						/>
+							<!-- STEP 7: REVIEW AND FINISH -->
+							{:else if stepNum === 7}
+								<ReviewStep
+									step={displayStepNum}
+									totalSteps={visibleStepItems.length}
+									{productMode}
+									businessName={s1BusinessName}
+									channelsText={connectedChannelsText()}
+									pipelineStageCount={pipelineStages.length}
+									teamMemberCount={s4Users.length}
+									slug={s4Slug}
+									aiMode={aiModeLabel()}
+									knowledgeSummary={kbTopicsSummary()}
+									onEdit={goToStep}
+								/>
 
-					<!-- STEP 8: ALL SET! READY TO GO -->
-					{:else if stepNum === 8}
-						<CompleteStep {productMode} />
-					{/if}
+							<!-- STEP 8: ALL SET! READY TO GO -->
+							{:else if stepNum === 8}
+								<CompleteStep {productMode} />
+							{/if}
+						</div>
+					{/key}
 				</div>
 
 				<OnboardingFooter
