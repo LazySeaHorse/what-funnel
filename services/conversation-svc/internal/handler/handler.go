@@ -39,6 +39,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/channels", auth(admin(http.HandlerFunc(h.ListChannels)))).Methods(http.MethodGet)
 	r.Handle("/channels", auth(admin(http.HandlerFunc(h.CreateChannel)))).Methods(http.MethodPost)
 	r.Handle("/channels/{id}", auth(admin(http.HandlerFunc(h.GetChannel)))).Methods(http.MethodGet)
+	r.Handle("/channels/{id}", auth(admin(http.HandlerFunc(h.DeleteChannel)))).Methods(http.MethodDelete)
 	r.Handle("/channels/{id}/disconnect", auth(admin(http.HandlerFunc(h.DisconnectChannel)))).Methods(http.MethodPost)
 	// Guided mautrix bridge setup. These are intentionally separate from the
 	// low-level channel CRUD endpoints so a pending channel cannot be mistaken

@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
@@ -110,4 +112,34 @@ func (h *Handler) DisconnectChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
+}
+
+func (h *Handler) DeleteChannel(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+	actorID, ok := middleware.UserIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing user")
+		return
+	}
+
+	channelID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid channel ID")
+		return
+	}
+
+	if err := h.svc.DeleteChannel(r.Context(), accountID, actorID, channelID); err != nil {
+		if errors.Is(err, service.ErrChannelNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

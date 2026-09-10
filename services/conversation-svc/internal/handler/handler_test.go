@@ -120,8 +120,8 @@ func TestHandler_Endpoints(t *testing.T) {
 
 	// 1. POST /channels (Create Channel)
 	createBody := map[string]any{
-		"type":              "matrix_whatsapp",
-		"bridge_identity":   "@whatsapp:matrix.org",
+		"type":               "matrix_whatsapp",
+		"bridge_identity":    "@whatsapp:matrix.org",
 		"bridge_credentials": map[string]string{"session_data": "xyz"},
 	}
 	jsonBody, _ := json.Marshal(createBody)
@@ -185,18 +185,7 @@ func TestHandler_Endpoints(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Hello from endpoint", contentMap["text"])
 
-	// 4. POST /channels/{id}/disconnect
-	req, _ = http.NewRequest(http.MethodPost, "/channels/"+channel.ID.String()+"/disconnect", nil)
-	rr = httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusOK, rr.Code)
-	var discResp map[string]string
-	err = json.Unmarshal(rr.Body.Bytes(), &discResp)
-	require.NoError(t, err)
-	assert.Equal(t, "disconnected", discResp["status"])
-
-	// 5. POST /webhooks/telegram?channel_id={id}
+	// 4. POST /webhooks/telegram?channel_id={id}
 	tgPayload := `{
 		"update_id": 99999,
 		"message": {
@@ -222,5 +211,20 @@ func TestHandler_Endpoints(t *testing.T) {
 	err = json.Unmarshal(rr.Body.Bytes(), &whResp)
 	require.NoError(t, err)
 	assert.Equal(t, "ok", whResp["status"])
-}
 
+	// 5. DELETE /channels/{id}
+	req, _ = http.NewRequest(http.MethodDelete, "/channels/"+channel.ID.String(), nil)
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var deleteResp map[string]string
+	err = json.Unmarshal(rr.Body.Bytes(), &deleteResp)
+	require.NoError(t, err)
+	assert.Equal(t, "deleted", deleteResp["status"])
+
+	req, _ = http.NewRequest(http.MethodGet, "/channels/"+channel.ID.String(), nil)
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}

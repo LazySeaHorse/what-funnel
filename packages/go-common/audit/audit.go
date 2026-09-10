@@ -107,6 +107,7 @@ const (
 	ActionUserDeleted        = "user.deleted"
 	ActionUserPasswordReset  = "user.password_reset"
 	ActionUserRoleChanged    = "user.role_changed"
+	ActionChannelDeleted     = "channel.deleted"
 	ActionLogin              = "user.login"
 	ActionLogout             = "user.logout"
 	ActionPipelineCreated    = "pipeline.created"
@@ -116,6 +117,7 @@ const (
 // Target type constants.
 const (
 	TargetAccount  = "account"
+	TargetChannel  = "channel"
 	TargetUser     = "user"
 	TargetPipeline = "lead_pipeline"
 )

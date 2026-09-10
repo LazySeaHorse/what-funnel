@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -11,6 +12,9 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+// ErrChannelNotFound is returned when a channel does not belong to the account.
+var ErrChannelNotFound = errors.New("channel not found")
 
 // CreateChannel creates a new channel record with encrypted credentials.
 func (s *Service) CreateChannel(ctx context.Context, accountID uuid.UUID, channelType string, bridgeIdentity *string, rawCredentials []byte) (*types.Channel, error) {
@@ -243,6 +247,95 @@ func (s *Service) DisconnectChannel(ctx context.Context, accountID, channelID uu
 	}
 
 	if matrix, err := s.matrixAdapterFor(typeName); err == nil {
+		matrix.Remove(channelID.String())
+	}
+	return nil
+}
+
+// DeleteChannel logs out an active remote bridge, then permanently deletes the
+// channel and all associated records through the database's foreign-key
+// cascades. Channels whose credentials were already revoked can still be
+// deleted without attempting another remote logout.
+func (s *Service) DeleteChannel(ctx context.Context, accountID, actorID, channelID uuid.UUID) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin channel deletion: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var channelType string
+	var encryptedCredentials []byte
+	err = tx.QueryRow(ctx, `
+		SELECT type, bridge_credentials
+		FROM channels
+		WHERE id = $1 AND account_id = $2
+		FOR UPDATE
+	`, channelID, accountID).Scan(&channelType, &encryptedCredentials)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrChannelNotFound
+		}
+		return fmt.Errorf("load channel for deletion: %w", err)
+	}
+
+	var platform, managementRoomID, connectionState string
+	err = tx.QueryRow(ctx, `
+		SELECT platform, COALESCE(management_room_id, ''), state
+		FROM channel_connections
+		WHERE channel_id = $1 AND account_id = $2
+	`, channelID, accountID).Scan(&platform, &managementRoomID, &connectionState)
+	hasBridgeConnection := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("load bridge connection for channel deletion: %w", err)
+	}
+
+	if hasBridgeConnection && connectionState != "cancelled" && len(encryptedCredentials) > 0 {
+		rawCredentials, err := s.DecryptCredentials(encryptedCredentials)
+		if err != nil {
+			return fmt.Errorf("decrypt bridge credentials for channel deletion: %w", err)
+		}
+		var credentials matrixadapter.Credentials
+		if err := json.Unmarshal(rawCredentials, &credentials); err != nil {
+			return fmt.Errorf("decode bridge credentials for channel deletion: %w", err)
+		}
+		spec, err := s.bridgePlatform(platform)
+		if err != nil {
+			return err
+		}
+		adapter, err := s.matrixAdapterFor(spec.ChannelType)
+		if err != nil {
+			return err
+		}
+		if _, err := adapter.SendManagementCommand(ctx, credentials, managementRoomID, "logout"); err != nil {
+			return fmt.Errorf("log out of %s bridge before channel deletion: %w", platform, err)
+		}
+	}
+
+	result, err := tx.Exec(ctx, `DELETE FROM channels WHERE id = $1 AND account_id = $2`, channelID, accountID)
+	if err != nil {
+		return fmt.Errorf("delete channel: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrChannelNotFound
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionChannelDeleted,
+		TargetType:  audit.TargetChannel,
+		TargetID:    &channelID,
+		Metadata:    map[string]any{"channel_type": channelType},
+	}); err != nil {
+		return fmt.Errorf("write channel deletion audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit channel deletion: %w", err)
+	}
+
+	if matrix, err := s.matrixAdapterFor(channelType); err == nil {
 		matrix.Remove(channelID.String())
 	}
 	return nil
