@@ -19,23 +19,23 @@
 		name ? name.trim().split(/\s+/).map((n) => n.charAt(0).toUpperCase()).slice(0, 2).join('') : '?'
 	);
 
-	const bgColors = [
-		'bg-[#0057D0] text-white',
-		'bg-[#9AE600] text-slate-900',
-		'bg-[#C27AFF] text-purple-950',
-		'bg-[#FB64B6] text-white'
+	const avatarPalettes = [
+		{ bg: '#0057D0', text: '#FFFFFF' }, // Brand blue
+		{ bg: '#9AE600', text: '#1A2E05' }, // New green
+		{ bg: '#C27AFF', text: '#2E1065' }, // Purple
+		{ bg: '#FB64B6', text: '#FFFFFF' }  // Pink
 	];
 
-	function getDeterministicBg(str: string): string {
-		let hash = 0;
+	function getDeterministicPalette(str: string) {
+		let hash = 2166136261;
 		for (let i = 0; i < str.length; i++) {
-			hash = (hash << 5) - hash + str.charCodeAt(i);
-			hash |= 0;
+			hash = ((hash ^ str.charCodeAt(i)) * 16777619) >>> 0;
 		}
-		return bgColors[Math.abs(hash) % bgColors.length];
+		const index = Math.abs(((hash >>> 8) ^ (hash >>> 16) ^ hash) % avatarPalettes.length);
+		return avatarPalettes[index];
 	}
 
-	const fallbackBg = $derived(getDeterministicBg(name || 'user'));
+	const fallbackPalette = $derived(getDeterministicPalette(name || 'user'));
 
 	const sizeClasses = {
 		xs: 'w-5 h-5 text-[10px]',
@@ -49,7 +49,8 @@
 
 <div class="relative inline-flex shrink-0">
 	<div
-		class="rounded-full overflow-hidden flex items-center justify-center font-medium shadow-xs {sizeClasses[size]} {avatar ? 'bg-slate-100' : fallbackBg} {className}"
+		class="rounded-full overflow-hidden flex items-center justify-center font-medium shadow-xs {sizeClasses[size]} {avatar ? 'bg-slate-100' : ''} {className}"
+		style={avatar ? undefined : `background-color: ${fallbackPalette.bg}; color: ${fallbackPalette.text};`}
 		title={name}
 	>
 		{#if avatar}
