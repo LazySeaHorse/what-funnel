@@ -580,7 +580,7 @@
 			</div>
 
 			<!-- Concepts List -->
-			<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+			<div class="flex-1 overflow-y-auto px-6 py-4">
 				{#if filteredConcepts.length === 0}
 					<div class="flex flex-col items-center justify-center py-16 text-center">
 						<div class="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
@@ -594,155 +594,159 @@
 						</div>
 					</div>
 				{:else}
-					{#each filteredConcepts as concept (concept.id)}
-						{#if editingConceptId === concept.id}
-							<!-- Inline Concept Editor -->
-							<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
-								<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-									<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Concept</span>
-									{#if saveConceptError}
-										<span class="text-xs text-rose-600 font-medium">{saveConceptError}</span>
-									{/if}
-								</div>
-								<div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-									<div class="sm:col-span-3">
-										<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Title</label>
-										<input
-											id={`edit-concept-title-${concept.id}`}
-											bind:value={editConceptDraft.title}
-											placeholder="Concept title"
-											class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
-										/>
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
+						{#each filteredConcepts as concept (concept.id)}
+							{#if editingConceptId === concept.id}
+								<!-- Inline Concept Editor -->
+								<div class="col-span-1 md:col-span-2 border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
+									<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+										<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Concept</span>
+										{#if saveConceptError}
+											<span class="text-xs text-rose-600 font-medium">{saveConceptError}</span>
+										{/if}
+									</div>
+									<div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+										<div class="sm:col-span-3">
+											<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Title</label>
+											<input
+												id={`edit-concept-title-${concept.id}`}
+												bind:value={editConceptDraft.title}
+												placeholder="Concept title"
+												class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+											/>
+										</div>
+										<div>
+											<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Category</label>
+											<select
+												id={`edit-concept-type-${concept.id}`}
+												bind:value={editConceptDraft.type}
+												class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 capitalize transition"
+											>
+												<option value="faq">FAQ</option>
+												<option value="pricing">Pricing</option>
+												<option value="policy">Policy</option>
+												<option value="hours">Hours</option>
+												<option value="service">Service</option>
+												<option value="general">General</option>
+											</select>
+										</div>
 									</div>
 									<div>
-										<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Category</label>
-										<select
-											id={`edit-concept-type-${concept.id}`}
-											bind:value={editConceptDraft.type}
-											class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 capitalize transition"
+										<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Knowledge Content</label>
+										<textarea
+											id={`edit-concept-body-${concept.id}`}
+											bind:value={editConceptDraft.body_text}
+											rows="4"
+											class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
+										></textarea>
+									</div>
+									<div>
+										<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Tags</label>
+										<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+											{#each editConceptDraft.tags as tag}
+												<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md font-medium">
+													<span>{tag}</span>
+													<button type="button" onclick={() => removeTagFromConceptDraft(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
+												</span>
+											{/each}
+										</div>
+										<div class="flex items-center gap-2">
+											<input
+												id={`edit-concept-tag-input-${concept.id}`}
+												bind:value={editConceptTagInput}
+												onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTagToConceptDraft())}
+												placeholder="Add tag and press Enter"
+												class="flex-1 max-w-xs bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
+											/>
+											<button type="button" onclick={addTagToConceptDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
+										</div>
+									</div>
+									<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+										<button type="button" onclick={cancelEditingConcept} class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+											Cancel
+										</button>
+										<button
+											type="button"
+											onclick={() => saveConcept(concept.id)}
+											disabled={savingConcept}
+											class="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
 										>
-											<option value="faq">FAQ</option>
-											<option value="pricing">Pricing</option>
-											<option value="policy">Policy</option>
-											<option value="hours">Hours</option>
-											<option value="service">Service</option>
-											<option value="general">General</option>
-										</select>
+											{savingConcept ? 'Saving…' : 'Save changes'}
+										</button>
 									</div>
 								</div>
-								<div>
-									<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Knowledge Content</label>
-									<textarea
-										id={`edit-concept-body-${concept.id}`}
-										bind:value={editConceptDraft.body_text}
-										rows="4"
-										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
-									></textarea>
-								</div>
-								<div>
-									<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Tags</label>
-									<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
-										{#each editConceptDraft.tags as tag}
-											<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md font-medium">
-												<span>{tag}</span>
-												<button type="button" onclick={() => removeTagFromConceptDraft(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
-											</span>
-										{/each}
-									</div>
-									<div class="flex items-center gap-2">
-										<input
-											id={`edit-concept-tag-input-${concept.id}`}
-											bind:value={editConceptTagInput}
-											onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTagToConceptDraft())}
-											placeholder="Add tag and press Enter"
-											class="flex-1 max-w-xs bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
-										/>
-										<button type="button" onclick={addTagToConceptDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
-									</div>
-								</div>
-								<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-									<button type="button" onclick={cancelEditingConcept} class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition cursor-pointer">
-										Cancel
-									</button>
-									<button
-										type="button"
-										onclick={() => saveConcept(concept.id)}
-										disabled={savingConcept}
-										class="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
-									>
-										{savingConcept ? 'Saving…' : 'Save changes'}
-									</button>
-								</div>
-							</div>
-						{:else}
-							<!-- Regular Concept Card -->
-							<div class="border border-slate-200/80 hover:border-slate-300 rounded-2xl bg-white p-4 transition shadow-2xs space-y-2.5">
-								<div class="flex items-start justify-between gap-3">
-									<div class="flex flex-wrap items-center gap-2 min-w-0">
-										<span class="px-2.5 py-0.5 rounded-md text-[11px] font-semibold border capitalize {typeColor(concept.type)}">{typeLabel(concept.type)}</span>
-										<h3 class="text-sm font-semibold text-slate-900">{concept.title}</h3>
-										{#if concept.source === 'owner_pasted'}
-											<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
+							{:else}
+								<!-- Regular Concept Card -->
+								<div class="border border-slate-200/80 hover:border-slate-300 rounded-2xl bg-white p-4 transition shadow-2xs space-y-2.5 flex flex-col justify-between">
+									<div class="space-y-2.5">
+										<div class="flex items-start justify-between gap-2">
+											<div class="flex flex-wrap items-center gap-1.5 min-w-0">
+												<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold border capitalize {typeColor(concept.type)}">{typeLabel(concept.type)}</span>
+												<h3 class="text-sm font-semibold text-slate-900 leading-snug">{concept.title}</h3>
+												{#if concept.source === 'owner_pasted'}
+													<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
+												{/if}
+											</div>
+
+											<!-- Action Controls -->
+											<div class="flex items-center gap-0.5 shrink-0">
+												<button
+													type="button"
+													onclick={() => startEditingConcept(concept)}
+													class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
+													title="Edit concept"
+												>
+													<PencilSquareIcon class="w-3.5 h-3.5" />
+													<span>Edit</span>
+												</button>
+												<button
+													type="button"
+													onclick={() => deleteConcept(concept.id)}
+													class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
+													title="Delete concept"
+												>
+													<TrashIcon class="w-3.5 h-3.5" />
+													<span>Delete</span>
+												</button>
+											</div>
+										</div>
+
+										{#if concept.tags?.length}
+											<div class="flex flex-wrap items-center gap-1">
+												{#each concept.tags as tag}
+													<span class="text-[10px] text-slate-500 bg-slate-100/80 px-2 py-0.5 rounded-md font-medium">{tag}</span>
+												{/each}
+											</div>
+										{/if}
+
+										<!-- Direct Readable Body Text -->
+										<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap {expandedConcepts[concept.id] ? '' : 'line-clamp-4'}">
+											{concept.body_text}
+										</div>
+
+										{#if (concept.body_text || '').length > 180}
+											<button
+												type="button"
+												onclick={() => toggleConceptExpansion(concept.id)}
+												class="text-[11px] font-medium text-blue-600 hover:text-blue-700 cursor-pointer pt-0.5 inline-block"
+											>
+												{expandedConcepts[concept.id] ? 'Show less' : 'Show full content'}
+											</button>
 										{/if}
 									</div>
 
-									<!-- Action Controls -->
-									<div class="flex items-center gap-1 shrink-0">
-										<button
-											type="button"
-											onclick={() => startEditingConcept(concept)}
-											class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
-											title="Edit concept"
-										>
-											<PencilSquareIcon class="w-3.5 h-3.5" />
-											<span>Edit</span>
-										</button>
-										<button
-											type="button"
-											onclick={() => deleteConcept(concept.id)}
-											class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
-											title="Delete concept"
-										>
-											<TrashIcon class="w-3.5 h-3.5" />
-											<span>Delete</span>
-										</button>
+									<div class="pt-2 mt-1 text-[10px] text-slate-400 border-t border-slate-100/80">
+										<span>Added {formatDate(concept.created_at)}</span>
 									</div>
 								</div>
-
-								{#if concept.tags?.length}
-									<div class="flex flex-wrap items-center gap-1.5">
-										{#each concept.tags as tag}
-											<span class="text-[11px] text-slate-500 bg-slate-100/80 px-2 py-0.5 rounded-md font-medium">{tag}</span>
-										{/each}
-									</div>
-								{/if}
-
-								<!-- Direct Readable Body Text -->
-								<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap {expandedConcepts[concept.id] ? '' : 'line-clamp-3'}">
-									{concept.body_text}
-								</div>
-
-								{#if (concept.body_text || '').length > 200}
-									<button
-										type="button"
-										onclick={() => toggleConceptExpansion(concept.id)}
-										class="text-[11px] font-medium text-blue-600 hover:text-blue-700 cursor-pointer pt-0.5 inline-block"
-									>
-										{expandedConcepts[concept.id] ? 'Show less' : 'Show full content'}
-									</button>
-								{/if}
-
-								<div class="pt-1 text-[11px] text-slate-400 border-t border-slate-100/80">
-									<span>Added {formatDate(concept.created_at)}</span>
-								</div>
-							</div>
-						{/if}
-					{/each}
+							{/if}
+						{/each}
+					</div>
 				{/if}
 			</div>
 		</div>
 	{:else if activeTab === 'patterns'}
-		<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+		<div class="flex-1 overflow-y-auto px-6 py-4">
 			{#if filteredPatterns.length === 0}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 mb-3">
@@ -756,117 +760,119 @@
 					</div>
 				</div>
 			{:else}
-				{#each filteredPatterns as pattern (pattern.id)}
-					{#if editingPatternId === pattern.id}
-						<!-- Inline Pattern Editor -->
-						<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
-							<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-								<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
-								{#if savePatternError}
-									<span class="text-xs text-rose-600 font-medium">{savePatternError}</span>
-								{/if}
-							</div>
-							<div>
-								<label for={`edit-pattern-question-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Canonical Question</label>
-								<input
-									id={`edit-pattern-question-${pattern.id}`}
-									bind:value={editPatternDraft.canonical_question}
-									placeholder="Canonical question"
-									class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
-								/>
-							</div>
-							<div>
-								<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Trigger Phrases</label>
-								<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
-									{#each editPatternDraft.trigger_phrases as phrase}
-										<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 rounded-lg">
-											<span>{phrase}</span>
-											<button type="button" onclick={() => removeTriggerFromPatternDraft(phrase)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
-										</span>
-									{/each}
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
+					{#each filteredPatterns as pattern (pattern.id)}
+						{#if editingPatternId === pattern.id}
+							<!-- Inline Pattern Editor -->
+							<div class="col-span-1 md:col-span-2 border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
+								<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+									<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
+									{#if savePatternError}
+										<span class="text-xs text-rose-600 font-medium">{savePatternError}</span>
+									{/if}
 								</div>
-								<div class="flex items-center gap-2">
+								<div>
+									<label for={`edit-pattern-question-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Canonical Question</label>
 									<input
-										id={`edit-pattern-triggers-input-${pattern.id}`}
-										bind:value={editPatternTriggerInput}
-										onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTriggerToPatternDraft())}
-										placeholder="Add trigger phrase and press Enter"
-										class="flex-1 max-w-sm bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
+										id={`edit-pattern-question-${pattern.id}`}
+										bind:value={editPatternDraft.canonical_question}
+										placeholder="Canonical question"
+										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
 									/>
-									<button type="button" onclick={addTriggerToPatternDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
 								</div>
-							</div>
-							<div>
-								<label for={`edit-pattern-answer-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Deterministic Answer</label>
-								<textarea
-									id={`edit-pattern-answer-${pattern.id}`}
-									bind:value={editPatternDraft.answer_text}
-									rows="3"
-									class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
-								></textarea>
-							</div>
-							<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-								<button type="button" onclick={cancelEditingPattern} class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition cursor-pointer">
-									Cancel
-								</button>
-								<button
-									type="button"
-									onclick={() => savePattern(pattern.id)}
-									disabled={savingPattern}
-									class="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
-								>
-									{savingPattern ? 'Saving…' : 'Save changes'}
-								</button>
-							</div>
-						</div>
-					{:else}
-						<!-- Regular Pattern Card (Conversational Q&A Flow) -->
-						<div class="p-4.5 rounded-2xl border border-slate-200/80 hover:border-slate-300 bg-white space-y-3 transition shadow-2xs">
-							<div class="flex items-start justify-between gap-3">
-								<h3 class="text-sm font-semibold text-slate-900">{pattern.canonical_question}</h3>
-								<div class="flex items-center gap-1 shrink-0">
-									<button
-										type="button"
-										onclick={() => startEditingPattern(pattern)}
-										class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
-										title="Edit pattern"
-									>
-										<PencilSquareIcon class="w-3.5 h-3.5" />
-										<span>Edit</span>
+								<div>
+									<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Trigger Phrases</label>
+									<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+										{#each editPatternDraft.trigger_phrases as phrase}
+											<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 rounded-lg">
+												<span>{phrase}</span>
+												<button type="button" onclick={() => removeTriggerFromPatternDraft(phrase)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
+											</span>
+										{/each}
+									</div>
+									<div class="flex items-center gap-2">
+										<input
+											id={`edit-pattern-triggers-input-${pattern.id}`}
+											bind:value={editPatternTriggerInput}
+											onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTriggerToPatternDraft())}
+											placeholder="Add trigger phrase and press Enter"
+											class="flex-1 max-w-sm bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
+										/>
+										<button type="button" onclick={addTriggerToPatternDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
+									</div>
+								</div>
+								<div>
+									<label for={`edit-pattern-answer-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Deterministic Answer</label>
+									<textarea
+										id={`edit-pattern-answer-${pattern.id}`}
+										bind:value={editPatternDraft.answer_text}
+										rows="3"
+										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
+									></textarea>
+								</div>
+								<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+									<button type="button" onclick={cancelEditingPattern} class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+										Cancel
 									</button>
 									<button
 										type="button"
-										onclick={() => deletePattern(pattern.id)}
-										class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
-										title="Delete pattern"
+										onclick={() => savePattern(pattern.id)}
+										disabled={savingPattern}
+										class="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
 									>
-										<TrashIcon class="w-3.5 h-3.5" />
-										<span>Delete</span>
+										{savingPattern ? 'Saving…' : 'Save changes'}
 									</button>
 								</div>
 							</div>
-
-							{#if pattern.trigger_phrases?.length}
-								<div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-									<span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mr-1">Triggers:</span>
-									{#each pattern.trigger_phrases as phrase}
-										<span class="text-xs text-slate-700 bg-slate-100/90 border border-slate-200/50 px-2.5 py-0.5 rounded-lg">{phrase}</span>
-									{/each}
+						{:else}
+							<!-- Regular Pattern Card (Conversational Q&A Flow) -->
+							<div class="p-4 rounded-2xl border border-slate-200/80 hover:border-slate-300 bg-white space-y-2.5 transition shadow-2xs">
+								<div class="flex items-start justify-between gap-2">
+									<h3 class="text-sm font-semibold text-slate-900 leading-snug">{pattern.canonical_question}</h3>
+									<div class="flex items-center gap-0.5 shrink-0">
+										<button
+											type="button"
+											onclick={() => startEditingPattern(pattern)}
+											class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
+											title="Edit pattern"
+										>
+											<PencilSquareIcon class="w-3.5 h-3.5" />
+											<span>Edit</span>
+										</button>
+										<button
+											type="button"
+											onclick={() => deletePattern(pattern.id)}
+											class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
+											title="Delete pattern"
+										>
+											<TrashIcon class="w-3.5 h-3.5" />
+											<span>Delete</span>
+										</button>
+									</div>
 								</div>
-							{/if}
 
-							<!-- Direct Answer Bubble -->
-							<div class="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70">
-								{pattern.answer_text}
+								{#if pattern.trigger_phrases?.length}
+									<div class="flex flex-wrap items-center gap-1 pt-0.5">
+										<span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
+										{#each pattern.trigger_phrases as phrase}
+											<span class="text-xs text-slate-700 bg-slate-100/90 border border-slate-200/50 px-2 py-0.5 rounded-lg">{phrase}</span>
+										{/each}
+									</div>
+								{/if}
+
+								<!-- Direct Answer Bubble -->
+								<div class="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap bg-slate-50/80 p-3 rounded-xl border border-slate-200/70">
+									{pattern.answer_text}
+								</div>
 							</div>
-						</div>
-					{/if}
-				{/each}
+						{/if}
+					{/each}
+				</div>
 			{/if}
 		</div>
 	{:else}
 		<!-- AI Suggestions Tab -->
-		<div class="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+		<div class="flex-1 overflow-y-auto px-6 py-4">
 			{#if filteredSuggestions.length === 0}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-500 mb-3">
@@ -880,34 +886,36 @@
 					</div>
 				</div>
 			{:else}
-				{#each filteredSuggestions as suggestion (suggestion.id)}
-					<div class="p-4.5 rounded-2xl border border-slate-200/80 bg-white space-y-3 shadow-2xs">
-						<div class="flex items-center justify-between gap-2">
-							<div class="flex items-center gap-2 min-w-0">
-								<span class="px-2 py-0.5 rounded text-[10px] font-semibold border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
-									{typeLabel(suggestion._payload?.type ?? suggestion.type)}
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
+					{#each filteredSuggestions as suggestion (suggestion.id)}
+						<div class="p-4 rounded-2xl border border-slate-200/80 bg-white space-y-3 shadow-2xs">
+							<div class="flex items-center justify-between gap-2">
+								<div class="flex items-center gap-2 min-w-0">
+									<span class="px-2 py-0.5 rounded text-[10px] font-semibold border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
+										{typeLabel(suggestion._payload?.type ?? suggestion.type)}
+									</span>
+									<h3 class="text-sm font-semibold text-slate-900 truncate">
+										{suggestion._payload?.title ?? suggestion._payload?.canonical_question ?? 'Untitled suggestion'}
+									</h3>
+								</div>
+								<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
+									{Math.round((suggestion.confidence ?? 0) * 100)}% match
 								</span>
-								<h3 class="text-sm font-semibold text-slate-900 truncate">
-									{suggestion._payload?.title ?? suggestion._payload?.canonical_question ?? 'Untitled suggestion'}
-								</h3>
 							</div>
-							<span class="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
-								{Math.round((suggestion.confidence ?? 0) * 100)}% match
-							</span>
+							<div class="text-xs text-slate-700 bg-slate-50/80 p-3 rounded-xl leading-relaxed whitespace-pre-wrap border border-slate-200/70">
+								{suggestion._payload?.body_text ?? suggestion._payload?.answer_text ?? ''}
+							</div>
+							<div class="flex items-center justify-end gap-2 pt-1 text-xs">
+								<button onclick={() => reviewSuggestion(suggestion.id, 'reject')} class="px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer font-medium">
+									Dismiss
+								</button>
+								<button onclick={() => reviewSuggestion(suggestion.id, 'approve')} class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]">
+									Add to Knowledge Base
+								</button>
+							</div>
 						</div>
-						<div class="text-xs text-slate-700 bg-slate-50/80 p-3.5 rounded-xl leading-relaxed whitespace-pre-wrap border border-slate-200/70">
-							{suggestion._payload?.body_text ?? suggestion._payload?.answer_text ?? ''}
-						</div>
-						<div class="flex items-center justify-end gap-2 pt-1 text-xs">
-							<button onclick={() => reviewSuggestion(suggestion.id, 'reject')} class="px-3.5 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer font-medium">
-								Dismiss
-							</button>
-							<button onclick={() => reviewSuggestion(suggestion.id, 'approve')} class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]">
-								Add to Knowledge Base
-							</button>
-						</div>
-					</div>
-				{/each}
+					{/each}
+				</div>
 			{/if}
 		</div>
 	{/if}
