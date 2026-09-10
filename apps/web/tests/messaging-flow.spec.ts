@@ -1,10 +1,21 @@
 import { test, expect } from '@playwright/test';
+import { cleanupAccountByEmail } from './support/db-cleanup';
+
+const createdEmails: string[] = [];
+
+test.afterEach(() => {
+  while (createdEmails.length) {
+    const email = createdEmails.pop();
+    if (email) cleanupAccountByEmail(email);
+  }
+});
 
 test('sending messages in inbox and simulator tabs renders correctly in both views', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Sign up fresh account
   const email = `msg-flow-${Date.now()}@e2e.local`;
+  createdEmails.push(email);
   await page.goto('/signup');
   await page.fill('#account-name-input', 'Realtime Sync Studio');
   await page.fill('#signup-email-input', email);

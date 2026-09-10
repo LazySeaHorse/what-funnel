@@ -70,12 +70,12 @@ func TestChannelIngestionE2E(t *testing.T) {
 	// 1. Database Connection
 	pool, err := db.Connect(ctx, getTestDSN())
 	require.NoError(t, err)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	// 2. Redis Connection
 	ps, err := pubsub.NewClient(getTestRedis())
 	require.NoError(t, err)
-	defer ps.Close()
+	t.Cleanup(func() { _ = ps.Close() })
 
 	// Clear test stream
 	ps.RawClient().Del(ctx, "messages.inbound")

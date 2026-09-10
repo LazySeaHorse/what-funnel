@@ -18,13 +18,17 @@
 import { test, expect, type Page } from '@playwright/test';
 // @ts-ignore
 import { execFileSync } from 'child_process';
+import { cleanupAccountByEmail } from './support/db-cleanup';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const PASSWORD = 'E2ePassword99!';
+const trackedEmails: string[] = [];
 
 function uniqueEmail(prefix = 'test') {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 9999)}@e2e.local`;
+  const email = `${prefix}-${Date.now()}-${Math.floor(Math.random() * 9999)}@e2e.local`;
+  trackedEmails.push(email);
+  return email;
 }
 
 /** Inject a fake inbound message into the system via Redis Streams (demo mode). */
@@ -695,4 +699,10 @@ test.describe('10. RBAC — Admin vs Member', () => {
     await expect(page.getByRole('heading', { name: 'Connected channels', exact: true })).toBeVisible({ timeout: 15000 });
   });
 
+});
+
+test.afterAll(async () => {
+  for (const email of trackedEmails) {
+    cleanupAccountByEmail(email);
+  }
 });

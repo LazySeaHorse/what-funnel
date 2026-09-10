@@ -1,10 +1,21 @@
 import { test, expect } from '@playwright/test';
+import { cleanupAccountByEmail } from './support/db-cleanup';
+
+const createdEmails: string[] = [];
+
+test.afterEach(() => {
+  while (createdEmails.length) {
+    const email = createdEmails.pop();
+    if (email) cleanupAccountByEmail(email);
+  }
+});
 
 test('dashboard UI renders correctly with What Funnel branding and Poppins font', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Sign up a fresh account
   const email = `dash-${Date.now()}@e2e.local`;
+  createdEmails.push(email);
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
   await page.fill('#account-name-input', 'What Funnel Studio');
@@ -48,6 +59,7 @@ test('leads tab UI renders real database leads with table and detail drawer', as
   await page.setViewportSize({ width: 1440, height: 900 });
 
   const email = `leads-real-${Date.now()}@e2e.local`;
+  createdEmails.push(email);
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
   await page.fill('#account-name-input', 'Glamour Salon');

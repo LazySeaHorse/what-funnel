@@ -1,10 +1,21 @@
 import { test, expect } from '@playwright/test';
+import { cleanupAccountByEmail } from './support/db-cleanup';
+
+const createdEmails: string[] = [];
+
+test.afterEach(() => {
+  while (createdEmails.length) {
+    const email = createdEmails.pop();
+    if (email) cleanupAccountByEmail(email);
+  }
+});
 
 test('left sidebar Simulate tab opens full Customer Simulation Studio and simulates full customer journey', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Sign up a fresh account
   const email = `sim-left-${Date.now()}@e2e.local`;
+  createdEmails.push(email);
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('heading', { name: 'Create workspace', exact: true })).toBeVisible({ timeout: 15000 });
@@ -63,6 +74,7 @@ test('simulating Telegram chat sends native webhook and displays Telegram channe
 
   // Sign up a fresh account
   const email = `sim-tg-${Date.now()}@e2e.local`;
+  createdEmails.push(email);
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('heading', { name: 'Create workspace', exact: true })).toBeVisible({ timeout: 15000 });

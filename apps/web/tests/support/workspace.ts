@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+export { cleanupAccountByEmail } from './db-cleanup';
 
 export const PASSWORD = 'E2ePassword99!';
 

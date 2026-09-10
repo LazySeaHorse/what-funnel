@@ -89,6 +89,13 @@ func TestCrossTenantIsolation(t *testing.T) {
 		accountA, accountB)
 	require.NoError(t, err)
 
+	t.Cleanup(func() {
+		pgPool.Exec(context.Background(),
+			`DELETE FROM lead_pipelines WHERE account_id IN ($1, $2)`, accountA, accountB)
+		pgPool.Exec(context.Background(),
+			`DELETE FROM accounts WHERE id IN ($1, $2)`, accountA, accountB)
+	})
+
 	// Insert a pipeline belonging to Account B.
 	pipelineB := uuid.New()
 	_, err = pgPool.Exec(ctx,
@@ -110,12 +117,4 @@ func TestCrossTenantIsolation(t *testing.T) {
 	err = row.Scan(&gotID)
 	assert.ErrorIs(t, err, pgx.ErrNoRows,
 		"Account A must not be able to read Account B's pipeline row")
-
-	// Cleanup
-	t.Cleanup(func() {
-		pgPool.Exec(context.Background(),
-			`DELETE FROM lead_pipelines WHERE account_id IN ($1, $2)`, accountA, accountB)
-		pgPool.Exec(context.Background(),
-			`DELETE FROM accounts WHERE id IN ($1, $2)`, accountA, accountB)
-	})
 }
