@@ -14,6 +14,7 @@
   import {
     SparklesIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
+  import { fade } from "svelte/transition";
 
   let {
     inbox,
@@ -64,23 +65,26 @@
         </p>
       </div>
     {:else if tab === "lead"}
-      <LeadStagePicker stateKey={editor.lead?.current_state_key || "new"} states={pipelineStates} onchange={(key) => editor.changeStage(key)} />
-      {#if capabilities.manageAssignments}
-        <LeadAssigneePicker users={inbox.users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
-      {/if}
-      <LeadTagsEditor tags={editor.lead?.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
-      <LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
-      <div class="space-y-2">
-        <div class="flex items-center gap-1.5 text-xs">
-          <SparklesIcon class="w-3.5 h-3.5 text-purple-600" />AI assist
-          <span class="text-slate-400">(Beta)</span>
+      <div in:fade={{ duration: 120 }} class="space-y-5">
+        <LeadStagePicker stateKey={editor.lead?.current_state_key || "new"} states={pipelineStates} onchange={(key) => editor.changeStage(key)} />
+        {#if capabilities.manageAssignments}
+          <LeadAssigneePicker users={inbox.users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
+        {/if}
+        <LeadTagsEditor tags={editor.lead?.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
+        <LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
+        <div class="space-y-2">
+          <div class="flex items-center gap-1.5 text-xs">
+            <SparklesIcon class="w-3.5 h-3.5 text-purple-600" />AI assist
+            <span class="text-slate-400">(Beta)</span>
+          </div>
+          <button
+            class="w-full py-2 rounded-xl border border-blue-200 text-blue-600 text-xs"
+            >Summarize conversation</button
+          >
         </div>
-        <button
-          class="w-full py-2 rounded-xl border border-blue-200 text-blue-600 text-xs"
-          >Summarize conversation</button
-        >
       </div>
     {:else if tab === "details"}<div
+        in:fade={{ duration: 120 }}
         class="p-3.5 bg-slate-50 rounded-xl space-y-2.5 text-xs"
       >
         <div class="flex justify-between">
@@ -103,14 +107,15 @@
         </div>
       </div>
     {:else if !editor.history.length}<div
+        in:fade={{ duration: 120 }}
         class="text-slate-400 text-xs p-4 text-center"
       >
         No stage history recorded.
-      </div>{:else}{#each editor.history as item}<div
+      </div>{:else}<div in:fade={{ duration: 120 }} class="space-y-2">{#each editor.history as item}<div
           class="text-xs border-l-2 border-blue-200 pl-3"
         >
           <b>Lead stage changed to {item.to_state}</b>
           <div class="text-slate-400">{formatTime(item.created_at)}</div>
-        </div>{/each}{/if}
+        </div>{/each}</div>{/if}
   </div>
 </aside>

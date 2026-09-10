@@ -6,6 +6,8 @@
 	import LeadTagsEditor from './LeadTagsEditor.svelte';
 	import LeadNotesEditor from './LeadNotesEditor.svelte';
 	import type { LeadEditor } from '$lib/leads/lead-editor.svelte';
+	import { fly, fade } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import {
 		PlusIcon,
 		XMarkIcon,
@@ -47,7 +49,7 @@
 
 </script>
 
-<aside class="lead-panel w-[320px] xl:w-[350px] bg-white flex flex-col shrink-0 overflow-y-auto min-h-0 h-full border-l border-slate-100 select-none">
+<aside transition:fly={{ x: 28, duration: 200, easing: cubicOut }} class="lead-panel w-[320px] xl:w-[350px] bg-white flex flex-col shrink-0 overflow-y-auto min-h-0 h-full border-l border-slate-100 select-none">
 	<!-- Top Drawer Actions -->
 	<div class="px-5 pt-4 pb-2 flex items-center justify-between">
 		<button
@@ -107,39 +109,41 @@
 	<!-- Drawer Content -->
 	<div class="p-5 space-y-4 flex-1 text-xs">
 		{#if activeTab === 'overview'}
-			<LeadStagePicker stateKey={lead.stateKey} stateLabel={lead.stateLabel} states={pipelineStates.length ? pipelineStates : defaultStates} onchange={(key) => editor.changeStage(key)} />
+			<div in:fade={{ duration: 120 }} class="space-y-4">
+				<LeadStagePicker stateKey={lead.stateKey} stateLabel={lead.stateLabel} states={pipelineStates.length ? pipelineStates : defaultStates} onchange={(key) => editor.changeStage(key)} />
 
-			{#if canManageAssignments}
-				<LeadAssigneePicker {users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
-			{/if}
+				{#if canManageAssignments}
+					<LeadAssigneePicker {users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
+				{/if}
 
-			<LeadTagsEditor tags={editor.lead?.tags ?? lead.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
-			<LeadNotesEditor notes={editor.notes} loading={editor.loading} onadd={(body) => editor.addNote(body)} />
+				<LeadTagsEditor tags={editor.lead?.tags ?? lead.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
+				<LeadNotesEditor notes={editor.notes} loading={editor.loading} onadd={(body) => editor.addNote(body)} />
 
-			<!-- Contact info Section -->
-			<div class="space-y-2">
-				<span class="font-medium text-slate-700">Contact info</span>
-				
-				<div class="space-y-1.5">
-					{#each lead.contactInfo || [] as contact}
-					<div class="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
-						<div class="flex items-center gap-2 min-w-0">
-							<ChannelBadge channel={lead.channel} size="xs" showTooltip={false} />
-							<span class="text-slate-700 font-medium truncate">{contact.value}</span>
+				<!-- Contact info Section -->
+				<div class="space-y-2">
+					<span class="font-medium text-slate-700">Contact info</span>
+					
+					<div class="space-y-1.5">
+						{#each lead.contactInfo || [] as contact}
+						<div class="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
+							<div class="flex items-center gap-2 min-w-0">
+								<ChannelBadge channel={lead.channel} size="xs" showTooltip={false} />
+								<span class="text-slate-700 font-medium truncate">{contact.value}</span>
+							</div>
+							<div class="flex items-center gap-1 text-slate-400 text-[11px]">
+								<span>{contact.label}</span>
+								<ChevronDownIcon class="w-3 h-3" />
+							</div>
 						</div>
-						<div class="flex items-center gap-1 text-slate-400 text-[11px]">
-							<span>{contact.label}</span>
-							<ChevronDownIcon class="w-3 h-3" />
-						</div>
+						{:else}
+							<p class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-slate-400">No contact identity available.</p>
+						{/each}
 					</div>
-					{:else}
-						<p class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-slate-400">No contact identity available.</p>
-					{/each}
 				</div>
 			</div>
 
 		{:else if activeTab === 'details'}
-			<div class="p-3.5 bg-slate-50 rounded-xl space-y-2.5 text-xs">
+			<div in:fade={{ duration: 120 }} class="p-3.5 bg-slate-50 rounded-xl space-y-2.5 text-xs">
 				<div class="flex justify-between gap-4 py-1 border-b border-slate-200/60">
 					<span class="text-slate-400">Display name</span>
 					<span class="font-medium text-slate-800 text-right truncate">{lead.name}</span>
@@ -159,10 +163,12 @@
 			</div>
 
 		{:else if activeTab === 'notes'}
-			<LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
+			<div in:fade={{ duration: 120 }}>
+				<LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
+			</div>
 
 		{:else}
-			<div class="space-y-3 text-xs">
+			<div in:fade={{ duration: 120 }} class="space-y-3 text-xs">
 				<div class="border-l-2 border-blue-200 ml-2 pl-3 space-y-4">
 					<div class="relative">
 						<span class="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white"></span>
