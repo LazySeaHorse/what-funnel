@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
+	"time"
 )
 
 func TestParseTelegramUpdate(t *testing.T) {
@@ -93,6 +94,68 @@ func TestParseWhatsAppWebhook(t *testing.T) {
 	}
 	if ev.Message.Text != "Hello WhatsApp" {
 		t.Errorf("expected text, got %s", ev.Message.Text)
+	}
+}
+
+func TestParseWhatsAppWebhook_NormalizesMessageVariants(t *testing.T) {
+	raw := `{
+		"entry": [{"changes": [{"value": {
+			"contacts": [{"profile":{"name":"Alice"},"wa_id":"known"}],
+			"messages": [
+				{"from":"known","id":"text-1","timestamp":"1723878000","type":"text","text":{"body":"hello"}},
+				{"from":"known","id":"image-1","timestamp":"1723878001","type":"image","image":{"id":"image-id","caption":"image caption"}},
+				{"from":"known","id":"video-1","timestamp":"1723878002","type":"video","video":{"id":"video-id","caption":"video caption"}},
+				{"from":"known","id":"audio-1","timestamp":"1723878003","type":"audio","audio":{"id":"audio-id"}},
+				{"from":"unknown","id":"document-1","timestamp":"1723878004","type":"document","document":{"id":"document-id","caption":"document caption"}},
+				{"from":"known","id":"missing-media","timestamp":"invalid","type":"image"}
+			]
+		}}]}]
+	}`
+
+	before := time.Now()
+	events, err := ParseWhatsAppWebhook("channel-1", []byte(raw))
+	after := time.Now()
+	if err != nil {
+		t.Fatalf("ParseWhatsAppWebhook() error = %v", err)
+	}
+	if len(events) != 6 {
+		t.Fatalf("ParseWhatsAppWebhook() returned %d events, want 6", len(events))
+	}
+
+	tests := []struct {
+		index       int
+		contentType string
+		text        string
+		mediaURL    string
+	}{
+		{index: 0, contentType: "text", text: "hello"},
+		{index: 1, contentType: "image", text: "image caption", mediaURL: "image-id"},
+		{index: 2, contentType: "video", text: "video caption", mediaURL: "video-id"},
+		{index: 3, contentType: "audio", mediaURL: "audio-id"},
+		{index: 4, contentType: "document", text: "document caption", mediaURL: "document-id"},
+		{index: 5, contentType: "image"},
+	}
+	for _, tt := range tests {
+		event := events[tt.index]
+		if event.Message.ContentType != tt.contentType {
+			t.Errorf("event %d content type = %q, want %q", tt.index, event.Message.ContentType, tt.contentType)
+		}
+		if event.Message.Text != tt.text {
+			t.Errorf("event %d text = %q, want %q", tt.index, event.Message.Text, tt.text)
+		}
+		if event.Message.MediaURL != tt.mediaURL {
+			t.Errorf("event %d media URL = %q, want %q", tt.index, event.Message.MediaURL, tt.mediaURL)
+		}
+	}
+
+	if events[4].Contact.DisplayName != "unknown" {
+		t.Errorf("unknown contact display name = %q, want sender ID", events[4].Contact.DisplayName)
+	}
+	if got := events[0].Timestamp; !got.Equal(time.Unix(1723878000, 0)) {
+		t.Errorf("parsed timestamp = %v, want %v", got, time.Unix(1723878000, 0))
+	}
+	if got := events[5].Timestamp; got.Before(before) || got.After(after) {
+		t.Errorf("invalid timestamp fallback = %v, want between %v and %v", got, before, after)
 	}
 }
 
