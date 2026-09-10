@@ -5,4 +5,4 @@ cryptography==44.0.0
 redis==5.0.4
 rapidfuzz==3.9.3
 pytest==9.0.3
-pytest-asyncio==0.23.7
+pytest-asyncio==1.4.0
