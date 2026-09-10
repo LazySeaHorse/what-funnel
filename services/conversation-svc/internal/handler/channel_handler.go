@@ -92,28 +92,6 @@ func (h *Handler) GetChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (h *Handler) DisconnectChannel(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-
-	vars := mux.Vars(r)
-	chID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid channel ID")
-		return
-	}
-
-	if err := h.svc.DisconnectChannel(r.Context(), accountID, chID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
-}
-
 func (h *Handler) DeleteChannel(w http.ResponseWriter, r *http.Request) {
 	accountID, ok := middleware.AccountIDFromContext(r)
 	if !ok {
