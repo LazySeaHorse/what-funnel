@@ -140,6 +140,39 @@ func applyAIControlTransition(
 	return &state, nil
 }
 
+func pauseAIAfterHumanMessage(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID, conversationID uuid.UUID,
+	actorUserID *uuid.UUID,
+	messageID uuid.UUID,
+	reason types.AIStateReason,
+) error {
+	_, err := tx.Exec(ctx, `
+		WITH previous AS (
+			SELECT state FROM conversation_ai_state
+			WHERE conversation_id = $1 AND account_id = $2
+			FOR UPDATE
+		), updated AS (
+			UPDATE conversation_ai_state
+			SET state = $3, state_reason = $4, run_state = 'idle',
+			    run_started_at = NULL,
+			    generation_epoch = generation_epoch + 1, next_review_at = NULL,
+			    version = version + 1, updated_at = NOW()
+			WHERE conversation_id = $1 AND account_id = $2
+		)
+		INSERT INTO conversation_ai_state_events (
+			account_id, conversation_id, actor_user_id, from_state, to_state, reason,
+			triggering_message_id
+		)
+		SELECT $2, $1, $5, state, $3, $4, $6 FROM previous
+	`, conversationID, accountID, types.AIStatePausedHuman, reason, actorUserID, messageID)
+	if err != nil {
+		return fmt.Errorf("pause AI after human message: %w", err)
+	}
+	return nil
+}
+
 // UpdateConversationAIControl atomically changes AI ownership and/or the
 // per-chat reply policy. A state change invalidates every in-flight generation
 // by advancing generation_epoch; workers must check that epoch before sending.

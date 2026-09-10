@@ -624,44 +624,17 @@ func (s *Service) SendMessage(
 		return nil, fmt.Errorf("insert outbound message: %w", err)
 	}
 
-	if senderType == "human" {
-		_, err = tx.Exec(ctx, `
-			UPDATE conversations
-			SET last_message_at = $1
-			WHERE id = $2 AND account_id = $3
-		`, msg.CreatedAt, conversationID, accountID)
-	} else {
-		_, err = tx.Exec(ctx, `
-			UPDATE conversations
-			SET last_message_at = $1
-			WHERE id = $2 AND account_id = $3
-		`, msg.CreatedAt, conversationID, accountID)
-	}
+	_, err = tx.Exec(ctx, `
+		UPDATE conversations
+		SET last_message_at = $1
+		WHERE id = $2 AND account_id = $3
+	`, msg.CreatedAt, conversationID, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("update conversation details: %w", err)
 	}
 	if senderType == "human" {
-		_, err = tx.Exec(ctx, `
-			WITH previous AS (
-				SELECT state FROM conversation_ai_state
-				WHERE conversation_id = $1 AND account_id = $2
-				FOR UPDATE
-			), updated AS (
-				UPDATE conversation_ai_state
-				SET state = 'paused_human', state_reason = 'human_message_sent', run_state = 'idle',
-				    run_started_at = NULL,
-				    generation_epoch = generation_epoch + 1, next_review_at = NULL,
-				    version = version + 1, updated_at = NOW()
-				WHERE conversation_id = $1 AND account_id = $2
-			)
-			INSERT INTO conversation_ai_state_events (
-				account_id, conversation_id, actor_user_id, from_state, to_state, reason,
-				triggering_message_id
-			)
-			SELECT $2, $1, $3, state, 'paused_human', 'human_message_sent', $4 FROM previous
-		`, conversationID, accountID, senderUserID, msg.ID)
-		if err != nil {
-			return nil, fmt.Errorf("pause AI after human message: %w", err)
+		if err = pauseAIAfterHumanMessage(ctx, tx, accountID, conversationID, senderUserID, msg.ID, types.AIStateReasonHumanMessageSent); err != nil {
+			return nil, err
 		}
 	}
 

@@ -3,12 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
@@ -23,13 +23,12 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 	}
 
 	// 1. Resolve account ID from the channel.
-	var accountID uuid.UUID
-	err = s.pool.QueryRow(ctx, `SELECT account_id FROM channels WHERE id = $1`, channelID).Scan(&accountID)
+	accountID, err := accountIDForChannel(ctx, s.pool, channelID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, ErrChannelNotFound) {
 			return fmt.Errorf("channel not found: %s", event.ChannelID)
 		}
-		return fmt.Errorf("lookup channel account: %w", err)
+		return err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -101,58 +100,8 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 
 	// 4.1 Auto-create Lead on new conversations when lead tracking is enabled.
 	if isNew {
-		var settingsRaw []byte
-		var productMode string
-		if err = tx.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&productMode, &settingsRaw); err != nil {
-			return fmt.Errorf("get account settings for auto-lead: %w", err)
-		}
-		if types.IsLeadTrackingEnabledForProduct(productMode, settingsRaw) {
-			var pipelineID uuid.UUID
-			var statesJSON []byte
-			err = tx.QueryRow(ctx, `SELECT id, states FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`, accountID).Scan(&pipelineID, &statesJSON)
-			if err != nil && err != pgx.ErrNoRows {
-				return fmt.Errorf("get lead pipeline for auto-lead: %w", err)
-			}
-			if err == nil {
-				var states []types.PipelineState
-				if err := json.Unmarshal(statesJSON, &states); err != nil {
-					return fmt.Errorf("unmarshal pipeline states: %w", err)
-				}
-				if len(states) > 0 {
-					firstStateKey := states[0].Key
-					var leadID uuid.UUID
-					err = tx.QueryRow(ctx, `
-						INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key)
-						VALUES ($1, $2, $3, $4)
-						RETURNING id
-					`, accountID, conversationID, pipelineID, firstStateKey).Scan(&leadID)
-					if err != nil {
-						return fmt.Errorf("auto-create lead: %w", err)
-					}
-					_, err = tx.Exec(ctx, `
-						INSERT INTO lead_state_history (account_id, lead_id, from_state, to_state)
-						VALUES ($1, $2, NULL, $3)
-					`, accountID, leadID, firstStateKey)
-					if err != nil {
-						return fmt.Errorf("insert lead state history for auto-lead: %w", err)
-					}
-					aw := audit.NewWriterFromTx(tx)
-					if err = aw.Write(ctx, audit.Entry{
-						AccountID:   accountID,
-						ActorUserID: nil,
-						Action:      "lead.created",
-						TargetType:  "lead",
-						TargetID:    &leadID,
-						Metadata: map[string]any{
-							"conversation_id":   conversationID,
-							"current_state_key": firstStateKey,
-							"auto":              true,
-						},
-					}); err != nil {
-						return fmt.Errorf("write auto-lead audit log: %w", err)
-					}
-				}
-			}
+		if _, err = createInitialLeadIfEnabled(ctx, tx, accountID, conversationID); err != nil {
+			return err
 		}
 	}
 
@@ -204,13 +153,12 @@ func (s *Service) IngestExternalOutbound(ctx context.Context, event types.Extern
 		return fmt.Errorf("invalid channel ID: %w", err)
 	}
 
-	var accountID uuid.UUID
-	err = s.pool.QueryRow(ctx, `SELECT account_id FROM channels WHERE id = $1`, channelID).Scan(&accountID)
+	accountID, err := accountIDForChannel(ctx, s.pool, channelID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, ErrChannelNotFound) {
 			return fmt.Errorf("channel not found: %s", event.ChannelID)
 		}
-		return fmt.Errorf("lookup channel account: %w", err)
+		return err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -288,26 +236,8 @@ func (s *Service) IngestExternalOutbound(ctx context.Context, event types.Extern
 	if err != nil {
 		return fmt.Errorf("update conversation: %w", err)
 	}
-	_, err = tx.Exec(ctx, `
-		WITH previous AS (
-			SELECT state FROM conversation_ai_state
-			WHERE conversation_id = $1 AND account_id = $2
-			FOR UPDATE
-		), updated AS (
-			UPDATE conversation_ai_state
-			SET state = 'paused_human', state_reason = 'external_human_message', run_state = 'idle',
-			    run_started_at = NULL,
-			    generation_epoch = generation_epoch + 1, next_review_at = NULL,
-			    version = version + 1, updated_at = NOW()
-			WHERE conversation_id = $1 AND account_id = $2
-		)
-		INSERT INTO conversation_ai_state_events (
-			account_id, conversation_id, from_state, to_state, reason, triggering_message_id
-		)
-		SELECT $2, $1, state, 'paused_human', 'external_human_message', $3 FROM previous
-	`, conversationID, accountID, messageID)
-	if err != nil {
-		return fmt.Errorf("pause AI after external human message: %w", err)
+	if err = pauseAIAfterHumanMessage(ctx, tx, accountID, conversationID, nil, messageID, types.AIStateReasonExternalHumanMessage); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
