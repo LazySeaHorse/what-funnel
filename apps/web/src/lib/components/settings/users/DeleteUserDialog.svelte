@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import type { WorkspaceUser } from './types';
 
 	let { user, onclose, ondelete }: { user: WorkspaceUser; onclose: () => void; ondelete: () => Promise<void> } = $props();
@@ -10,8 +12,8 @@
 	}
 </script>
 
-<div class="wf-modal-backdrop">
-	<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="delete-user-modal-title">
+<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
+	<div transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }} class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="delete-user-modal-title">
 		<h3 id="delete-user-modal-title" class="text-sm font-medium text-slate-900">Delete User</h3>
 		<p class="text-xs text-slate-600">Are you sure you want to delete <span class="font-medium">{user.username || user.email}</span>? Any conversations currently assigned to them will be unassigned. This action cannot be undone.</p>
 		<div class="flex justify-end gap-3">

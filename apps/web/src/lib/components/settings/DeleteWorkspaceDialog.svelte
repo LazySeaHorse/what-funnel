@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { fade, scale } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { ExclamationTriangleIcon } from "@fvilers/heroicons-svelte/24/outline";
   let {
     workspaceName,
@@ -14,8 +16,9 @@
   let confirmation = $state("");
 </script>
 
-<div class="wf-modal-backdrop">
+<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
   <div
+    transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }}
     class="wf-modal"
     role="dialog"
     aria-modal="true"

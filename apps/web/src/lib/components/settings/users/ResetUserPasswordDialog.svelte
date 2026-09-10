@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { generatePassword, type UserCredentials, type WorkspaceUser } from './types';
 
 	let { user, onclose, onreset }: { user: WorkspaceUser; onclose: () => void; onreset: (password: string) => Promise<UserCredentials> } = $props();
@@ -16,8 +18,8 @@
 	}
 </script>
 
-<div class="wf-modal-backdrop">
-	<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="reset-user-password-title">
+<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
+	<div transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }} class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="reset-user-password-title">
 		<h3 id="reset-user-password-title" class="text-sm font-medium text-slate-900">Reset User Password</h3>
 		<p class="text-xs text-slate-500">Set a new password for <span class="font-medium">{user.username || user.email}</span>.</p>
 		<div class="space-y-1 text-xs">

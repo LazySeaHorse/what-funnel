@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { generatePassword, type UserCredentials } from './types';
 
 	let {
@@ -30,8 +32,8 @@
 	}
 </script>
 
-<div class="wf-modal-backdrop">
-	<div class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="add-team-member-title">
+<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
+	<div transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }} class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="add-team-member-title">
 		<h3 id="add-team-member-title" class="text-sm font-medium text-slate-900">Add Team Member</h3>
 		<div class="space-y-3.5 text-xs">
 			<div class="space-y-1">

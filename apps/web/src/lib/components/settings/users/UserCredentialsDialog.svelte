@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { CheckIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import type { UserCredentials } from './types';
 
@@ -22,8 +24,8 @@
 	}
 </script>
 
-<div class="wf-modal-backdrop">
-	<div class="wf-modal max-w-md" role="dialog" aria-modal="true" aria-labelledby="user-credentials-title">
+<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
+	<div transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }} class="wf-modal max-w-md" role="dialog" aria-modal="true" aria-labelledby="user-credentials-title">
 		<div class="flex items-center gap-3">
 			<div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><CheckIcon class="w-5 h-5" /></div>
 			<div>
