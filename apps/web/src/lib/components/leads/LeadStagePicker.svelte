@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { ChevronDownIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { fly } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import LeadStateBadge from '../LeadStateBadge.svelte';
 
 	let {
@@ -20,10 +22,10 @@
 	<span class="font-medium text-slate-700">Lead stage</span>
 	<button type="button" onclick={() => (open = !open)} aria-label="Change lead stage" class="w-full flex items-center justify-between p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/80 cursor-pointer hover:bg-slate-100/60 transition text-left">
 		<LeadStateBadge {stateKey} label={stateLabel || stateKey} size="sm" class="border-0 bg-transparent p-0" />
-		<ChevronDownIcon class="w-3.5 h-3.5 text-slate-400" />
+		<ChevronDownIcon class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150 {open ? 'rotate-180' : ''}" />
 	</button>
 	{#if open}
-		<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50">
+		<div transition:fly={{ y: -4, duration: 120, easing: cubicOut }} class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50">
 			{#each states as state (state.key)}
 				<button type="button" onclick={() => { open = false; void onchange(state.key); }} aria-label={`Set lead stage to ${state.label}`} class="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer">
 					<LeadStateBadge stateKey={state.key} label={state.label} size="xs" class="border-0 bg-transparent p-0" />

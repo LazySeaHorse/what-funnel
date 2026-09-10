@@ -16,6 +16,8 @@
     MagnifyingGlassIcon,
     XMarkIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
+  import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
 
   let {
     inbox,
@@ -78,6 +80,7 @@
               : 'text-slate-400 hover:bg-slate-100'}"
             ><AdjustmentsHorizontalIcon class="w-4 h-4" /></button
           >{#if showFilterMenu}<div
+              transition:fly={{ y: -4, duration: 120, easing: cubicOut }}
               class="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-50 text-xs"
             >
               <div

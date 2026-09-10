@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fly } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import UserAvatar from '../UserAvatar.svelte';
 
 	let {
@@ -21,10 +23,10 @@
 			<UserAvatar name={user?.name || user?.email || 'User'} avatar={user?.avatar_url || ''} size="md" class="ring-2 ring-white" />
 		{/each}
 		{#if assignedUserIds.length === 0}<span class="text-xs text-slate-400">Unassigned</span>{/if}
-		<button type="button" onclick={() => (open = !open)} title="Assign conversation" aria-label="Assign conversation" class="w-8 h-8 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex items-center justify-center text-sm transition cursor-pointer">+</button>
+		<button type="button" onclick={() => (open = !open)} title="Assign conversation" aria-label="Assign conversation" class="w-8 h-8 rounded-full border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 active:scale-95 flex items-center justify-center text-sm transition cursor-pointer">+</button>
 	</div>
 	{#if open}
-		<div class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50 text-xs">
+		<div transition:fly={{ y: -4, duration: 120, easing: cubicOut }} class="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50 text-xs">
 			<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">Assign team member</div>
 			{#each users as user (user.id)}
 				{@const assigned = assignedUserIds.includes(user.id)}
