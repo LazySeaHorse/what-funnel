@@ -221,7 +221,7 @@ type WhatsAppEntry struct {
 
 type WhatsAppChange struct {
 	Value WhatsAppValue `json:"value"`
-	Field string          `json:"field"`
+	Field string        `json:"field"`
 }
 
 type WhatsAppValue struct {
@@ -252,15 +252,15 @@ type WhatsAppMedia struct {
 }
 
 type WhatsAppMessage struct {
-	From      string                 `json:"from"`
-	ID        string                 `json:"id"`
-	Timestamp string                 `json:"timestamp"`
-	Type      string                 `json:"type"`
-	Text      *WhatsAppText          `json:"text,omitempty"`
-	Image     *WhatsAppMedia         `json:"image,omitempty"`
-	Video     *WhatsAppMedia         `json:"video,omitempty"`
-	Audio     *WhatsAppMedia         `json:"audio,omitempty"`
-	Document  *WhatsAppMedia         `json:"document,omitempty"`
+	From      string         `json:"from"`
+	ID        string         `json:"id"`
+	Timestamp string         `json:"timestamp"`
+	Type      string         `json:"type"`
+	Text      *WhatsAppText  `json:"text,omitempty"`
+	Image     *WhatsAppMedia `json:"image,omitempty"`
+	Video     *WhatsAppMedia `json:"video,omitempty"`
+	Audio     *WhatsAppMedia `json:"audio,omitempty"`
+	Document  *WhatsAppMedia `json:"document,omitempty"`
 }
 
 type WhatsAppText struct {
@@ -277,82 +277,88 @@ func ParseWhatsAppWebhook(channelID string, rawPayload []byte) ([]types.InboundE
 	var events []types.InboundEvent
 	for _, entry := range payload.Entry {
 		for _, change := range entry.Changes {
-			contactsMap := make(map[string]string)
-			for _, contact := range change.Value.Contacts {
-				if contact.Profile.Name != "" {
-					contactsMap[contact.WaID] = contact.Profile.Name
-				}
-			}
-
+			contactNames := whatsAppContactNames(change.Value.Contacts)
 			for _, msg := range change.Value.Messages {
-				senderID := msg.From
-				senderName := contactsMap[senderID]
-				if senderName == "" {
-					senderName = senderID
-				}
-
-				contentType := "text"
-				text := ""
-				mediaURL := ""
-
-				switch msg.Type {
-				case "image":
-					contentType = "image"
-					if msg.Image != nil {
-						mediaURL = msg.Image.ID
-						text = msg.Image.Caption
-					}
-				case "video":
-					contentType = "video"
-					if msg.Video != nil {
-						mediaURL = msg.Video.ID
-						text = msg.Video.Caption
-					}
-				case "audio":
-					contentType = "audio"
-					if msg.Audio != nil {
-						mediaURL = msg.Audio.ID
-					}
-				case "document":
-					contentType = "document"
-					if msg.Document != nil {
-						mediaURL = msg.Document.ID
-						text = msg.Document.Caption
-					}
-				default:
-					contentType = "text"
-					if msg.Text != nil {
-						text = msg.Text.Body
-					}
-				}
-
-				ts := time.Now()
-				if msg.Timestamp != "" {
-					if sec, err := strconv.ParseInt(msg.Timestamp, 10, 64); err == nil {
-						ts = time.Unix(sec, 0)
-					}
-				}
-
-				events = append(events, types.InboundEvent{
-					ChannelID:        channelID,
-					ExternalThreadID: senderID,
-					Contact: types.ContactRef{
-						ExternalIdentity: senderID,
-						DisplayName:      senderName,
-					},
-					Message: types.NormalizedMessage{
-						ContentType:       contentType,
-						Text:              text,
-						MediaURL:          mediaURL,
-						ExternalMessageID: msg.ID,
-					},
-					Timestamp: ts,
-				})
+				events = append(events, whatsAppInboundEvent(channelID, contactNames, msg, time.Now()))
 			}
 		}
 	}
 
 	return events, nil
+}
+
+func whatsAppContactNames(contacts []WhatsAppContact) map[string]string {
+	names := make(map[string]string, len(contacts))
+	for _, contact := range contacts {
+		if contact.Profile.Name != "" {
+			names[contact.WaID] = contact.Profile.Name
+		}
+	}
+	return names
+}
+
+func whatsAppInboundEvent(channelID string, contactNames map[string]string, msg WhatsAppMessage, fallbackTime time.Time) types.InboundEvent {
+	senderName := contactNames[msg.From]
+	if senderName == "" {
+		senderName = msg.From
+	}
+
+	return types.InboundEvent{
+		ChannelID:        channelID,
+		ExternalThreadID: msg.From,
+		Contact: types.ContactRef{
+			ExternalIdentity: msg.From,
+			DisplayName:      senderName,
+		},
+		Message:   normalizeWhatsAppMessage(msg),
+		Timestamp: parseWhatsAppTimestamp(msg.Timestamp, fallbackTime),
+	}
+}
+
+func normalizeWhatsAppMessage(msg WhatsAppMessage) types.NormalizedMessage {
+	normalized := types.NormalizedMessage{
+		ContentType:       "text",
+		ExternalMessageID: msg.ID,
+	}
+
+	switch msg.Type {
+	case "image":
+		normalized.ContentType = "image"
+		setWhatsAppMedia(&normalized, msg.Image, true)
+	case "video":
+		normalized.ContentType = "video"
+		setWhatsAppMedia(&normalized, msg.Video, true)
+	case "audio":
+		normalized.ContentType = "audio"
+		setWhatsAppMedia(&normalized, msg.Audio, false)
+	case "document":
+		normalized.ContentType = "document"
+		setWhatsAppMedia(&normalized, msg.Document, true)
+	default:
+		if msg.Text != nil {
+			normalized.Text = msg.Text.Body
+		}
+	}
+
+	return normalized
+}
+
+func setWhatsAppMedia(msg *types.NormalizedMessage, media *WhatsAppMedia, includeCaption bool) {
+	if media == nil {
+		return
+	}
+	msg.MediaURL = media.ID
+	if includeCaption {
+		msg.Text = media.Caption
+	}
+}
+
+func parseWhatsAppTimestamp(raw string, fallback time.Time) time.Time {
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return time.Unix(seconds, 0)
 }
 
 // Meta (Instagram / Messenger) Graph Webhook structures
