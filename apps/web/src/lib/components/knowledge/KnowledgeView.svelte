@@ -374,13 +374,10 @@
 
 <div class="flex-1 flex flex-col overflow-hidden bg-white">
 	<!-- Top Level Header -->
-	<header class="px-6 py-4 border-b border-slate-100 shrink-0 space-y-3.5">
+	<header class="px-6 pt-5 pb-3 border-b border-slate-100 shrink-0 space-y-3.5 bg-white">
 		<!-- Row 1: Title & Primary Actions -->
-		<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-			<div>
-				<h1 class="text-xl font-semibold text-slate-900 tracking-tight">Knowledge base</h1>
-				<p class="text-xs text-slate-500 mt-0.5">Manage pricing, FAQs, services, and policies for AI answers.</p>
-			</div>
+		<div class="flex items-center justify-between gap-3">
+			<h1 class="text-2xl font-medium text-slate-900 tracking-tight">Knowledge base</h1>
 
 			<div class="flex flex-wrap items-center gap-2.5">
 				<!-- Audit Run Action -->

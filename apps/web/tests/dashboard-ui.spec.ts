@@ -66,7 +66,7 @@ test('leads tab UI renders real database leads with table and detail drawer', as
 
   // Verify Leads header and 0 count
   await expect(page.locator('h1:has-text("Leads")')).toBeVisible();
-  await expect(page.locator('text=No leads in this view')).toBeVisible();
+  await expect(page.locator('text=No leads found')).toBeVisible();
 
   // Send a real inbound message via Simulate Studio
   const simulateNav = page.getByRole('button', { name: 'Simulate DEV' });
@@ -114,7 +114,7 @@ test('leads tab UI renders real database leads with table and detail drawer', as
 
   // Filter by Telegram (should hide WhatsApp lead Alice Test)
   await page.locator('#leads-channel-filter').selectOption('telegram');
-  await expect(page.locator('text=No leads in this view')).toBeVisible();
+  await expect(page.locator('text=No leads found')).toBeVisible();
 
   // Reset filters
   await page.getByRole('button', { name: 'Reset filters' }).click();
@@ -130,7 +130,7 @@ test('leads tab UI renders real database leads with table and detail drawer', as
 
   // Select Contacted stage filter (Alice is in New Lead stage, so conversation list becomes empty)
   await page.getByRole('button', { name: 'Contacted' }).click();
-  await expect(page.locator('text=Stage: Contacted')).toBeVisible();
+  await expect(page.getByText(/Stage:\s*Contacted/)).toBeVisible();
 
   // Clear stage filter
   await page.getByRole('button', { name: 'Clear stage filter' }).click();

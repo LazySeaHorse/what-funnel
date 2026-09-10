@@ -76,19 +76,16 @@
 </script>
 
 <section
-  class="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:py-8"
+  class="mx-auto w-full max-w-3xl px-6 pt-5 pb-8"
   aria-labelledby="preferences-title"
 >
-  <div class="mb-6">
+  <div class="pb-3 flex items-center justify-between shrink-0 mb-4">
     <h1
       id="preferences-title"
       class="text-2xl font-medium tracking-tight text-slate-900"
     >
       Preferences
     </h1>
-    <p class="mt-1 text-xs text-slate-500">
-      Your account details and personal conversation preferences.
-    </p>
   </div>
 
   {#if errorMsg}

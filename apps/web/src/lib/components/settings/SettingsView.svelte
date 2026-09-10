@@ -237,16 +237,13 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class="flex-1 flex flex-col h-full overflow-y-auto bg-white p-8"
+  class="flex-1 flex flex-col h-full overflow-y-auto bg-white px-6 pt-5 pb-8"
   aria-busy={loading}
 >
-  <div class="mb-7">
+  <div class="pb-3 flex items-center justify-between shrink-0 mb-4">
     <h1 class="text-2xl font-medium text-slate-900 tracking-tight font-sans">
       Settings
     </h1>
-    <p class="text-xs text-slate-500 mt-1">
-      Manage your workspace and preferences.
-    </p>
   </div>
   {#if successMsg}<div
       class="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl flex items-center justify-between"
