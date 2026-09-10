@@ -63,11 +63,11 @@
 
 	// Step 3: Lead pipeline
 	let pipelineStages = $state([
-		{ key: 'new_lead', label: 'New Lead', color: '#F59E0B' },
-		{ key: 'contacted', label: 'Contacted', color: '#3B82F6' },
-		{ key: 'follow_up', label: 'Follow-up', color: '#8B5CF6' },
-		{ key: 'interested', label: 'Interested', color: '#06B6D4' },
-		{ key: 'converted', label: 'Converted', color: '#10B981' }
+		{ key: 'new_lead', label: 'New Lead', color: '#C27AFF' },
+		{ key: 'contacted', label: 'Contacted', color: '#0057D0' },
+		{ key: 'follow_up', label: 'Follow-up', color: '#FB64B6' },
+		{ key: 'interested', label: 'Interested', color: '#5C9FE6' },
+		{ key: 'converted', label: 'Converted', color: '#9AE600' }
 	]);
 
 	// Step 4: Team members & Workspace slug

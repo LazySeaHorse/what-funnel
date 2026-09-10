@@ -52,12 +52,12 @@
 
   function addState() {
     const colors = [
-      "#F59E0B",
-      "#3B82F6",
-      "#8B5CF6",
-      "#EC4899",
-      "#06B6D4",
-      "#10B981",
+      "#C27AFF",
+      "#0057D0",
+      "#FB64B6",
+      "#9AE600",
+      "#7E22CE",
+      "#0046A8",
     ];
     const nextKey = `stage_${Date.now()}_${states.length + 1}`;
     states = [

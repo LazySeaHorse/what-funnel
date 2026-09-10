@@ -3,7 +3,7 @@
 	type Stage = { key: string; label: string; color: string };
 	let { step, totalSteps, stages = $bindable() }: { step: number; totalSteps: number; stages: Stage[] } = $props();
 	function add() {
-		const colors = ['#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'];
+		const colors = ['#C27AFF', '#0057D0', '#FB64B6', '#9AE600', '#7E22CE', '#0046A8'];
 		const nextKey = `stage_${Date.now()}_${stages.length + 1}`;
 		stages = [...stages, { key: nextKey, label: 'New Stage', color: colors[stages.length % colors.length] }];
 	}
