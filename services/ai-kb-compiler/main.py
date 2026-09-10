@@ -703,6 +703,86 @@ async def delete_concept(
 
     return {"success": True}
 
+class UpdateConceptRequest(BaseModel):
+    title: Optional[str] = None
+    type: Optional[str] = None
+    body_text: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+@app.put("/internal/kb/concepts/{concept_id}")
+async def update_concept(
+    concept_id: str,
+    req: UpdateConceptRequest,
+    db: ScopedDB = Depends(get_db),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    try:
+        concept_uuid = uuid.UUID(concept_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid concept ID format")
+
+    actor_user_id = None
+    if x_user_id:
+        try:
+            actor_user_id = uuid.UUID(x_user_id)
+        except ValueError:
+            pass
+
+    row = await db.fetchrow(
+        "SELECT id, title, slug, type, tags, body_text FROM kb_concepts WHERE id = $1 AND account_id = $2",
+        concept_uuid, db.account_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Concept not found")
+
+    new_title = req.title if req.title is not None else row["title"]
+    new_type = req.type if req.type is not None else row["type"]
+    new_body = req.body_text if req.body_text is not None else row["body_text"]
+    new_tags = req.tags if req.tags is not None else row["tags"]
+
+    vector_str = None
+    try:
+        cfg = await get_ai_config(db)
+        if cfg and cfg.embedding_model:
+            cli = provider_client(cfg)
+            text_to_embed = f"{new_title}\n{new_body}"
+            vector = await cli.embed(cfg.embedding_model, text_to_embed)
+            vector_str = str(vector)
+    except Exception as e:
+        logger.warning(f"Could not regenerate embedding for concept {concept_uuid}: {e}")
+
+    if vector_str:
+        updated = await db.fetchrow(
+            """
+            UPDATE kb_concepts
+            SET title = $1, type = $2, body_text = $3, tags = $4, embedding = $5::vector, updated_at = NOW()
+            WHERE id = $6 AND account_id = $7
+            RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
+            """,
+            new_title, new_type, new_body, new_tags, vector_str, concept_uuid, db.account_id
+        )
+    else:
+        updated = await db.fetchrow(
+            """
+            UPDATE kb_concepts
+            SET title = $1, type = $2, body_text = $3, tags = $4, updated_at = NOW()
+            WHERE id = $5 AND account_id = $6
+            RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
+            """,
+            new_title, new_type, new_body, new_tags, concept_uuid, db.account_id
+        )
+
+    await write_audit_log(
+        db=db,
+        actor_user_id=actor_user_id,
+        action="kb_concept.updated",
+        target_type="kb_concept",
+        target_id=concept_uuid,
+        metadata={"title": new_title, "slug": row["slug"]}
+    )
+
+    return {"success": True, "concept": dict(updated)}
+
 # Stage 6 — Dormant Mining
 @app.post("/internal/kb/mine/trigger")
 async def trigger_mine(
@@ -1009,6 +1089,84 @@ async def delete_pattern(
     )
 
     return {"success": True}
+
+class UpdatePatternRequest(BaseModel):
+    canonical_question: Optional[str] = None
+    answer_text: Optional[str] = None
+    trigger_phrases: Optional[List[str]] = None
+
+@app.put("/internal/kb/patterns/{pattern_id}")
+async def update_pattern(
+    pattern_id: str,
+    req: UpdatePatternRequest,
+    db: ScopedDB = Depends(get_db),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    try:
+        pattern_uuid = uuid.UUID(pattern_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid pattern ID format")
+
+    actor_user_id = None
+    if x_user_id:
+        try:
+            actor_user_id = uuid.UUID(x_user_id)
+        except ValueError:
+            pass
+
+    row = await db.fetchrow(
+        "SELECT id, canonical_question, answer_text, trigger_phrases FROM patterns WHERE id = $1 AND account_id = $2",
+        pattern_uuid, db.account_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Pattern not found")
+
+    new_question = req.canonical_question if req.canonical_question is not None else row["canonical_question"]
+    new_answer = req.answer_text if req.answer_text is not None else row["answer_text"]
+    new_triggers = req.trigger_phrases if req.trigger_phrases is not None else row["trigger_phrases"]
+
+    vector_str = None
+    try:
+        cfg = await get_ai_config(db)
+        if cfg and cfg.embedding_model:
+            cli = provider_client(cfg)
+            text_to_embed = f"{new_question}\n{new_answer}"
+            vector = await cli.embed(cfg.embedding_model, text_to_embed)
+            vector_str = str(vector)
+    except Exception as e:
+        logger.warning(f"Could not regenerate embedding for pattern {pattern_uuid}: {e}")
+
+    if vector_str:
+        updated = await db.fetchrow(
+            """
+            UPDATE patterns
+            SET canonical_question = $1, answer_text = $2, trigger_phrases = $3, embedding = $4::vector, updated_at = NOW()
+            WHERE id = $5 AND account_id = $6
+            RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
+            """,
+            new_question, new_answer, new_triggers, vector_str, pattern_uuid, db.account_id
+        )
+    else:
+        updated = await db.fetchrow(
+            """
+            UPDATE patterns
+            SET canonical_question = $1, answer_text = $2, trigger_phrases = $3, updated_at = NOW()
+            WHERE id = $4 AND account_id = $5
+            RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
+            """,
+            new_question, new_answer, new_triggers, pattern_uuid, db.account_id
+        )
+
+    await write_audit_log(
+        db=db,
+        actor_user_id=actor_user_id,
+        action="pattern.updated",
+        target_type="pattern",
+        target_id=pattern_uuid,
+        metadata={"canonical_question": new_question}
+    )
+
+    return {"success": True, "pattern": dict(updated)}
 
 @app.get("/internal/kb/mining-runs/latest")
 async def latest_mining_run(db: ScopedDB = Depends(get_db)):

@@ -210,6 +210,34 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
 		if (path === '/api/kb/concepts') return json({ concepts: knowledgeConcepts });
 		if (path === '/api/kb/patterns') return json({ patterns: knowledgePatterns });
+		if (path.startsWith('/api/kb/concepts/') && request.method() === 'PUT') {
+			const id = path.split('/')[4];
+			const index = knowledgeConcepts.findIndex((c) => c.id === id);
+			if (index >= 0) {
+				knowledgeConcepts[index] = { ...knowledgeConcepts[index], ...body, updated_at: new Date().toISOString() };
+				return json({ success: true, concept: knowledgeConcepts[index] });
+			}
+			return json({ success: true });
+		}
+		if (path.startsWith('/api/kb/concepts/') && request.method() === 'DELETE') {
+			const id = path.split('/')[4];
+			knowledgeConcepts = knowledgeConcepts.filter((c) => c.id !== id);
+			return json({ success: true });
+		}
+		if (path.startsWith('/api/kb/patterns/') && request.method() === 'PUT') {
+			const id = path.split('/')[4];
+			const index = knowledgePatterns.findIndex((p) => p.id === id);
+			if (index >= 0) {
+				knowledgePatterns[index] = { ...knowledgePatterns[index], ...body, updated_at: new Date().toISOString() };
+				return json({ success: true, pattern: knowledgePatterns[index] });
+			}
+			return json({ success: true });
+		}
+		if (path.startsWith('/api/kb/patterns/') && request.method() === 'DELETE') {
+			const id = path.split('/')[4];
+			knowledgePatterns = knowledgePatterns.filter((p) => p.id !== id);
+			return json({ success: true });
+		}
 		if (path === '/api/kb/purge' && request.method() === 'DELETE') {
 			const result = { cleared_concepts: knowledgeConcepts.length, cleared_patterns: knowledgePatterns.length };
 			knowledgeConcepts = [];
