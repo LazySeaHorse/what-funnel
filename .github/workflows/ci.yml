@@ -1,0 +1,225 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Go: Unit tests & binary builds
+  # ---------------------------------------------------------------------------
+  test-go:
+    name: Go Unit Tests & Builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Verify Go workspace
+        run: |
+          go work sync
+
+      - name: Run Go unit tests with race detection
+        run: |
+          go test -v -race -short -count=1 -timeout 60s \
+            ./packages/go-common/... \
+            ./services/api-gateway/... \
+            ./services/identity-svc/... \
+            ./services/workspace-svc/... \
+            ./services/conversation-svc/... \
+            ./services/notification-svc/... \
+            ./adapters/fake/... \
+            ./adapters/matrix-mautrix/... \
+            ./tests/integration/...
+
+      - name: Build all Go services
+        run: |
+          go build ./services/api-gateway/...
+          go build ./services/identity-svc/...
+          go build ./services/workspace-svc/...
+          go build ./services/conversation-svc/...
+          go build ./services/notification-svc/...
+          go build ./adapters/fake/...
+          go build ./adapters/matrix-mautrix/...
+
+  # ---------------------------------------------------------------------------
+  # Go: Database-backed service integration tests
+  # ---------------------------------------------------------------------------
+  test-go-db:
+    name: Go DB Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: whatfunnel
+          POSTGRES_PASSWORD: whatfunnel
+          POSTGRES_DB: whatfunnel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatfunnel -d whatfunnel"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Install Goose
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@latest
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable
+        run: |
+          goose -dir packages/go-common/migrations postgres "$DATABASE_URL" up
+
+      - name: Run DB-backed Go service tests
+        env:
+          DATABASE_URL: postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable
+          SESSION_SECRET: change-me-in-production-at-least-32-chars
+          ENCRYPTION_KEY: change-me-32-byte-hex-key-padded
+        run: |
+          go test -v -race -count=1 -timeout 120s \
+            ./packages/go-common/db/... \
+            ./services/identity-svc/internal/service/... \
+            ./services/workspace-svc/internal/service/... \
+            ./services/conversation-svc/internal/service/...
+
+  # ---------------------------------------------------------------------------
+  # Python: AI services tests
+  # ---------------------------------------------------------------------------
+  test-python:
+    name: Python Services Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            services/ai-answer-svc/requirements.txt
+            services/ai-kb-compiler/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/ai-answer-svc/requirements.txt
+          pip install -r services/ai-kb-compiler/requirements.txt
+
+      - name: Run ai-answer-svc tests
+        env:
+          PYTHONPATH: packages/python:services/ai-answer-svc
+        run: |
+          pytest -v services/ai-answer-svc/tests
+
+      - name: Run ai-kb-compiler unit tests
+        env:
+          PYTHONPATH: packages/python:services/ai-kb-compiler
+          APP_ENCRYPTION_KEY: change-me-32-byte-hex-key-padded
+        run: |
+          pytest -v \
+            services/ai-kb-compiler/tests/test_plain_text.py \
+            services/ai-kb-compiler/tests/test_llm.py \
+            services/ai-kb-compiler/tests/test_crypto.py
+
+  # ---------------------------------------------------------------------------
+  # Web: SvelteKit check & production build
+  # ---------------------------------------------------------------------------
+  test-web:
+    name: Web Typecheck & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: SvelteKit typecheck (svelte-check)
+        run: npm run check
+
+      - name: Build web application
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Web: Playwright E2E tests
+  # ---------------------------------------------------------------------------
+  test-playwright:
+    name: Playwright E2E Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E tests
+        run: npx playwright test
+
+      - name: Upload Playwright report on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
