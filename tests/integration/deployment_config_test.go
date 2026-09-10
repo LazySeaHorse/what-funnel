@@ -19,6 +19,7 @@ type ComposeConfig struct {
 		Build       any               `yaml:"build"`
 		Ports       []string          `yaml:"ports"`
 		Networks    []string          `yaml:"networks"`
+		DependsOn   any               `yaml:"depends_on"`
 		Environment map[string]string `yaml:"environment"`
 	} `yaml:"services"`
 	Networks map[string]struct {
@@ -86,6 +87,15 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 		webSvc, ok := cfg.Services["web"]
 		require.True(t, ok, "web service must be defined in prod compose")
 		assert.NotEmpty(t, webSvc.Ports, "web service should publish ingress port")
+	})
+
+	t.Run("Web ingress depends on api-gateway and notification-svc", func(t *testing.T) {
+		webSvc, ok := cfg.Services["web"]
+		require.True(t, ok, "web service must be defined in prod compose")
+		rawDeps, err := yaml.Marshal(webSvc.DependsOn)
+		require.NoError(t, err)
+		assert.Contains(t, string(rawDeps), "api-gateway", "web should depend on api-gateway")
+		assert.Contains(t, string(rawDeps), "notification-svc", "web should depend on notification-svc for direct websocket routing")
 	})
 
 	t.Run("Secrets are parameterized and not committed as hardcoded plain text", func(t *testing.T) {
@@ -161,6 +171,7 @@ func TestFrontendProductionBuildSetup(t *testing.T) {
 		content := string(data)
 		assert.Contains(t, content, "location /api-gateway/", "must proxy /api-gateway/")
 		assert.Contains(t, content, "location /ws", "must handle /ws endpoint")
+		assert.Contains(t, content, "proxy_pass http://notification-svc:8084/ws;", "must proxy /ws directly to notification-svc bypassing api-gateway")
 		assert.Contains(t, content, "proxy_set_header Upgrade $http_upgrade;", "must include WebSocket upgrade header")
 		assert.Contains(t, content, "try_files $uri $uri/ /index.html;", "must include SPA route fallback")
 	})
