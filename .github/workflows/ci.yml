@@ -156,7 +156,8 @@ jobs:
           pytest -v \
             services/ai-kb-compiler/tests/test_plain_text.py \
             services/ai-kb-compiler/tests/test_llm.py \
-            services/ai-kb-compiler/tests/test_crypto.py
+            services/ai-kb-compiler/tests/test_crypto.py \
+            services/ai-kb-compiler/tests/test_vector_math.py
 
   # ---------------------------------------------------------------------------
   # Web: SvelteKit check & production build
