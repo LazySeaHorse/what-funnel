@@ -78,7 +78,7 @@
         showTooltip={false}
       />
       <div class="min-w-0">
-        <span class="text-xs font-semibold text-slate-900 tracking-tight"
+        <span class="text-xs font-medium text-slate-900 tracking-tight"
           >Customer Phone View</span
         >
         <div class="text-[10px] text-slate-500 truncate">
@@ -86,12 +86,6 @@
           <span class="capitalize">{controller.selectedPlatform}</span>
         </div>
       </div>
-    </div>
-    <div
-      class="flex items-center gap-1.5 text-[10px] text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100"
-    >
-      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
-      ></span><span>Live Realtime Thread</span>
     </div>
   </div>
 

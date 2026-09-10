@@ -21,12 +21,9 @@
     class="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-2xs space-y-3 shrink-0"
   >
     <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-blue-600"></span>
-        <span class="text-xs font-semibold text-slate-900 tracking-tight"
-          >Simulate Customer</span
-        >
-      </div>
+      <span class="text-xs font-medium text-slate-900 tracking-tight"
+        >Simulate Customer</span
+      >
       <button
         onclick={() => (showAddContact = !showAddContact)}
         class="text-[11px] font-medium text-blue-600 hover:text-blue-700 transition cursor-pointer flex items-center gap-1"
@@ -83,7 +80,7 @@
     class="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-2xs space-y-3 shrink-0"
   >
     <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold text-slate-900 tracking-tight"
+      <span class="text-xs font-medium text-slate-900 tracking-tight"
         >Channel Platform</span
       >
       <span class="text-[10px] text-slate-400 font-mono"
@@ -117,7 +114,7 @@
     class="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-2xs space-y-3.5 flex-1"
   >
     <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold text-slate-900 tracking-tight"
+      <span class="text-xs font-medium text-slate-900 tracking-tight"
         >Test Scenarios & Presets</span
       >
       <span class="text-[10px] text-slate-400">Click to dispatch</span>

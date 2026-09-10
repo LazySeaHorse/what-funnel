@@ -71,7 +71,7 @@ test('leads tab UI renders real database leads with table and detail drawer', as
   // Send a real inbound message via Simulate Studio
   const simulateNav = page.getByRole('button', { name: 'Simulate DEV' });
   await simulateNav.click();
-  await expect(page.locator('h1:has-text("Customer Simulation Studio")')).toBeVisible();
+  await expect(page.locator('h1:has-text("Simulate")')).toBeVisible();
 
   const presetBtn = page.locator('button:has-text("Hi! Do you have any weekend slots available?")');
   await presetBtn.click();

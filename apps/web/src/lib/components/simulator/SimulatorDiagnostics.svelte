@@ -62,7 +62,7 @@
     >
       <div class="flex items-center gap-2">
         <BoltIcon class="w-4 h-4 text-blue-600" /><span
-          class="text-xs font-semibold text-slate-900 tracking-tight"
+          class="text-xs font-medium text-slate-900 tracking-tight"
           >AI Cascade Diagnostics</span
         >
       </div>
@@ -113,7 +113,7 @@
           >Confidence</span
         >
         <div
-          class="text-sm font-semibold font-mono tabular-nums text-slate-900"
+          class="text-sm font-medium font-mono tabular-nums text-slate-900"
         >
           {controller.currentTelemetry.confidence != null
             ? `${(controller.currentTelemetry.confidence * 100).toFixed(1)}%`
@@ -127,7 +127,7 @@
           class="text-[9px] font-medium uppercase tracking-wider text-slate-400"
           >Action</span
         >
-        <div class="text-xs font-semibold text-slate-900 capitalize truncate">
+        <div class="text-xs font-medium text-slate-900 capitalize truncate">
           {controller.currentTelemetry.action !== "none"
             ? controller.currentTelemetry.action.replace("_", " ")
             : "Idle"}
@@ -158,7 +158,7 @@
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <CodeBracketIcon class="w-4 h-4 text-slate-600" /><span
-          class="text-xs font-semibold text-slate-900 tracking-tight"
+          class="text-xs font-medium text-slate-900 tracking-tight"
           >Webhook Payload Inspector</span
         >
       </div>

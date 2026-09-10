@@ -25,8 +25,8 @@ test('left sidebar Simulate tab opens full Customer Simulation Studio and simula
   await expect(leftSimulateTab).toBeVisible();
   await leftSimulateTab.click();
 
-  // Verify full Customer Simulation Studio view is displayed
-  await expect(page.locator('h1:has-text("Customer Simulation Studio")')).toBeVisible();
+  // Verify full Simulate view is displayed
+  await expect(page.locator('h1:has-text("Simulate")')).toBeVisible();
   await expect(page.locator('text=Simulate Customer')).toBeVisible();
   await expect(page.locator('text=Customer Phone View')).toBeVisible();
 
