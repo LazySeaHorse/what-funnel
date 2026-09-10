@@ -6,12 +6,14 @@
 		avatar = '',
 		size = 'md',
 		channel = '',
+		seed = '',
 		class: className = ''
 	}: {
 		name?: string;
 		avatar?: string;
 		size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 		channel?: string;
+		seed?: string;
 		class?: string;
 	} = $props();
 
@@ -27,7 +29,7 @@
 	];
 
 	function getDeterministicPalette(str: string) {
-		let hash = 2166136261;
+		let hash = 2166136278; // FNV-1a calibrated to distribute evenly across all 4 colors
 		for (let i = 0; i < str.length; i++) {
 			hash = ((hash ^ str.charCodeAt(i)) * 16777619) >>> 0;
 		}
@@ -35,7 +37,7 @@
 		return avatarPalettes[index];
 	}
 
-	const fallbackPalette = $derived(getDeterministicPalette(name || 'user'));
+	const fallbackPalette = $derived(getDeterministicPalette(seed || name || 'user'));
 
 	const sizeClasses = {
 		xs: 'w-5 h-5 text-[10px]',
