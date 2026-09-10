@@ -17,6 +17,21 @@
 		value = '';
 		editing = false;
 	}
+	const tagStyles = [
+		{ chip: 'bg-blue-50 text-blue-700 border-blue-200', removeBtn: 'text-blue-700/60 hover:text-blue-700' },
+		{ chip: 'bg-emerald-50 text-emerald-800 border-emerald-200', removeBtn: 'text-emerald-800/60 hover:text-emerald-800' },
+		{ chip: 'bg-purple-50 text-purple-700 border-purple-200', removeBtn: 'text-purple-700/60 hover:text-purple-700' },
+		{ chip: 'bg-pink-50 text-pink-700 border-pink-200', removeBtn: 'text-pink-700/60 hover:text-pink-700' }
+	];
+
+	function getTagStyle(str: string) {
+		let hash = 0;
+		for (let i = 0; i < str.length; i++) {
+			hash = (hash << 5) - hash + str.charCodeAt(i);
+			hash |= 0;
+		}
+		return tagStyles[Math.abs(hash) % tagStyles.length];
+	}
 </script>
 
 <div class="space-y-1.5">
@@ -26,9 +41,10 @@
 			<span class="text-xs text-slate-400">No tags</span>
 		{/if}
 		{#each tags as tag (tag)}
-			<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-violet-50 text-violet-600 text-xs font-medium border border-violet-200">
+			{@const style = getTagStyle(tag)}
+			<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg {style.chip} text-xs font-medium border">
 				{tag}
-				<button type="button" onclick={() => void onremove(tag)} aria-label="Remove tag {tag}" class="text-violet-600/60 hover:text-violet-600 cursor-pointer">×</button>
+				<button type="button" onclick={() => void onremove(tag)} aria-label="Remove tag {tag}" class="{style.removeBtn} cursor-pointer">×</button>
 			</span>
 		{/each}
 		{#if editing}
