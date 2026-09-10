@@ -598,15 +598,15 @@
 						{#each filteredConcepts as concept (concept.id)}
 							{#if editingConceptId === concept.id}
 								<!-- Inline Concept Editor -->
-								<div class="col-span-1 md:col-span-2 border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
+								<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
 									<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
 										<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Concept</span>
 										{#if saveConceptError}
 											<span class="text-xs text-rose-600 font-medium">{saveConceptError}</span>
 										{/if}
 									</div>
-									<div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-										<div class="sm:col-span-3">
+									<div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+										<div class="sm:col-span-2">
 											<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Title</label>
 											<input
 												id={`edit-concept-title-${concept.id}`}
@@ -764,7 +764,7 @@
 					{#each filteredPatterns as pattern (pattern.id)}
 						{#if editingPatternId === pattern.id}
 							<!-- Inline Pattern Editor -->
-							<div class="col-span-1 md:col-span-2 border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
+							<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
 								<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
 									<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
 									{#if savePatternError}
@@ -796,7 +796,7 @@
 											bind:value={editPatternTriggerInput}
 											onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTriggerToPatternDraft())}
 											placeholder="Add trigger phrase and press Enter"
-											class="flex-1 max-w-sm bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
+											class="flex-1 min-w-0 bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
 										/>
 										<button type="button" onclick={addTriggerToPatternDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
 									</div>
