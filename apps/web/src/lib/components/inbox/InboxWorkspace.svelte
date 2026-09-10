@@ -258,8 +258,8 @@
             onclick={toggleChatAI}
             disabled={!aiProviderConfigured}
             class="h-8 px-2.5 rounded-lg border text-[11px] {aiReplyEnabled
-              ? 'text-emerald-700 bg-emerald-50'
-              : 'text-slate-500'}"
+              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+              : 'text-slate-500 bg-white border-slate-200'}"
             >{aiControl.run_state === "replying"
               ? "AI replying"
               : aiReplyEnabled
@@ -351,7 +351,7 @@
           class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden"
         >
           {#if capabilities.leadTracking}<div
-              class="flex items-center gap-6 px-4 pt-2.5 border-b text-xs"
+              class="flex items-center gap-6 px-4 pt-2.5 border-b border-slate-100 text-xs"
             >
               <button
                 onclick={() => (replyTab = "reply")}
@@ -403,7 +403,7 @@
                   class="compose-input w-full text-xs sm:text-sm bg-transparent focus:outline-none"
                 />
               </div>
-              <div class="flex justify-between px-3 py-2 border-t">
+              <div class="flex justify-between px-3 py-2 border-t border-slate-100">
                 <div class="flex text-slate-400">
                   <button title="Add attachment"
                     ><PlusIcon class="w-4 h-4" /></button
