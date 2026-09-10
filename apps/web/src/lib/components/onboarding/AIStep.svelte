@@ -148,7 +148,7 @@
 								<label for="ai-provider-key" class="block text-xs font-medium text-slate-700">API key {providerConfigured ? '(leave blank to keep current key)' : ''}</label>
 								<input id="ai-provider-key" type="password" autocomplete="new-password" bind:value={providerApiKey} class="wf-input" placeholder={providerConfigured ? 'Configured' : 'Required'} />
 								{#if !providerConfigured && !providerApiKey.trim()}
-									<p class="text-[11px] text-amber-700">Enter your AI provider API key, or select Manual only.</p>
+									<p class="text-[11px] text-orange-700">Enter your AI provider API key, or select Manual only.</p>
 								{/if}
 							</div>
 							<div class="space-y-1.5">

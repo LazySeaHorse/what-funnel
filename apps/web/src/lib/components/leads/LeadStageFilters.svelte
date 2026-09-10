@@ -25,9 +25,9 @@
 
 	const stages = [
 		{ key: 'all', label: 'All Leads', dot: '' },
-		{ key: 'new', label: 'New Lead', dot: 'bg-amber-400' },
+		{ key: 'new', label: 'New Lead', dot: 'bg-purple-400' },
 		{ key: 'contacted', label: 'Contacted', dot: 'bg-blue-500' },
-		{ key: 'follow_up', label: 'Follow-up', dot: 'bg-purple-500' },
+		{ key: 'follow_up', label: 'Follow-up', dot: 'bg-pink-500' },
 		{ key: 'interested', label: 'Interested', dot: 'bg-emerald-500' },
 		{ key: 'converted', label: 'Converted', dot: 'bg-emerald-500' }
 	];

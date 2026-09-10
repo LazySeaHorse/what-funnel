@@ -488,7 +488,7 @@
           >
         </div>
       {:else}<div
-          class="my-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800"
+          class="my-5 rounded-xl border border-orange-200 bg-orange-50 p-4 text-xs leading-5 text-orange-800"
         >
           {activeConnection.detail || "Waiting for the bridge."}
         </div>

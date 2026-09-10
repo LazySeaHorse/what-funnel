@@ -12,9 +12,9 @@
 	} = $props();
 
 	const stateConfig: Record<string, { label: string; bg: string; dot: string }> = {
-		new: { label: 'New Lead', bg: 'bg-amber-50 text-amber-700 border-amber-200/60', dot: 'bg-amber-400' },
+		new: { label: 'New Lead', bg: 'bg-purple-50 text-purple-700 border-purple-200/60', dot: 'bg-purple-400' },
 		contacted: { label: 'Contacted', bg: 'bg-blue-50 text-blue-700 border-blue-200/60', dot: 'bg-blue-500' },
-		follow_up: { label: 'Follow-up', bg: 'bg-purple-50 text-purple-700 border-purple-200/60', dot: 'bg-purple-500' },
+		follow_up: { label: 'Follow-up', bg: 'bg-pink-50 text-pink-700 border-pink-200/60', dot: 'bg-pink-500' },
 		interested: { label: 'Interested', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', dot: 'bg-emerald-500' },
 		converted: { label: 'Converted', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', dot: 'bg-emerald-500' },
 		closed_won: { label: 'Converted', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', dot: 'bg-emerald-500' }

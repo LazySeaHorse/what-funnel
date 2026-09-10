@@ -23,9 +23,9 @@ export function getLeadStateInfo(key: string, pipelineStates: any[] = []) {
     key;
   const styles: Record<string, { color: string; dot: string; bg: string }> = {
     new: {
-      color: "amber",
-      dot: "bg-amber-500",
-      bg: "bg-amber-50 text-amber-700 border border-amber-200/80",
+      color: "purple",
+      dot: "bg-purple-500",
+      bg: "bg-purple-50 text-purple-700 border border-purple-200/80",
     },
     contacted: {
       color: "blue",
@@ -33,9 +33,9 @@ export function getLeadStateInfo(key: string, pipelineStates: any[] = []) {
       bg: "bg-blue-50 text-blue-700 border border-blue-200/80",
     },
     follow_up: {
-      color: "purple",
-      dot: "bg-purple-500",
-      bg: "bg-purple-50 text-purple-700 border border-purple-200/80",
+      color: "pink",
+      dot: "bg-pink-500",
+      bg: "bg-pink-50 text-pink-700 border border-pink-200/80",
     },
     interested: {
       color: "green",
@@ -43,14 +43,14 @@ export function getLeadStateInfo(key: string, pipelineStates: any[] = []) {
       bg: "bg-emerald-50 text-emerald-700 border border-emerald-200/80",
     },
     converted: {
-      color: "emerald",
-      dot: "bg-teal-500",
-      bg: "bg-teal-50 text-teal-700 border border-teal-200/80",
+      color: "green",
+      dot: "bg-emerald-500",
+      bg: "bg-emerald-50 text-emerald-700 border border-emerald-200/80",
     },
     closed_won: {
-      color: "emerald",
-      dot: "bg-teal-500",
-      bg: "bg-teal-50 text-teal-700 border border-teal-200/80",
+      color: "green",
+      dot: "bg-emerald-500",
+      bg: "bg-emerald-50 text-emerald-700 border border-emerald-200/80",
     },
   };
   return { label, ...(styles[key] ?? styles.contacted) };

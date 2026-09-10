@@ -146,7 +146,7 @@
       <span
         class="rounded-md px-2 py-0.5 text-[10px] font-medium {configured
           ? 'bg-emerald-50 text-emerald-700'
-          : 'bg-amber-50 text-amber-700'}"
+          : 'bg-orange-50 text-orange-700'}"
         >{loading
           ? "Loading"
           : configured

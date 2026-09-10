@@ -40,8 +40,8 @@
       code: "L4",
       name: "Human Queue Escalation",
       detail: "Confidence below threshold",
-      activeClass: "bg-amber-50/80 border-amber-300 text-amber-900",
-      badgeClass: "bg-amber-600 text-white",
+      activeClass: "bg-orange-50/80 border-orange-300 text-orange-900",
+      badgeClass: "bg-orange-600 text-white",
       status: "ESCALATED",
     },
   ];

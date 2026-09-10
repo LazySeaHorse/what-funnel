@@ -18,9 +18,9 @@
 
 <div class="space-y-1.5 relative">
 	<span class="font-medium text-slate-700">Lead stage</span>
-	<button type="button" onclick={() => (open = !open)} aria-label="Change lead stage" class="w-full flex items-center justify-between p-2.5 bg-amber-50/50 rounded-xl border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition text-left">
+	<button type="button" onclick={() => (open = !open)} aria-label="Change lead stage" class="w-full flex items-center justify-between p-2.5 bg-purple-50/50 rounded-xl border border-purple-200/80 cursor-pointer hover:bg-purple-50 transition text-left">
 		<LeadStateBadge {stateKey} label={stateLabel || stateKey} size="sm" class="border-0 bg-transparent p-0" />
-		<ChevronDownIcon class="w-3.5 h-3.5 text-amber-500" />
+		<ChevronDownIcon class="w-3.5 h-3.5 text-purple-500" />
 	</button>
 	{#if open}
 		<div class="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-md py-1 z-50">

@@ -426,12 +426,12 @@
               <textarea
                 bind:value={internalNote}
                 placeholder="Enter an internal note for team members..."
-                class="w-full h-20 p-2.5 text-xs bg-amber-50/40 rounded-xl border border-amber-200 focus:outline-none focus:border-amber-300 transition"
+                class="w-full h-20 p-2.5 text-xs bg-orange-50/40 rounded-xl border border-orange-200 focus:outline-none focus:border-orange-300 transition"
               ></textarea>
               <div class="flex justify-end mt-2">
                 <button
                   onclick={postNote}
-                  class="px-3 py-1.5 bg-amber-600 text-white text-xs rounded-lg"
+                  class="px-3 py-1.5 bg-orange-600 text-white text-xs rounded-lg"
                   >Post Internal Note</button
                 >
               </div>

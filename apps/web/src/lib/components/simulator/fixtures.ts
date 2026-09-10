@@ -95,7 +95,7 @@ export const PRESET_CATEGORIES: Record<SimulatorPlatform, PresetCategory[]> = {
     {
       label: "🙋 Level 4 — Human Handoff / Complex Inquiry",
       stageTag: "L4 Escalation",
-      badgeColor: "bg-amber-50 text-amber-700 border-amber-200",
+      badgeColor: "bg-orange-50 text-orange-700 border-orange-200",
       prompts: [
         "Hello! Is a deposit required?",
         "Can I book for a bridal party of 5?",
