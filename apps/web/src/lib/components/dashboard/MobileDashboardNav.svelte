@@ -2,7 +2,6 @@
   import {
     InboxIcon,
     UsersIcon,
-    BoltIcon,
     BookOpenIcon,
     Cog6ToothIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
@@ -22,13 +21,11 @@
   const items = [
     { key: "inbox" as const, label: "Inbox", icon: InboxIcon },
     { key: "leads" as const, label: "Leads", icon: UsersIcon },
-    { key: "automation" as const, label: "Automate", icon: BoltIcon },
     { key: "knowledge" as const, label: "Knowledge", icon: BookOpenIcon },
     { key: "settings" as const, label: "Settings", icon: Cog6ToothIcon },
   ];
   function visible(key: DashboardSection) {
     if (key === "leads") return capabilities.leadTracking;
-    if (key === "automation") return capabilities.manageAutomation;
     if (key === "knowledge") return capabilities.manageKnowledge;
     return true;
   }

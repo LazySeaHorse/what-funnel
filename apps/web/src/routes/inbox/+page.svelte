@@ -5,7 +5,6 @@
   import { InboxState } from "$lib/store.svelte";
   import { WorkspaceState } from "$lib/workspace.svelte";
   import { decodeWorkspaceSettings } from "$lib/workspace-settings";
-  import AutomationView from "$lib/components/automation/AutomationView.svelte";
   import DashboardHeader from "$lib/components/dashboard/DashboardHeader.svelte";
   import DashboardSidebar from "$lib/components/dashboard/DashboardSidebar.svelte";
   import MobileDashboardNav from "$lib/components/dashboard/MobileDashboardNav.svelte";
@@ -99,7 +98,6 @@
   function canOpen(section: DashboardSection) {
     if (section === "leads") return capabilities.leadTracking;
     if (section === "contacts") return capabilities.viewContacts;
-    if (section === "automation") return capabilities.manageAutomation;
     if (section === "knowledge") return capabilities.manageKnowledge;
     if (section === "simulate") return capabilities.useSimulator;
     return true;
@@ -140,6 +138,9 @@
       });
       aiReplyModeDefault = mode;
       await workspace.refreshAccount();
+    } catch {
+      // Keep optimistic UI in sync with backend truth
+      await workspace.refreshAccount();
     } finally {
       togglingGlobalAI = false;
     }
@@ -157,7 +158,6 @@
     return [
       "inbox",
       "leads",
-      "automation",
       "knowledge",
       "contacts",
       "simulate",
@@ -213,12 +213,6 @@
           void inbox.selectConversation(id);
           selectedSection = "inbox";
         }}
-      />
-    {:else if selectedSection === "automation"}
-      <AutomationView
-        autoReplyEnabled={aiAutoReplyEnabled}
-        providerConfigured={aiProviderConfigured}
-        providerStatusLoaded={aiProviderStatusLoaded}
       />
     {:else if selectedSection === "knowledge"}
       <KnowledgeView

@@ -21,9 +21,7 @@
         ? "Search knowledge..."
         : selected === "leads"
           ? "Search leads..."
-          : selected === "automation"
-            ? "Search anything..."
-            : "Search conversations...",
+          : "Search conversations...",
   );
 </script>
 

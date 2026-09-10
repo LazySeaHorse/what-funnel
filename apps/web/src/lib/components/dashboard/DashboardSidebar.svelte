@@ -5,7 +5,6 @@
   import {
     InboxIcon,
     UsersIcon,
-    BoltIcon,
     BookOpenIcon,
     UserIcon,
     DevicePhoneMobileIcon,
@@ -42,12 +41,6 @@
       label: "Leads",
       icon: UsersIcon,
       visible: () => capabilities.leadTracking,
-    },
-    {
-      key: "automation" as const,
-      label: "Automations",
-      icon: BoltIcon,
-      visible: () => capabilities.manageAutomation,
     },
     {
       key: "knowledge" as const,

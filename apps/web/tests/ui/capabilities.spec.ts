@@ -45,7 +45,6 @@ test.describe('effective UI capabilities', () => {
 
 		await expect(page.getByRole('button', { name: 'Leads', exact: true })).not.toBeVisible();
 		await expect(page.getByRole('button', { name: 'Contacts', exact: true })).not.toBeVisible();
-		await expect(page.getByRole('button', { name: 'Automations', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Knowledge', exact: true })).toBeVisible();
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
@@ -104,7 +103,6 @@ test.describe('effective UI capabilities', () => {
 
 		await page.goto('/inbox');
 		await expect(page.getByRole('button', { name: 'Leads', exact: true })).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Automations', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Knowledge', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Contacts', exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
