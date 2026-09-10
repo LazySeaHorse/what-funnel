@@ -272,16 +272,16 @@
               title="Conversation Status"
               class="p-2"><CheckCircleIcon class="w-4 h-4" /></button
             >{#if showStatus}<div
-                class="absolute right-0 top-full w-44 bg-white rounded-xl border z-50"
+                class="absolute right-0 top-full w-44 bg-white rounded-xl border border-slate-200 shadow-lg z-50 py-1"
               >
                 {#if inbox.activeConvo.status === "open"}<button
                     onclick={() => {
                       inbox.closeConversation();
                       showStatus = false;
                     }}
-                    class="w-full px-3 py-2 text-left text-xs"
+                    class="w-full px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800"
                     >Close conversation</button
-                  >{:else}<div class="px-3 py-2 text-xs">
+                  >{:else}<div class="px-3 py-2 text-xs text-slate-400">
                     Conversation is closed
                   </div>{/if}
               </div>{/if}
@@ -356,12 +356,12 @@
               <button
                 onclick={() => (replyTab = "reply")}
                 class="pb-2 {replyTab === 'reply'
-                  ? 'text-blue-600 border-b-2'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
                   : ''}">Reply</button
               ><button
                 onclick={() => (replyTab = "note")}
                 class="pb-2 {replyTab === 'note'
-                  ? 'text-blue-600 border-b-2'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
                   : ''}">Internal Note</button
               >
             </div>{/if}
@@ -426,7 +426,7 @@
               <textarea
                 bind:value={internalNote}
                 placeholder="Enter an internal note for team members..."
-                class="w-full h-20 p-2.5 text-xs bg-amber-50/40 rounded-xl border"
+                class="w-full h-20 p-2.5 text-xs bg-amber-50/40 rounded-xl border border-amber-200 focus:outline-none focus:border-amber-300 transition"
               ></textarea>
               <div class="flex justify-end mt-2">
                 <button

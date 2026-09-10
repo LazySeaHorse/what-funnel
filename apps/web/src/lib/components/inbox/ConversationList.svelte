@@ -105,7 +105,7 @@
                 >{/each}{#if inbox.stateFilter}<button
                   type="button"
                   onclick={() => changeState("")}
-                  class="w-full px-3 py-1.5 text-left border-t text-slate-500"
+                  class="w-full px-3 py-1.5 text-left border-t border-slate-100 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                   >Clear stage filter</button
                 >{/if}
             </div>{/if}
