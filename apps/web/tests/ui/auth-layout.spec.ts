@@ -44,7 +44,7 @@ test('keeps sign-in and workspace loading feedback visible across a slow handoff
 
 	await page.goto('/login');
 	await page.getByLabel('Email or username').fill('manager@example.test');
-	await page.getByLabel('Password').fill('password');
+	await page.getByLabel('Password', { exact: true }).fill('password');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
 	await expect(page.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
@@ -54,4 +54,52 @@ test('keeps sign-in and workspace loading feedback visible across a slow handoff
 	await expect(page.getByRole('status').filter({ hasText: 'Loading your workspace…' })).toBeVisible();
 	releaseSession();
 	await expect(page).toHaveURL(/\/login$/);
+});
+
+test('keeps sign-up and onboarding loading feedback visible across a slow handoff', async ({ page }) => {
+	let releaseSignup!: () => void;
+	const signupGate = new Promise<void>((resolve) => (releaseSignup = resolve));
+	let releaseStatus!: () => void;
+	const statusGate = new Promise<void>((resolve) => (releaseStatus = resolve));
+
+	await page.route('**/api-gateway/auth/signup', async (route) => {
+		await signupGate;
+		await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
+	});
+	await page.route('**/api-gateway/auth/login', async (route) => {
+		await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
+	});
+	await page.route('**/api-gateway/auth/me', async (route) => {
+		await route.fulfill({
+			contentType: 'application/json',
+			body: JSON.stringify({ user: { id: 'user-1', email: 'owner@example.test', role: 'owner' } })
+		});
+	});
+	await page.route('**/api-gateway/onboarding/status', async (route) => {
+		await statusGate;
+		await route.fulfill({
+			contentType: 'application/json',
+			body: JSON.stringify({ completed_steps: [], skipped_steps: [] })
+		});
+	});
+	await page.route('**/api-gateway/workspace/account', async (route) => {
+		await route.fulfill({
+			contentType: 'application/json',
+			body: JSON.stringify({ product_mode: 'full_workspace' })
+		});
+	});
+
+	await page.goto('/signup');
+	await page.getByLabel('Business name').fill('Acme Corp');
+	await page.getByLabel('Email').fill('owner@example.test');
+	await page.getByLabel('Password', { exact: true }).fill('supersecret123');
+	await page.getByRole('button', { name: 'Create workspace', exact: true }).click();
+
+	await expect(page.getByRole('button', { name: 'Creating workspace...' })).toBeDisabled();
+	releaseSignup();
+
+	await expect(page).toHaveURL(/\/onboarding$/);
+	await expect(page.getByRole('status').filter({ hasText: 'Loading your workspace setup…' })).toBeVisible();
+	releaseStatus();
+	await expect(page).toHaveURL(/\/onboarding\/1$/);
 });
