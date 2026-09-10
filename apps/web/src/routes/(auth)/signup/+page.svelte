@@ -8,10 +8,9 @@
 		EyeIcon,
 		EyeSlashIcon,
 		ExclamationCircleIcon,
-		InformationCircleIcon,
-		ViewColumnsIcon,
-		CpuChipIcon
+		InformationCircleIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
+	import WorkspaceTypeSelector from '$lib/components/WorkspaceTypeSelector.svelte';
 
 	let accountName = $state('');
 	let email = $state('');
@@ -148,49 +147,7 @@
 						<!-- Workspace Type Selection -->
 						<div>
 							<span class="block text-xs font-medium text-slate-700 mb-2">Workspace type</span>
-							<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-								<label
-									class="flex items-center gap-2.5 p-3 border rounded-xl cursor-pointer transition-all duration-150 {productMode === 'full_workspace' ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:bg-slate-50'}"
-								>
-									<input
-										type="radio"
-										name="product_mode"
-										value="full_workspace"
-										checked={productMode === 'full_workspace'}
-										onchange={() => (productMode = 'full_workspace')}
-										disabled={loading}
-										class="sr-only"
-									/>
-									<div class="w-7 h-7 rounded-lg {productMode === 'full_workspace' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0">
-										<ViewColumnsIcon class="w-3.5 h-3.5" />
-									</div>
-									<div class="text-left">
-										<div class="text-xs font-medium text-slate-800 leading-tight">Full workspace</div>
-										<div class="text-[11px] text-slate-400 leading-tight mt-0.5 font-normal">Inbox and leads</div>
-									</div>
-								</label>
-
-								<label
-									class="flex items-center gap-2.5 p-3 border rounded-xl cursor-pointer transition-all duration-150 {productMode === 'chatbot_only' ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:bg-slate-50'}"
-								>
-									<input
-										type="radio"
-										name="product_mode"
-										value="chatbot_only"
-										checked={productMode === 'chatbot_only'}
-										onchange={() => (productMode = 'chatbot_only')}
-										disabled={loading}
-										class="sr-only"
-									/>
-									<div class="w-7 h-7 rounded-lg {productMode === 'chatbot_only' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0">
-										<CpuChipIcon class="w-3.5 h-3.5" />
-									</div>
-									<div class="text-left">
-										<div class="text-xs font-medium text-slate-800 leading-tight">Chatbot only</div>
-										<div class="text-[11px] text-slate-400 leading-tight mt-0.5 font-normal">Automations</div>
-									</div>
-								</label>
-							</div>
+							<WorkspaceTypeSelector bind:value={productMode} disabled={loading} />
 						</div>
 
 						<!-- Submit Button -->

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ChevronDownIcon } from "@fvilers/heroicons-svelte/24/outline";
+  import WorkspaceTypeSelector from "$lib/components/WorkspaceTypeSelector.svelte";
   import { formatTimeZoneLabel, supportedTimeZones } from "./timezones";
   import type { WorkspaceSettingsForm } from "./types";
 
@@ -127,38 +128,12 @@
     </div>
     <div class="space-y-2 border-t border-slate-100 pt-5">
       <span class="block font-medium text-slate-700">Workspace type</span>
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label
-          class="flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs {form.productMode ===
-          'full_workspace'
-            ? 'border-blue-500 bg-blue-50/50'
-            : 'border-slate-200'}"
-          ><input
-            type="radio"
-            name="workspace-mode"
-            checked={form.productMode === "full_workspace"}
-            onchange={() => onChangeProductMode("full_workspace")}
-          /><span
-            ><span class="block font-medium text-slate-800">Full workspace</span
-            >Inbox and lead tracking</span
-          ></label
-        >
-        <label
-          class="flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs {form.productMode ===
-          'chatbot_only'
-            ? 'border-blue-500 bg-blue-50/50'
-            : 'border-slate-200'}"
-          ><input
-            type="radio"
-            name="workspace-mode"
-            checked={form.productMode === "chatbot_only"}
-            onchange={() => onChangeProductMode("chatbot_only")}
-          /><span
-            ><span class="block font-medium text-slate-800">Chatbot only</span
-            >Automated replies only</span
-          ></label
-        >
-      </div>
+      <WorkspaceTypeSelector
+        value={form.productMode}
+        name="workspace-mode"
+        disabled={saving}
+        onchange={onChangeProductMode}
+      />
     </div>
     <div class="pt-6 flex justify-end">
       <button
