@@ -5,7 +5,8 @@ import math
 import logging
 import asyncio
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Sequence
+import numpy as np
 from pydantic import BaseModel, Field, field_validator
 
 from plain_text import normalize_plain_text
@@ -28,65 +29,85 @@ class MineClusterDraft(BaseModel):
     def plain_fields(cls, value: str) -> str:
         return normalize_plain_text(value)
 
-# Pure Python vector helpers
-def dot_product(v1: List[float], v2: List[float]) -> float:
-    return sum(x * y for x, y in zip(v1, v2))
+# NumPy-accelerated vector helpers
+def dot_product(v1: Sequence[float] | np.ndarray, v2: Sequence[float] | np.ndarray) -> float:
+    return float(np.dot(np.asarray(v1, dtype=np.float64), np.asarray(v2, dtype=np.float64)))
 
-def norm(v: List[float]) -> float:
-    return math.sqrt(sum(x * x for x in v))
+def norm(v: Sequence[float] | np.ndarray) -> float:
+    return float(np.linalg.norm(np.asarray(v, dtype=np.float64)))
 
-def cosine_similarity(v1: List[float], v2: List[float]) -> float:
-    n1 = norm(v1)
-    n2 = norm(v2)
+def cosine_similarity(v1: Sequence[float] | np.ndarray, v2: Sequence[float] | np.ndarray) -> float:
+    a1 = np.asarray(v1, dtype=np.float64)
+    a2 = np.asarray(v2, dtype=np.float64)
+    n1 = float(np.linalg.norm(a1))
+    n2 = float(np.linalg.norm(a2))
     if n1 == 0.0 or n2 == 0.0:
         return 0.0
-    return dot_product(v1, v2) / (n1 * n2)
+    return float(np.dot(a1, a2) / (n1 * n2))
 
-def mean_vector(vectors: List[List[float]]) -> List[float]:
+def mean_vector(vectors: Sequence[Sequence[float] | np.ndarray]) -> List[float]:
     if not vectors:
         return []
-    dim = len(vectors[0])
-    res = [0.0] * dim
-    for v in vectors:
-        for i in range(dim):
-            res[i] += v[i]
-    num = len(vectors)
-    return [x / num for x in res]
+    return np.mean(np.asarray(vectors, dtype=np.float64), axis=0).tolist()
 
 class Cluster:
     def __init__(self, first_msg_id: uuid.UUID, first_text: str, first_emb: List[float]):
         self.message_ids = [first_msg_id]
         self.texts = [first_text]
-        self.embeddings = [first_emb]
-        self.centroid = first_emb
+        self.embeddings = [list(first_emb)]
+        self.centroid: List[float] = list(first_emb)
 
     def add(self, msg_id: uuid.UUID, text: str, emb: List[float]):
         self.message_ids.append(msg_id)
         self.texts.append(text)
-        self.embeddings.append(emb)
+        self.embeddings.append(list(emb))
         self.centroid = mean_vector(self.embeddings)
 
 def cluster_messages(messages: List[dict], threshold: float) -> List[Cluster]:
     clusters: List[Cluster] = []
+    if not messages:
+        return clusters
+
+    centroid_arrays: List[np.ndarray] = []
+
     for msg in messages:
         msg_id = msg["id"]
         text = msg["text"]
         emb = msg["embedding"]
-        
-        best_similarity = -1.0
-        best_cluster = None
-        
-        for c in clusters:
-            sim = cosine_similarity(emb, c.centroid)
-            if sim > best_similarity:
-                best_similarity = sim
-                best_cluster = c
-                
-        if best_cluster and best_similarity >= threshold:
-            best_cluster.add(msg_id, text, emb)
+        emb_arr = np.asarray(emb, dtype=np.float64)
+        emb_norm = float(np.linalg.norm(emb_arr))
+
+        if not clusters:
+            c = Cluster(msg_id, text, emb)
+            clusters.append(c)
+            centroid_arrays.append(np.asarray(c.centroid, dtype=np.float64))
+            continue
+
+        if emb_norm == 0.0:
+            best_similarity = -1.0
+            best_idx = -1
         else:
-            clusters.append(Cluster(msg_id, text, emb))
+            centroids_mat = np.stack(centroid_arrays)  # shape (k, dim)
+            c_norms = np.linalg.norm(centroids_mat, axis=1)  # shape (k,)
             
+            valid_mask = c_norms > 0.0
+            sims = np.full(len(clusters), -1.0, dtype=np.float64)
+            if np.any(valid_mask):
+                dots = np.dot(centroids_mat[valid_mask], emb_arr)
+                sims[valid_mask] = dots / (c_norms[valid_mask] * emb_norm)
+
+            best_idx = int(np.argmax(sims))
+            best_similarity = float(sims[best_idx])
+
+        if best_idx >= 0 and best_similarity >= threshold:
+            best_cluster = clusters[best_idx]
+            best_cluster.add(msg_id, text, emb)
+            centroid_arrays[best_idx] = np.asarray(best_cluster.centroid, dtype=np.float64)
+        else:
+            c = Cluster(msg_id, text, emb)
+            clusters.append(c)
+            centroid_arrays.append(np.asarray(c.centroid, dtype=np.float64))
+
     return clusters
 
 async def run_mining(db: ScopedDB) -> dict:
@@ -257,8 +278,16 @@ async def run_mining(db: ScopedDB) -> dict:
             continue
 
         # Compute confidence: min(1.0, cluster_size / 10) * avg_similarity
-        total_sim = sum(cosine_similarity(emb, cluster.centroid) for emb in cluster.embeddings)
-        avg_similarity = total_sim / len(cluster.embeddings)
+        cluster_embs = np.asarray(cluster.embeddings, dtype=np.float64)
+        centroid_vec = np.asarray(cluster.centroid, dtype=np.float64)
+        c_norm = float(np.linalg.norm(centroid_vec))
+        e_norms = np.linalg.norm(cluster_embs, axis=1)
+        denom = e_norms * c_norm
+        valid = denom > 0.0
+        sims = np.zeros(len(cluster.embeddings), dtype=np.float64)
+        if np.any(valid):
+            sims[valid] = np.dot(cluster_embs[valid], centroid_vec) / denom[valid]
+        avg_similarity = float(np.mean(sims))
         cluster_size = len(cluster.message_ids)
         confidence = min(1.0, cluster_size / 10.0) * avg_similarity
 
