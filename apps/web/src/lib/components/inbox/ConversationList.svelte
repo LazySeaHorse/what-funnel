@@ -46,8 +46,8 @@
           { key: "new", label: "New Lead" },
           { key: "contacted", label: "Contacted" },
           { key: "follow_up", label: "Follow-up" },
-          { key: "interested", label: "Interested" },
-          { key: "converted", label: "Converted" },
+          { key: "won", label: "Won" },
+          { key: "lost", label: "Lost" },
         ],
   );
   function changeState(state: string) {

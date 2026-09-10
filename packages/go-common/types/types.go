@@ -147,10 +147,10 @@ const (
 
 // DefaultPipelineStates are seeded for every new account.
 var DefaultPipelineStates = []PipelineState{
-	{Key: "new", Label: "New", Color: "#6366f1"},
-	{Key: "contacted", Label: "Contacted", Color: "#3b82f6"},
-	{Key: "follow_up", Label: "Follow-up", Color: "#f59e0b"},
-	{Key: "won", Label: "Won", Color: "#22c55e"},
+	{Key: "new", Label: "New", Color: "#64748b"},
+	{Key: "contacted", Label: "Contacted", Color: "#0057d0"},
+	{Key: "follow_up", Label: "Follow-up", Color: "#c27aff"},
+	{Key: "won", Label: "Won", Color: "#9ae600"},
 	{Key: "lost", Label: "Lost", Color: "#ef4444"},
 }
 

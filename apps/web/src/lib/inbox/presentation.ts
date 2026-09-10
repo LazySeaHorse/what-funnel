@@ -44,10 +44,10 @@ export function getContactHandle(convo?: any): string {
 
 export function getTagColor(stateKey?: string): string {
 	const key = stateKey?.toLowerCase() || '';
-	if (!key) return 'bg-purple-50 text-purple-600';
-	if (key.includes('new')) return 'bg-purple-50 text-purple-600 border border-purple-200/80';
-	if (key.includes('interest') || key.includes('won')) return 'bg-emerald-50 text-emerald-600 border border-emerald-200/80';
-	if (key.includes('follow')) return 'bg-pink-50 text-pink-600 border border-pink-200/80';
-	if (key.includes('quote')) return 'bg-rose-50 text-rose-600 border border-rose-200/80';
+	if (!key) return 'bg-slate-100 text-slate-700';
+	if (key.includes('new')) return 'bg-slate-100 text-slate-700 border border-slate-200';
+	if (key.includes('interest') || key.includes('won') || key.includes('convert')) return 'bg-emerald-50 text-emerald-600 border border-emerald-200/80';
+	if (key.includes('follow')) return 'bg-purple-50 text-purple-600 border border-purple-200/80';
+	if (key.includes('lost') || key.includes('quote')) return 'bg-rose-50 text-rose-600 border border-rose-200/80';
 	return 'bg-blue-50 text-blue-600 border border-blue-200/80';
 }
