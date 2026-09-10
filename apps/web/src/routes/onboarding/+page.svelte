@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
+	import AppLoadingScreen from '$lib/components/AppLoadingScreen.svelte';
 
 	const STEP_KEYS = [
 		'business_basics',
@@ -27,37 +28,41 @@
 		try {
 			await apiRequest('/auth/me');
 		} catch {
-			goto('/login');
+			await goto('/login');
 			return;
 		}
 
 		try {
-			const status = await apiRequest('/onboarding/status');
+			const [status, account] = await Promise.all([
+				apiRequest('/onboarding/status'),
+				apiRequest('/workspace/account').catch(() => null)
+			]);
 
 			if (status?.completed_at) {
-				goto('/inbox');
+				await goto('/inbox');
 				return;
 			}
 
 			const completed: string[] = status?.completed_steps ?? [];
 			const skipped: string[] = status?.skipped_steps ?? [];
+			const unavailableSteps = account?.product_mode === 'chatbot_only'
+				? new Set(['pipeline_setup', 'team_setup'])
+				: new Set<string>();
 
 			// Find first step not completed and not skipped
 			for (const key of STEP_KEYS) {
-				if (!completed.includes(key) && !skipped.includes(key)) {
-					goto(`/onboarding/${STEP_KEY_TO_NUM[key]}`);
+				if (!unavailableSteps.has(key) && !completed.includes(key) && !skipped.includes(key)) {
+					await goto(`/onboarding/${STEP_KEY_TO_NUM[key]}`);
 					return;
 				}
 			}
 
 			// All steps completed or skipped => go to step 8 (success)
-			goto('/onboarding/8');
+			await goto('/onboarding/8');
 		} catch (err) {
-			goto('/onboarding/1');
+			await goto('/onboarding/1');
 		}
 	});
 </script>
 
-<div style="padding: 40px; text-align: center; max-width: 480px; margin: 0 auto; color: #64748B; font-size: 14px;">
-	Loading your workspace setup...
-</div>
+<AppLoadingScreen message="Loading your workspace setup…" detail="Preparing your onboarding experience." />
