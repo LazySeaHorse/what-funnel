@@ -153,6 +153,8 @@ func newRouter(
 	r.PathPrefix("/webhooks").Handler(proxy(conversationBase, logger))
 
 	// Proxy /ws → notification-svc (WebSocket)
+	// Note: In production, Nginx proxies /ws directly to notification-svc:8084 to eliminate
+	// double-proxy overhead. This route is retained for dev/test harness backwards compatibility.
 	r.Handle("/ws", wsProxy(notificationBase, logger))
 
 	// Proxy /api/kb/* → ai-kb-compiler (admin-only)
