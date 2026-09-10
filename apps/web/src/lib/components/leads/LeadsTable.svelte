@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { flip } from 'svelte/animate';
+	import { cubicOut } from 'svelte/easing';
 	import ChannelBadge from '../ChannelBadge.svelte';
 	import LeadStateBadge from '../LeadStateBadge.svelte';
 	import UserAvatar from '../UserAvatar.svelte';
@@ -92,6 +94,7 @@
 			{@const isSelected = selectedLeadId === lead.id}
 			{@const isChecked = selectedRowIds.includes(lead.id)}
 			<div
+				animate:flip={{ duration: 180, easing: cubicOut }}
 				role="button"
 				tabindex="0"
 				onclick={() => onSelectLead(lead)}

@@ -17,6 +17,7 @@
     XMarkIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import { fly } from "svelte/transition";
+  import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
 
   let {
@@ -171,6 +172,7 @@
     {:else}{#each conversations as conversation (conversation.id)}{@const selected =
           (inbox.pendingConvoID || inbox.activeConvoID) === conversation.id}
         <div
+          animate:flip={{ duration: 180, easing: cubicOut }}
           role="button"
           tabindex="0"
           onclick={() => onSelect(conversation.id)}
