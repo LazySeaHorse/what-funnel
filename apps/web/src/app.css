@@ -21,6 +21,60 @@
   --color-brand-600: #0057D0;
   --color-brand-700: #0046A8;
 
+  --color-brand-green-50: #F7FEE7;
+  --color-brand-green-100: #ECFCCB;
+  --color-brand-green-200: #D9F99D;
+  --color-brand-green-300: #BEF264;
+  --color-brand-green-400: #A3E635;
+  --color-brand-green-500: #9AE600;
+  --color-brand-green-600: #84C400;
+  --color-brand-green-700: #4D7300;
+  --color-brand-green-800: #3C5A00;
+  --color-brand-green-900: #2D4300;
+
+  --color-brand-purple-50: #FAF5FF;
+  --color-brand-purple-100: #F3E8FF;
+  --color-brand-purple-200: #E9D5FF;
+  --color-brand-purple-300: #D8B4FE;
+  --color-brand-purple-400: #C27AFF;
+  --color-brand-purple-500: #A855F7;
+  --color-brand-purple-600: #9333EA;
+  --color-brand-purple-700: #7E22CE;
+  --color-brand-purple-800: #6B21A8;
+  --color-brand-purple-900: #581C87;
+
+  --color-brand-pink-50: #FDF2F8;
+  --color-brand-pink-100: #FCE7F3;
+  --color-brand-pink-200: #FBCFE8;
+  --color-brand-pink-300: #F9A8D4;
+  --color-brand-pink-400: #FB64B6;
+  --color-brand-pink-500: #EC4899;
+  --color-brand-pink-600: #DB2777;
+  --color-brand-pink-700: #BE185D;
+  --color-brand-pink-800: #9D174D;
+  --color-brand-pink-900: #831843;
+
+  --color-emerald-50: #F7FEE7;
+  --color-emerald-100: #ECFCCB;
+  --color-emerald-200: #D9F99D;
+  --color-emerald-300: #BEF264;
+  --color-emerald-400: #A3E635;
+  --color-emerald-500: #9AE600;
+  --color-emerald-600: #84C400;
+  --color-emerald-700: #4D7300;
+  --color-emerald-800: #3C5A00;
+  --color-emerald-900: #2D4300;
+
+  --color-green-50: #F7FEE7;
+  --color-green-100: #ECFCCB;
+  --color-green-200: #D9F99D;
+  --color-green-300: #BEF264;
+  --color-green-400: #A3E635;
+  --color-green-500: #9AE600;
+  --color-green-600: #84C400;
+  --color-green-700: #4D7300;
+  --color-green-800: #3C5A00;
+  --color-green-900: #2D4300;
 }
 
 :root {
@@ -40,8 +94,8 @@
   --bg-hover: #F1F5F9;
   --danger: #EF4444;
   --danger-bg: #FEF2F2;
-  --success: #10B981;
-  --success-bg: #ECFDF5;
+  --success: #9AE600;
+  --success-bg: #F7FEE7;
 }
 
 @layer components {
