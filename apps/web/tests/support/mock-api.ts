@@ -149,10 +149,10 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (path === '/channels') {
 			return json(channels);
 		}
-		if (path.startsWith('/channels/') && path.endsWith('/disconnect')) {
+		if (/^\/channels\/[^/]+$/.test(path) && request.method() === 'DELETE') {
 			channels = channels.filter((channel) => channel.id !== path.split('/')[2]);
 			bridgeConnections = bridgeConnections.filter((connection) => connection.channel_id !== path.split('/')[2]);
-			return json({ status: 'disconnected' });
+			return json({ status: 'deleted' });
 		}
 		if (path === '/bridge-connections') {
 			if (request.method() === 'POST') {

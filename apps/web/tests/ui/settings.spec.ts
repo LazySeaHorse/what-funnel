@@ -142,8 +142,10 @@ test.describe('in-app settings safety net', () => {
 		await expect(page.getByRole('dialog', { name: 'Connect a channel' })).not.toBeVisible();
 	});
 
-	test('starting and disconnecting a provider connection updates the rendered state', async ({ page }) => {
-		await openMockedSettings(page);
+	test('deleting a provider channel removes it and its associated chats', async ({ page }) => {
+		const api = await mockWorkspaceApi(page);
+		await page.goto('/inbox?tab=settings');
+		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 		await page.getByRole('tab', { name: 'Channels', exact: true }).click();
 		await page.getByRole('button', { name: 'Connect channel' }).click();
 		const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
@@ -154,10 +156,17 @@ test.describe('in-app settings safety net', () => {
 		await page.getByRole('button', { name: 'Close channel dialog' }).click();
 		await expect(page.getByText('WhatsApp', { exact: true })).toBeVisible();
 
-		page.once('dialog', (dialog) => dialog.accept());
-		await page.getByRole('button', { name: 'Disconnect' }).click();
-		await expect(page.getByText('Channel disconnected.', { exact: true })).toBeVisible();
+		page.once('dialog', (dialog) => {
+			expect(dialog.message()).toContain('permanently removes the channel and all associated contacts, conversations, messages, and leads');
+			void dialog.accept();
+		});
+		await page.getByRole('button', { name: 'Delete WhatsApp channel', exact: true }).click();
+		await expect(page.getByText('Channel and associated chats deleted.', { exact: true })).toBeVisible();
 		await expect(page.getByText('No channels connected yet.', { exact: true })).toBeVisible();
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/channels/channel-1',
+			method: 'DELETE'
+		}));
 	});
 
 	test('a failed provider connection keeps the selected channel ready to retry', async ({ page }) => {

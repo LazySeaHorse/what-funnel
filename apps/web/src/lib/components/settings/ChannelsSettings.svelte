@@ -14,6 +14,7 @@
   let secret = $state("");
   let code = $state("");
   let busy = $state(false);
+  let deletingChannelID = $state<string | null>(null);
   let loading = $state(true);
   let qrRefreshToken = $state(Date.now());
   let error = $state("");
@@ -93,31 +94,6 @@
     }
   }
 
-  async function reconnectChannel(channel: any) {
-    const rawPlatform = (channel.type || "").replace("matrix_", "") as
-      | "whatsapp"
-      | "instagram"
-      | "messenger"
-      | "telegram";
-    platform = rawPlatform;
-    showDialog = true;
-    notice = "";
-    error = "";
-    busy = true;
-    try {
-      activeConnection = await apiRequest("/bridge-connections", {
-        method: "POST",
-        body: { platform: rawPlatform },
-      });
-      qrRefreshToken = Date.now();
-      await refresh(true);
-    } catch (reason: any) {
-      error = reason?.message || "Failed to reconnect channel.";
-    } finally {
-      busy = false;
-    }
-  }
-
   async function submitSession() {
     if (!activeConnection || !secret.trim()) return;
     busy = true;
@@ -152,20 +128,25 @@
     }
   }
 
-  async function disconnect(channelID: string) {
+  async function deleteChannel(channelID: string) {
     if (
       !confirm(
-        "Disconnect this channel? Existing conversations will remain available.",
+        "Delete this channel? This permanently removes the channel and all associated contacts, conversations, messages, and leads. This cannot be undone.",
       )
     )
       return;
+    deletingChannelID = channelID;
+    error = "";
+    notice = "";
     try {
-      await apiRequest(`/channels/${channelID}/disconnect`, { method: "POST" });
+      await apiRequest(`/channels/${channelID}`, { method: "DELETE" });
       await workspace?.refreshChannels();
       await refresh();
-      notice = "Channel disconnected.";
+      notice = "Channel and associated chats deleted.";
     } catch (reason: any) {
-      error = reason?.message || "Failed to disconnect channel.";
+      error = reason?.message || "Failed to delete channel.";
+    } finally {
+      deletingChannelID = null;
     }
   }
 
@@ -283,14 +264,7 @@
           </div>
 
           <div class="flex items-center gap-2">
-            {#if isDisconnected}
-              <button
-                onclick={() => reconnectChannel(channel)}
-                class="rounded-lg px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 border border-blue-200/80 hover:bg-blue-100 transition shadow-2xs cursor-pointer active:scale-[0.98]"
-              >
-                Reconnect
-              </button>
-            {:else if connection && connection.state !== "connected"}
+            {#if !isDisconnected && connection && connection.state !== "connected"}
               <button
                 onclick={() => {
                   activeConnection = connection;
@@ -303,10 +277,12 @@
               </button>
             {/if}
             <button
-              onclick={() => disconnect(channel.id)}
-              class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 cursor-pointer"
+              onclick={() => deleteChannel(channel.id)}
+              disabled={deletingChannelID === channel.id}
+              aria-label={`Delete ${channelName(channel)} channel`}
+              class="rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 cursor-pointer disabled:cursor-wait disabled:opacity-50"
             >
-              {isDisconnected ? "Remove" : "Disconnect"}
+              {deletingChannelID === channel.id ? "Deleting…" : "Delete"}
             </button>
           </div>
         </div>
