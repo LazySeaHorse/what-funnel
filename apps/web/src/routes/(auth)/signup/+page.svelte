@@ -36,7 +36,7 @@
 				method: 'POST',
 				body: { email, password }
 			});
-			goto('/onboarding');
+			await goto('/onboarding');
 		} catch (err: any) {
 			error = err.message || 'Failed to create workspace. Please try again.';
 		} finally {

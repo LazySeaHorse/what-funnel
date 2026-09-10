@@ -17,6 +17,7 @@
   import { LeadEditor } from "$lib/leads/lead-editor.svelte";
   import PersonalPreferences from "$lib/components/settings/PersonalPreferences.svelte";
   import SettingsView from "$lib/components/settings/SettingsView.svelte";
+  import AppLoadingScreen from "$lib/components/AppLoadingScreen.svelte";
 
   const inbox = new InboxState();
   const leadEditor = new LeadEditor(inbox);
@@ -29,6 +30,7 @@
   let aiProviderConfigured = $state(false);
   let aiProviderStatusLoaded = $state(false);
   let togglingGlobalAI = $state(false);
+  let initializing = $state(true);
   let capabilities = $derived(workspace.capabilities);
   let pipelineStates = $derived(workspace.pipeline?.states || []);
   let aiAutoReplyEnabled = $derived(
@@ -78,7 +80,7 @@
   async function initialize() {
     try {
       await inbox.init();
-      if (!inbox.currentUser) return void goto("/login");
+      if (!inbox.currentUser) return await goto("/login");
       workspace.users = inbox.users;
       await workspace.loadCore(inbox.currentUser);
       inbox.users = workspace.users;
@@ -91,7 +93,9 @@
       if (capabilities.manageWorkspace)
         void workspace.loadSettings(inbox.currentUser).catch(console.error);
     } catch {
-      void goto("/login");
+      await goto("/login");
+    } finally {
+      initializing = false;
     }
   }
 
@@ -170,9 +174,10 @@
   ><title>What Funnel - Omni Channel Lead Management</title></svelte:head
 >
 
-<div
-  class="flex h-screen w-full bg-slate-50 overflow-hidden text-slate-800 font-sans"
->
+{#if initializing}
+  <AppLoadingScreen message="Loading your workspace…" detail="Fetching conversations and account settings." />
+{:else}
+<div class="flex h-screen w-full bg-slate-50 overflow-hidden text-slate-800 font-sans">
   <DashboardSidebar
     {inbox}
     {capabilities}
@@ -251,3 +256,4 @@
       onSelect={selectSection}
     />{/if}
 </div>
+{/if}

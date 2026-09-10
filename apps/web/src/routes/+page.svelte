@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { apiRequest } from '$lib/api';
-	import { CpuChipIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import AppLoadingScreen from '$lib/components/AppLoadingScreen.svelte';
 
 	const STEP_KEY_TO_NUM: Record<string, number> = {
 		business_basics: 1,
@@ -56,11 +56,4 @@
 	});
 </script>
 
-<div class="wf-page flex items-center justify-center p-4">
-	<div class="wf-card flex flex-col items-center gap-4 p-8 text-center">
-		<div class="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-			<CpuChipIcon class="w-6 h-6" />
-		</div>
-		<div class="text-sm font-medium text-slate-500">Verifying session...</div>
-	</div>
-</div>
+<AppLoadingScreen message="Opening What Funnel…" detail="Checking your session and workspace." />

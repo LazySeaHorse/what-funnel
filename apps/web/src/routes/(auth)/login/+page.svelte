@@ -24,7 +24,7 @@
 				method: 'POST',
 				body: { identifier, password }
 			});
-			goto('/inbox');
+			await goto('/inbox');
 		} catch (err: any) {
 			error = err.message || 'The username or password is incorrect. Try again.';
 		} finally {
