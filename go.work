@@ -7,7 +7,6 @@ use (
 	./services/workspace-svc
 	./tests/integration
 	./services/conversation-svc
-	./adapters/matrix-mautrix
-	./adapters/fake
+	./adapters/whatsapp-whatsmeow
 	./services/notification-svc
 )
