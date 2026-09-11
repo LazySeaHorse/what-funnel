@@ -20,15 +20,12 @@ type Config struct {
 	Env            string
 	CookieSecure   bool
 	AllowedOrigins []string
-	// Matrix connection control is deliberately server-only. The shared secret
-	// is used solely to create an isolated Matrix puppet user per channel.
-	MatrixHomeserverURL            string
-	MatrixServerName               string
-	MatrixRegistrationSharedSecret string
-	MatrixWhatsAppBridgeIdentity   string
-	MatrixTelegramBridgeIdentity   string
-	MatrixInstagramBridgeIdentity  string
-	MatrixMessengerBridgeIdentity  string
+	// Adapter control endpoints are internal-only and authenticated with one
+	// deployment secret. Provider credentials and session data stay inside the
+	// adapter container.
+	WhatsAppAdapterURL  string
+	AdapterSharedSecret string
+	MediaCachePath      string
 }
 
 // IsProduction returns true if running in a production environment.
@@ -77,22 +74,18 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		DatabaseURL:                    os.Getenv("DATABASE_URL"),
-		SessionSecret:                  os.Getenv("SESSION_SECRET"),
-		EncryptionKey:                  os.Getenv("ENCRYPTION_KEY"),
-		RedisURL:                       os.Getenv("REDIS_URL"),
-		Port:                           os.Getenv("PORT"),
-		LogLevel:                       os.Getenv("LOG_LEVEL"),
-		Env:                            env,
-		CookieSecure:                   cookieSecure,
-		AllowedOrigins:                 allowedOrigins,
-		MatrixHomeserverURL:            os.Getenv("MATRIX_HOMESERVER_URL"),
-		MatrixServerName:               os.Getenv("MATRIX_SERVER_NAME"),
-		MatrixRegistrationSharedSecret: os.Getenv("MATRIX_REGISTRATION_SHARED_SECRET"),
-		MatrixWhatsAppBridgeIdentity:   os.Getenv("MATRIX_WHATSAPP_BRIDGE_IDENTITY"),
-		MatrixTelegramBridgeIdentity:   os.Getenv("MATRIX_TELEGRAM_BRIDGE_IDENTITY"),
-		MatrixInstagramBridgeIdentity:  os.Getenv("MATRIX_INSTAGRAM_BRIDGE_IDENTITY"),
-		MatrixMessengerBridgeIdentity:  os.Getenv("MATRIX_MESSENGER_BRIDGE_IDENTITY"),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		SessionSecret:       os.Getenv("SESSION_SECRET"),
+		EncryptionKey:       os.Getenv("ENCRYPTION_KEY"),
+		RedisURL:            os.Getenv("REDIS_URL"),
+		Port:                os.Getenv("PORT"),
+		LogLevel:            os.Getenv("LOG_LEVEL"),
+		Env:                 env,
+		CookieSecure:        cookieSecure,
+		AllowedOrigins:      allowedOrigins,
+		WhatsAppAdapterURL:  os.Getenv("WHATSAPP_ADAPTER_URL"),
+		AdapterSharedSecret: os.Getenv("ADAPTER_SHARED_SECRET"),
+		MediaCachePath:      os.Getenv("MEDIA_CACHE_PATH"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -112,6 +105,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"
+	}
+	if cfg.MediaCachePath == "" {
+		cfg.MediaCachePath = "/data/media"
 	}
 
 	return cfg, nil

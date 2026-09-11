@@ -78,6 +78,20 @@ func (c *Client) Consume(ctx context.Context, stream, group, consumer string, ha
 		default:
 		}
 
+		// Reclaim a stale pending entry first. This recovers handler failures and
+		// work owned by a consumer that crashed before acknowledging it.
+		claimed, _, claimErr := c.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+			Stream: stream, Group: group, Consumer: consumer,
+			MinIdle: 30 * time.Second, Start: "0-0", Count: 1,
+		}).Result()
+		if claimErr == nil && len(claimed) > 0 {
+			c.handleMessages(ctx, stream, group, claimed, handler)
+			continue
+		}
+		if claimErr != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Read messages from the stream
 		// Block for 1s to allow periodic context check
 		streams, err := c.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
@@ -106,20 +120,26 @@ func (c *Client) Consume(ctx context.Context, stream, group, consumer string, ha
 			continue
 		}
 
-		for _, s := range streams {
-			for _, message := range s.Messages {
-				payloadStr, ok := message.Values["payload"].(string)
-				if !ok {
-					// Invalid payload field, ack to clear it
-					_ = c.rdb.XAck(ctx, stream, group, message.ID).Err()
-					continue
-				}
+		for _, result := range streams {
+			c.handleMessages(ctx, stream, group, result.Messages, handler)
+		}
+	}
+}
 
-				err := handler(ctx, message.ID, []byte(payloadStr))
-				if err == nil {
-					_ = c.rdb.XAck(ctx, stream, group, message.ID).Err()
-				}
-			}
+func (c *Client) handleMessages(
+	ctx context.Context,
+	stream, group string,
+	messages []redis.XMessage,
+	handler func(context.Context, string, []byte) error,
+) {
+	for _, message := range messages {
+		payloadStr, ok := message.Values["payload"].(string)
+		if !ok {
+			_ = c.rdb.XAck(ctx, stream, group, message.ID).Err()
+			continue
+		}
+		if err := handler(ctx, message.ID, []byte(payloadStr)); err == nil {
+			_ = c.rdb.XAck(ctx, stream, group, message.ID).Err()
 		}
 	}
 }

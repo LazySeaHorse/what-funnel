@@ -17,21 +17,6 @@ type Account struct {
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
-// BridgeConnection is the setup lifecycle for a mautrix-backed channel. It
-// intentionally contains no Matrix access token or third-party session data.
-type BridgeConnection struct {
-	ChannelID        uuid.UUID `json:"channel_id" db:"channel_id"`
-	AccountID        uuid.UUID `json:"account_id" db:"account_id"`
-	Platform         string    `json:"platform" db:"platform"`
-	BridgeIdentity   string    `json:"bridge_identity" db:"bridge_identity"`
-	ManagementRoomID string    `json:"management_room_id,omitempty" db:"management_room_id"`
-	State            string    `json:"state" db:"state"`
-	Detail           string    `json:"detail,omitempty" db:"detail"`
-	LastEventID      string    `json:"-" db:"last_event_id"`
-	CreatedAt        time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
-}
-
 // User belongs to exactly one account and has a role: manager or agent.
 type User struct {
 	ID           uuid.UUID `json:"id" db:"id"`
@@ -156,14 +141,17 @@ var DefaultPipelineStates = []PipelineState{
 
 // Channel represents a connected messaging surface.
 type Channel struct {
-	ID                uuid.UUID `json:"id" db:"id"`
-	AccountID         uuid.UUID `json:"account_id" db:"account_id"`
-	Type              string    `json:"type" db:"type"`
-	BridgeIdentity    *string   `json:"bridge_identity" db:"bridge_identity"`
-	BridgeCredentials []byte    `json:"-" db:"bridge_credentials"` // encrypted bytes
-	Status            string    `json:"status" db:"status"`
-	StatusDetail      *string   `json:"status_detail" db:"status_detail"`
-	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	ID              uuid.UUID `json:"id" db:"id"`
+	AccountID       uuid.UUID `json:"account_id" db:"account_id"`
+	Type            string    `json:"type" db:"type"`
+	Status          string    `json:"status" db:"status"`
+	StatusDetail    *string   `json:"status_detail" db:"status_detail"`
+	Label           *string   `json:"label,omitempty" db:"label"`
+	Provider        *string   `json:"provider,omitempty" db:"provider"`
+	RemoteAccountID *string   `json:"remote_account_id,omitempty" db:"remote_account_id"`
+	Capabilities    []byte    `json:"capabilities,omitempty" db:"capabilities"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty" db:"updated_at"`
 }
 
 // Contact represents a remote identity on a channel.
@@ -180,15 +168,16 @@ type Contact struct {
 
 // Conversation is a thread with one contact on one channel.
 type Conversation struct {
-	ID              uuid.UUID           `json:"id" db:"id"`
-	AccountID       uuid.UUID           `json:"account_id" db:"account_id"`
-	ContactID       uuid.UUID           `json:"contact_id" db:"contact_id"`
-	ChannelID       uuid.UUID           `json:"channel_id" db:"channel_id"`
-	Status          string              `json:"status" db:"status"`
-	AssignedUserIDs []uuid.UUID         `json:"assigned_user_ids" db:"assigned_user_ids"`
-	LastMessageAt   *time.Time          `json:"last_message_at" db:"last_message_at"`
-	AIControl       ConversationAIState `json:"ai_control"`
-	CreatedAt       time.Time           `json:"created_at" db:"created_at"`
+	ID               uuid.UUID           `json:"id" db:"id"`
+	AccountID        uuid.UUID           `json:"account_id" db:"account_id"`
+	ContactID        uuid.UUID           `json:"contact_id" db:"contact_id"`
+	ChannelID        uuid.UUID           `json:"channel_id" db:"channel_id"`
+	ExternalThreadID *string             `json:"external_thread_id,omitempty" db:"external_thread_id"`
+	Status           string              `json:"status" db:"status"`
+	AssignedUserIDs  []uuid.UUID         `json:"assigned_user_ids" db:"assigned_user_ids"`
+	LastMessageAt    *time.Time          `json:"last_message_at" db:"last_message_at"`
+	AIControl        ConversationAIState `json:"ai_control"`
+	CreatedAt        time.Time           `json:"created_at" db:"created_at"`
 }
 
 // ConversationAIState is the durable source of truth for AI ownership,
@@ -214,15 +203,29 @@ type ConversationListItem struct {
 
 // Message is an individual message in a conversation.
 type Message struct {
-	ID                uuid.UUID       `json:"id" db:"id"`
-	AccountID         uuid.UUID       `json:"account_id" db:"account_id"`
-	ConversationID    uuid.UUID       `json:"conversation_id" db:"conversation_id"`
-	Direction         string          `json:"direction" db:"direction"`
-	SenderType        MessageSender   `json:"sender_type" db:"sender_type"`
-	SenderUserID      *uuid.UUID      `json:"sender_user_id" db:"sender_user_id"`
-	ContentType       string          `json:"content_type" db:"content_type"`
-	Content           json.RawMessage `json:"content" db:"content"` // JSONB payload
-	ExternalMessageID *string         `json:"external_message_id" db:"external_message_id"`
-	IdempotencyKey    *string         `json:"-" db:"idempotency_key"`
-	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
+	ID                uuid.UUID         `json:"id" db:"id"`
+	AccountID         uuid.UUID         `json:"account_id" db:"account_id"`
+	ConversationID    uuid.UUID         `json:"conversation_id" db:"conversation_id"`
+	Direction         string            `json:"direction" db:"direction"`
+	SenderType        MessageSender     `json:"sender_type" db:"sender_type"`
+	SenderUserID      *uuid.UUID        `json:"sender_user_id" db:"sender_user_id"`
+	ContentType       string            `json:"content_type" db:"content_type"`
+	Content           json.RawMessage   `json:"content" db:"content"` // JSONB payload
+	ExternalMessageID *string           `json:"external_message_id" db:"external_message_id"`
+	ProviderMessageID *string           `json:"provider_message_id,omitempty" db:"provider_message_id"`
+	ReplyToMessageID  *uuid.UUID        `json:"reply_to_message_id,omitempty" db:"reply_to_message_id"`
+	DeliveryStatus    string            `json:"delivery_status,omitempty" db:"delivery_status"`
+	DeliveryDetail    *string           `json:"delivery_detail,omitempty" db:"delivery_detail"`
+	ProviderTimestamp *time.Time        `json:"provider_timestamp,omitempty" db:"provider_timestamp"`
+	EditedAt          *time.Time        `json:"edited_at,omitempty" db:"edited_at"`
+	DeletedAt         *time.Time        `json:"deleted_at,omitempty" db:"deleted_at"`
+	Reactions         []MessageReaction `json:"reactions"`
+	IdempotencyKey    *string           `json:"-" db:"idempotency_key"`
+	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+}
+
+type MessageReaction struct {
+	SenderExternalID  string    `json:"sender_external_id"`
+	Emoji             string    `json:"emoji"`
+	ProviderTimestamp time.Time `json:"provider_timestamp"`
 }
