@@ -35,26 +35,13 @@ jobs:
 
       - name: Run Go unit tests with race detection
         run: |
-          go test -v -race -short -count=1 -timeout 60s \
-            ./packages/go-common/... \
-            ./services/api-gateway/... \
-            ./services/identity-svc/... \
-            ./services/workspace-svc/... \
-            ./services/conversation-svc/... \
-            ./services/notification-svc/... \
-            ./adapters/fake/... \
-            ./adapters/matrix-mautrix/... \
-            ./tests/integration/...
+          go test -v -race -short -count=1 -timeout 60s $(go list -m | sed 's|$|/...|')
 
       - name: Build all Go services
         run: |
-          go build ./services/api-gateway/...
-          go build ./services/identity-svc/...
-          go build ./services/workspace-svc/...
-          go build ./services/conversation-svc/...
-          go build ./services/notification-svc/...
-          go build ./adapters/fake/...
-          go build ./adapters/matrix-mautrix/...
+          for mod in $(go list -m); do
+            go build "$mod/..."
+          done
 
   # ---------------------------------------------------------------------------
   # Go: Database-backed service integration tests
