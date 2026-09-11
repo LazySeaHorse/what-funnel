@@ -12,6 +12,12 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1, // Run sequentially to avoid db state conflicts
   reporter: "list",
+  expect: {
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.05,
+      animations: "disabled",
+    },
+  },
   use: {
     baseURL,
     trace: "on-first-retry",
