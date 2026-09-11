@@ -2,6 +2,6 @@
 
 > **Stub** — built in Build Prompt 4 (AI Cascade).
 
-Python. Consumes `messages.inbound` from Redis Streams, runs the AI cascade:
+Python. Consumes `conversation.updated` from Redis Streams, then runs the AI cascade for newly persisted inbound text:
 rapidfuzz → pgvector → LLM-grounded answer → gate.
 Publishes to `ai.reply_ready`.

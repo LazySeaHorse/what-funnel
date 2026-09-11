@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
 
@@ -57,19 +58,9 @@ func TestInboxE2E(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, loginResp.StatusCode, "login must succeed")
 
-	// 2. Create WhatsApp Channel (with HomeserverURL = "mock")
-	t.Log("E2E Step 3: Create WhatsApp Channel with mock credentials")
-	chanResp, chanBody := post(t, adminClient, gatewayURL+"/channels", map[string]any{
-		"type":            "matrix_whatsapp",
-		"bridge_identity": "whatsapp-bridge-user",
-		"bridge_credentials": map[string]any{
-			"homeserver_url": "mock",
-			"user_id":        "@whatsapp:localhost",
-			"access_token":   "mock-token",
-		},
-	})
-	require.Equal(t, http.StatusCreated, chanResp.StatusCode, "create channel must return 201: %v", chanBody)
-	channelIDStr := chanBody["id"].(string)
+	// Seed a connected provider boundary; live WhatsApp pairing is manual.
+	t.Log("E2E Step 3: Create normalized WhatsApp test channel")
+	channelIDStr := createTestProviderChannel(t, pool, accountID, "Inbox test")
 
 	// 3. Connect Admin WebSocket
 	t.Log("E2E Step 4: Connect Admin WebSocket")
@@ -133,26 +124,8 @@ func TestInboxE2E(t *testing.T) {
 	defer ps.Close()
 
 	externalThreadID := "whatsapp-jid-5678"
-	inboundMsg := map[string]any{
-		"ChannelID":        channelIDStr,
-		"ExternalThreadID": externalThreadID,
-		"Contact": map[string]any{
-			"ExternalIdentity": externalThreadID,
-			"DisplayName":      "Alice Inbound",
-			"AvatarURL":        "http://alice-avatar",
-		},
-		"Message": map[string]any{
-			"ContentType":       "text",
-			"Text":              "Hello from WhatsApp!",
-			"MediaURL":          "",
-			"ReplyToExternalID": "",
-			"ExternalMessageID": "external-msg-xyz",
-		},
-		"Timestamp": time.Now().Format(time.RFC3339),
-	}
-
-	_, err = ps.Publish(ctx, "messages.inbound", inboundMsg)
-	require.NoError(t, err)
+	publishTestProviderMessage(t, ps, channelIDStr, externalThreadID, externalThreadID,
+		"Alice Inbound", "Hello from WhatsApp!", "external-msg-xyz", messaging.DirectionInbound)
 
 	// 8. Verify Admin WebSocket receives message.received event
 	t.Log("E2E Step 11: Verify Admin WS receives event")

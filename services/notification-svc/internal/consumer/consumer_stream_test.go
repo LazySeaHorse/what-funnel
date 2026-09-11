@@ -35,7 +35,7 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 
 	// Create channel, contact, conversation assigned to member
 	var channelID, contactID, convoID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
+	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
 	err = pool.QueryRow(ctx, `INSERT INTO contacts (account_id, channel_id, external_identity) VALUES ($1, $2, 'c-stream') RETURNING id`, accountID, channelID).Scan(&contactID)

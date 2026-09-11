@@ -131,7 +131,7 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 
 	// Create channel, contact, and conversation assigned to Member A
 	var channelID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
+	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
 	var contactID uuid.UUID

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
 
@@ -111,19 +112,9 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, patchResp2.StatusCode)
 
-	// Create Channel
-	t.Log("E2E Step 7: Create WhatsApp Channel")
-	chanResp, chanBody := post(t, adminClient, gatewayURL+"/channels", map[string]any{
-		"type":            "matrix_whatsapp",
-		"bridge_identity": "whatsapp-chatbot-bridge",
-		"bridge_credentials": map[string]any{
-			"homeserver_url": "mock",
-			"user_id":        "@whatsapp_chatbot:localhost",
-			"access_token":   "mock-token",
-		},
-	})
-	require.Equal(t, http.StatusCreated, chanResp.StatusCode)
-	channelIDStr := chanBody["id"].(string)
+	// Seed a normalized provider channel; live pairing is tested manually.
+	t.Log("E2E Step 7: Create WhatsApp test channel")
+	channelIDStr := createTestProviderChannel(t, pool, accountID, "Chatbot test")
 
 	// Inbound message to create contact & conversation
 	redisAddr := "localhost:6379"
@@ -132,22 +123,9 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	defer ps.Close()
 
 	t.Log("E2E Step 8: Inbound message to create conversation")
-	inboundMsg := map[string]any{
-		"ChannelID":        channelIDStr,
-		"ExternalThreadID": "whatsapp-bot-1",
-		"Contact": map[string]any{
-			"ExternalIdentity": "whatsapp-bot-1",
-			"DisplayName":      "Customer Bob",
-		},
-		"Message": map[string]any{
-			"ContentType":       "text",
-			"Text":              "Hello, is this bot active?",
-			"ExternalMessageID": "msg-inbound-bot-1",
-		},
-		"Timestamp": time.Now(),
-	}
-	_, err = ps.Publish(ctx, "messages.inbound", inboundMsg)
-	require.NoError(t, err)
+	publishTestProviderMessage(t, ps, channelIDStr, "whatsapp-bot-1", "whatsapp-bot-1",
+		"Customer Bob", "Hello, is this bot active?", "msg-inbound-bot-1",
+		messaging.DirectionInbound)
 
 	// Wait for ingestion
 	time.Sleep(500 * time.Millisecond)
@@ -168,18 +146,9 @@ func TestChatbotOnlyE2E(t *testing.T) {
 
 	// 5. Ingest External Outbound Event (business owner replies from their phone)
 	t.Log("E2E Step 9: Ingest external outbound reply")
-	externalMsg := map[string]any{
-		"ChannelID":        channelIDStr,
-		"ExternalThreadID": "whatsapp-bot-1",
-		"Message": map[string]any{
-			"ContentType": "text",
-			"Text":        "I am taking over from my phone",
-		},
-		"ExternalMessageID": "msg-external-bot-1",
-		"Timestamp":         time.Now(),
-	}
-	_, err = ps.Publish(ctx, "messages.external_outbound", externalMsg)
-	require.NoError(t, err)
+	publishTestProviderMessage(t, ps, channelIDStr, "whatsapp-bot-1", "self",
+		"", "I am taking over from my phone", "msg-external-bot-1",
+		messaging.DirectionOutbound)
 
 	// Wait for ingestion
 	time.Sleep(500 * time.Millisecond)

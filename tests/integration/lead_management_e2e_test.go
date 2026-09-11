@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
 
@@ -59,19 +60,9 @@ func TestLeadManagementE2E(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, loginResp.StatusCode, "login must succeed")
 
-	// 2. Create WhatsApp Channel
-	t.Log("E2E Step 3: Create WhatsApp Channel")
-	chanResp, chanBody := post(t, adminClient, gatewayURL+"/channels", map[string]any{
-		"type":            "matrix_whatsapp",
-		"bridge_identity": "whatsapp-lead-bridge",
-		"bridge_credentials": map[string]any{
-			"homeserver_url": "mock",
-			"user_id":        "@whatsapp_lead:localhost",
-			"access_token":   "mock-token",
-		},
-	})
-	require.Equal(t, http.StatusCreated, chanResp.StatusCode)
-	channelIDStr := chanBody["id"].(string)
+	// Seed a normalized provider channel; live pairing is outside automated E2E.
+	t.Log("E2E Step 3: Create WhatsApp test channel")
+	channelIDStr := createTestProviderChannel(t, pool, accountID, "Lead test")
 
 	// 3. Connect Admin WebSocket
 	t.Log("E2E Step 4: Connect Admin WebSocket")
@@ -136,25 +127,9 @@ func TestLeadManagementE2E(t *testing.T) {
 	require.Equal(t, http.StatusOK, putResp.StatusCode)
 
 	t.Log("E2E Step 10: Ingest inbound message to trigger auto-lead creation")
-	inboundMsg := map[string]any{
-		"ChannelID":        channelIDStr,
-		"ExternalThreadID": "external-thread-e2e-1",
-		"Contact": map[string]any{
-			"ExternalIdentity": "contacte2e1@s.whatsapp.net",
-			"DisplayName":      "E2E Contact 1",
-			"AvatarURL":        "",
-		},
-		"Message": map[string]any{
-			"ContentType":       "text",
-			"Text":              "Interested in buying",
-			"MediaURL":          "",
-			"ReplyToExternalID": "",
-			"ExternalMessageID": "msg-e2e-1",
-		},
-		"Timestamp": time.Now().Format(time.RFC3339),
-	}
-	_, err = ps.Publish(ctx, "messages.inbound", inboundMsg)
-	require.NoError(t, err)
+	publishTestProviderMessage(t, ps, channelIDStr, "external-thread-e2e-1",
+		"contacte2e1@s.whatsapp.net", "E2E Contact 1", "Interested in buying",
+		"msg-e2e-1", messaging.DirectionInbound)
 
 	// Wait and verify admin WS receives the message event
 	t.Log("E2E Step 11: Wait for WebSocket message broadcast")
@@ -181,7 +156,7 @@ func TestLeadManagementE2E(t *testing.T) {
 	t.Log("E2E Step 12: Verify auto-created lead details via REST API")
 	getResp, getBody := get(t, adminClient, gatewayURL+"/conversations/"+convoIDStr)
 	require.Equal(t, http.StatusOK, getResp.StatusCode)
-	
+
 	leadMap, ok := getBody["lead"].(map[string]any)
 	require.True(t, ok, "conversation response must contain lead details")
 	assert.Equal(t, "new", leadMap["current_state_key"])
@@ -306,8 +281,6 @@ func TestLeadManagementE2E(t *testing.T) {
 	assert.Equal(t, "new", listHist[1]["from_state"])
 	assert.Equal(t, "won", listHist[1]["to_state"])
 }
-
-
 
 // getList sends an authenticated GET request expecting a JSON array.
 func getList(t *testing.T, client *http.Client, url string) (*http.Response, []map[string]any) {

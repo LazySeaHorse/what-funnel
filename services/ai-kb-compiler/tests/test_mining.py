@@ -62,7 +62,7 @@ async def test_mining_scanned_count_cutoff():
             contact_id = uuid.uuid4()
             convo_id = uuid.uuid4()
             await conn.execute(
-                "INSERT INTO channels (id, account_id, type, bridge_identity, status) VALUES ($1, $2, 'matrix_whatsapp', 'whatsapp', 'connected')",
+                "INSERT INTO channels (id, account_id, type, provider, label, status) VALUES ($1, $2, 'whatsapp', 'whatsapp', 'Test WhatsApp', 'connected')",
                 channel_id, account_id
             )
             await conn.execute(
@@ -124,7 +124,7 @@ async def test_mining_clustering_and_cutoff():
             contact_id = uuid.uuid4()
             convo_id = uuid.uuid4()
             await conn.execute(
-                "INSERT INTO channels (id, account_id, type, bridge_identity, status) VALUES ($1, $2, 'matrix_whatsapp', 'whatsapp', 'connected')",
+                "INSERT INTO channels (id, account_id, type, provider, label, status) VALUES ($1, $2, 'whatsapp', 'whatsapp', 'Test WhatsApp', 'connected')",
                 channel_id, account_id
             )
             await conn.execute(

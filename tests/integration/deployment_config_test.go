@@ -72,7 +72,7 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 			"notification-svc",
 			"ai-answer-svc",
 			"ai-kb-compiler",
-			"synapse",
+			"whatsapp-adapter",
 		}
 
 		for _, svcName := range internalServices {
@@ -103,7 +103,9 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 		assert.NotContains(t, raw, "POSTGRES_PASSWORD: whatfunnel", "hardcoded db password must not be present in prod compose")
 		assert.NotContains(t, raw, "change-me-in-production", "dummy default session secret must not be hardcoded in prod compose")
 		assert.NotContains(t, raw, "change-me-32-byte-hex-key-padded", "dummy default encryption key must not be hardcoded in prod compose")
-		assert.NotContains(t, raw, "B4t@Ss,gB8^0gRoFBG*A", "hardcoded Matrix shared secret must not be present in prod compose")
+		assert.NotContains(t, raw, "change-me-adapter-secret", "dummy adapter secret must not be hardcoded in prod compose")
+		assert.NotContains(t, strings.ToLower(raw), "synapse", "legacy Synapse services must not be present")
+		assert.NotContains(t, strings.ToLower(raw), "mautrix", "legacy mautrix services must not be present")
 	})
 
 	t.Run("Environment template documents required variables", func(t *testing.T) {
@@ -118,7 +120,7 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 			"POSTGRES_DB",
 			"SESSION_SECRET",
 			"ENCRYPTION_KEY",
-			"MATRIX_REGISTRATION_SHARED_SECRET",
+			"ADAPTER_SHARED_SECRET",
 			"ALLOWED_ORIGINS",
 			"APP_ENV",
 		}

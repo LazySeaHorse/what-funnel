@@ -40,7 +40,7 @@ ApexCloud provides three managed infrastructure tiers:
 
 ## Technical Support & Operating Hours
 - Standard Technical Support (Starter/Growth tiers) operates Monday through Friday, 8:00 AM to 8:00 PM Eastern Time (EST).
-- Enterprise Sovereign clients receive 24/7/365 continuous emergency support through their dedicated Matrix bridge and NOC hotline.
+- Enterprise Sovereign clients receive 24/7/365 continuous emergency support through their dedicated support channel and NOC hotline.
 """
 
 async def run_e2e_test():
@@ -101,7 +101,7 @@ async def run_e2e_test():
         """
         INSERT INTO patterns (id, account_id, canonical_question, trigger_phrases, answer_text, embedding)
         VALUES 
-        ($1, $2, 'Emergency NOC Hotline', $3, 'Enterprise Sovereign customers can reach our 24/7 emergency NOC hotline at +1 (800) 555-APEX or ping your dedicated Matrix bridge.', $4::vector),
+        ($1, $2, 'Emergency NOC Hotline', $3, 'Enterprise Sovereign customers can reach our 24/7 emergency NOC hotline at +1 (800) 555-APEX or use your dedicated support channel.', $4::vector),
         ($5, $2, 'Corporate Headquarters Address', $6, 'ApexCloud corporate headquarters is located at 100 Mission Street, Floor 42, San Francisco, CA 94105.', $7::vector)
         """,
         uuid.uuid4(), account_id, ["emergency noc hotline", "what is your emergency noc hotline number"], str(noc_emb),
@@ -204,7 +204,7 @@ async def run_e2e_test():
     await conn.execute(
         """
         INSERT INTO channels (id, account_id, type, status)
-        VALUES ($1, $2, 'matrix_whatsapp', 'connected')
+        VALUES ($1, $2, 'whatsapp', 'connected')
         """,
         channel_id, account_id
     )

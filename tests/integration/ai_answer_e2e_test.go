@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
 
@@ -60,19 +61,9 @@ func TestAIAnswerE2E(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, loginResp.StatusCode, "login must succeed")
 
-	// 2. Create WhatsApp Channel
-	t.Log("AI Answer E2E Step 3: Create WhatsApp Channel")
-	chanResp, chanBody := post(t, adminClient, gatewayURL+"/channels", map[string]any{
-		"type":            "matrix_whatsapp",
-		"bridge_identity": "whatsapp-bridge-user-ai",
-		"bridge_credentials": map[string]any{
-			"homeserver_url": "mock",
-			"user_id":        "@whatsapp-ai:localhost",
-			"access_token":   "mock-token-ai",
-		},
-	})
-	require.Equal(t, http.StatusCreated, chanResp.StatusCode, "create channel must return 201: %v", chanBody)
-	channelIDStr := chanBody["id"].(string)
+	// Seed a normalized provider channel; live pairing is a manual test.
+	t.Log("AI Answer E2E Step 3: Create WhatsApp test channel")
+	channelIDStr := createTestProviderChannel(t, pool, accountID, "AI answer test")
 
 	// 3. Connect Admin WebSocket
 	t.Log("AI Answer E2E Step 4: Connect Admin WebSocket")
@@ -102,26 +93,9 @@ func TestAIAnswerE2E(t *testing.T) {
 	defer ps.Close()
 
 	externalThreadID := "whatsapp-jid-ai-999"
-	inboundMsg := map[string]any{
-		"ChannelID":        channelIDStr,
-		"ExternalThreadID": externalThreadID,
-		"Contact": map[string]any{
-			"ExternalIdentity": externalThreadID,
-			"DisplayName":      "Bob Inbound",
-			"AvatarURL":        "http://bob-avatar",
-		},
-		"Message": map[string]any{
-			"ContentType":       "text",
-			"Text":              "Do you offer house calls?",
-			"MediaURL":          "",
-			"ReplyToExternalID": "",
-			"ExternalMessageID": "external-msg-ai-111",
-		},
-		"Timestamp": time.Now().Format(time.RFC3339),
-	}
-
-	_, err = ps.Publish(ctx, "messages.inbound", inboundMsg)
-	require.NoError(t, err)
+	publishTestProviderMessage(t, ps, channelIDStr, externalThreadID, externalThreadID,
+		"Bob Inbound", "Do you offer house calls?", "external-msg-ai-111",
+		messaging.DirectionInbound)
 
 	// 6. Expect WebSocket notification of drafted reply
 	t.Log("AI Answer E2E Step 6: Expect WebSocket notification for drafted reply")
@@ -187,32 +161,15 @@ func TestAIAnswerE2E(t *testing.T) {
 
 	// 8. Send second inbound message
 	t.Log("AI Answer E2E Step 9: Simulate second inbound message to test auto_send")
-	inboundMsg2 := map[string]any{
-		"ChannelID":        channelIDStr,
-		"ExternalThreadID": externalThreadID,
-		"Contact": map[string]any{
-			"ExternalIdentity": externalThreadID,
-			"DisplayName":      "Bob Inbound",
-			"AvatarURL":        "http://bob-avatar",
-		},
-		"Message": map[string]any{
-			"ContentType":       "text",
-			"Text":              "Do you offer house calls?",
-			"MediaURL":          "",
-			"ReplyToExternalID": "",
-			"ExternalMessageID": "external-msg-ai-222",
-		},
-		"Timestamp": time.Now().Format(time.RFC3339),
-	}
-
 	// Reconnect admin WS to clear buffer
 	adminWS.Close()
 	adminWS, _, err = websocket.DefaultDialer.Dial(wsURL, header)
 	require.NoError(t, err)
 	defer adminWS.Close()
 
-	_, err = ps.Publish(ctx, "messages.inbound", inboundMsg2)
-	require.NoError(t, err)
+	publishTestProviderMessage(t, ps, channelIDStr, externalThreadID, externalThreadID,
+		"Bob Inbound", "Do you offer house calls?", "external-msg-ai-222",
+		messaging.DirectionInbound)
 
 	// Expect WebSocket notification for auto_sent reply
 	t.Log("AI Answer E2E Step 10: Expect WebSocket notification for auto_sent reply")

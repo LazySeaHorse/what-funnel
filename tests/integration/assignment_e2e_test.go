@@ -87,7 +87,7 @@ func TestAssignmentWorkflowE2E(t *testing.T) {
 	// 3. Create Channel, Contact, and Conversation
 	t.Log("E2E Step 4: Create channel, contact, and conversation")
 	var channelID, contactID, convoID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
+	err := pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
 	err = pool.QueryRow(ctx, `INSERT INTO contacts (account_id, channel_id, external_identity) VALUES ($1, $2, 'contact-e2e-assign') RETURNING id`, accountID, channelID).Scan(&contactID)

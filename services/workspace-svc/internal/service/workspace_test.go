@@ -367,7 +367,7 @@ func createTestLead(t *testing.T, pool *pgxpool.Pool, accountID uuid.UUID, pipel
 	// 1. Create a channel
 	var channelID uuid.UUID
 	err := pool.QueryRow(ctx,
-		`INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`,
+		`INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`,
 		accountID).Scan(&channelID)
 	require.NoError(t, err)
 
@@ -941,7 +941,7 @@ func TestDeleteUser_Workflow(t *testing.T) {
 	// 2. Create channel, contact, and conversation assigned to agent
 	var channelID uuid.UUID
 	err = pool.QueryRow(ctx,
-		`INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`,
+		`INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`,
 		accountID).Scan(&channelID)
 	require.NoError(t, err)
 
