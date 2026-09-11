@@ -2,10 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 // SimulateInbound accepts a mock inbound event payload and publishes it to the
@@ -50,6 +52,34 @@ func (h *Handler) SimulateInbound(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "published"})
+}
+
+// EnsureChannelForSimulator creates an isolated development channel. It does
+// not create provider credentials or a live adapter connection.
+func (h *Handler) EnsureChannelForSimulator(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing account")
+		return
+	}
+
+	var body struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	channel, err := h.svc.EnsureSimulatorChannel(r.Context(), accountID, body.Provider)
+	if errors.Is(err, service.ErrUnsupportedSimulatorProvider) {
+		writeError(w, http.StatusBadRequest, "simulator supports whatsapp and telegram only")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, channel)
 }
 
 // ListChannelsForSimulator returns the list of channels for the current account

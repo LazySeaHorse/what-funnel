@@ -82,8 +82,9 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 	c := consumer.NewConsumer(pool, ps, hub, logger)
 	// Start the table-driven consumer loop
 	consumerDone := make(chan error, 1)
+	testGroup := "test-notification-group-" + uuid.New().String()
 	go func() {
-		consumerDone <- c.Run(ctx, "test-stream-consumer-"+uuid.New().String())
+		consumerDone <- c.Run(ctx, testGroup, "test-stream-consumer-"+uuid.New().String())
 	}()
 	defer func() {
 		cancel()

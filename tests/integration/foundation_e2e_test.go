@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	gatewayURL  = "http://localhost:18080"
-	identityURL = "http://localhost:8081"
+	gatewayURL   = "http://localhost:18080"
+	identityURL  = "http://localhost:8081"
 	workspaceURL = "http://localhost:8082"
 )
 
@@ -104,6 +104,16 @@ func get(t *testing.T, client *http.Client, urlStr string) (*http.Response, map[
 	return resp, result
 }
 
+func getArray(t *testing.T, client *http.Client, urlStr string) (*http.Response, []any) {
+	t.Helper()
+	resp, err := client.Get(urlStr)
+	require.NoError(t, err)
+	t.Cleanup(func() { resp.Body.Close() })
+	var result []any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	return resp, result
+}
+
 // put sends an authenticated PUT request.
 func put(t *testing.T, client *http.Client, urlStr string, body any) (*http.Response, map[string]any) {
 	t.Helper()
@@ -152,9 +162,9 @@ func skipIfServicesDown(t *testing.T) {
 //  7. GET /workspace/account → account details accessible
 //  8. Logout → session invalidated
 //  9. GET /auth/me after logout → 401
-// 10. Member cannot access admin route → 403
+//  10. Member cannot access admin route → 403
 //     (placeholder — real member login requires redeeming invite token,
-//      which is extended in Build Prompt 3)
+//     which is extended in Build Prompt 3)
 func TestFoundationE2E(t *testing.T) {
 	skipIfServicesDown(t)
 	pool := testPool(t)

@@ -59,6 +59,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	// Dev/test simulation endpoints (admin only)
 	r.Handle("/simulate-inbound", auth(admin(http.HandlerFunc(h.SimulateInbound)))).Methods(http.MethodPost)
 	r.Handle("/simulate/channels", auth(admin(http.HandlerFunc(h.ListChannelsForSimulator)))).Methods(http.MethodGet)
+	r.Handle("/simulate/channels", auth(admin(http.HandlerFunc(h.EnsureChannelForSimulator)))).Methods(http.MethodPost)
 
 	// Lead management
 	r.Handle("/conversations/{id}/lead", auth(fullWorkspace(http.HandlerFunc(h.CreateLead)))).Methods(http.MethodPost)

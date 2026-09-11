@@ -176,8 +176,13 @@ func (m *Manager) Logout(ctx context.Context, channelID string) error {
 		}
 	} else {
 		session.client.Disconnect()
-		if err := session.client.Store.Delete(ctx); err != nil {
-			return fmt.Errorf("delete whatsapp session: %w", err)
+		// A device receives its JID only after pairing. WhatsMeow's Delete
+		// correctly rejects ID-less devices, so an abandoned QR session only
+		// needs to be disconnected and removed from our local mapping.
+		if session.client.Store.ID != nil {
+			if err := session.client.Store.Delete(ctx); err != nil {
+				return fmt.Errorf("delete whatsapp session: %w", err)
+			}
 		}
 	}
 	if _, err := m.db.ExecContext(ctx, `DELETE FROM adapter_channels WHERE channel_id = ?`, channelID); err != nil {

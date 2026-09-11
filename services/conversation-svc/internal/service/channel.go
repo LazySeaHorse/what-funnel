@@ -11,6 +11,38 @@ import (
 )
 
 var ErrChannelNotFound = errors.New("channel not found")
+var ErrUnsupportedSimulatorProvider = errors.New("unsupported simulator provider")
+
+// EnsureSimulatorChannel returns a synthetic channel used only by the local
+// simulation UI. It deliberately has no provider_connections row, so it can
+// never be mistaken for a paired provider account or reach a live adapter.
+func (s *Service) EnsureSimulatorChannel(ctx context.Context, accountID uuid.UUID, provider string) (*types.Channel, error) {
+	if provider != "whatsapp" && provider != "telegram" {
+		return nil, ErrUnsupportedSimulatorProvider
+	}
+
+	label := "Simulator " + provider
+	channel := &types.Channel{}
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO channels (
+			account_id, type, status, label, provider, remote_account_id, capabilities
+		) VALUES ($1, $2, 'connected', $3, $2, $4, '{"media":true,"replies":true,"reactions":true}')
+		ON CONFLICT (account_id, provider, (LOWER(label)))
+			WHERE provider IS NOT NULL AND label IS NOT NULL
+		DO UPDATE SET updated_at = channels.updated_at
+		RETURNING id, account_id, type, status, status_detail, label, provider,
+		          remote_account_id, capabilities, created_at, updated_at
+	`, accountID, provider, label, "simulator:"+provider).Scan(
+		&channel.ID, &channel.AccountID, &channel.Type, &channel.Status,
+		&channel.StatusDetail, &channel.Label, &channel.Provider,
+		&channel.RemoteAccountID, &channel.Capabilities,
+		&channel.CreatedAt, &channel.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ensure simulator channel: %w", err)
+	}
+	return channel, nil
+}
 
 // ListChannels is a read-only compatibility view used by the workspace and
 // inbox. Channel lifecycle belongs exclusively to provider connections.

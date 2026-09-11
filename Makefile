@@ -46,7 +46,11 @@ prod-down: ## Stop hardened production stack
 # ---------------------------------------------------------------------------
 
 migrate: ## (Re-)run all pending goose migrations — normally automatic on `make up`
-	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up
+	@if command -v $(GOOSE_CMD) >/dev/null 2>&1; then \
+		$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up; \
+	else \
+		docker compose run --rm migrate up; \
+	fi
 
 migrate-down: ## Roll back the last migration
 	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" down
@@ -67,9 +71,10 @@ test: ## Run full test suite (unit + integration; requires `make up` first)
 	@echo "Waiting for postgres..."
 	@until docker compose exec postgres pg_isready -U whatfunnel -d whatfunnel > /dev/null 2>&1; do sleep 1; done
 	@echo "Running migrations against test DB..."
-	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up
+	@$(MAKE) migrate
 	@echo "Running tests..."
 	go test $(TEST_PACKAGES) -count=1 -timeout 120s
+	cd adapters/whatsapp-whatsmeow && go test ./... -count=1 -timeout 120s
 
 test-short: ## Run unit tests only (no postgres required)
 	go test $(TEST_PACKAGES) -short -count=1 -timeout 30s
@@ -78,8 +83,9 @@ test-short: ## Run unit tests only (no postgres required)
 test-verbose: ## Run full test suite with verbose output
 	@echo "Waiting for postgres..."
 	@until docker compose exec postgres pg_isready -U whatfunnel -d whatfunnel > /dev/null 2>&1; do sleep 1; done
-	$(GOOSE_CMD) -dir $(MIGRATIONS_DIR) $(GOOSE_DRIVER) "$(DATABASE_URL)" up
+	@$(MAKE) migrate
 	go test $(TEST_PACKAGES) -v -count=1 -timeout 120s
+	cd adapters/whatsapp-whatsmeow && go test ./... -v -count=1 -timeout 120s
 
 # ---------------------------------------------------------------------------
 # Build

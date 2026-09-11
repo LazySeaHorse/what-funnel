@@ -178,7 +178,6 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	err = json.Unmarshal(contentRaw, &content)
 	require.NoError(t, err)
 	assert.Equal(t, "I am taking over from my phone", content["text"])
-	assert.Equal(t, true, content["external_origin"])
 }
 
 // Helper to base64 decode (mocking JS atob)

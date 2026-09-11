@@ -1,6 +1,7 @@
 package crypto_test
 
 import (
+	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -65,8 +66,10 @@ func TestDecryptTamperedCiphertext(t *testing.T) {
 	ciphertext, err := c.Encrypt([]byte("secret"))
 	require.NoError(t, err)
 
-	// Flip a character near the end of the hex string.
-	tampered := ciphertext[:len(ciphertext)-2] + "00"
+	decoded, err := hex.DecodeString(ciphertext)
+	require.NoError(t, err)
+	decoded[len(decoded)-1] ^= 0xff
+	tampered := hex.EncodeToString(decoded)
 	_, err = c.Decrypt(tampered)
 	assert.Error(t, err, "tampered ciphertext must fail decryption")
 }

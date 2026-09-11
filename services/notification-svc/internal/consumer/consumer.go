@@ -35,7 +35,7 @@ func NewConsumer(pool *pgxpool.Pool, ps streamConsumer, hub *server.Hub, logger 
 	}
 }
 
-func (c *Consumer) Run(ctx context.Context, consumerName string) error {
+func (c *Consumer) Run(ctx context.Context, groupName, consumerName string) error {
 	streams := []struct {
 		name    string
 		handler func(context.Context, string, []byte) error
@@ -56,7 +56,7 @@ func (c *Consumer) Run(ctx context.Context, consumerName string) error {
 		stream := s
 		group.Go(func() error {
 			c.logger.Info("starting stream consumer", "stream", stream.name)
-			err := c.ps.Consume(groupCtx, stream.name, "notification-svc", consumerName, stream.handler)
+			err := c.ps.Consume(groupCtx, stream.name, groupName, consumerName, stream.handler)
 			if groupCtx.Err() != nil && errors.Is(err, groupCtx.Err()) {
 				return nil
 			}

@@ -81,6 +81,28 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
+func TestLogoutUnpairedSession(t *testing.T) {
+	publisher := &recordingPublisher{notify: make(chan struct{}, 1)}
+	manager, err := NewManager(t.Context(), t.TempDir()+"/sessions/store.db", publisher, nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	const channelID = "unpaired-channel"
+	session := manager.newSession(channelID, manager.container.NewDevice())
+	manager.mu.Lock()
+	manager.sessions[channelID] = session
+	manager.mu.Unlock()
+
+	if err := manager.Logout(t.Context(), channelID); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if _, err := manager.Snapshot(channelID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Snapshot() error = %v, want %v", err, ErrNotFound)
+	}
+}
+
 func TestMarshalDownloadable(t *testing.T) {
 	t.Parallel()
 

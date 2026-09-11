@@ -153,15 +153,9 @@ func TestInboxE2E(t *testing.T) {
 
 	// 9. Verify Member CANNOT see conversation via REST when settings are private
 	t.Log("E2E Step 12: Verify member gets no private conversation leaks (REST visibility check)")
-	listResp, listBody := get(t, memberClient, gatewayURL+"/conversations?filter=all")
+	listResp, convoArray := getArray(t, memberClient, gatewayURL+"/conversations?filter=all")
 	require.Equal(t, http.StatusOK, listResp.StatusCode)
-	convoArray, ok := listBody["conversations"].([]any)
-	if ok {
-		assert.Equal(t, 0, len(convoArray), "Member must not see unassigned conversations when visibility is disabled")
-	} else {
-		// If return format is different or null
-		assert.Nil(t, listBody["conversations"])
-	}
+	assert.Empty(t, convoArray, "Member must not see unassigned conversations when visibility is disabled")
 
 	// 10. Admin assigns conversation to member
 	t.Log("E2E Step 13: Admin assigns conversation to Member")

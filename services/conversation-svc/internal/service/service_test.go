@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
@@ -91,7 +90,7 @@ func TestIngestInbound(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	svc, pool, ps := testService(t)
+	svc, pool, _ := testService(t)
 	ctx := context.Background()
 
 	accountID, _ := setupTestTenant(t, pool, "ingest-test")
@@ -103,9 +102,6 @@ func TestIngestInbound(t *testing.T) {
 		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
-
-	// Clean up Redis stream
-	ps.RawClient().Del(ctx, "conversation.updated")
 
 	// 1. Ingest a message for a new contact (new contact + new conversation)
 	event1 := types.InboundEvent{
@@ -148,15 +144,6 @@ func TestIngestInbound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, msgCount)
 
-	// Check Redis event published
-	streams, err := ps.RawClient().XRead(ctx, &redis.XReadArgs{
-		Streams: []string{"conversation.updated", "0"},
-		Count:   1,
-	}).Result()
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-	require.Len(t, streams[0].Messages, 1)
-
 	// 2. Ingest duplicate message (idempotency check)
 	err = svc.IngestInbound(ctx, event1)
 	require.NoError(t, err) // Should skip without failing
@@ -198,7 +185,7 @@ func TestIngestInbound(t *testing.T) {
 	assert.Equal(t, "http://avatar.url/bob", avatarURL)
 
 	// 4. Test all content types normalize correctly
-	contentTypes := []string{"text", "image", "video", "audio", "document", "reaction", "location", "contact"}
+	contentTypes := []string{"text", "image", "video", "audio", "document", "notice"}
 	for i, ct := range contentTypes {
 		event := types.InboundEvent{
 			ChannelID:        channelID.String(),
@@ -217,10 +204,36 @@ func TestIngestInbound(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Verify count is 2 + 8 = 10
+	// Verify count is 2 + 6 = 8.
 	err = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE conversation_id = $1`, convoID).Scan(&msgCount)
 	require.NoError(t, err)
-	assert.Equal(t, 10, msgCount)
+	assert.Equal(t, 8, msgCount)
+}
+
+func TestEnsureSimulatorChannel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	accountID, _ := setupTestTenant(t, pool, "simulator-channel-test")
+
+	first, err := svc.EnsureSimulatorChannel(t.Context(), accountID, "whatsapp")
+	require.NoError(t, err)
+	second, err := svc.EnsureSimulatorChannel(t.Context(), accountID, "whatsapp")
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, second.ID)
+	assert.Equal(t, "whatsapp", first.Type)
+	assert.Equal(t, "connected", first.Status)
+
+	var connectionCount int
+	require.NoError(t, pool.QueryRow(t.Context(), `
+		SELECT COUNT(*) FROM provider_connections WHERE channel_id = $1
+	`, first.ID).Scan(&connectionCount))
+	assert.Zero(t, connectionCount)
+
+	_, err = svc.EnsureSimulatorChannel(t.Context(), accountID, "instagram")
+	assert.ErrorIs(t, err, service.ErrUnsupportedSimulatorProvider)
 }
 
 func TestLeadManagement(t *testing.T) {

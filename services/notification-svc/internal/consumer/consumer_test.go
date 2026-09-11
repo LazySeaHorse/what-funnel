@@ -39,7 +39,7 @@ func TestConsumer_RunWaitsForAllStreams(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- c.Run(ctx, "test-consumer")
+		done <- c.Run(ctx, "test-notification-group", "test-consumer")
 	}()
 
 	started := make(map[string]struct{}, 9)

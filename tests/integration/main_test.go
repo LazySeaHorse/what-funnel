@@ -76,23 +76,11 @@ func cleanupIntegrationTestData() {
 	}
 	defer pool.Close()
 
-	// Never touch foo@barr.com or account Foobarr
+	// Limit suite-wide cleanup to accounts created by this package. Other Go
+	// packages share the development database and may be running concurrently.
 	_, _ = pool.Exec(ctx, `
 		DELETE FROM accounts
-		WHERE id NOT IN (
-			SELECT account_id FROM users WHERE email = 'foo@barr.com'
-		) AND (
-			id IN (
-				SELECT DISTINCT account_id FROM users
-				WHERE email LIKE '%@example.com' OR email LIKE '%@e2e.local' OR email LIKE '%@local.test'
-			)
-			OR name LIKE 'E2E %'
-			OR name LIKE 'TestTenant%'
-		);
-
-		DELETE FROM users
-		WHERE (email LIKE '%@example.com' OR email LIKE '%@e2e.local' OR email LIKE '%@local.test')
-		  AND email != 'foo@barr.com';
+		WHERE name LIKE 'E2E %' OR name = 'Wrong Password Account';
 	`)
 }
 

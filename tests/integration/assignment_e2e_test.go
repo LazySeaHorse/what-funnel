@@ -48,12 +48,15 @@ func TestAssignmentWorkflowE2E(t *testing.T) {
 		"password": "AdminPassword123!",
 	})
 	require.Equal(t, http.StatusOK, loginResp.StatusCode, "admin login must succeed")
+	slugResp, slugBody := put(t, adminClient, gatewayURL+"/workspace/account/slug", map[string]string{
+		"slug": "assignment-corp",
+	})
+	require.Equal(t, http.StatusOK, slugResp.StatusCode, "set workspace slug: %v", slugBody)
 
 	// 2. Create 2 agent users (Agent A and Agent B)
 	t.Log("E2E Step 3: Create 2 agent users")
 	createRespA, createBodyA := post(t, adminClient, gatewayURL+"/workspace/users", map[string]string{
 		"username": "agent_alpha",
-		"email":    uniqueEmail("agent_alpha"),
 		"password": "AgentPassword123!",
 		"role":     "agent",
 	})
@@ -62,7 +65,6 @@ func TestAssignmentWorkflowE2E(t *testing.T) {
 
 	createRespB, createBodyB := post(t, adminClient, gatewayURL+"/workspace/users", map[string]string{
 		"username": "agent_beta",
-		"email":    uniqueEmail("agent_beta"),
 		"password": "AgentPassword123!",
 		"role":     "agent",
 	})
@@ -72,15 +74,15 @@ func TestAssignmentWorkflowE2E(t *testing.T) {
 	// Log in Agent A and Agent B clients
 	agentAClient := newClient()
 	loginRespA, _ := post(t, agentAClient, gatewayURL+"/auth/login", map[string]string{
-		"email":    createBodyA["email"].(string),
-		"password": "AgentPassword123!",
+		"identifier": "assignment-corp-agent_alpha",
+		"password":   "AgentPassword123!",
 	})
 	require.Equal(t, http.StatusOK, loginRespA.StatusCode)
 
 	agentBClient := newClient()
 	loginRespB, _ := post(t, agentBClient, gatewayURL+"/auth/login", map[string]string{
-		"email":    createBodyB["email"].(string),
-		"password": "AgentPassword123!",
+		"identifier": "assignment-corp-agent_beta",
+		"password":   "AgentPassword123!",
 	})
 	require.Equal(t, http.StatusOK, loginRespB.StatusCode)
 
@@ -129,14 +131,12 @@ func TestAssignmentWorkflowE2E(t *testing.T) {
 	assert.Contains(t, assignedStrings, agentBUserID)
 
 	// Verify filter=mine returns the conversation for both agents
-	listRespA, listBodyA := get(t, agentAClient, gatewayURL+"/conversations?filter=mine")
+	listRespA, convoArrayA := getArray(t, agentAClient, gatewayURL+"/conversations?filter=mine")
 	require.Equal(t, http.StatusOK, listRespA.StatusCode)
-	convoArrayA, _ := listBodyA["conversations"].([]any)
 	assert.NotEmpty(t, convoArrayA)
 
-	listRespB, listBodyB := get(t, agentBClient, gatewayURL+"/conversations?filter=mine")
+	listRespB, convoArrayB := getArray(t, agentBClient, gatewayURL+"/conversations?filter=mine")
 	require.Equal(t, http.StatusOK, listRespB.StatusCode)
-	convoArrayB, _ := listBodyB["conversations"].([]any)
 	assert.NotEmpty(t, convoArrayB)
 
 	// 6. Explicit Unassignment: Clear assignees

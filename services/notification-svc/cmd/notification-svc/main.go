@@ -84,7 +84,7 @@ func run(logger *slog.Logger) error {
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
-		return c.Run(groupCtx, consumerName)
+		return c.Run(groupCtx, "notification-svc", consumerName)
 	})
 	group.Go(func() error {
 		logger.Info("notification-svc listening", "port", cfg.Port)
