@@ -30,7 +30,7 @@ export function getSnippet(convo: any): string {
 export function getContactName(convo?: any): string {
 	if (!convo) return 'Select a conversation';
 	return String(convo.contact_name || convo.contact?.display_name || convo.display_name || convo.contact_display_name || convo.contact?.external_identity || 'Contact')
-		.replace(/\s*\((Instagram|WhatsApp|Messenger|Telegram|Webchat|Direct|matrix_[a-z]+)\)$/i, '').trim();
+		.replace(/\s*\((Instagram|WhatsApp|Messenger|Telegram|Webchat|Direct)\)$/i, '').trim();
 }
 
 export function getContactHandle(convo?: any): string {

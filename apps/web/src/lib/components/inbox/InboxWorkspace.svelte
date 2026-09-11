@@ -52,6 +52,8 @@
   let internalNote = $state("");
   let messageContainer: HTMLDivElement | null = $state(null);
   let showStatus = $state(false);
+  let attachmentInput: HTMLInputElement | null = $state(null);
+  let attachment = $state<File | null>(null);
   let emptyComposer = {
     text: "",
     aiReplyDraftID: null,
@@ -143,12 +145,28 @@
   }
   async function sendMessage() {
     const id = inbox.activeConvoID;
-    if (!id || !composer.text.trim() || composer.sending) return;
-    await inbox.sendMessage(
-      id,
-      composer.text.trim(),
-      composer.aiReplyDraftID ?? undefined,
-    );
+    if (!id || (!composer.text.trim() && !attachment) || composer.sending) return;
+    let media: { id: string; contentType: "image" | "video" | "audio" | "document" } | undefined;
+    if (attachment) {
+      if (attachment.size > 20 * 1024 * 1024) {
+        composer.error = "Attachments must be 20 MiB or smaller.";
+        return;
+      }
+      const form = new FormData();
+      form.append("file", attachment);
+      try {
+        const uploaded = await apiRequest(`/conversations/${id}/media`, { method: "POST", body: form });
+        const contentType = attachment.type.startsWith("image/") ? "image"
+          : attachment.type.startsWith("video/") ? "video"
+          : attachment.type.startsWith("audio/") ? "audio" : "document";
+        media = { id: uploaded.id, contentType };
+      } catch (reason: any) {
+        composer.error = reason?.message || "Failed to upload attachment.";
+        return;
+      }
+    }
+    const sent = await inbox.sendMessage(id, composer.text.trim(), composer.aiReplyDraftID ?? undefined, media);
+    if (sent) attachment = null;
   }
   async function postNote() {
     const leadID = inbox.activeConvo?.lead?.id;
@@ -305,7 +323,7 @@
               message.direction === "inbound"}{@const text =
               message.parsedContent.text ||
               message.parsedContent.caption ||
-              JSON.stringify(message.parsedContent)}
+              (message.parsedContent.media_id ? "" : JSON.stringify(message.parsedContent))}
             <div
               class="message-row {customer
                 ? ''
@@ -318,12 +336,31 @@
                   ? 'bg-white border border-slate-200/70 text-slate-800'
                   : 'bg-blue-600 text-white'}"
               >
-                {text}
+                {#if message.parsedContent.media_id}
+                  {@const mediaURL = `/api-gateway/media/${message.parsedContent.media_id}`}
+                  {#if message.content_type === "image"}
+                    <img src={mediaURL} alt={text || "Shared image"} class="mb-2 max-h-72 rounded-xl object-contain" loading="lazy" />
+                  {:else if message.content_type === "video"}
+                    <video src={mediaURL} controls preload="metadata" class="mb-2 max-h-72 rounded-xl"><track kind="captions" /></video>
+                  {:else if message.content_type === "audio"}
+                    <audio src={mediaURL} controls preload="metadata"><track kind="captions" /></audio>
+                  {:else}
+                    <a href={mediaURL} target="_blank" rel="noreferrer" class="mb-2 block underline">Open attachment</a>
+                  {/if}
+                {/if}
+                {#if text}{text}{/if}
               </div>
+              {#if message.reactions?.length}
+                <div class="mt-1 flex flex-wrap gap-1" aria-label="Message reactions">
+                  {#each message.reactions as reaction (`${reaction.sender_external_id}:${reaction.emoji}`)}
+                    <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs shadow-2xs" title={reaction.sender_external_id}>{reaction.emoji}</span>
+                  {/each}
+                </div>
+              {/if}
               <span class="text-[10px] text-slate-400 mt-1"
                 >{formatTime(message.created_at)}{#if !customer}<CheckIcon
                     class="w-3.5 h-3.5 text-blue-500 inline-block"
-                  />{/if}</span
+                  /><span class="ml-1">{message.delivery_status || "sent"}</span>{/if}</span
               >
             </div>{/each}{/if}
       </div>
@@ -402,10 +439,17 @@
                   placeholder="Enter a message..."
                   class="compose-input w-full text-xs sm:text-sm bg-transparent focus:outline-none"
                 />
+                {#if attachment}
+                  <div class="mt-2 flex items-center justify-between rounded-lg bg-slate-100 px-2.5 py-2 text-[11px] text-slate-600">
+                    <span class="truncate">{attachment.name} · {(attachment.size / 1024 / 1024).toFixed(1)} MiB</span>
+                    <button aria-label="Remove attachment" onclick={() => { attachment = null; if (attachmentInput) attachmentInput.value = ""; }}><XMarkIcon class="h-3.5 w-3.5" /></button>
+                  </div>
+                {/if}
               </div>
               <div class="flex justify-between px-3 py-2 border-t border-slate-100">
                 <div class="flex text-slate-400">
-                  <button title="Add attachment"
+                  <input bind:this={attachmentInput} type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" onchange={(event) => { attachment = event.currentTarget.files?.[0] || null; }} />
+                  <button title="Add attachment" onclick={() => attachmentInput?.click()}
                     ><PlusIcon class="w-4 h-4" /></button
                   ><button title="Emoji picker"
                     ><FaceSmileIcon class="w-4 h-4" /></button
@@ -417,7 +461,7 @@
                 </div>
                 <button
                   onclick={sendMessage}
-                  disabled={!composer.text.trim() || composer.sending}
+                  disabled={(!composer.text.trim() && !attachment) || composer.sending}
                   class="send-btn w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center disabled:opacity-40"
                   aria-label="Send message"
                   ><PaperAirplaneIcon class="w-4 h-4" /></button

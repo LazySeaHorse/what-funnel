@@ -136,10 +136,10 @@ test.describe('in-app settings safety net', () => {
 	test('channel connection dialog can be cancelled with Escape', async ({ page }) => {
 		await openMockedSettings(page);
 		await page.getByRole('tab', { name: 'Channels', exact: true }).click();
-		await page.getByRole('button', { name: 'Connect channel' }).click();
-		await expect(page.getByRole('dialog', { name: 'Connect a channel' })).toBeVisible();
+		await page.getByRole('button', { name: 'Connect WhatsApp' }).click();
+		await expect(page.getByRole('dialog', { name: 'Connect WhatsApp' })).toBeVisible();
 		await page.keyboard.press('Escape');
-		await expect(page.getByRole('dialog', { name: 'Connect a channel' })).not.toBeVisible();
+		await expect(page.getByRole('dialog', { name: 'Connect WhatsApp' })).not.toBeVisible();
 	});
 
 	test('deleting a provider channel removes it and its associated chats', async ({ page }) => {
@@ -147,24 +147,23 @@ test.describe('in-app settings safety net', () => {
 		await page.goto('/inbox?tab=settings');
 		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 		await page.getByRole('tab', { name: 'Channels', exact: true }).click();
-		await page.getByRole('button', { name: 'Connect channel' }).click();
-		const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
-		await dialog.getByRole('combobox', { name: 'Channel' }).selectOption('whatsapp');
-		await dialog.getByRole('button', { name: 'Continue' }).click();
-		await expect(page.getByRole('dialog', { name: 'Connect WhatsApp' })).toBeVisible();
-		await expect(page.getByAltText('QR code for WhatsApp connection')).toBeVisible();
-		await page.getByRole('button', { name: 'Close channel dialog' }).click();
-		await expect(page.getByText('WhatsApp', { exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Connect WhatsApp' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Connect WhatsApp' });
+		await dialog.getByLabel('Account label').fill('Sales WhatsApp');
+		await dialog.getByRole('button', { name: 'Show QR code' }).click();
+		await expect(page.getByAltText('WhatsApp pairing QR code')).toBeVisible();
+		await page.getByRole('button', { name: 'Close connection dialog' }).click();
+		await expect(page.getByText('Sales WhatsApp', { exact: true })).toBeVisible();
 
 		page.once('dialog', (dialog) => {
-			expect(dialog.message()).toContain('permanently removes the channel and all associated contacts, conversations, messages, and leads');
+			expect(dialog.message()).toContain('chats and messages will be permanently deleted');
 			void dialog.accept();
 		});
-		await page.getByRole('button', { name: 'Delete WhatsApp channel', exact: true }).click();
-		await expect(page.getByText('Channel and associated chats deleted.', { exact: true })).toBeVisible();
-		await expect(page.getByText('No channels connected yet.', { exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Unlink', exact: true }).click();
+		await expect(page.getByText('Sales WhatsApp was unlinked.', { exact: true })).toBeVisible();
+		await expect(page.getByText('No WhatsApp accounts connected yet.', { exact: true })).toBeVisible();
 		expect(api.requests).toContainEqual(expect.objectContaining({
-			path: '/channels/channel-1',
+			path: '/channel-connections/channel-1',
 			method: 'DELETE'
 		}));
 	});
@@ -172,20 +171,20 @@ test.describe('in-app settings safety net', () => {
 	test('a failed provider connection keeps the selected channel ready to retry', async ({ page }) => {
 		await openMockedSettings(page);
 		await page.getByRole('tab', { name: 'Channels', exact: true }).click();
-		await page.route('**/api-gateway/bridge-connections', (route) => {
+		await page.route('**/api-gateway/channel-connections', (route) => {
 			if (route.request().method() === 'POST') {
 				return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Bridge service is unavailable' }) });
 			}
 			return route.fallback();
 		});
-		await page.getByRole('button', { name: 'Connect channel' }).click();
-		const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
-		await dialog.getByRole('combobox', { name: 'Channel' }).selectOption('telegram');
-		await dialog.getByRole('button', { name: 'Continue' }).click();
+		await page.getByRole('button', { name: 'Connect WhatsApp' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Connect WhatsApp' });
+		await dialog.getByLabel('Account label').fill('Support WhatsApp');
+		await dialog.getByRole('button', { name: 'Show QR code' }).click();
 
 		await expect(page.getByText('Bridge service is unavailable', { exact: true })).toBeVisible();
 		await expect(dialog).toBeVisible();
-		await expect(dialog.getByRole('combobox', { name: 'Channel' })).toHaveValue('telegram');
+		await expect(dialog.getByLabel('Account label')).toHaveValue('Support WhatsApp');
 	});
 
 	test('workspace type changes hide lead-pipeline controls when lead tracking is unavailable', async ({ page }) => {

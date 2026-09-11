@@ -56,10 +56,10 @@
 
 	// Step 2: Channels
 	let channels = $state([
-		{ id: 'whatsapp', name: 'WhatsApp', type: 'matrix_whatsapp', icon: 'whatsapp', connected: false, color: '#25D366' },
-		{ id: 'instagram', name: 'Instagram', type: 'matrix_instagram', icon: 'instagram', connected: false, color: '#E1306C' },
-		{ id: 'messenger', name: 'Facebook Messenger', type: 'matrix_messenger', icon: 'messenger', connected: false, color: '#0084FF' },
-		{ id: 'telegram', name: 'Telegram', type: 'matrix_telegram', icon: 'telegram', connected: false, color: '#229ED9' }
+		{ id: 'whatsapp', name: 'WhatsApp', type: 'whatsapp', icon: 'whatsapp', connected: false, color: '#25D366' },
+		{ id: 'instagram', name: 'Instagram', type: 'instagram', icon: 'instagram', connected: false, color: '#E1306C' },
+		{ id: 'messenger', name: 'Facebook Messenger', type: 'messenger', icon: 'messenger', connected: false, color: '#0084FF' },
+		{ id: 'telegram', name: 'Telegram', type: 'telegram', icon: 'telegram', connected: false, color: '#229ED9' }
 	]);
 
 	// Step 3: Lead pipeline

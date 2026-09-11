@@ -10,7 +10,7 @@ test('loads an AI reply draft and only sends it after agent review', async ({ pa
 		assigned_user_ids: ['user-1'],
 		created_at: '2026-08-27T12:00:00Z',
 		last_message_at: '2026-08-27T12:01:00Z',
-		channel_type: 'matrix_whatsapp',
+		channel_type: 'whatsapp',
 		contact: { display_name: 'Alice', external_identity: 'alice@example.test' },
 		last_message: {
 			id: 'message-1',

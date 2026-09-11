@@ -7,7 +7,7 @@ const conversation = {
 	assigned_user_ids: ['user-1'],
 	created_at: '2026-01-01T12:00:00Z',
 	last_message_at: '2026-01-01T12:00:00Z',
-	channel_type: 'matrix_whatsapp',
+	channel_type: 'whatsapp',
 	contact: {
 		display_name: 'Rina Patel',
 		external_identity: '+15550122'
@@ -90,7 +90,7 @@ test.describe('effective UI capabilities', () => {
 		await expect(page.getByText('Reply preference saved.', { exact: true })).toBeVisible();
 
 		expect(api.requests.some((request) => request.path === '/channels')).toBe(false);
-		expect(api.requests.some((request) => request.path === '/bridge-connections')).toBe(false);
+		expect(api.requests.some((request) => request.path === '/channel-connections')).toBe(false);
 		expect(api.requests.some((request) => request.path === '/workspace/users')).toBe(false);
 	});
 

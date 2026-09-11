@@ -103,7 +103,7 @@
             <span class="block text-xs font-medium leading-none"
               >{platform.label}</span
             >
-            <span class="text-[9px] opacity-70">matrix_{platform.key}</span>
+            <span class="text-[9px] opacity-70">{platform.key}</span>
           </div>
         </button>
       {/each}

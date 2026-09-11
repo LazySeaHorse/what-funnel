@@ -316,8 +316,13 @@ export class InboxState {
 		}
 	}
 	
-	async sendMessage(convoID: string, text: string, aiReplyDraftID?: string): Promise<boolean> {
-		if (!convoID || !text.trim()) return false;
+	async sendMessage(
+		convoID: string,
+		text: string,
+		aiReplyDraftID?: string,
+		media?: { id: string; contentType: 'image' | 'video' | 'audio' | 'document' }
+	): Promise<boolean> {
+		if (!convoID || (!text.trim() && !media)) return false;
 		const composer = this.composers[convoID] ??= { text: '', aiReplyDraftID: null, sending: false, error: '' };
 		if (composer.sending) return false;
 		composer.sending = true;
@@ -327,10 +332,11 @@ export class InboxState {
 		try {
 			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
 			const body: any = {
-				content_type: 'text',
+				content_type: media?.contentType || 'text',
 				text: text,
 				sender_type: 'human'
 			};
+			if (media) body.media_id = media.id;
 			if (senderUserId) {
 				body.sender_user_id = senderUserId;
 			}

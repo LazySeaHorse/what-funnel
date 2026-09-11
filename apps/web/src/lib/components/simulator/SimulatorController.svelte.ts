@@ -144,9 +144,15 @@ export class SimulatorController {
         contact,
         textToSend,
       );
-      await apiRequest(`/webhooks/${targetPlatform}?channel_id=${channelID}`, {
+      await apiRequest("/simulate-inbound", {
         method: "POST",
-        body: nativePayload,
+        body: {
+          channel_id: channelID,
+          sender_external_id: contact.externalID,
+          sender_display_name: contact.name,
+          content_type: "text",
+          text: textToSend,
+        },
       });
       this.lastStatus = "success";
       const stageMatched = inferStage(textToSend);
@@ -162,7 +168,7 @@ export class SimulatorController {
         lastInboundText: textToSend,
         lastPayload: nativePayload,
         channelID,
-        channelType: `matrix_${targetPlatform}`,
+        channelType: targetPlatform,
         latencyMs: Math.round(performance.now() - startTime),
         timestamp: new Date().toISOString(),
       };
@@ -246,30 +252,15 @@ export class SimulatorController {
       const data = await apiRequest("/simulate/channels");
       this.channels = Array.isArray(data) ? data : [];
       const matching = this.channels.find(
-        (channel) =>
-          channel.type === `matrix_${platform}` || channel.type === platform,
+        (channel) => channel.type === platform,
       );
       if (matching) {
         this.selectedChannelID = matching.id;
         return matching.id;
       }
 
-      const created = await apiRequest("/channels", {
-        method: "POST",
-        body: { type: `matrix_${platform}` },
-      });
-      const updated = await apiRequest("/simulate/channels");
-      this.channels = Array.isArray(updated) ? updated : [];
-      const channelID =
-        created?.id ??
-        this.channels.find(
-          (channel) =>
-            channel.type === `matrix_${platform}` || channel.type === platform,
-        )?.id;
-      if (channelID) {
-        this.selectedChannelID = channelID;
-        return channelID;
-      }
+      this.lastStatus = "error";
+      this.lastError = `Connect a ${platform} account before using the simulator.`;
     } catch (error) {
       this.lastStatus = "error";
       this.lastError =
@@ -316,7 +307,7 @@ export class SimulatorController {
             draftText: draft.draft_text,
             draftStatus: draft.status,
             channelID: match.channel_id,
-            channelType: match.channel_type || `matrix_${platform}`,
+            channelType: match.channel_type || platform,
             timestamp: new Date().toISOString(),
           }
         : null,

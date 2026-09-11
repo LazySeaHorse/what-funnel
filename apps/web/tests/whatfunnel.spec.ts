@@ -7,8 +7,8 @@
  *       → identity-svc, workspace-svc, conversation-svc, notification-svc
  *
  * Demo-mode data injection:
- *   Inbound messages are injected via redis-cli → messages.inbound Redis Stream,
- *   which is consumed by conversation-svc. No real mautrix bridge required.
+ *   Inbound messages are injected as provider-neutral adapter.events. No live
+ *   WhatsApp account is required.
  *
  * Test isolation:
  *   Each suite creates unique accounts. Suites that need a channel use beforeAll
@@ -39,16 +39,25 @@ function injectInboundMessage(opts: {
   displayName: string;
   text: string;
 }) {
+  const now = new Date().toISOString();
   const payload = {
-    ChannelID: opts.channelId,
-    ExternalThreadID: opts.externalThreadID,
-    Contact: { ExternalIdentity: opts.externalIdentity, DisplayName: opts.displayName },
-    Message: { ContentType: 'text', Text: opts.text, ExternalMessageID: `msg-${Date.now()}` },
-    Timestamp: new Date().toISOString(),
+    schema_version: 1,
+    id: `e2e-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+    kind: 'message.created',
+    provider: 'whatsapp',
+    channel_id: opts.channelId,
+    occurred_at: now,
+    message: {
+      provider_message_id: `msg-${Date.now()}`,
+      external_thread_id: opts.externalThreadID,
+      direction: 'inbound',
+      sender: { external_id: opts.externalIdentity, display_name: opts.displayName },
+      content_type: 'text', text: opts.text, provider_timestamp: now
+    }
   };
   execFileSync(
     'docker',
-    ['compose', 'exec', '-T', 'redis', 'redis-cli', 'XADD', 'messages.inbound', '*', 'payload', JSON.stringify(payload)],
+    ['compose', 'exec', '-T', 'redis', 'redis-cli', 'XADD', 'adapter.events', '*', 'payload', JSON.stringify(payload)],
     { cwd: '../..', stdio: 'ignore' }
   );
 }
@@ -112,7 +121,7 @@ async function loginViaPage(page: Page, email: string) {
 
 /**
  * Start a provider connection via the Settings > Channels UI.
- * Returns the created channel UUID from the bridge-connection response.
+ * Returns the created channel UUID from the provider-connection response.
  */
 async function createChannel(page: Page): Promise<string> {
   await page.goto('/inbox?tab=settings');
@@ -121,49 +130,20 @@ async function createChannel(page: Page): Promise<string> {
   await page.getByRole('tab', { name: 'Channels', exact: true }).click();
 
   const connectionResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes('/bridge-connections') && resp.request().method() === 'POST',
+    (resp) => resp.url().includes('/channel-connections') && resp.request().method() === 'POST',
   );
-  await page.getByRole('button', { name: 'Connect channel' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
+  await page.getByRole('button', { name: 'Connect WhatsApp' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Connect WhatsApp' });
   await expect(dialog).toBeVisible({ timeout: 5000 });
-  await dialog.getByRole('combobox', { name: 'Channel' }).selectOption('whatsapp');
-  await dialog.getByRole('button', { name: 'Continue' }).click();
+  await dialog.getByLabel('Account label').fill(`E2E WhatsApp ${Date.now()}`);
+  await dialog.getByRole('button', { name: 'Show QR code' }).click();
   const connectionResponse = await connectionResponsePromise;
   expect(connectionResponse.status()).toBe(201);
   const channelId = (await connectionResponse.json()).channel_id as string;
   expect(channelId).toBeTruthy();
-  await expect(page.getByRole('dialog', { name: 'Connect WhatsApp' })).toBeVisible({ timeout: 5000 });
-  await page.getByRole('button', { name: 'Close channel dialog' }).click();
+  await page.getByRole('button', { name: 'Close connection dialog' }).click();
 
   return channelId;
-}
-
-/** Create an authenticated Matrix mock channel for outbound-message tests.
- * Bridge setup is covered separately; a synthetic inbound thread is not a real
- * Matrix room and therefore cannot be used to exercise an actual bridge send.
- */
-async function createMockMatrixChannel(page: Page): Promise<string> {
-  const response = await page.evaluate(async () => {
-    const result = await fetch('/api-gateway/channels', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        type: 'matrix_whatsapp',
-        bridge_identity: '@whatsappbot:mock',
-        bridge_credentials: {
-          homeserver_url: 'mock',
-          user_id: '@whatfunnel-e2e:mock',
-          access_token: 'mock-token'
-        }
-      })
-    });
-    return { status: result.status, body: await result.json() };
-  });
-
-  expect(response.status).toBe(201);
-  expect(response.body.id).toBeTruthy();
-  return response.body.id as string;
 }
 
 // ─── Suite 1: Auth & Session ──────────────────────────────────────────────────
@@ -280,36 +260,36 @@ test.describe('3. Channel Management', () => {
     await loginViaPage(page, suiteEmail);
     await page.goto('/inbox?tab=settings');
     await page.getByRole('tab', { name: 'Channels', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Connected channels', exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Messaging accounts', exact: true })).toBeVisible({ timeout: 15000 });
   });
 
-  test('3.2 Connect Channel dialog exposes a provider selector', async ({ page }) => {
+  test('3.2 Connect WhatsApp dialog requests an account label', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
     await page.goto('/inbox?tab=settings');
     await page.getByRole('tab', { name: 'Channels', exact: true }).click();
-    await page.getByRole('button', { name: 'Connect channel' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Connect a channel' });
+    await page.getByRole('button', { name: 'Connect WhatsApp' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Connect WhatsApp' });
     await expect(dialog).toBeVisible({ timeout: 5000 });
-    await expect(dialog.getByRole('combobox', { name: 'Channel' })).toBeVisible();
-    await expect(dialog.getByText(/Connection credentials remain server-side/)).toBeVisible();
+    await expect(dialog.getByLabel('Account label')).toBeVisible();
+    await expect(dialog.getByText(/Each connection is isolated/)).toBeVisible();
   });
 
   test('3.3 Creating a channel updates the settings list', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
     const channelID = await createChannel(page);
     expect(channelID).toBeTruthy();
-    await expect(page.getByText('WhatsApp', { exact: true }).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/E2E WhatsApp/).first()).toBeVisible({ timeout: 5000 });
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('button', { name: 'Disconnect' }).click();
-    await expect(page.getByText('No channels connected yet.', { exact: true })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Unlink' }).click();
+    await expect(page.getByText('No WhatsApp accounts connected yet.', { exact: true })).toBeVisible({ timeout: 5000 });
   });
 
   test('3.4 Disconnecting a channel returns the view to its empty state', async ({ page }) => {
     await loginViaPage(page, suiteEmail);
     await createChannel(page);
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('button', { name: 'Disconnect' }).click();
-    await expect(page.getByText('No channels connected yet.', { exact: true })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Unlink' }).click();
+    await expect(page.getByText('No WhatsApp accounts connected yet.', { exact: true })).toBeVisible({ timeout: 5000 });
   });
 
 });
@@ -393,7 +373,7 @@ test.describe('5. Outbound Messaging', () => {
     const page = await browser.newPage();
     await signupViaPage(page, suiteEmail, 'Outbound Test Biz');
     await completeOnboarding(page);
-    channelId = await createMockMatrixChannel(page);
+    channelId = await createChannel(page);
     await page.close();
   });
 
@@ -637,7 +617,7 @@ test.describe('9. WebSocket Realtime Push', () => {
     const page = await browser.newPage();
     await signupViaPage(page, suiteEmail, 'WS Test Biz');
     await completeOnboarding(page);
-    channelId = await createMockMatrixChannel(page);
+    channelId = await createChannel(page);
     await page.close();
   });
 

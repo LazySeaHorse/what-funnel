@@ -6,7 +6,7 @@ function conversation(id: string, name: string, externalIdentity: string) {
 		id,
 		status: 'open',
 		assigned_user_ids: ['user-1'],
-		channel_type: 'matrix_whatsapp',
+		channel_type: 'whatsapp',
 		last_message_at: '2026-01-01T12:00:00Z',
 		contact: { display_name: name, external_identity: externalIdentity },
 		lead: { id: `lead-${id}`, current_state_key: 'new', tags: [] },

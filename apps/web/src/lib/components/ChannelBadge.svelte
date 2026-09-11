@@ -28,7 +28,7 @@
 	};
 
 	const normalizedChannel = $derived(
-		channel.toLowerCase().replace('matrix_', '')
+		channel.toLowerCase()
 	);
 </script>
 

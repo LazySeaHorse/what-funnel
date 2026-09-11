@@ -7,7 +7,7 @@ const conversation = {
 	assigned_user_ids: [] as string[],
 	created_at: '2026-01-01T12:00:00Z',
 	last_message_at: '2026-01-01T12:00:00Z',
-	channel_type: 'matrix_whatsapp',
+	channel_type: 'whatsapp',
 	contact: {
 		display_name: 'Jordan Lee',
 		external_identity: '+15550199'

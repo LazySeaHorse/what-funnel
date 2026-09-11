@@ -30,7 +30,7 @@ test('chat auto-reply can opt out and return to the global default', async ({ pa
 		assigned_user_ids: [],
 		ai_control: { state: 'active', state_reason: null, reply_override: 'inherit', run_state: 'idle' },
 		contact_name: 'Test Customer',
-		channel_type: 'matrix_whatsapp',
+		channel_type: 'whatsapp',
 		last_message_at: '2026-08-30T00:00:00Z'
 	};
 	const api = await mockWorkspaceApi(page, {
@@ -68,7 +68,7 @@ test('AI ownership locks the composer and offers an immediate pause', async ({ p
 			assigned_user_ids: [],
 			ai_control: { state: 'active', state_reason: null, reply_override: 'inherit', run_state: 'replying' },
 			contact_name: 'Replying Customer',
-			channel_type: 'matrix_whatsapp',
+			channel_type: 'whatsapp',
 			last_message_at: '2026-08-30T00:00:00Z'
 		}]
 	});

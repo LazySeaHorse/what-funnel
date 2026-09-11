@@ -47,8 +47,8 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		{ id: 'user-1', email: `${role}@example.test`, username: role, role }
 	];
 	let replyMode: string | null = null;
-	let channels: Array<{ id: string; type: string; status: string; bridge_identity?: string }> = [];
-	let bridgeConnections: Array<{ channel_id: string; platform: string; state: string; detail: string }> = [];
+	let channels: Array<{ id: string; type: string; status: string }> = [];
+	let providerConnections: Array<{ channel_id: string; provider: string; label: string; state: string; detail: string; capabilities: Record<string, boolean> }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
 	let aiConfigured = options.aiConfigured ?? false;
 	if (options.autoReplyEnabled !== undefined) {
@@ -149,21 +149,28 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (path === '/channels') {
 			return json(channels);
 		}
-		if (/^\/channels\/[^/]+$/.test(path) && request.method() === 'DELETE') {
-			channels = channels.filter((channel) => channel.id !== path.split('/')[2]);
-			bridgeConnections = bridgeConnections.filter((connection) => connection.channel_id !== path.split('/')[2]);
-			return json({ status: 'deleted' });
-		}
-		if (path === '/bridge-connections') {
+		if (path === '/channel-connections') {
 			if (request.method() === 'POST') {
-				const platform = String(body?.platform || 'whatsapp');
-				const channel = { id: `channel-${channels.length + 1}`, type: `matrix_${platform}`, status: 'pending' };
-				const connection = { channel_id: channel.id, platform, state: platform === 'telegram' ? 'awaiting_code' : 'awaiting_scan', detail: 'Complete the provider sign-in to finish connecting.' };
+				const provider = String(body?.provider || 'whatsapp');
+				const channel = { id: `channel-${channels.length + 1}`, type: provider, status: 'awaiting_scan' };
+				const connection = { channel_id: channel.id, provider, label: String(body?.label || 'WhatsApp'), state: 'awaiting_scan', detail: 'Scan the QR code to finish connecting.', capabilities: { media: true, replies: true, reactions: true, edits: true, deletes: true, receipts: true } };
 				channels = [...channels, channel];
-				bridgeConnections = [...bridgeConnections, connection];
+				providerConnections = [...providerConnections, connection];
 				return json(connection);
 			}
-			return json(bridgeConnections);
+			return json(providerConnections);
+		}
+		if (/^\/channel-connections\/[^/]+$/.test(path)) {
+			const channelID = path.split('/')[2];
+			if (request.method() === 'DELETE') {
+				channels = channels.filter((channel) => channel.id !== channelID);
+				providerConnections = providerConnections.filter((connection) => connection.channel_id !== channelID);
+				return route.fulfill({ status: 204, body: '' });
+			}
+			return json(providerConnections.find((connection) => connection.channel_id === channelID) ?? {});
+		}
+		if (/^\/channel-connections\/[^/]+\/qr$/.test(path)) {
+			return route.fulfill({ contentType: 'image/png', body: '' });
 		}
 		if (path === '/workspace/pipelines') return json([pipeline]);
 		if (path.startsWith('/workspace/pipelines/') && request.method() === 'PUT') {

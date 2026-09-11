@@ -5,7 +5,7 @@ const records = ['Alice', 'Bob'].map((name, index) => ({
 	id: `conversation-${index + 1}`,
 	status: 'open',
 	assigned_user_ids: [] as string[],
-	channel_type: 'matrix_whatsapp',
+	channel_type: 'whatsapp',
 	last_message_at: '2026-01-01T12:00:00Z',
 	contact: { display_name: name, external_identity: name.toLowerCase() },
 	lead: { id: `lead-${index + 1}`, current_state_key: 'new', tags: [] as string[] }
