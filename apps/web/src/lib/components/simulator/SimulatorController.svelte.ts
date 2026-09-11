@@ -259,8 +259,21 @@ export class SimulatorController {
         return matching.id;
       }
 
-      this.lastStatus = "error";
-      this.lastError = `Connect a ${platform} account before using the simulator.`;
+      if (platform !== "whatsapp" && platform !== "telegram") {
+        this.lastStatus = "error";
+        this.lastError = `${platform} simulation is coming soon.`;
+        return null;
+      }
+
+      const created = await apiRequest("/simulate/channels", {
+        method: "POST",
+        body: { provider: platform },
+      });
+      if (created?.id) {
+        this.channels = [...this.channels, created];
+        this.selectedChannelID = created.id;
+        return created.id;
+      }
     } catch (error) {
       this.lastStatus = "error";
       this.lastError =
