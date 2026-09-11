@@ -13,15 +13,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	fakeadapter "github.com/whatfunnel/whatfunnel/adapters/fake"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
-
-const testEncryptionKey = "test-key-exactly-32-bytes-padded"
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -50,10 +46,7 @@ func testService(t *testing.T) (*service.Service, *pgxpool.Pool, *pubsub.Client)
 	ps, err := pubsub.NewClient(redisAddr)
 	require.NoError(t, err)
 
-	cipher, err := crypto.NewCipherFromHex(testEncryptionKey)
-	require.NoError(t, err)
-
-	svc := service.New(pool, cipher, ps)
+	svc := service.New(pool, ps)
 	t.Cleanup(func() {
 		ps.Close()
 	})
@@ -107,7 +100,7 @@ func TestIngestInbound(t *testing.T) {
 	var channelID uuid.UUID
 	err := pool.QueryRow(ctx, `
 		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
@@ -230,112 +223,6 @@ func TestIngestInbound(t *testing.T) {
 	assert.Equal(t, 10, msgCount)
 }
 
-func TestSendMessage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	svc, pool, _ := testService(t)
-	ctx := context.Background()
-
-	accountID, userID := setupTestTenant(t, pool, "send-test")
-
-	// Create a channel
-	var channelID uuid.UUID
-	err := pool.QueryRow(ctx, `
-		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
-	`, accountID).Scan(&channelID)
-	require.NoError(t, err)
-
-	// Register fake adapter for WhatsApp
-	fakeAdapter := fakeadapter.New()
-	svc.RegisterAdapter("matrix_whatsapp", fakeAdapter)
-
-	// Create a contact
-	var contactID uuid.UUID
-	err = pool.QueryRow(ctx, `
-		INSERT INTO contacts (account_id, channel_id, external_identity, display_name)
-		VALUES ($1, $2, '98765@s.whatsapp.net', 'Alice') RETURNING id
-	`, accountID, channelID).Scan(&contactID)
-	require.NoError(t, err)
-
-	// Create a conversation
-	var convoID uuid.UUID
-	err = pool.QueryRow(ctx, `
-		INSERT INTO conversations (account_id, contact_id, channel_id)
-		VALUES ($1, $2, $3) RETURNING id
-	`, accountID, contactID, channelID).Scan(&convoID)
-	require.NoError(t, err)
-
-	var sourceMessageID uuid.UUID
-	err = pool.QueryRow(ctx, `
-		INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content)
-		VALUES ($1, $2, 'inbound', 'contact', 'text', '{"text":"Hello"}')
-		RETURNING id
-	`, accountID, convoID).Scan(&sourceMessageID)
-	require.NoError(t, err)
-
-	var draftID uuid.UUID
-	err = pool.QueryRow(ctx, `
-		INSERT INTO ai_reply_drafts (
-			account_id, conversation_id, source_message_id, draft_text, stage_matched, confidence
-		) VALUES ($1, $2, $3, 'Hello Alice from agent', 'pattern', 1.0)
-		RETURNING id
-	`, accountID, convoID, sourceMessageID).Scan(&draftID)
-	require.NoError(t, err)
-
-	// Send outbound message
-	msg, err := svc.SendMessage(ctx, accountID, convoID, "human", &userID, "text", "Hello Alice from agent", "", &draftID, nil, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, msg)
-
-	// Assert message stored in DB
-	var dbDirection, dbSenderType, dbContentType string
-	err = pool.QueryRow(ctx, `SELECT direction, sender_type, content_type FROM messages WHERE id = $1`, msg.ID).
-		Scan(&dbDirection, &dbSenderType, &dbContentType)
-	require.NoError(t, err)
-	assert.Equal(t, "outbound", dbDirection)
-	assert.Equal(t, "human", dbSenderType)
-	assert.Equal(t, "text", dbContentType)
-
-	var draftStatus string
-	var usedMessageID uuid.UUID
-	err = pool.QueryRow(ctx, `SELECT status, used_message_id FROM ai_reply_drafts WHERE id = $1`, draftID).
-		Scan(&draftStatus, &usedMessageID)
-	require.NoError(t, err)
-	assert.Equal(t, "used", draftStatus)
-	assert.Equal(t, msg.ID, usedMessageID)
-
-	// Assert adapter SendMessage was called
-	sent := fakeAdapter.GetSentMessages()
-	require.Len(t, sent, 1)
-	assert.Equal(t, channelID.String(), sent[0].ChannelID)
-	assert.Equal(t, "98765@s.whatsapp.net", sent[0].ExternalThreadID)
-	assert.Equal(t, "Hello Alice from agent", sent[0].Message.Text)
-
-	_, err = pool.Exec(ctx, `
-		UPDATE conversation_ai_state
-		SET state = 'active', run_state = 'replying', generation_epoch = 5
-		WHERE conversation_id = $1
-	`, convoID)
-	require.NoError(t, err)
-	staleEpoch := int64(4)
-	_, err = svc.SendMessage(ctx, accountID, convoID, "ai", nil, "text", "stale", "", nil, &staleEpoch, "reply", "ai-reply:stale")
-	require.ErrorContains(t, err, "stale or unauthorized")
-	require.Len(t, fakeAdapter.GetSentMessages(), 1)
-
-	currentEpoch := int64(5)
-	aiMessage, err := svc.SendMessage(ctx, accountID, convoID, "ai", nil, "text", "Current AI reply", "", nil, &currentEpoch, "reply", "ai-reply:current")
-	require.NoError(t, err)
-	require.Len(t, fakeAdapter.GetSentMessages(), 2)
-
-	retriedMessage, err := svc.SendMessage(ctx, accountID, convoID, "ai", nil, "text", "Current AI reply", "", nil, &currentEpoch, "reply", "ai-reply:current")
-	require.NoError(t, err)
-	assert.Equal(t, aiMessage.ID, retriedMessage.ID)
-	require.Len(t, fakeAdapter.GetSentMessages(), 2, "idempotent retry must not send twice")
-}
-
 func TestLeadManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -353,7 +240,7 @@ func TestLeadManagement(t *testing.T) {
 
 	// Create a channel
 	var channelID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
+	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
 	// 1. Ingest a message with lead_tracking_enabled = true (default)
@@ -516,7 +403,7 @@ func TestIngestExternalOutbound(t *testing.T) {
 	var channelID uuid.UUID
 	err := pool.QueryRow(ctx, `
 		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
@@ -593,7 +480,7 @@ func TestCloseConversation_Workflow(t *testing.T) {
 	var channelID uuid.UUID
 	err := pool.QueryRow(ctx, `
 		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 

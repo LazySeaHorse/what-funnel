@@ -13,12 +13,11 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	matrixadapter "github.com/whatfunnel/whatfunnel/adapters/matrix-mautrix"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/adapterclient"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/session"
@@ -57,39 +56,20 @@ func run(logger *slog.Logger) error {
 	defer psClient.Close()
 	logger.Info("connected to redis")
 
-	// 3. Initialize Crypto Cipher
-	cipher, err := crypto.NewCipherFromHex(cfg.EncryptionKey)
-	if err != nil {
-		return fmt.Errorf("initialize cipher: %w", err)
-	}
-
-	// 4. Initialize Service and Session Store
-	svc := service.New(pool, cipher, psClient)
-	svc.ConfigureBridgeConnections(service.BridgeConnectionConfig{
-		Provisioning: matrixadapter.ProvisioningConfig{
-			HomeserverURL:            cfg.MatrixHomeserverURL,
-			ServerName:               cfg.MatrixServerName,
-			RegistrationSharedSecret: cfg.MatrixRegistrationSharedSecret,
-		},
-		BridgeIdentities: map[string]string{
-			"whatsapp":  cfg.MatrixWhatsAppBridgeIdentity,
-			"telegram":  cfg.MatrixTelegramBridgeIdentity,
-			"instagram": cfg.MatrixInstagramBridgeIdentity,
-			"messenger": cfg.MatrixMessengerBridgeIdentity,
-		},
-	})
+	// 3. Initialize Service and Session Store
+	svc := service.New(pool, psClient)
 	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 
-	// 5. Initialize and Register Matrix Adapter
-	matrixAdapter := matrixadapter.New(matrixadapter.WithLogger(logger))
-	svc.RegisterAdapter("matrix_whatsapp", matrixAdapter)
-	svc.RegisterAdapter("matrix_instagram", matrixAdapter)
-	svc.RegisterAdapter("matrix_messenger", matrixAdapter)
-	svc.RegisterAdapter("matrix_telegram", matrixAdapter)
-
-	// Load existing channels from DB and configure adapters
-	if err := svc.InitAdapters(ctx); err != nil {
-		logger.Error("failed to initialize adapter configurations from database", "error", err)
+	// 5. Register the internal WhatsApp control plane. The adapter owns all
+	// WhatsApp session material; this service only stores domain state.
+	whatsAppControl, err := adapterclient.New(cfg.WhatsAppAdapterURL, cfg.AdapterSharedSecret)
+	if err != nil {
+		return fmt.Errorf("configure whatsapp adapter: %w", err)
+	}
+	svc.RegisterAdapterControl(messaging.ProviderWhatsApp, whatsAppControl)
+	svc.RegisterProviderMediaFetcher(messaging.ProviderWhatsApp, whatsAppControl)
+	if err := svc.ConfigureMediaCache(cfg.MediaCachePath); err != nil {
+		return fmt.Errorf("configure media cache: %w", err)
 	}
 
 	// 6. Initialize HTTP API Routes
@@ -98,6 +78,7 @@ func run(logger *slog.Logger) error {
 
 	h := handler.New(svc, sess)
 	h.RegisterRoutes(r)
+	r.Handle("/internal/media/{id}", handler.NewInternalMediaHandler(svc, cfg.AdapterSharedSecret)).Methods(http.MethodGet)
 
 	// Health Check Endpoint
 	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -115,61 +96,40 @@ func run(logger *slog.Logger) error {
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
-		logger.Info("starting matrix adapter")
-		err := matrixAdapter.Start(groupCtx, func(event types.InboundEvent) {
-			logger.Info("received event from matrix adapter, publishing to redis", "channel_id", event.ChannelID, "event_id", event.Message.ExternalMessageID)
-			if _, err := psClient.Publish(groupCtx, "messages.inbound", event); err != nil && groupCtx.Err() == nil {
-				logger.Error("failed to publish inbound event to Redis", "error", err)
-			}
-		}, func(event types.ExternalOutboundEvent) {
-			logger.Info("received external outbound event from matrix adapter, publishing to redis", "channel_id", event.ChannelID, "event_id", event.ExternalMessageID)
-			if _, err := psClient.Publish(groupCtx, "messages.external_outbound", event); err != nil && groupCtx.Err() == nil {
-				logger.Error("failed to publish external outbound event to Redis", "error", err)
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("run matrix adapter: %w", err)
-		}
-		if groupCtx.Err() == nil {
-			return errors.New("matrix adapter stopped unexpectedly")
-		}
-		return nil
-	})
-	group.Go(func() error {
-		logger.Info("starting Redis stream consumer for messages.inbound")
-		err := psClient.Consume(groupCtx, "messages.inbound", "conversation-svc-group", "conversation-svc-consumer", func(ctx context.Context, id string, payload []byte) error {
-			var event types.InboundEvent
+		logger.Info("starting provider event consumer")
+		err := psClient.Consume(groupCtx, "adapter.events", "conversation-svc-provider-events", "conversation-svc-provider-events-1", func(ctx context.Context, _ string, payload []byte) error {
+			var event messaging.Event
 			if err := json.Unmarshal(payload, &event); err != nil {
-				logger.Error("failed to unmarshal inbound event", "error", err)
-				return nil // Return nil so malformed messages get acknowledged and cleared
-			}
-
-			logger.Info("processing message from Redis stream", "event_id", event.Message.ExternalMessageID)
-			if err := svc.IngestInbound(ctx, event); err != nil {
-				logger.Error("failed to ingest inbound message", "error", err)
-				return err // Keep in stream pending queue
-			}
-			return nil
-		})
-		return consumerResult(groupCtx, "messages.inbound", err)
-	})
-	group.Go(func() error {
-		logger.Info("starting Redis stream consumer for messages.external_outbound")
-		err := psClient.Consume(groupCtx, "messages.external_outbound", "conversation-svc-group", "conversation-svc-external-outbound-consumer", func(ctx context.Context, id string, payload []byte) error {
-			var event types.ExternalOutboundEvent
-			if err := json.Unmarshal(payload, &event); err != nil {
-				logger.Error("failed to unmarshal external outbound event", "error", err)
+				logger.Error("discarding malformed provider event", "error", err)
 				return nil
 			}
-
-			logger.Info("processing external outbound message from Redis stream", "event_id", event.ExternalMessageID)
-			if err := svc.IngestExternalOutbound(ctx, event); err != nil {
-				logger.Error("failed to ingest external outbound message", "error", err)
+			if err := event.Validate(); err != nil {
+				logger.Error("discarding invalid provider event", "event_id", event.ID, "error", err)
+				return nil
+			}
+			if err := svc.IngestProviderEvent(ctx, event); err != nil {
+				logger.Error("failed to ingest provider event", "event_id", event.ID, "error", err)
 				return err
 			}
 			return nil
 		})
-		return consumerResult(groupCtx, "messages.external_outbound", err)
+		return consumerResult(groupCtx, "adapter.events", err)
+	})
+	group.Go(func() error {
+		logger.Info("starting provider command outbox")
+		err := svc.DispatchOutbox(groupCtx)
+		if groupCtx.Err() != nil && errors.Is(err, groupCtx.Err()) {
+			return nil
+		}
+		return fmt.Errorf("dispatch provider commands: %w", err)
+	})
+	group.Go(func() error {
+		logger.Info("starting media cache cleanup")
+		err := svc.RunMediaCleanup(groupCtx)
+		if groupCtx.Err() != nil && errors.Is(err, groupCtx.Err()) {
+			return nil
+		}
+		return fmt.Errorf("clean media cache: %w", err)
 	})
 	group.Go(func() error {
 		logger.Info("conversation-svc listening", "port", cfg.Port)

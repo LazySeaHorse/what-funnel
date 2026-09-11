@@ -33,7 +33,7 @@ func TestService_InboxVisibility(t *testing.T) {
 	var channelID uuid.UUID
 	err = pool.QueryRow(ctx, `
 		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
@@ -109,7 +109,7 @@ func TestService_InboxPagination(t *testing.T) {
 
 	// Create channel, contact, conversation
 	var channelID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
+	err := pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
 	var contactID uuid.UUID
@@ -193,7 +193,7 @@ func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
 	var channelID uuid.UUID
 	err = pool.QueryRow(ctx, `
 		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
@@ -286,4 +286,3 @@ func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, mine2)
 }
-

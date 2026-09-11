@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	matrixadapter "github.com/whatfunnel/whatfunnel/adapters/matrix-mautrix"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
@@ -20,7 +20,7 @@ type sendMessageCommand struct {
 	senderUserID    *uuid.UUID
 	contentType     string
 	text            string
-	mediaURL        string
+	mediaID         string
 	aiReplyDraftID  *uuid.UUID
 	generationEpoch *int64
 	purpose         types.MessagePurpose
@@ -45,7 +45,7 @@ func (c sendMessageCommand) validate() error {
 
 type outboundDestination struct {
 	channelID        uuid.UUID
-	channelType      string
+	provider         messaging.Provider
 	externalIdentity string
 }
 
@@ -56,7 +56,7 @@ func (s *Service) SendMessage(
 	accountID, conversationID uuid.UUID,
 	senderType string,
 	senderUserID *uuid.UUID,
-	contentType, text, mediaURL string,
+	contentType, text, mediaID string,
 	aiReplyDraftID *uuid.UUID,
 	generationEpoch *int64,
 	messagePurpose, idempotencyKey string,
@@ -64,7 +64,7 @@ func (s *Service) SendMessage(
 	return s.sendMessage(ctx, sendMessageCommand{
 		accountID: accountID, conversationID: conversationID,
 		sender: types.MessageSender(senderType), senderUserID: senderUserID,
-		contentType: contentType, text: text, mediaURL: mediaURL,
+		contentType: contentType, text: text, mediaID: mediaID,
 		aiReplyDraftID: aiReplyDraftID, generationEpoch: generationEpoch,
 		purpose: types.MessagePurpose(messagePurpose), idempotencyKey: idempotencyKey,
 	})
@@ -94,12 +94,11 @@ func (s *Service) sendMessage(ctx context.Context, cmd sendMessageCommand) (*typ
 		return nil, err
 	}
 
-	externalMessageID, err := s.sendViaAdapter(ctx, tx, destination, cmd)
+	msg, err := insertOutboundMessage(ctx, tx, cmd, "")
 	if err != nil {
 		return nil, err
 	}
-	msg, err := insertOutboundMessage(ctx, tx, cmd, externalMessageID)
-	if err != nil {
+	if err := insertOutboxCommand(ctx, tx, destination, cmd, msg); err != nil {
 		return nil, err
 	}
 	invalidatedDraftID, err := applyOutboundMessageEffects(ctx, tx, cmd, msg)
@@ -114,6 +113,7 @@ func (s *Service) sendMessage(ctx context.Context, cmd sendMessageCommand) (*typ
 	}
 
 	s.publishOutboundMessageEvents(ctx, cmd, msg, invalidatedDraftID)
+	_ = s.DispatchOutboxOnce(ctx)
 	return msg, nil
 }
 
@@ -172,12 +172,13 @@ func authorizeAIMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand) 
 func loadOutboundDestination(ctx context.Context, tx pgx.Tx, accountID, conversationID uuid.UUID) (outboundDestination, error) {
 	var destination outboundDestination
 	err := tx.QueryRow(ctx, `
-		SELECT c.channel_id, ch.type, co.external_identity
+		SELECT c.channel_id, COALESCE(ch.provider, ch.type),
+		       COALESCE(c.external_thread_id, co.external_identity)
 		FROM conversations c
 		JOIN channels ch ON c.channel_id = ch.id
 		JOIN contacts co ON c.contact_id = co.id
 		WHERE c.id = $1 AND c.account_id = $2
-	`, conversationID, accountID).Scan(&destination.channelID, &destination.channelType, &destination.externalIdentity)
+	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return outboundDestination{}, errors.New("conversation not found")
 	}
@@ -206,46 +207,15 @@ func lockReplyDraft(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand) erro
 	return nil
 }
 
-func (s *Service) sendViaAdapter(ctx context.Context, tx pgx.Tx, destination outboundDestination, cmd sendMessageCommand) (string, error) {
-	adapter, err := s.GetAdapter(destination.channelType)
-	if err != nil {
-		return "", err
-	}
-
-	var dbCredentials []byte
-	var bridgeIdentity string
-	if err = tx.QueryRow(ctx, `SELECT bridge_credentials, COALESCE(bridge_identity, '') FROM channels WHERE id = $1`, destination.channelID).Scan(&dbCredentials, &bridgeIdentity); err == nil && len(dbCredentials) > 0 {
-		if decrypted, decryptErr := s.DecryptCredentials(dbCredentials); decryptErr == nil {
-			if configurable, ok := adapter.(interface {
-				Configure(channelID string, config matrixadapter.ChannelConfig)
-			}); ok {
-				var credentials matrixadapter.Credentials
-				if json.Unmarshal(decrypted, &credentials) == nil {
-					configurable.Configure(destination.channelID.String(), matrixadapter.ChannelConfig{
-						Credentials: credentials, BridgeIdentity: bridgeIdentity,
-					})
-				}
-			}
-		}
-	}
-
-	externalMessageID, err := adapter.SendMessage(ctx, destination.channelID.String(), destination.externalIdentity, types.NormalizedMessage{
-		ContentType: cmd.contentType, Text: cmd.text, MediaURL: cmd.mediaURL,
-	})
-	if err != nil {
-		return "", fmt.Errorf("adapter send failed: %w", err)
-	}
-	return externalMessageID, nil
-}
-
 func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand, externalMessageID string) (*types.Message, error) {
-	content, err := json.Marshal(map[string]any{"text": cmd.text, "media_url": cmd.mediaURL})
+	content, err := json.Marshal(map[string]any{"text": cmd.text, "media_id": cmd.mediaID})
 	if err != nil {
 		return nil, fmt.Errorf("marshal outbound message: %w", err)
 	}
 	msg := &types.Message{
 		AccountID: cmd.accountID, ConversationID: cmd.conversationID, Direction: "outbound",
 		SenderType: cmd.sender, SenderUserID: cmd.senderUserID, ContentType: cmd.contentType, Content: content,
+		DeliveryStatus: "queued",
 	}
 	if externalMessageID != "" {
 		msg.ExternalMessageID = &externalMessageID
@@ -254,14 +224,86 @@ func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageComman
 		msg.IdempotencyKey = &cmd.idempotencyKey
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO messages (account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, idempotency_key, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		INSERT INTO messages (
+			account_id, conversation_id, direction, sender_type, sender_user_id,
+			content_type, content, external_message_id, idempotency_key, delivery_status, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued', NOW())
 		RETURNING id, created_at
 	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content, msg.ExternalMessageID, msg.IdempotencyKey).Scan(&msg.ID, &msg.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert outbound message: %w", err)
 	}
 	return msg, nil
+}
+
+func insertOutboxCommand(
+	ctx context.Context,
+	tx pgx.Tx,
+	destination outboundDestination,
+	cmd sendMessageCommand,
+	message *types.Message,
+) error {
+	contentType := messaging.ContentType(cmd.contentType)
+	if !contentType.Valid() || contentType == messaging.ContentNotice {
+		return fmt.Errorf("unsupported outbound content type %q", cmd.contentType)
+	}
+	normalized := &messaging.Message{
+		ExternalThreadID: destination.externalIdentity,
+		Direction:        messaging.DirectionOutbound,
+		Sender: messaging.Sender{
+			ExternalID: "business",
+		},
+		ContentType:       contentType,
+		Text:              cmd.text,
+		ProviderTimestamp: message.CreatedAt,
+	}
+	if cmd.mediaID != "" {
+		mediaID, err := uuid.Parse(cmd.mediaID)
+		if err != nil {
+			return errors.New("invalid outbound media id")
+		}
+		var media messaging.Media
+		err = tx.QueryRow(ctx, `
+			SELECT id::TEXT, COALESCE(filename, ''), mime_type, size_bytes
+			FROM media_objects
+			WHERE id = $1 AND account_id = $2 AND channel_id = $3
+			  AND storage_key IS NOT NULL AND expires_at > NOW()
+		`, mediaID, cmd.accountID, destination.channelID).Scan(
+			&media.ID, &media.Filename, &media.MIMEType, &media.SizeBytes,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("outbound media is unavailable")
+		}
+		if err != nil {
+			return fmt.Errorf("load outbound media: %w", err)
+		}
+		normalized.Media = &media
+	}
+	command := messaging.Command{
+		SchemaVersion: messaging.SchemaVersion,
+		ID:            "send:" + message.ID.String(),
+		Kind:          messaging.CommandSendMessage,
+		Provider:      destination.provider,
+		ChannelID:     destination.channelID.String(),
+		CreatedAt:     message.CreatedAt,
+		MessageID:     message.ID.String(),
+		Message:       normalized,
+	}
+	if err := command.Validate(); err != nil {
+		return fmt.Errorf("build outbound command: %w", err)
+	}
+	commandJSON, err := json.Marshal(command)
+	if err != nil {
+		return fmt.Errorf("marshal outbound command: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO message_outbox (account_id, channel_id, message_id, provider, command)
+		VALUES ($1, $2, $3, $4, $5)
+	`, cmd.accountID, destination.channelID, message.ID, destination.provider, commandJSON); err != nil {
+		return fmt.Errorf("insert outbound command: %w", err)
+	}
+	return nil
 }
 
 func applyOutboundMessageEffects(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand, msg *types.Message) (*uuid.UUID, error) {

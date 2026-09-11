@@ -1,12 +1,12 @@
 package service
 
 import (
+	"context"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 
 	"github.com/google/uuid"
 )
@@ -18,23 +18,34 @@ import (
 //   - conversation.go – conversation queries, RBAC, message pagination
 //   - ingest.go      – inbound / outbound message ingestion
 //   - lead.go        – lead lifecycle, notes, history
-//   - bridge_connection.go – Matrix bridge setup lifecycle
+//   - provider_connection.go – provider adapter setup lifecycle
 type Service struct {
-	pool         *pgxpool.Pool
-	cipher       *crypto.Cipher
-	pubsub       *pubsub.Client
-	adapters     map[string]types.ChannelAdapter
-	adaptersMu   sync.RWMutex
-	bridgeConfig BridgeConnectionConfig
+	pool          *pgxpool.Pool
+	pubsub        *pubsub.Client
+	controls      map[messaging.Provider]AdapterControl
+	controlsMu    sync.RWMutex
+	mediaRoot     string
+	mediaFetchers map[messaging.Provider]ProviderMediaFetcher
+	mediaMu       sync.RWMutex
 }
 
-func New(pool *pgxpool.Pool, cipher *crypto.Cipher, pubsub *pubsub.Client) *Service {
+func New(pool *pgxpool.Pool, pubsub *pubsub.Client) *Service {
 	return &Service{
-		pool:     pool,
-		cipher:   cipher,
-		pubsub:   pubsub,
-		adapters: make(map[string]types.ChannelAdapter),
+		pool:          pool,
+		pubsub:        pubsub,
+		controls:      make(map[messaging.Provider]AdapterControl),
+		mediaFetchers: make(map[messaging.Provider]ProviderMediaFetcher),
 	}
+}
+
+type ProviderMedia struct {
+	Data     []byte
+	MIMEType string
+	Filename string
+}
+
+type ProviderMediaFetcher interface {
+	Download(context.Context, string, string) (ProviderMedia, error)
 }
 
 func (s *Service) PubSub() *pubsub.Client {

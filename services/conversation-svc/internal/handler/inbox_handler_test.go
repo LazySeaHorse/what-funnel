@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/handler"
@@ -39,7 +38,7 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 	var channelID uuid.UUID
 	err = pool.QueryRow(context.Background(), `
 		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'matrix_whatsapp', 'connected') RETURNING id
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
 	`, accountID).Scan(&channelID)
 	require.NoError(t, err)
 
@@ -64,10 +63,7 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	defer ps.Close()
 
-	cipher, err := crypto.NewCipherFromHex("test-key-exactly-32-bytes-padded")
-	require.NoError(t, err)
-
-	svc := service.New(pool, cipher, ps)
+	svc := service.New(pool, ps)
 
 	// Mock sessions
 	adminSess := &mockSessionStore{

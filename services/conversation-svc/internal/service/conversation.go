@@ -61,6 +61,13 @@ type conversationScanDest struct {
 	msgContentType *string
 	msgContent     []byte
 	msgExternalID  *string
+	msgProviderID  *string
+	msgReplyToID   *uuid.UUID
+	msgDelivery    *string
+	msgDetail      *string
+	msgProviderAt  *time.Time
+	msgEditedAt    *time.Time
+	msgDeletedAt   *time.Time
 	msgCreatedAt   *time.Time
 	// lead fields
 	leadID         *uuid.UUID
@@ -97,7 +104,9 @@ func scanConversationRow(scanner interface {
 		&d.lastReadAt,
 		&d.item.ChannelType,
 		&d.msgID, &d.msgDirection, &d.msgSenderType, &d.msgSenderUID,
-		&d.msgContentType, &d.msgContent, &d.msgExternalID, &d.msgCreatedAt,
+		&d.msgContentType, &d.msgContent, &d.msgExternalID, &d.msgProviderID,
+		&d.msgReplyToID, &d.msgDelivery, &d.msgDetail, &d.msgProviderAt,
+		&d.msgEditedAt, &d.msgDeletedAt, &d.msgCreatedAt,
 		&d.leadID, &d.leadPipelineID, &d.leadStateKey, &d.leadTags,
 		&d.leadCreatedBy, &d.leadCreatedAt, &d.leadUpdatedAt,
 	); err != nil {
@@ -121,6 +130,13 @@ func scanConversationRow(scanner interface {
 			ContentType:       *d.msgContentType,
 			Content:           d.msgContent,
 			ExternalMessageID: d.msgExternalID,
+			ProviderMessageID: d.msgProviderID,
+			ReplyToMessageID:  d.msgReplyToID,
+			DeliveryStatus:    *d.msgDelivery,
+			DeliveryDetail:    d.msgDetail,
+			ProviderTimestamp: d.msgProviderAt,
+			EditedAt:          d.msgEditedAt,
+			DeletedAt:         d.msgDeletedAt,
 			CreatedAt:         *d.msgCreatedAt,
 		}
 	}
@@ -152,7 +168,9 @@ const sharedConversationSQL = `
 	       cr.last_read_at,
 	       ch.type as channel_type,
 	       m.id, m.direction, m.sender_type, m.sender_user_id,
-	       m.content_type, m.content, m.external_message_id, m.created_at,
+	       m.content_type, m.content, m.external_message_id, m.provider_message_id,
+	       m.reply_to_message_id, m.delivery_status, m.delivery_detail,
+	       m.provider_timestamp, m.edited_at, m.deleted_at, m.created_at,
 	       l.id, l.pipeline_id, l.current_state_key, l.tags, l.created_by, l.created_at, l.updated_at
 	FROM conversations c
 	JOIN conversation_ai_state ais ON ais.conversation_id = c.id AND ais.account_id = c.account_id
@@ -161,7 +179,10 @@ const sharedConversationSQL = `
 	LEFT JOIN conversation_reads cr ON c.id = cr.conversation_id AND cr.user_id = $1
 	LEFT JOIN leads l ON c.id = l.conversation_id
 	LEFT JOIN LATERAL (
-	    SELECT id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+	    SELECT id, direction, sender_type, sender_user_id, content_type, content,
+	           external_message_id, provider_message_id, reply_to_message_id,
+	           delivery_status, delivery_detail, provider_timestamp, edited_at,
+	           deleted_at, created_at
 	    FROM messages
 	    WHERE conversation_id = c.id
 	    ORDER BY created_at DESC, id DESC
@@ -258,7 +279,10 @@ func (s *Service) GetConversationMessages(ctx context.Context, accountID, userID
 
 	args := []any{conversationID, accountID}
 	sqlQuery := `
-		SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+		SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id,
+		       content_type, content, external_message_id, provider_message_id,
+		       reply_to_message_id, delivery_status, delivery_detail,
+		       provider_timestamp, edited_at, deleted_at, created_at
 		FROM messages
 		WHERE conversation_id = $1 AND account_id = $2
 	`
@@ -287,13 +311,18 @@ func (s *Service) GetConversationMessages(ctx context.Context, accountID, userID
 		if err := rows.Scan(
 			&msg.ID, &msg.AccountID, &msg.ConversationID, &msg.Direction,
 			&msg.SenderType, &msg.SenderUserID, &msg.ContentType, &msg.Content,
-			&msg.ExternalMessageID, &msg.CreatedAt,
+			&msg.ExternalMessageID, &msg.ProviderMessageID, &msg.ReplyToMessageID,
+			&msg.DeliveryStatus, &msg.DeliveryDetail, &msg.ProviderTimestamp,
+			&msg.EditedAt, &msg.DeletedAt, &msg.CreatedAt,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan message: %w", err)
 		}
 		messages = append(messages, msg)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if err := s.loadMessageReactions(ctx, accountID, messages); err != nil {
 		return nil, "", err
 	}
 
@@ -303,6 +332,43 @@ func (s *Service) GetConversationMessages(ctx context.Context, accountID, userID
 		nextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
 	return messages, nextCursor, nil
+}
+
+func (s *Service) loadMessageReactions(ctx context.Context, accountID uuid.UUID, messages []*types.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	messageIDs := make([]uuid.UUID, 0, len(messages))
+	byID := make(map[uuid.UUID]*types.Message, len(messages))
+	for _, message := range messages {
+		message.Reactions = []types.MessageReaction{}
+		messageIDs = append(messageIDs, message.ID)
+		byID[message.ID] = message
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT message_id, sender_external_id, emoji, provider_timestamp
+		FROM message_reactions
+		WHERE account_id = $1 AND message_id = ANY($2)
+		ORDER BY provider_timestamp, sender_external_id
+	`, accountID, messageIDs)
+	if err != nil {
+		return fmt.Errorf("query message reactions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var messageID uuid.UUID
+		var reaction types.MessageReaction
+		if err := rows.Scan(&messageID, &reaction.SenderExternalID, &reaction.Emoji, &reaction.ProviderTimestamp); err != nil {
+			return fmt.Errorf("scan message reaction: %w", err)
+		}
+		if message := byID[messageID]; message != nil {
+			message.Reactions = append(message.Reactions, reaction)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate message reactions: %w", err)
+	}
+	return nil
 }
 
 // AssignConversation sets the assigned users on a conversation.

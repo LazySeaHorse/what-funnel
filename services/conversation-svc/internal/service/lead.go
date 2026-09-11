@@ -66,7 +66,9 @@ func (s *Service) CreateLead(ctx context.Context, accountID, userID, convoID uui
 	// Return existing lead if present (idempotent).
 	var existing types.Lead
 	var existingCreatedBy *uuid.UUID
-	scanExisting := func(q interface{ QueryRow(context.Context, string, ...any) pgx.Row }) (*types.Lead, error) {
+	scanExisting := func(q interface {
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}) (*types.Lead, error) {
 		err := q.QueryRow(ctx, `
 			SELECT id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at
 			FROM leads WHERE conversation_id = $1 AND account_id = $2

@@ -29,7 +29,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ContentType     string `json:"content_type"`
 		Text            string `json:"text"`
-		MediaURL        string `json:"media_url"`
+		MediaID         string `json:"media_id"`
 		SenderType      string `json:"sender_type"`
 		SenderUserID    string `json:"sender_user_id"`
 		AIReplyDraftID  string `json:"ai_reply_draft_id"`
@@ -69,7 +69,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.svc.SendMessage(
 		r.Context(), accountID, convoID, body.SenderType, senderUserID,
-		body.ContentType, body.Text, body.MediaURL, aiReplyDraftID,
+		body.ContentType, body.Text, body.MediaID, aiReplyDraftID,
 		body.GenerationEpoch, body.MessagePurpose, body.IdempotencyKey,
 	)
 	if err != nil {

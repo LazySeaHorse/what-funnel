@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
@@ -254,16 +255,9 @@ func (s *Service) IngestExternalOutbound(ctx context.Context, event types.Extern
 	return nil
 }
 
-// PublishInbound publishes a normalized InboundEvent to the messages.inbound stream.
-func (s *Service) PublishInbound(ctx context.Context, event types.InboundEvent) error {
-	if _, err := s.pubsub.Publish(ctx, "messages.inbound", event); err != nil {
-		return fmt.Errorf("publish inbound event: %w", err)
-	}
-	return nil
-}
-
-// SimulateInbound builds a mock InboundEvent and publishes it to the
-// messages.inbound stream, used for testing channel integrations in the UI.
+// SimulateInbound publishes a provider-neutral adapter event. It exercises the
+// same validation and ingestion boundary as a real adapter without contacting
+// the provider.
 func (s *Service) SimulateInbound(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -275,37 +269,50 @@ func (s *Service) SimulateInbound(
 	text string,
 	mediaURL string,
 ) error {
-	// Verify the channel belongs to this account.
-	var exists bool
+	var provider messaging.Provider
 	if err := s.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1 AND account_id = $2)`,
+		`SELECT provider FROM channels WHERE id = $1 AND account_id = $2`,
 		channelID, accountID,
-	).Scan(&exists); err != nil {
+	).Scan(&provider); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("channel not found or not owned by account")
+		}
 		return fmt.Errorf("channel lookup failed: %w", err)
 	}
-	if !exists {
-		return fmt.Errorf("channel not found or not owned by account")
+	if !provider.Valid() {
+		return errors.New("channel does not use a supported provider adapter")
 	}
 
-	extMsgID := fmt.Sprintf("$sim-%s", uuid.New().String())
-	event := types.InboundEvent{
-		ChannelID:        channelID,
-		ExternalThreadID: senderExternalID,
-		Contact: types.ContactRef{
-			ExternalIdentity: senderExternalID,
-			DisplayName:      senderDisplayName,
-			AvatarURL:        senderAvatarURL,
+	now := time.Now().UTC()
+	eventID := "sim-" + uuid.NewString()
+	message := &messaging.Message{
+		ProviderMessageID: eventID,
+		ExternalThreadID:  senderExternalID,
+		Direction:         messaging.DirectionInbound,
+		Sender: messaging.Sender{
+			ExternalID: senderExternalID, DisplayName: senderDisplayName, AvatarURL: senderAvatarURL,
 		},
-		Message: types.NormalizedMessage{
-			ContentType:       contentType,
-			Text:              text,
-			MediaURL:          mediaURL,
-			ExternalMessageID: extMsgID,
-		},
-		Timestamp: time.Now(),
+		ContentType:       messaging.ContentType(contentType),
+		Text:              text,
+		ProviderTimestamp: now,
+	}
+	if mediaURL != "" {
+		message.Media = &messaging.Media{ProviderRef: mediaURL}
+	}
+	event := messaging.Event{
+		SchemaVersion: messaging.SchemaVersion,
+		ID:            eventID,
+		Kind:          messaging.EventMessageCreated,
+		Provider:      provider,
+		ChannelID:     channelID,
+		OccurredAt:    now,
+		Message:       message,
+	}
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("validate simulated event: %w", err)
 	}
 
-	if _, err := s.pubsub.Publish(ctx, "messages.inbound", event); err != nil {
+	if _, err := s.pubsub.Publish(ctx, "adapter.events", event); err != nil {
 		return fmt.Errorf("publish simulated inbound event: %w", err)
 	}
 	return nil
