@@ -24,14 +24,18 @@
 						<CheckIcon class="w-3.5 h-3.5 text-emerald-600" />
 						<span>Connected</span>
 					</button>
-				{:else}
+				{:else if ch.id === 'whatsapp' || ch.id === 'telegram'}
 					<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => onConnect(ch)}>
 						Connect
 					</button>
+				{:else}
+					<span class="px-2.5 py-1 text-[11px] font-medium text-slate-400 bg-slate-100 rounded-lg">Coming soon</span>
 				{/if}
 			</div>
 		</div>
 	{/each}
+
+	<p class="rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs leading-5 text-sky-800">Telegram customers must message your bot first before you can reply from WhatFunnel.</p>
 
 	<!-- Web Chat coming soon item -->
 	<div class="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/50 border border-slate-200/60 rounded-xl opacity-75">

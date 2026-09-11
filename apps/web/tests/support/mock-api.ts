@@ -152,13 +152,19 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (path === '/channel-connections') {
 			if (request.method() === 'POST') {
 				const provider = String(body?.provider || 'whatsapp');
-				const channel = { id: `channel-${channels.length + 1}`, type: provider, status: 'awaiting_scan' };
-				const connection = { channel_id: channel.id, provider, label: String(body?.label || 'WhatsApp'), state: 'awaiting_scan', detail: 'Scan the QR code to finish connecting.', capabilities: { media: true, replies: true, reactions: true, edits: true, deletes: true, receipts: true } };
+				const state = provider === 'telegram' ? 'connected' : 'awaiting_scan';
+				const channel = { id: `channel-${channels.length + 1}`, type: provider, status: state };
+				const connection = { channel_id: channel.id, provider, label: String(body?.label || (provider === 'telegram' ? 'Telegram bot' : 'WhatsApp')), state, detail: provider === 'telegram' ? 'Telegram bot connected.' : 'Scan the QR code to finish connecting.', remote_account_id: provider === 'telegram' ? '@test_bot' : undefined, capabilities: { media: true, replies: true, reactions: true, edits: true, deletes: true, receipts: provider !== 'telegram' } };
 				channels = [...channels, channel];
 				providerConnections = [...providerConnections, connection];
 				return json(connection);
 			}
 			return json(providerConnections);
+		}
+		if (/^\/channel-connections\/[^/]+\/retry$/.test(path) && request.method() === 'POST') {
+			const channelID = path.split('/')[2];
+			providerConnections = providerConnections.map((connection) => connection.channel_id === channelID ? { ...connection, state: connection.provider === 'telegram' ? 'connected' : 'awaiting_scan' } : connection);
+			return json(providerConnections.find((connection) => connection.channel_id === channelID) ?? {});
 		}
 		if (/^\/channel-connections\/[^/]+$/.test(path)) {
 			const channelID = path.split('/')[2];

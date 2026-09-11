@@ -214,6 +214,37 @@ test.describe("in-app settings safety net", () => {
     ).not.toBeVisible();
   });
 
+  test("multiple Telegram bots connect without exposing their tokens", async ({ page }) => {
+    const api = await mockWorkspaceApi(page);
+    await page.goto("/inbox?tab=settings");
+    await page.getByRole("tab", { name: "Channels", exact: true }).click();
+
+    await expect(page.getByText(/customer must message the bot first/i)).toBeVisible();
+    for (const [label, token] of [
+      ["Support bot", "123456:telegram-secret-one"],
+      ["Sales bot", "789012:telegram-secret-two"],
+    ]) {
+      await page.getByRole("button", { name: /Connect Telegram/ }).click();
+      const dialog = page.getByRole("dialog", { name: "Connect Telegram" });
+      await dialog.getByLabel("Account label").fill(label);
+      await dialog.getByLabel("Bot token").fill(token);
+      await dialog.getByRole("button", { name: "Connect bot" }).click();
+      await expect(dialog.getByText(`${label} is connected.`)).toBeVisible();
+      await expect(dialog.getByLabel("Bot token")).toHaveCount(0);
+      await expect(page.getByText(token)).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Done" }).click();
+    }
+
+    await expect(page.getByText("Support bot", { exact: true })).toBeVisible();
+    await expect(page.getByText("Sales bot", { exact: true })).toBeVisible();
+    const creates = api.requests.filter((request) => request.path === "/channel-connections" && request.method === "POST");
+    expect(creates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ body: { provider: "telegram", label: "Support bot", credential: "123456:telegram-secret-one" } }),
+      expect.objectContaining({ body: { provider: "telegram", label: "Sales bot", credential: "789012:telegram-secret-two" } }),
+    ]));
+    await expect(page.getByText("Coming soon", { exact: true })).toHaveCount(2);
+  });
+
   test("deleting a provider channel removes it and its associated chats", async ({
     page,
   }) => {

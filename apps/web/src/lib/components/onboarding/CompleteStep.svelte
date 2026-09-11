@@ -36,7 +36,7 @@
 						</div>
 						<div>
 							<div class="text-sm font-medium text-slate-900">Omni-channel inbox</div>
-							<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from WhatsApp, Instagram, Messenger, and Telegram.</div>
+							<div class="text-xs text-slate-500 font-normal mt-0.5">Manage live conversations from connected WhatsApp accounts and Telegram bots.</div>
 						</div>
 					</div>
 				</div>
