@@ -8,5 +8,6 @@ use (
 	./tests/integration
 	./services/conversation-svc
 	./adapters/whatsapp-whatsmeow
+	./adapters/telegram-botapi
 	./services/notification-svc
 )

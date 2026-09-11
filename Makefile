@@ -75,10 +75,12 @@ test: ## Run full test suite (unit + integration; requires `make up` first)
 	@echo "Running tests..."
 	go test $(TEST_PACKAGES) -count=1 -timeout 120s
 	cd adapters/whatsapp-whatsmeow && go test ./... -count=1 -timeout 120s
+	cd adapters/telegram-botapi && go test ./... -count=1 -timeout 120s
 
 test-short: ## Run unit tests only (no postgres required)
 	go test $(TEST_PACKAGES) -short -count=1 -timeout 30s
 	cd adapters/whatsapp-whatsmeow && go test ./... -short -count=1 -timeout 30s
+	cd adapters/telegram-botapi && go test ./... -short -count=1 -timeout 30s
 
 test-verbose: ## Run full test suite with verbose output
 	@echo "Waiting for postgres..."
@@ -86,6 +88,7 @@ test-verbose: ## Run full test suite with verbose output
 	@$(MAKE) migrate
 	go test $(TEST_PACKAGES) -v -count=1 -timeout 120s
 	cd adapters/whatsapp-whatsmeow && go test ./... -v -count=1 -timeout 120s
+	cd adapters/telegram-botapi && go test ./... -v -count=1 -timeout 120s
 
 # ---------------------------------------------------------------------------
 # Build
