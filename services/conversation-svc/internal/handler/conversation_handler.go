@@ -80,6 +80,77 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, msg)
 }
 
+func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	conversationID, messageID, ok := providerMessageIDs(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := h.svc.EditProviderMessage(r.Context(), accountID, userID, conversationID, messageID, body.Text); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+func (h *Handler) DeleteProviderMessage(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	conversationID, messageID, ok := providerMessageIDs(w, r)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteProviderMessage(r.Context(), accountID, userID, conversationID, messageID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	conversationID, messageID, ok := providerMessageIDs(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Emoji   string `json:"emoji"`
+		Removed bool   `json:"removed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := h.svc.ChangeProviderReaction(r.Context(), accountID, userID, conversationID, messageID, body.Emoji, body.Removed); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+func providerMessageIDs(w http.ResponseWriter, r *http.Request) (uuid.UUID, uuid.UUID, bool) {
+	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return uuid.Nil, uuid.Nil, false
+	}
+	messageID, err := uuid.Parse(mux.Vars(r)["message_id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid message ID")
+		return uuid.Nil, uuid.Nil, false
+	}
+	return conversationID, messageID, true
+}
+
 func (h *Handler) GetReplyDraft(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	userID, _ := middleware.UserIDFromContext(r)

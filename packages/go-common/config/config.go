@@ -24,6 +24,7 @@ type Config struct {
 	// deployment secret. Provider credentials and session data stay inside the
 	// adapter container.
 	WhatsAppAdapterURL  string
+	TelegramAdapterURL  string
 	AdapterSharedSecret string
 	MediaCachePath      string
 }
@@ -84,6 +85,7 @@ func Load() (*Config, error) {
 		CookieSecure:        cookieSecure,
 		AllowedOrigins:      allowedOrigins,
 		WhatsAppAdapterURL:  os.Getenv("WHATSAPP_ADAPTER_URL"),
+		TelegramAdapterURL:  os.Getenv("TELEGRAM_ADAPTER_URL"),
 		AdapterSharedSecret: os.Getenv("ADAPTER_SHARED_SECRET"),
 		MediaCachePath:      os.Getenv("MEDIA_CACHE_PATH"),
 	}
@@ -108,6 +110,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.MediaCachePath == "" {
 		cfg.MediaCachePath = "/data/media"
+	}
+	if cfg.WhatsAppAdapterURL == "" {
+		cfg.WhatsAppAdapterURL = "http://whatsapp-adapter:8086"
+	}
+	if cfg.TelegramAdapterURL == "" {
+		cfg.TelegramAdapterURL = "http://telegram-adapter:8087"
 	}
 
 	return cfg, nil

@@ -2,6 +2,7 @@ package adapterclient
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -30,6 +31,13 @@ func TestClientCreate(t *testing.T) {
 		if request.URL.Path != "/v1/connections" {
 			t.Errorf("path = %q, want /v1/connections", request.URL.Path)
 		}
+		var body map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["credential"] != "bot-token" {
+			t.Errorf("credential = %q", body["credential"])
+		}
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
@@ -39,7 +47,7 @@ func TestClientCreate(t *testing.T) {
 		}, nil
 	})
 
-	snapshot, err := client.Create(context.Background(), "channel-1")
+	snapshot, err := client.Create(context.Background(), "channel-1", "bot-token")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}

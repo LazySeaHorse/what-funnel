@@ -176,6 +176,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: production
       WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
+      TELEGRAM_ADAPTER_URL: http://telegram-adapter:8087
       ADAPTER_SHARED_SECRET: ${ADAPTER_SHARED_SECRET}
       MEDIA_CACHE_PATH: /data/media
     volumes:
@@ -191,6 +192,8 @@ services:
       migrate:
         condition: service_completed_successfully
       whatsapp-adapter:
+        condition: service_healthy
+      telegram-adapter:
         condition: service_healthy
     restart: unless-stopped
 
@@ -218,6 +221,36 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8086/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  telegram-adapter:
+    build:
+      context: .
+      dockerfile: adapters/telegram-botapi/Dockerfile
+    container_name: whatfunnel-telegram-adapter-prod
+    environment:
+      PORT: "8087"
+      REDIS_URL: redis:6379
+      TELEGRAM_DATABASE_PATH: /data/telegram.db
+      CONVERSATION_INTERNAL_URL: http://conversation-svc:8083
+      ADAPTER_SHARED_SECRET: ${ADAPTER_SHARED_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ADAPTER_CONSUMER_NAME: telegram-adapter-1
+    volumes:
+      - telegram_adapter_data:/data
+    networks:
+      - backend_net
+      - data_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8087/healthz"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -317,4 +350,5 @@ volumes:
   postgres_data:
   redis_data:
   whatsapp_adapter_data:
+  telegram_adapter_data:
   conversation_media_data:

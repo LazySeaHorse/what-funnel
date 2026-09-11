@@ -42,13 +42,34 @@ func New(baseURL, secret string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Create(ctx context.Context, channelID string) (service.AdapterSnapshot, error) {
-	body, err := json.Marshal(map[string]string{"channel_id": channelID})
+func (c *Client) Create(ctx context.Context, channelID, credential string) (service.AdapterSnapshot, error) {
+	payload := map[string]string{"channel_id": channelID}
+	if credential != "" {
+		payload["credential"] = credential
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return service.AdapterSnapshot{}, fmt.Errorf("encode create connection: %w", err)
 	}
 	var snapshot service.AdapterSnapshot
 	if err := c.request(ctx, http.MethodPost, "/v1/connections", bytes.NewReader(body), &snapshot); err != nil {
+		return service.AdapterSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func (c *Client) Retry(ctx context.Context, channelID, credential string) (service.AdapterSnapshot, error) {
+	payload := map[string]string{}
+	if credential != "" {
+		payload["credential"] = credential
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return service.AdapterSnapshot{}, fmt.Errorf("encode retry connection: %w", err)
+	}
+	var snapshot service.AdapterSnapshot
+	path := "/v1/connections/" + url.PathEscape(channelID) + "/retry"
+	if err := c.request(ctx, http.MethodPost, path, bytes.NewReader(body), &snapshot); err != nil {
 		return service.AdapterSnapshot{}, err
 	}
 	return snapshot, nil

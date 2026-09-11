@@ -297,7 +297,11 @@ func editProviderMessage(ctx context.Context, tx pgx.Tx, accountID, channelID uu
 	result.accountID = accountID
 	err = tx.QueryRow(ctx, `
 		UPDATE messages AS message
-		SET content_type = $1, content = $2, edited_at = $3
+		SET content_type = $1,
+		    content = CASE WHEN message.content ? 'media_id'
+		                   THEN $2::JSONB || jsonb_build_object('media_id', message.content->'media_id')
+		                   ELSE $2::JSONB END,
+		    edited_at = $3
 		FROM conversations AS conversation
 		WHERE message.provider_message_id = $4
 		  AND message.account_id = $5
@@ -371,6 +375,14 @@ func changeProviderReaction(ctx context.Context, tx pgx.Tx, accountID, channelID
 
 func applyProviderReceipt(ctx context.Context, tx pgx.Tx, accountID, channelID uuid.UUID, event messaging.Event) (providerEventResult, error) {
 	result := providerEventResult{accountID: accountID}
+	localMessageID := uuid.Nil
+	if event.CorrelationID != "" {
+		parsed, err := uuid.Parse(event.CorrelationID)
+		if err != nil {
+			return providerEventResult{}, fmt.Errorf("parse receipt correlation id: %w", err)
+		}
+		localMessageID = parsed
+	}
 	err := tx.QueryRow(ctx, `
 		UPDATE messages AS message
 		SET delivery_status = CASE
@@ -383,12 +395,13 @@ func applyProviderReceipt(ctx context.Context, tx pgx.Tx, accountID, channelID u
 		END,
 		delivery_detail = NULLIF($2, '')
 		FROM conversations AS conversation
-		WHERE message.provider_message_id = $3
+		WHERE (($6::UUID <> '00000000-0000-0000-0000-000000000000'::UUID AND message.id = $6)
+		       OR ($6::UUID = '00000000-0000-0000-0000-000000000000'::UUID AND message.provider_message_id = $3))
 		  AND message.account_id = $4
 		  AND message.conversation_id = conversation.id
 		  AND conversation.channel_id = $5
 		RETURNING message.id, message.conversation_id
-	`, event.Receipt.Status, event.Receipt.Detail, event.Receipt.ProviderMessageID, accountID, channelID).
+	`, event.Receipt.Status, event.Receipt.Detail, event.Receipt.ProviderMessageID, accountID, channelID, localMessageID).
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
 		return providerEventResult{}, fmt.Errorf("apply provider receipt: %w", err)

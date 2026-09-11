@@ -23,7 +23,8 @@ type AdapterSnapshot struct {
 }
 
 type AdapterControl interface {
-	Create(context.Context, string) (AdapterSnapshot, error)
+	Create(context.Context, string, string) (AdapterSnapshot, error)
+	Retry(context.Context, string, string) (AdapterSnapshot, error)
 	Snapshot(context.Context, string) (AdapterSnapshot, error)
 	Logout(context.Context, string) error
 }
@@ -38,11 +39,14 @@ func (s *Service) StartProviderConnection(
 	ctx context.Context,
 	accountID uuid.UUID,
 	provider messaging.Provider,
-	label string,
+	label, credential string,
 ) (*types.ProviderConnection, error) {
 	label = strings.TrimSpace(label)
-	if !provider.Valid() || provider != messaging.ProviderWhatsApp {
+	if !provider.Valid() {
 		return nil, errors.New("provider is not available")
+	}
+	if provider == messaging.ProviderTelegram && strings.TrimSpace(credential) == "" {
+		return nil, errors.New("telegram bot token is required")
 	}
 	if label == "" || len(label) > 80 {
 		return nil, errors.New("label must contain 1 to 80 characters")
@@ -84,9 +88,9 @@ func (s *Service) StartProviderConnection(
 		return nil, fmt.Errorf("create provider connection: %w", err)
 	}
 
-	snapshot, err := control.Create(ctx, connection.ChannelID.String())
+	snapshot, err := control.Create(ctx, connection.ChannelID.String(), credential)
 	if err != nil {
-		detail := "Could not start WhatsApp pairing. Try again."
+		detail := "Could not connect this provider account. Check the credentials and try again."
 		_ = s.updateProviderConnection(ctx, connection.ChannelID, messaging.ConnectionError, detail, "")
 		connection.State = messaging.ConnectionError
 		connection.Detail = detail
@@ -94,6 +98,34 @@ func (s *Service) StartProviderConnection(
 	}
 	applyAdapterSnapshot(connection, snapshot)
 	if err := s.updateProviderConnection(ctx, connection.ChannelID, snapshot.State, snapshot.Detail, snapshot.RemoteAccountID); err != nil {
+		return nil, err
+	}
+	return connection, nil
+}
+
+func (s *Service) RetryProviderConnection(
+	ctx context.Context,
+	accountID, channelID uuid.UUID,
+	credential string,
+) (*types.ProviderConnection, error) {
+	connection, err := s.loadProviderConnection(ctx, accountID, channelID)
+	if err != nil {
+		return nil, err
+	}
+	control, err := s.adapterControl(connection.Provider)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := control.Retry(ctx, channelID.String(), strings.TrimSpace(credential))
+	if err != nil {
+		detail := "Could not reconnect this provider account."
+		_ = s.updateProviderConnection(ctx, channelID, messaging.ConnectionError, detail, connection.RemoteAccountID)
+		connection.State = messaging.ConnectionError
+		connection.Detail = detail
+		return connection, fmt.Errorf("retry provider adapter: %w", err)
+	}
+	applyAdapterSnapshot(connection, snapshot)
+	if err := s.updateProviderConnection(ctx, channelID, snapshot.State, snapshot.Detail, snapshot.RemoteAccountID); err != nil {
 		return nil, err
 	}
 	return connection, nil
@@ -292,7 +324,8 @@ func (s *Service) updateProviderConnection(
 }
 
 func providerCapabilities(provider messaging.Provider) messaging.Capabilities {
-	if provider == messaging.ProviderWhatsApp {
+	switch provider {
+	case messaging.ProviderWhatsApp:
 		return messaging.Capabilities{
 			Media:     true,
 			Replies:   true,
@@ -300,6 +333,11 @@ func providerCapabilities(provider messaging.Provider) messaging.Capabilities {
 			Edits:     true,
 			Deletes:   true,
 			Receipts:  true,
+		}
+	case messaging.ProviderTelegram:
+		return messaging.Capabilities{
+			Media: true, Replies: true, Reactions: true,
+			Edits: true, Deletes: true, Receipts: false,
 		}
 	}
 	return messaging.Capabilities{}

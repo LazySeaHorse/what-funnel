@@ -68,6 +68,12 @@ func run(logger *slog.Logger) error {
 	}
 	svc.RegisterAdapterControl(messaging.ProviderWhatsApp, whatsAppControl)
 	svc.RegisterProviderMediaFetcher(messaging.ProviderWhatsApp, whatsAppControl)
+	telegramControl, err := adapterclient.New(cfg.TelegramAdapterURL, cfg.AdapterSharedSecret)
+	if err != nil {
+		return fmt.Errorf("configure telegram adapter: %w", err)
+	}
+	svc.RegisterAdapterControl(messaging.ProviderTelegram, telegramControl)
+	svc.RegisterProviderMediaFetcher(messaging.ProviderTelegram, telegramControl)
 	if err := svc.ConfigureMediaCache(cfg.MediaCachePath); err != nil {
 		return fmt.Errorf("configure media cache: %w", err)
 	}

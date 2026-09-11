@@ -66,14 +66,15 @@ func (h *Handler) StartProviderConnection(w http.ResponseWriter, request *http.R
 	decoder := json.NewDecoder(http.MaxBytesReader(w, request.Body, 1024*1024))
 	decoder.DisallowUnknownFields()
 	var body struct {
-		Provider messaging.Provider `json:"provider"`
-		Label    string             `json:"label"`
+		Provider   messaging.Provider `json:"provider"`
+		Label      string             `json:"label"`
+		Credential string             `json:"credential"`
 	}
 	if err := decoder.Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
-	connection, err := h.svc.StartProviderConnection(request.Context(), accountID, body.Provider, body.Label)
+	connection, err := h.svc.StartProviderConnection(request.Context(), accountID, body.Provider, body.Label, body.Credential)
 	if err != nil {
 		if connection != nil {
 			// The durable connection record contains a safe, user-facing failure
@@ -86,6 +87,43 @@ func (h *Handler) StartProviderConnection(w http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(w, http.StatusCreated, connection)
+}
+
+func (h *Handler) RetryProviderConnection(w http.ResponseWriter, request *http.Request) {
+	accountID, ok := middleware.AccountIDFromContext(request)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Missing account.")
+		return
+	}
+	channelID, err := uuid.Parse(mux.Vars(request)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid channel ID.")
+		return
+	}
+	defer request.Body.Close()
+	decoder := json.NewDecoder(http.MaxBytesReader(w, request.Body, 1024*1024))
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Credential string `json:"credential"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+	connection, err := h.svc.RetryProviderConnection(request.Context(), accountID, channelID, body.Credential)
+	if errors.Is(err, service.ErrChannelNotFound) {
+		writeError(w, http.StatusNotFound, "Channel connection not found.")
+		return
+	}
+	if err != nil {
+		if connection != nil {
+			writeJSON(w, http.StatusOK, connection)
+			return
+		}
+		writeError(w, http.StatusBadGateway, "Could not reconnect channel connection.")
+		return
+	}
+	writeJSON(w, http.StatusOK, connection)
 }
 
 func (h *Handler) GetProviderConnection(w http.ResponseWriter, request *http.Request) {
