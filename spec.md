@@ -1,618 +1,100 @@
-# What Funnel — Master Specification
+# WhatFunnel messaging specification
 
-Version 1.0. This document is the technical specification for What Funnel.
+## Scope
 
----
+The unified inbox supports one-to-one conversations and multiple accounts per
+provider in each workspace. The first production adapter is WhatsApp via
+`whatsmeow`. Telegram Bot API is next. Instagram and Facebook Messenger are
+disabled and labeled coming soon until their official-API designs are implemented.
 
-## 1. Product Overview
+There is no chat-history import and no compatibility layer for the previous
+messaging architecture.
 
-What Funnel provides two functions on a shared core architecture:
+## Service boundaries
 
-1. **Chatbot Automation**: The system connects to messaging channels through Matrix bridges. The system answers customer questions automatically. The system transfers the conversation to a human user when confidence is low. A business can use this function without the dashboard.
-2. **Lead Management Workspace**: The system provides a unified inbox with lead pipelines, notes, tags, and user assignments. The user can enable or disable lead tracking for an account.
+The provider adapter owns authentication, persistent provider sessions, native
+event decoding, media transfer, and native sends. It runs in its own Docker
+container. The conversation service owns authorization, contacts, conversations,
+messages, reactions, delivery state, cached-media metadata, and the transactional
+outbound outbox. It must not import provider SDKs or store provider credentials.
 
-The two functions share accounts, channel adapters, conversation data models, and the AI cascade.
+The only asynchronous contract is the versioned Go package at
+`packages/go-common/messaging`:
 
-### Design Principles
-- The user does not configure vector databases, embedding models, or complex prompts. The user pastes text and approves suggestions.
-- The user uses familiar messaging workflows.
-- The system drafts non-deterministic AI answers or logs completed actions for review.
-- The system runs locally through Docker Compose. The managed cloud environment uses the same containers.
+- adapters publish `messaging.Event` envelopes to `adapter.events`;
+- the conversation service publishes `messaging.Command` envelopes to
+  `adapter.commands` through a PostgreSQL transactional outbox;
+- every envelope carries a schema version, unique ID, provider, channel ID, and timestamp;
+- consumers are idempotent and stale Redis pending messages are reclaimed.
 
-### Non-Goals for Version 1
-- No plugin marketplace.
-- No official channel APIs (Matrix bridges only).
-- No reporting dashboard.
-- No multi-business accounts (one account represents one business).
-- No mobile application (desktop web application only).
-- English language only.
-- No local LLM inference in version 1 (OpenAI-compatible API with user key only).
-- Plain text and Markdown knowledge base ingestion only (no PDF files).
+The control plane is an authenticated internal HTTP API used to create, inspect,
+and unlink provider sessions. It is separate from message traffic.
 
----
+## Unified message model
 
-## 2. Terms and Definitions
+Supported content types are `text`, `image`, `video`, `audio`, `document`, and
+`notice`. Messages preserve provider IDs and timestamps, direction, external
+direct-chat identity, sender, optional caption, media metadata, and reply target.
 
-| Term | Definition |
-|---|---|
-| **Account** | The tenant boundary. An account owns users, channels, conversations, knowledge base records, and settings. |
-| **User** | A person who has login access to an account. A user has a role: `manager` or `agent`. |
-| **Manager** | A user who can configure settings, manage channels, edit the knowledge base, manage users, and approve AI suggestions. |
-| **Agent** | A user who can view assigned conversations, reply to messages, write notes, and update lead stages. |
-| **Channel** | A connected messaging identity (such as a bridged WhatsApp or Telegram account). |
-| **Channel Connection** | A temporary record that manages the pairing flow (such as QR code scan) for a channel. |
-| **Contact** | A customer who sends a message to the business on a channel. |
-| **Conversation** | A message thread between one contact and the business on one channel. |
-| **Message** | A single communication record in a conversation. |
-| **Lead** | A record attached to a conversation when lead tracking is active. A lead has a stage, tags, and notes. |
-| **Pipeline** | An ordered list of lead stages configured for an account. |
-| **Knowledge Base (KB)** | The business knowledge stored as concepts with Markdown bodies and vector embeddings. |
-| **Pattern** | A deterministic question-and-answer pair with trigger phrases for fast matching. |
-| **KB Ingestion** | A staged import job that converts raw text into draft concepts and draft patterns for review. |
-| **Automation Suggestion** | A proposed pattern or concept generated by conversation mining, waiting for manager review. |
-| **Reply Mode** | An account or user setting that controls whether the AI sends answers directly (`auto_send`) or creates drafts (`draft_only`). |
+Event kinds are message created/edited/deleted, reaction changed, receipt
+changed, and channel status changed. Command kinds are send/edit/delete and
+reaction change. Unsupported provider content becomes a `notice` instructing the
+user to open the provider app. Provider-specific payloads must not leak into
+domain or UI APIs. Typing indicators are out of scope.
 
----
+## WhatsApp adapter
 
-## 3. System Architecture
+Each connection maps to an independent whatsmeow device in a private SQLite
+store. The browser receives QR image bytes, never session secrets. Restarts
+restore sessions. Only direct JIDs are accepted; group events are ignored.
+Adapter events use a durable SQLite outbox so Redis interruption cannot discard
+traffic. Processed commands are recorded for idempotency.
 
-```
-                         ┌─────────────────┐
-                         │   API Gateway   │  (Go)
-                         └────────┬────────┘
-              ┌───────────────────┼───────────────────┐
-              ▼                   ▼                   ▼
-      ┌───────────────┐   ┌───────────────┐   ┌──────────────────┐
-      │ Identity Svc  │   │ Workspace Svc │   │ Conversation Svc │
-      │ (Go)          │   │ (Go)          │   │ (Go)             │
-      │ Auth, Users,  │   │ Accounts,     │   │ Contacts, Leads, │
-      │ Sessions      │   │ Pipelines     │   │ Messages, Bridge │
-      └───────────────┘   └───────────────┘   └────────┬─────────┘
-                                                       │
-                                                       ▼
-                                              ┌──────────────────┐
-                                              │  Redis Streams   │
-                                              └────────┬─────────┘
-                      ┌────────────────────────────────┼────────────────────────┐
-                      ▼                                ▼                        ▼
-             ┌─────────────────┐             ┌────────────────────┐   ┌──────────────────┐
-             │  ai-answer-svc  │             │   ai-kb-compiler   │   │ Notification Svc │
-             │  (Python)       │             │   (Python)         │   │ (Go)             │
-             │  Cascade,       │◄────────────┤   Ingestion,       │   │ WebSocket Push   │
-             │  Embeddings,    │  reads KB   │   Dormant Mining   │   └──────────────────┘
-             │  Summaries      │             └────────────────────┘
-             └────────┬────────┘
-                      │
-                      ▼
-             ┌─────────────────┐
-             │ Channel Adapter │  (Go)
-             │ Matrix/Mautrix  │
-             └────────┬────────┘
-                      │
-                      ▼
-             ┌─────────────────┐
-             │ Synapse Matrix  │
-             │ + Bridge Fleet  │
-             └─────────────────┘
-```
+Automated tests normalize synthetic events and use fake publishers. Connection
+and delivery against real WhatsApp servers are manual acceptance tests.
 
-**Frontend**: SvelteKit single-page application. Communicates with API Gateway through REST and WebSocket.
+## Delivery guarantees
 
-### Data Flow for Inbound Messages
-1. The external messaging platform delivers a message to a Mautrix bridge.
-2. The bridge sends the message to the Matrix homeserver (Synapse).
-3. The Matrix adapter reads the event, normalizes the payload, and publishes an `InboundEvent` to Redis Streams (`messages.inbound`).
-4. The `conversation-svc` consumes `messages.inbound`. It saves the message, updates the contact, creates a lead if enabled, and publishes `conversation.updated`.
-5. The `ai-answer-svc` consumes `conversation.updated`. It executes the answer cascade. It sends an automated reply, saves a draft, or flags the conversation for a human.
-6. The `notification-svc` receives stream events and pushes WebSocket updates to connected browser clients.
+Creating an outbound message and its command-outbox row is one PostgreSQL
+transaction. A dispatcher claims ready rows, publishes commands, retries with
+backoff, and records permanent failure. A successful adapter send emits a
+correlated message-created event that records the provider message ID.
 
-### Human Takeover Flow
-1. An agent replies directly from an external client (for example, native WhatsApp) or through the workspace.
-2. The Matrix adapter detects an outbound message from a human sender.
-3. The `conversation-svc` saves the message and atomically moves `conversation_ai_state.state` to `paused_human`, increments the generation epoch, and records a state event.
-4. Automated inference and sending stop for this conversation until a user closes the conversation or explicitly resumes AI.
+Adapter event processing and its idempotency marker commit in one transaction,
+so Redis redelivery cannot duplicate a domain message or reaction.
 
----
+## Media policy
 
-## 4. Data Model
+The maximum inbound or outbound media size is 20 MiB. Retention is seven days at
+or below 1 MiB, 24 hours above 1 MiB through 10 MiB, and one hour above 10 MiB
+through 20 MiB. Provider media is downloaded lazily. Expired bytes are removed
+and fetched again where the provider reference remains usable.
 
-All tenant tables include `account_id` for tenant isolation. The application layer enforces tenant boundaries on all queries.
+Cached bytes live in a private Docker volume owned by `conversation-svc`.
+Browser reads/uploads require a workspace session; adapter reads use the shared
+secret. Files use owner-only permissions and are served with sniffing disabled.
 
-```
-accounts
-  id UUID PRIMARY KEY,
-  name TEXT NOT NULL,
-  slug TEXT UNIQUE,
-  plan TEXT NOT NULL DEFAULT 'self_hosted',
-  product_mode TEXT NOT NULL DEFAULT 'full_workspace', -- full_workspace | chatbot_only
-  settings JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+## Deployment
 
-account_ai_providers
-  account_id UUID PRIMARY KEY REFERENCES accounts(id),
-  base_url TEXT NOT NULL,
-  encrypted_api_key TEXT NOT NULL,                    -- AES-256-GCM encrypted string
-  analysis_model TEXT NOT NULL,                       -- ingestion, spam, summaries
-  reply_model TEXT NOT NULL,                          -- customer-facing generated replies
-  embedding_model TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+Docker Compose is the supported orchestrator. Kubernetes is out of scope. The
+messaging deployment adds `whatsapp-adapter`, its private SQLite volume, and the
+conversation media volume. PostgreSQL is the system of record and Redis Streams
+is the event transport.
 
-users
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  username TEXT,
-  email TEXT,
-  password_hash TEXT NOT NULL DEFAULT '',
-  role TEXT NOT NULL CHECK (role IN ('manager', 'agent')),
-  reply_mode_override TEXT CHECK (reply_mode_override IN ('auto_send', 'draft_only')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+Production requirements:
 
-sessions
-  token TEXT PRIMARY KEY,
-  data BYTEA NOT NULL,
-  expiry TIMESTAMPTZ NOT NULL
+- generate a high-entropy `ADAPTER_SHARED_SECRET`;
+- do not publish adapter, database, Redis, or internal service ports;
+- back up the adapter volume if preserving paired sessions is desired;
+- monitor connection state, outbox retries/failures, Redis pending entries, and cache disk use;
+- roll out schema, adapter, conversation service, gateway, then web UI.
 
-audit_logs
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  actor_user_id UUID REFERENCES users(id),
-  action TEXT NOT NULL,
-  target_type TEXT NOT NULL,
-  target_id UUID,
-  metadata JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+## Acceptance criteria
 
-channels
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  type TEXT NOT NULL CHECK (type IN ('matrix_whatsapp', 'matrix_instagram', 'matrix_messenger', 'matrix_telegram', 'webchat')),
-  bridge_identity TEXT,
-  bridge_credentials JSONB,
-  status TEXT NOT NULL DEFAULT 'disconnected' CHECK (status IN ('pending', 'connected', 'disconnected', 'error')),
-  status_detail TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-channel_connections
-  channel_id UUID PRIMARY KEY REFERENCES channels(id),
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  platform TEXT NOT NULL,
-  bridge_identity TEXT NOT NULL,
-  management_room_id TEXT,
-  state TEXT NOT NULL CHECK (state IN ('awaiting_scan', 'awaiting_phone', 'awaiting_code', 'awaiting_session', 'connecting', 'connected', 'failed', 'cancelled')),
-  detail TEXT,
-  last_event_id TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-contacts
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  channel_id UUID NOT NULL REFERENCES channels(id),
-  external_identity TEXT NOT NULL,
-  display_name TEXT,
-  avatar_url TEXT,
-  merged_into_contact_id UUID REFERENCES contacts(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-conversations
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  contact_id UUID NOT NULL REFERENCES contacts(id),
-  channel_id UUID NOT NULL REFERENCES channels(id),
-  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
-  assigned_user_ids UUID[] NOT NULL DEFAULT '{}',
-  last_message_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-conversation_ai_state
-  conversation_id UUID PRIMARY KEY REFERENCES conversations(id),
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  state TEXT NOT NULL,                                -- active, paused_human, cooldown, review_required, blocked_spam, blocked_manual
-  state_reason TEXT,
-  reply_override TEXT NOT NULL DEFAULT 'inherit',     -- inherit, enabled, disabled
-  run_state TEXT NOT NULL DEFAULT 'idle',             -- idle, queued, replying
-  run_started_at TIMESTAMPTZ,
-  generation_epoch BIGINT NOT NULL DEFAULT 0,
-  cooldown_level SMALLINT NOT NULL DEFAULT 0,
-  next_review_at TIMESTAMPTZ,
-  unanswered_count INTEGER NOT NULL DEFAULT 0,
-  unanswered_window_started_at TIMESTAMPTZ,
-  last_acknowledgement_at TIMESTAMPTZ,
-  blocked_at TIMESTAMPTZ,
-  version BIGINT NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-conversation_ai_state_events
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  actor_user_id UUID REFERENCES users(id),
-  from_state TEXT,
-  to_state TEXT NOT NULL,
-  reason TEXT,
-  triggering_message_id UUID REFERENCES messages(id),
-  metadata JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-conversation_reads
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  user_id UUID NOT NULL REFERENCES users(id),
-  last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-messages
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  sender_type TEXT NOT NULL CHECK (sender_type IN ('contact', 'human', 'ai')),
-  sender_user_id UUID REFERENCES users(id),
-  content_type TEXT NOT NULL CHECK (content_type IN ('text', 'image', 'video', 'audio', 'document', 'reaction', 'location', 'contact')),
-  content JSONB NOT NULL,
-  external_message_id TEXT,
-  idempotency_key TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-lead_pipelines
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  name TEXT NOT NULL,
-  states JSONB NOT NULL,                              -- Array of {key, label, color}
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-leads
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  pipeline_id UUID NOT NULL REFERENCES lead_pipelines(id),
-  current_state_key TEXT NOT NULL,
-  tags TEXT[] NOT NULL DEFAULT '{}',
-  created_by UUID REFERENCES users(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-lead_notes
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  lead_id UUID NOT NULL REFERENCES leads(id),
-  author_user_id UUID REFERENCES users(id),
-  body TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-lead_state_history
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  lead_id UUID NOT NULL REFERENCES leads(id),
-  from_state TEXT,
-  to_state TEXT NOT NULL,
-  changed_by UUID REFERENCES users(id),
-  changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-conversation_summaries
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  summary_fields JSONB NOT NULL DEFAULT '{}',
-  generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  message_count_at_generation INT NOT NULL
-
-ai_answer_events
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  message_id UUID NOT NULL REFERENCES messages(id),
-  stage_matched TEXT NOT NULL CHECK (stage_matched IN ('pattern', 'embedding', 'llm_grounded', 'none')),
-  confidence NUMERIC,
-  action TEXT NOT NULL CHECK (action IN ('auto_sent', 'drafted', 'flagged_human')),
-  reply_message_id UUID REFERENCES messages(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-ai_reply_drafts
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  source_message_id UUID NOT NULL REFERENCES messages(id),
-  draft_text TEXT NOT NULL,
-  stage_matched TEXT NOT NULL CHECK (stage_matched IN ('pattern', 'embedding', 'llm_grounded')),
-  confidence NUMERIC,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'used', 'dismissed', 'superseded')),
-  used_message_id UUID REFERENCES messages(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-kb_concepts
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  slug TEXT NOT NULL,
-  type TEXT NOT NULL,                                 -- faq, policy, hours, service, pricing
-  title TEXT NOT NULL,
-  tags TEXT[] NOT NULL DEFAULT '{}',
-  body_text TEXT NOT NULL,
-  embedding VECTOR(1536),
-  source TEXT NOT NULL CHECK (source IN ('owner_pasted', 'ai_compiled')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-patterns
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  trigger_phrases TEXT[] NOT NULL,
-  canonical_question TEXT NOT NULL,
-  answer_text TEXT NOT NULL,
-  embedding VECTOR(1536),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-kb_ingestions
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  requested_by UUID REFERENCES users(id),
-  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'processing', 'review_required', 'publishing', 'complete', 'failed')),
-  raw_text TEXT NOT NULL,
-  error TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  started_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-kb_ingestion_items
-  id UUID PRIMARY KEY,
-  ingestion_id UUID NOT NULL REFERENCES kb_ingestions(id),
-  position INT NOT NULL,
-  type TEXT NOT NULL,
-  title TEXT NOT NULL,
-  tags TEXT[] NOT NULL DEFAULT '{}',
-  body_text TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'published')),
-  concept_id UUID REFERENCES kb_concepts(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-kb_ingestion_patterns
-  id UUID PRIMARY KEY,
-  ingestion_id UUID NOT NULL REFERENCES kb_ingestions(id),
-  position INT NOT NULL,
-  canonical_question TEXT NOT NULL,
-  answer_text TEXT NOT NULL,
-  trigger_phrases TEXT[] NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'published')),
-  pattern_id UUID REFERENCES patterns(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-automation_suggestions
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  type TEXT NOT NULL CHECK (type IN ('new_pattern', 'new_kb_concept', 'edited_answer')),
-  source_message_ids UUID[] NOT NULL DEFAULT '{}',
-  proposed_payload JSONB NOT NULL,
-  confidence NUMERIC,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'edited')),
-  reviewed_by UUID REFERENCES users(id),
-  reviewed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-
-kb_mining_runs
-  id UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts(id),
-  run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  window_start TIMESTAMPTZ NOT NULL,
-  window_end TIMESTAMPTZ NOT NULL,
-  messages_scanned INT NOT NULL,
-  clusters_found INT NOT NULL,
-  suggestions_created INT NOT NULL
-```
-
----
-
-## 5. Service Contracts
-
-### 5.0 Cryptography Specification (Go and Python)
-
-The system encrypts `account_ai_providers.encrypted_api_key` and `channels.bridge_credentials` at rest. Provider URLs and model routing are stored as queryable workspace configuration; credentials remain opaque.
-
-- **Algorithm**: AES-256-GCM.
-- **Key**: 32 raw bytes, configured via `ENCRYPTION_KEY` or `APP_ENCRYPTION_KEY`.
-- **Nonce**: 12 random bytes, generated per operation and prepended to the ciphertext.
-- **Encoding**: Both Go and Python encode ciphertext as a hexadecimal string `hex(nonce || ciphertext_with_tag)`.
-- **Decryption Procedure**: Decode string to bytes, extract the first 12 bytes as the nonce, and decrypt the remaining bytes with the shared key.
-
-Cross-language tests in `tests/integration/crypto_interop_test.go` verify encryption and decryption between Go and Python.
-
-### 5.1 Channel Adapter Contract
-
-The channel adapter interface in Go defines messaging communication:
-
-```go
-type InboundEvent struct {
-    ChannelID        string
-    ExternalThreadID string
-    Contact          ContactRef
-    Message          NormalizedMessage
-    Timestamp        time.Time
-}
-
-type ExternalOutboundEvent struct {
-    ChannelID         string
-    ExternalThreadID  string
-    Message           NormalizedMessage
-    ExternalMessageID string
-    Timestamp         time.Time
-}
-
-type NormalizedMessage struct {
-    ContentType       string // text|image|video|audio|document|reaction|location|contact
-    Text              string
-    MediaURL          string
-    ReplyToExternalID string
-    ExternalMessageID string
-}
-
-type ChannelAdapter interface {
-    Start(ctx context.Context, publishInbound func(InboundEvent), publishExternalOutbound func(ExternalOutboundEvent)) error
-    SendMessage(ctx context.Context, channelID, externalThreadID string, msg NormalizedMessage) (string, error)
-    Status(channelID string) ChannelStatus
-}
-```
-
-### 5.2 AI Answer Cascade Contract (`ai-answer-svc`)
-
-The `ai-answer-svc` consumes `conversation.updated` events from Redis Streams.
-
-#### Cascade Stages in Execution Order
-1. **Trigger Phrase Match**: The service uses `rapidfuzz` to compare message text against `patterns.trigger_phrases` (ratio threshold >= 90.0).
-2. **Pattern Embedding Match**: The service computes the query embedding and compares cosine similarity against `patterns.embedding` (similarity threshold >= 0.85).
-3. **Concept RAG Match**: The service retrieves the top 5 `kb_concepts` by embedding similarity. The LLM generates a grounded answer with a structured Pydantic response (`answer_text`, `confidence`, `needs_human`). The response requires confidence >= 0.70 and `needs_human = false`.
-4. **Fallback**: If all stages fail, the service sends the standard automated human-review acknowledgement, creates an `ai_answer_events` record with `action = 'flagged_human'`, and enters a cooldown.
-
-#### Reply Mode and Safety Guards
-- **Mode Resolution**: The effective reply mode is determined from the account default (`settings.ai_reply_mode_default`), user preference (`users.reply_mode_override`), and `conversation_ai_state.reply_override`.
-- **Durable Admission Control**: Normal inference runs only while the conversation state is `active`. Human takeover, review, cooldown, and blocked states are rejected before embeddings or completion calls.
-- **Generation Fencing**: Every model run has a generation epoch. The send boundary validates the epoch and state, so a result that finishes after pause, takeover, or a newer run cannot be delivered. Message idempotency keys prevent duplicate accepted sends.
-- **Unanswerable Cooldown**: Repeated unanswerable questions use 30-second, 1-minute, 2-minute, and 5-minute review intervals. Messages received during cooldown do not enter the normal inference pipeline.
-- **Isolated Spam Judge**: At the end of each cooldown, a classifier receives only the newest transcript content within a conservative 1,000-token bound. It receives no knowledge base context and has no tools or function calls. Its schema permits only `real_customer` or `likely_spam`. Suspected spam moves to `blocked_spam`; a genuine conversation resumes until the final level, which moves it to human review.
-- **Plain-Text Output Boundary**: All model-authored customer replies, summaries, knowledge concepts, and answer patterns are normalized to plain text before persistence or delivery. Markdown and HTML are not part of platform payload contracts.
-- **Draft Output**: When action is `drafted`, the service saves the draft to `ai_reply_drafts` and publishes `ai.reply_ready`.
-
-### 5.3 Knowledge Base Compiler Contract (`ai-kb-compiler`)
-
-The service provides two compilation workflows:
-
-1. **Paste Ingestion**:
-   - Small inputs (3 or fewer items) publish directly to `kb_concepts` and `patterns`.
-   - Large inputs create a `kb_ingestions` job. The background worker drafts concept items (`kb_ingestion_items`) and pattern items (`kb_ingestion_patterns`). The manager reviews, edits, and publishes approved items atomically.
-2. **Dormant Conversation Mining**:
-   - The scheduler runs periodically based on `MINING_INTERVAL_HOURS`.
-   - The worker scans conversations with unanswered questions or low-confidence events.
-   - The worker clusters questions and creates proposals in `automation_suggestions` with status `pending`.
-   - The manager approves, edits, or rejects suggestions through the workspace API.
-
----
-
-## 6. Realtime Communication (WebSocket)
-
-The `notification-svc` maintains WebSocket connections with authenticated users. The service filters broadcast events by user account and conversation assignment visibility.
-
-### Published Realtime Events
-- `message.received`: Inbound message arrived.
-- `message.sent`: Outbound message sent.
-- `conversation.assigned`: User assignments changed on a conversation.
-- `lead.state_changed`: Lead stage updated.
-- `automation_suggestion.created`: New automation proposal generated.
-- `ai.reply_ready`: New AI draft or auto-reply completed.
-- `ai.reply_draft.updated`: AI draft used, dismissed, or superseded.
-- `channel.status_changed`: Channel connection status updated.
-- `conversation.summary_updated`: AI summary regenerated.
-
----
-
-## 7. AI Summary Debounce Logic
-
-When a conversation closes, `conversation-svc` publishes `conversation.closed`.
-
-The `ai-answer-svc` evaluates these debounce conditions before generating a summary:
-1. `now - last_generated_at >= 60 seconds`.
-2. `message_count_at_generation < current_message_count`.
-
-If both conditions pass, the service extracts fields defined in the account's `summary_schema` and upserts the result into `conversation_summaries`.
-
----
-
-## 8. Role-Based Access Control (RBAC)
-
-The system enforces two roles:
-
-- **`manager`**:
-  - Full access to account settings and deletion.
-  - Channel connection, configuration, and removal.
-  - Knowledge base editing, purge, and review.
-  - Lead pipeline configuration.
-  - User creation and deletion.
-  - View all conversations and leads.
-  - Approve or reject automation suggestions.
-  - View audit logs.
-- **`agent`**:
-  - View assigned conversations (and unassigned conversations if enabled by manager).
-  - Send messages and use AI reply drafts.
-  - Add notes and update lead stages.
-  - Set personal reply mode preference.
-  - Cannot modify account settings, channels, knowledge base, or other users.
-
-Every state-changing API request writes a record to `audit_logs`.
-
----
-
-## 9. Multi-Tenancy and Isolation
-
-- **Database**: Single PostgreSQL database. Every tenant table contains an `account_id` foreign key. Services use `ScopedDB` query helpers to enforce `account_id` constraints on all operations.
-- **Event Bus**: Single Redis cluster. All event payloads include `account_id`.
-- **Media Storage**: Files and media URLs are namespaced by `account_id`.
-
----
-
-## 10. Deployment
-
-The system deploys through Docker Compose.
-
-```
-docker-compose.yml (Development / Core Services)
-  - postgres (PostgreSQL 16 + pgvector)
-  - redis (Redis 7)
-  - migrate (Goose migration runner)
-  - identity-svc
-  - workspace-svc
-  - conversation-svc
-  - notification-svc
-  - ai-answer-svc
-  - ai-kb-compiler
-  - api-gateway
-  - matrix-init (Configuration provisioner)
-  - synapse (Matrix homeserver)
-  - mautrix-whatsapp (WhatsApp bridge)
-
-docker-compose.bridges.yml (Optional Bridge Stack)
-  - mautrix-telegram
-  - mautrix-messenger
-  - mautrix-instagram
-
-docker-compose.prod.yml (Hardened Production Stack)
-  - web (Nginx static frontend and reverse proxy)
-  - api-gateway
-  - Core and AI backend services with internal data network segmentation
-```
-
----
-
-## 11. Technology Stack Summary
-
-| Component | Technology |
-|---|---|
-| Backend Core Services | Go |
-| Frontend Application | SvelteKit, TypeScript, Tailwind CSS |
-| Database | PostgreSQL 16 with `pgvector` extension |
-| Event Bus | Redis 7 Streams |
-| Realtime Push | WebSocket via `notification-svc` |
-| Authentication | PostgreSQL-backed session store with bcrypt hashing |
-| AI Services | Python (FastAPI, asyncpg, httpx, OpenAI client, Pydantic, RapidFuzz) |
-| AI Provider | OpenAI-compatible API (BYO Key) |
-| Channel Messaging | Matrix Client-Server API with Mautrix bridges |
-| License | AGPLv3 |
-| Deployment | Docker Compose |
-
----
-
-## 12. Version 2 Backlog
-
-The following features are deferred to version 2:
-- Tool connector marketplace.
-- Official platform APIs (WhatsApp Cloud API, Instagram Graph API).
-- Native mobile application.
-- Analytics and reporting dashboards.
-- Advanced search operators.
-- Local LLM inference option.
-- Multi-business accounts under one login.
-- Custom user roles.
-- PDF and document ingestion for the knowledge base.
+1. A workspace can connect, inspect, and unlink multiple labeled WhatsApp accounts.
+2. Direct inbound text and supported media create one normalized timeline item.
+3. Outbound text and media expose queued/sent/delivered/read/failed state.
+4. Duplicate commands and events do not duplicate sends or messages.
+5. Unsupported content creates an actionable notice; group traffic is ignored.
+6. Media limits, auth, lazy fetch, expiry, and cleanup behave as specified.
+7. Restarts restore sessions and unfinished PostgreSQL/Redis/SQLite work.
