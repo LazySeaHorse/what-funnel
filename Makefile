@@ -1,4 +1,4 @@
-.PHONY: up down migrate test build lint help bridge-bootstrap bridges-up bridges-down bridges-logs
+.PHONY: up down migrate test build lint help
 
 # ===========================================================================
 # WhatFunnel Makefile
@@ -27,20 +27,6 @@ up: ## Start local dev stack (postgres, redis, all services). Migrations run aut
 
 down: ## Stop local dev stack
 	docker compose down
-
-bridge-bootstrap: ## Generate one bridge config + Synapse registration (BRIDGE=telegram|messenger|instagram)
-	@test -n "$(BRIDGE)" || (echo "Usage: make bridge-bootstrap BRIDGE=telegram|messenger|instagram [TELEGRAM_API_ID=... TELEGRAM_API_HASH=...]" >&2; exit 2)
-	TELEGRAM_API_ID="$(TELEGRAM_API_ID)" TELEGRAM_API_HASH="$(TELEGRAM_API_HASH)" ./adapters/matrix-mautrix/bootstrap-bridge.sh "$(BRIDGE)"
-
-bridges-up: ## Start Telegram, Instagram, and Messenger bridges after bootstrap
-	docker compose -f docker-compose.yml -f docker-compose.bridges.yml up -d --force-recreate matrix-init synapse conversation-svc
-	docker compose -f docker-compose.yml -f docker-compose.bridges.yml up -d mautrix-telegram mautrix-messenger mautrix-instagram
-
-bridges-down: ## Stop the optional Telegram, Instagram, and Messenger bridge stack
-	docker compose -f docker-compose.yml -f docker-compose.bridges.yml stop mautrix-telegram mautrix-messenger mautrix-instagram
-
-bridges-logs: ## Tail logs for the optional bridge stack
-	docker compose -f docker-compose.yml -f docker-compose.bridges.yml logs -f mautrix-telegram mautrix-messenger mautrix-instagram
 
 logs: ## Tail logs from all services
 	docker compose logs -f
@@ -75,7 +61,7 @@ migrate-reset: ## Roll back ALL migrations (destructive!)
 # Tests
 # ---------------------------------------------------------------------------
 
-TEST_PACKAGES ?= ./packages/go-common/... ./services/api-gateway/... ./services/identity-svc/... ./services/workspace-svc/... ./services/conversation-svc/... ./services/notification-svc/... ./adapters/fake/... ./adapters/matrix-mautrix/... ./tests/integration/...
+TEST_PACKAGES ?= ./packages/go-common/... ./services/api-gateway/... ./services/identity-svc/... ./services/workspace-svc/... ./services/conversation-svc/... ./services/notification-svc/... ./tests/integration/...
 
 test: ## Run full test suite (unit + integration; requires `make up` first)
 	@echo "Waiting for postgres..."
@@ -87,6 +73,7 @@ test: ## Run full test suite (unit + integration; requires `make up` first)
 
 test-short: ## Run unit tests only (no postgres required)
 	go test $(TEST_PACKAGES) -short -count=1 -timeout 30s
+	cd adapters/whatsapp-whatsmeow && go test ./... -short -count=1 -timeout 30s
 
 test-verbose: ## Run full test suite with verbose output
 	@echo "Waiting for postgres..."

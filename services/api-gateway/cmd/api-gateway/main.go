@@ -3,17 +3,18 @@
 // In v1, service-to-service calls are plain HTTP (no service mesh).
 //
 // Routing table:
-//   /auth/*           → identity-svc
-//   /workspace/*      → workspace-svc
-//   /onboarding/*     → workspace-svc
-//   /users/*          → workspace-svc
-//   /channels/*       → conversation-svc
-//   /bridge-connections/* → conversation-svc
-//   /conversations/*  → conversation-svc
-//   /leads/*          → conversation-svc
-//   /ws               → notification-svc (WebSocket)
-//   /api/kb/*         → ai-kb-compiler (admin-only)
-//   /healthz          → local health check
+//
+//	/auth/*           → identity-svc
+//	/workspace/*      → workspace-svc
+//	/onboarding/*     → workspace-svc
+//	/users/*          → workspace-svc
+//	/channels/*       → conversation-svc
+//	/channel-connections/* → conversation-svc
+//	/conversations/*  → conversation-svc
+//	/leads/*          → conversation-svc
+//	/ws               → notification-svc (WebSocket)
+//	/api/kb/*         → ai-kb-compiler (admin-only)
+//	/healthz          → local health check
 package main
 
 import (
@@ -35,7 +36,6 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 )
 
-
 func main() {
 	identitySvcURL := mustEnv("IDENTITY_SVC_URL")
 	workspaceSvcURL := mustEnv("WORKSPACE_SVC_URL")
@@ -43,7 +43,6 @@ func main() {
 	notificationSvcURL := mustEnv("NOTIFICATION_SVC_URL")
 	aiKBCompilerURL := envOrDefault("AI_KB_COMPILER_URL", "http://ai-kb-compiler:8085")
 	port := envOrDefault("PORT", "8080")
-
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -74,7 +73,6 @@ func main() {
 		logger.Error("invalid AI_KB_COMPILER_URL", "error", err)
 		os.Exit(1)
 	}
-
 
 	handler := newRouter(aiKBCompilerBase, identityBase, workspaceBase, conversationBase, notificationBase, logger)
 
@@ -132,12 +130,11 @@ func newRouter(
 
 	// Proxy /channels/* → conversation-svc
 	r.PathPrefix("/channels").Handler(proxy(conversationBase, logger))
-
-	// Proxy guided bridge connection setup → conversation-svc
-	r.PathPrefix("/bridge-connections").Handler(proxy(conversationBase, logger))
+	r.PathPrefix("/channel-connections").Handler(proxy(conversationBase, logger))
 
 	// Proxy /conversations/* → conversation-svc
 	r.PathPrefix("/conversations").Handler(proxy(conversationBase, logger))
+	r.PathPrefix("/media").Handler(proxy(conversationBase, logger))
 
 	// Proxy /leads/* → conversation-svc
 	r.PathPrefix("/leads").Handler(proxy(conversationBase, logger))
@@ -148,9 +145,6 @@ func newRouter(
 	// Proxy /simulate-inbound and /simulate/* → conversation-svc (dev test simulation)
 	r.PathPrefix("/simulate").Handler(proxy(conversationBase, logger))
 	r.Handle("/simulate-inbound", proxy(conversationBase, logger))
-
-	// Proxy /webhooks/* → conversation-svc (native platform webhooks)
-	r.PathPrefix("/webhooks").Handler(proxy(conversationBase, logger))
 
 	// Proxy /ws → notification-svc (WebSocket)
 	// Note: In production, Nginx proxies /ws directly to notification-svc:8084 to eliminate

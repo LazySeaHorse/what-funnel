@@ -12,8 +12,7 @@ COPY services/identity-svc/go.mod services/identity-svc/go.sum* services/identit
 COPY services/workspace-svc/go.mod services/workspace-svc/go.sum* services/workspace-svc/
 COPY services/conversation-svc/go.mod services/conversation-svc/
 COPY services/notification-svc/go.mod services/notification-svc/go.sum* services/notification-svc/
-COPY adapters/fake/go.mod adapters/fake/
-COPY adapters/matrix-mautrix/go.mod adapters/matrix-mautrix/
+COPY adapters/whatsapp-whatsmeow/go.mod adapters/whatsapp-whatsmeow/go.sum adapters/whatsapp-whatsmeow/
 COPY tests/integration/go.mod tests/integration/go.sum* tests/integration/
 
 # Download dependencies

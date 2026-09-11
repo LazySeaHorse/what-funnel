@@ -159,14 +159,11 @@ services:
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       PORT: "8083"
       LOG_LEVEL: info
-      MATRIX_HOMESERVER_URL: http://synapse:8008
-      MATRIX_SERVER_NAME: localhost
-      MATRIX_REGISTRATION_SHARED_SECRET: "B4t@Ss,gB8^0gRoFBG*A,kI6mmpPf:w5-w.~mWh5+i:MbIB@yF"
-      MATRIX_WHATSAPP_BRIDGE_IDENTITY: "@whatsappbot:localhost"
-      # Set these when their bridge containers and registrations are enabled.
-      MATRIX_TELEGRAM_BRIDGE_IDENTITY: ""
-      MATRIX_INSTAGRAM_BRIDGE_IDENTITY: ""
-      MATRIX_MESSENGER_BRIDGE_IDENTITY: ""
+      WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
+      ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
+      MEDIA_CACHE_PATH: /data/media
+    volumes:
+      - conversation_media_data:/data/media
     ports:
       - "8083:8083"
     depends_on:
@@ -176,6 +173,37 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      whatsapp-adapter:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # WhatsApp Adapter — one-to-one WhatsApp sessions via whatsmeow
+  # ---------------------------------------------------------------------------
+  whatsapp-adapter:
+    build:
+      context: .
+      dockerfile: adapters/whatsapp-whatsmeow/Dockerfile
+    container_name: whatfunnel-whatsapp-adapter
+    environment:
+      PORT: "8086"
+      REDIS_URL: redis:6379
+      WHATSAPP_DATABASE_PATH: /data/whatsapp.db
+      CONVERSATION_INTERNAL_URL: http://conversation-svc:8083
+      ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
+      ADAPTER_CONSUMER_NAME: whatsapp-adapter-1
+    volumes:
+      - whatsapp_adapter_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8086/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -228,70 +256,6 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Synapse (Matrix Homeserver) & mautrix-whatsapp bridge
-  # ---------------------------------------------------------------------------
-  matrix-init:
-    image: alpine:latest
-    container_name: whatfunnel-matrix-init
-    volumes:
-      - synapse_data:/synapse
-      - mautrix_whatsapp_data:/whatsapp
-      - ./adapters/matrix-mautrix/config:/config:ro
-      - ./adapters/matrix-mautrix/bridges:/bridges:ro
-    command: >
-      sh -c "
-      echo 'Initializing Matrix and WhatsApp bridge configurations...';
-      mkdir -p /synapse /whatsapp;
-      {
-        while IFS= read -r line; do
-          if [ \"$$line\" = '# APP_SERVICE_CONFIG_FILES' ]; then
-            echo 'app_service_config_files:';
-            echo '  - /data/whatsapp-registration.yaml';
-            for bridge in telegram messenger instagram; do
-              if [ -f \"/bridges/$$bridge/registration.yaml\" ]; then
-                cp \"/bridges/$$bridge/registration.yaml\" \"/synapse/$$bridge-registration.yaml\";
-                echo \"  - /data/$$bridge-registration.yaml\";
-              fi;
-            done;
-          else
-            echo \"$$line\";
-          fi;
-        done < /config/homeserver.yaml;
-      } > /synapse/homeserver.yaml;
-      cp /config/whatsapp-registration.yaml /synapse/whatsapp-registration.yaml;
-      cp /config/localhost.log.config /synapse/localhost.log.config;
-      chown -R 991:991 /synapse;
-      cp /config/config.yaml /whatsapp/config.yaml;
-      cp /config/whatsapp-registration.yaml /whatsapp/registration.yaml;
-      chown -R 1337:1337 /whatsapp;
-      echo 'Configurations initialized successfully.';
-      "
-
-  synapse:
-    image: matrixdotorg/synapse:latest
-    container_name: whatfunnel-synapse
-    ports:
-      - "8008:8008"
-    volumes:
-      - synapse_data:/data
-    depends_on:
-      matrix-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
-
-  mautrix-whatsapp:
-    image: dock.mau.dev/mautrix/whatsapp:latest
-    container_name: whatfunnel-mautrix-whatsapp
-    volumes:
-      - mautrix_whatsapp_data:/data
-    depends_on:
-      synapse:
-        condition: service_started
-      matrix-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
-
-  # ---------------------------------------------------------------------------
   # Stubs — built in later prompts
   # ---------------------------------------------------------------------------
   # AI Knowledge Base Compiler — paste compiler, conversation mining, scheduler
@@ -321,5 +285,5 @@ services:
 
 volumes:
   postgres_data:
-  synapse_data:
-  mautrix_whatsapp_data:
+  whatsapp_adapter_data:
+  conversation_media_data:

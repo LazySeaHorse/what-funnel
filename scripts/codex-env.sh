@@ -15,10 +15,9 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 export GOCACHE="${GOCACHE:-${codex_repo_root}/.cache/go-build}"
-# The image's base Go is older than this repository requires. Keep the module
-# cache at its global default, where the exact Go toolchain is already cached.
-export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.25.0}"
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-${HOME}/.cache}/ms-playwright}"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
+export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/usr/local/bin/chromium}"
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD="${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-1}"
 
 mkdir -p "${GOCACHE}"
 
