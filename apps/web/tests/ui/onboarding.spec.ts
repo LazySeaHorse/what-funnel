@@ -46,6 +46,19 @@ test.describe('onboarding persistence', () => {
 		await expect(page.getByText('Setup service is unavailable', { exact: true })).toBeVisible();
 	});
 
+	test('disables Continue until the saved pipeline has loaded', async ({ page }) => {
+		await mockOnboardingApi(page);
+		await page.route('**/api-gateway/workspace/pipelines', async (route) => {
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			await route.fallback();
+		});
+
+		await page.goto('/onboarding/3');
+		const continueButton = page.getByRole('button', { name: 'Continue', exact: true });
+		await expect(continueButton).toBeDisabled();
+		await expect(continueButton).toBeEnabled();
+	});
+
 	test('requires a real provider configuration before enabling AI', async ({ page }) => {
 		const api = await mockOnboardingApi(page, [], false);
 		await page.goto('/onboarding/5');

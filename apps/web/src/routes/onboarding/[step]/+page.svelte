@@ -577,7 +577,7 @@
 					rawText={s6RawText}
 					submitting={submitting}
 					compiling={knowledgeIngestion.busy}
-					continueDisabled={stepNum === 5 && s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()}
+					continueDisabled={loading || (stepNum === 5 && s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim())}
 					onBack={handleBack}
 					onContinue={handleContinue}
 					onTour={() => goto('/inbox?tour=true')}
