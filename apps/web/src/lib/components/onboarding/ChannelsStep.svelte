@@ -35,8 +35,6 @@
 		</div>
 	{/each}
 
-	<p class="rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs leading-5 text-sky-800">Telegram customers must message your bot first before you can reply from WhatFunnel.</p>
-
 	<!-- Web Chat coming soon item -->
 	<div class="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/50 border border-slate-200/60 rounded-xl opacity-75">
 		<div class="flex items-center gap-3">
