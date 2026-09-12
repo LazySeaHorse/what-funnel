@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { ChevronDownIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { formatTimeZoneLabel, supportedTimeZones, normalizeSavedTimeZone } from '$lib/timezones';
 
 	let { step, totalSteps, businessName = $bindable(), businessType = $bindable(), timezone = $bindable() }: { step: number; totalSteps: number; businessName: string; businessType: string; timezone: string } = $props();
+
+	$effect(() => {
+		const normalized = normalizeSavedTimeZone(timezone);
+		if (normalized !== timezone && supportedTimeZones.includes(normalized)) {
+			timezone = normalized;
+		}
+	});
 </script>
 
 						<div class="text-center lg:text-left mb-6">
@@ -45,13 +53,12 @@
 								<label for="timezone" class="block text-xs font-medium text-slate-700 mb-1.5">Time zone</label>
 								<div class="relative w-full">
 									<select id="timezone" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all appearance-none cursor-pointer pr-10 font-normal" bind:value={timezone}>
-										<option value="(GMT+00:00) UTC">(GMT+00:00) UTC</option>
-										<option value="(GMT+05:30) Asia / Colombo">(GMT+05:30) Asia / Colombo</option>
-										<option value="(GMT-05:00) Eastern Time (US & Canada)">(GMT-05:00) Eastern Time (US & Canada)</option>
-										<option value="(GMT-08:00) Pacific Time (US & Canada)">(GMT-08:00) Pacific Time (US & Canada)</option>
-										<option value="(GMT+01:00) Paris / Berlin">(GMT+01:00) Paris / Berlin</option>
-										<option value="(GMT+08:00) Singapore / Beijing">(GMT+08:00) Singapore / Beijing</option>
-										<option value="(GMT+09:00) Tokyo">(GMT+09:00) Tokyo</option>
+										{#if timezone && !supportedTimeZones.includes(timezone)}
+											<option value={timezone}>{formatTimeZoneLabel(timezone)}</option>
+										{/if}
+										{#each supportedTimeZones as zone}
+											<option value={zone}>{formatTimeZoneLabel(zone)}</option>
+										{/each}
 									</select>
 									<div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
 										<ChevronDownIcon class="w-4 h-4" />

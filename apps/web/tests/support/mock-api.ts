@@ -10,7 +10,7 @@ function decodeSettings(value: string): Record<string, unknown> {
 }
 
 const settings = encodeSettings({
-	timezone: '(GMT+00:00) UTC',
+	timezone: 'UTC',
 	language: 'English',
 	date_format: 'DD MMM YYYY',
 	time_format: '12',

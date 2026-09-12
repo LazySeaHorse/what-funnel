@@ -14,7 +14,7 @@ test.describe('onboarding persistence', () => {
 		await expect(page).toHaveURL(/\/onboarding\/2$/);
 		expect(api.getSettings()).toMatchObject({
 			business_type: 'Consulting / Agency',
-			timezone: '(GMT+00:00) UTC'
+			timezone: 'UTC'
 		});
 
 		await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -173,5 +173,49 @@ test.describe('onboarding persistence', () => {
 			path: '/onboarding/status',
 			body: { step: 'done', action: 'complete' }
 		}));
+	});
+
+	test('time zone selector exposes all supported timezones and saves selected zone', async ({ page }) => {
+		const api = await mockOnboardingApi(page);
+		await page.goto('/onboarding/1');
+		await expect(page.getByLabel('Business name')).toHaveValue('Setup Studio');
+
+		const tzSelect = page.getByLabel('Time zone');
+		const options = tzSelect.locator('option');
+		const count = await options.count();
+		expect(count).toBeGreaterThan(100);
+
+		await tzSelect.selectOption('Asia/Tokyo');
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/2$/);
+		expect(api.getSettings()).toMatchObject({
+			timezone: 'Asia/Tokyo'
+		});
+	});
+
+	test('normalizes legacy timezone values on onboarding step 1', async ({ page }) => {
+		await mockOnboardingApi(page);
+		await page.route('**/api-gateway/workspace/account', (route) => {
+			if (route.request().method() === 'GET') {
+				const bytes = new TextEncoder().encode(JSON.stringify({
+					timezone: '(GMT+05:30) Asia / Colombo'
+				}));
+				const settingsB64 = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(''));
+				return route.fulfill({
+					contentType: 'application/json',
+					body: JSON.stringify({
+						id: 'account-1',
+						name: 'Setup Studio',
+						product_mode: 'full_workspace',
+						settings: settingsB64
+					})
+				});
+			}
+			return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'updated' }) });
+		});
+
+		await page.goto('/onboarding/1');
+		await expect(page.getByLabel('Business name')).toHaveValue('Setup Studio');
+		await expect(page.getByLabel('Time zone')).toHaveValue('Asia/Colombo');
 	});
 });

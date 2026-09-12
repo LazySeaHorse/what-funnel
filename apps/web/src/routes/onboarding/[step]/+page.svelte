@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
+	import { normalizeSavedTimeZone } from '$lib/timezones';
 	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
 	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
 	import BusinessInfoStep from '$lib/components/onboarding/BusinessInfoStep.svelte';
@@ -52,7 +53,7 @@
 	// Step 1: Business info
 	let s1BusinessName = $state('');
 	let s1BusinessType = $state('');
-	let s1Timezone = $state('(GMT+00:00) UTC');
+	let s1Timezone = $state('UTC');
 
 	// Step 2: Channels
 	let channels = $state([
@@ -134,7 +135,7 @@
 			}
 			const settings = decodeWorkspaceSettings(account.settings);
 			if (settings.business_type) s1BusinessType = settings.business_type;
-			if (settings.timezone) s1Timezone = settings.timezone;
+			if (settings.timezone) s1Timezone = normalizeSavedTimeZone(settings.timezone);
 			if (settings.ai_enabled === false) s5AiMode = 'manual';
 			else if (settings.ai_reply_mode_default === 'auto_send') s5AiMode = 'auto_answer';
 			else if (settings.ai_reply_mode_default === 'draft_only') s5AiMode = 'suggest_only';
