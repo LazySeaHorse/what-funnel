@@ -53,7 +53,31 @@ async def test_complete_sends_selected_model_and_validates_schema():
         )
 
     assert result == {"answer": "hello"}
-    assert post.await_args.kwargs["json"]["model"] == "reply-model"
+    payload = post.await_args.kwargs["json"]
+    assert payload["model"] == "reply-model"
+    assert payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "Reply",
+            "strict": True,
+            "schema": Reply.model_json_schema(),
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_complete_rejects_schema_mismatch():
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "choices": [{"message": {"content": '[{"answer":"hello"}]'}}]
+    }
+
+    with patch("httpx.AsyncClient.post", AsyncMock(return_value=response)):
+        with pytest.raises(ProviderError, match="failed schema validation"):
+            await ProviderClient("key", "https://provider.test/v1").complete(
+                "reply-model", [{"role": "user", "content": "hello"}], Reply
+            )
 
 
 @pytest.mark.asyncio

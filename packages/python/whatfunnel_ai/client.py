@@ -60,20 +60,24 @@ class ProviderClient:
         messages: list[dict[str, str]],
         response_schema: Any,
     ) -> dict[str, Any]:
-        schema_json = json.dumps(response_schema.model_json_schema())
+        schema = response_schema.model_json_schema()
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a helpful assistant that always outputs JSON "
-                        f"matching this schema:\n{schema_json}"
-                    ),
+                    "content": "Return output matching the provided response schema.",
                 },
                 *messages,
             ],
-            "response_format": {"type": "json_object"},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_schema.__name__,
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
             "temperature": 0.0,
         }
 
