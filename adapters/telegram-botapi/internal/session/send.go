@@ -38,11 +38,11 @@ func (m *Manager) Send(ctx context.Context, command messaging.Command) error {
 	if err != nil {
 		return err
 	}
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
 	if session.copySnapshot().State != messaging.ConnectionConnected {
 		return ErrNotConnected
 	}
-	session.sendMu.Lock()
-	defer session.sendMu.Unlock()
 	completed, err := m.commandCompleted(ctx, command.ID)
 	if err != nil || completed {
 		return err
@@ -330,15 +330,15 @@ func (m *Manager) completeCommandWithEvent(ctx context.Context, commandID, provi
 	}
 	defer tx.Rollback() //nolint:errcheck
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO adapter_commands (command_id, provider_message_id)
-		VALUES (?, ?) ON CONFLICT(command_id) DO NOTHING
-	`, commandID, providerID); err != nil {
+		INSERT INTO adapter_commands (command_id, channel_id, provider_message_id)
+		VALUES (?, ?, ?) ON CONFLICT(command_id) DO NOTHING
+	`, commandID, event.ChannelID, providerID); err != nil {
 		return fmt.Errorf("record completed telegram command: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO adapter_event_outbox (event_id, payload, available_at)
-		VALUES (?, ?, ?) ON CONFLICT(event_id) DO NOTHING
-	`, event.ID, payload, time.Now().UnixMilli()); err != nil {
+		INSERT INTO adapter_event_outbox (event_id, channel_id, payload, available_at)
+		VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING
+	`, event.ID, event.ChannelID, payload, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("record completed telegram event: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

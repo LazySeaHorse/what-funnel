@@ -18,9 +18,9 @@ func (m *Manager) enqueueEvent(ctx context.Context, event messaging.Event) error
 		return fmt.Errorf("marshal telegram event: %w", err)
 	}
 	if _, err := m.db.ExecContext(ctx, `
-		INSERT INTO adapter_event_outbox (event_id, payload, available_at)
-		VALUES (?, ?, ?) ON CONFLICT(event_id) DO NOTHING
-	`, event.ID, payload, time.Now().UnixMilli()); err != nil {
+		INSERT INTO adapter_event_outbox (event_id, channel_id, payload, available_at)
+		VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING
+	`, event.ID, event.ChannelID, payload, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("enqueue telegram event: %w", err)
 	}
 	m.wakePublisher()

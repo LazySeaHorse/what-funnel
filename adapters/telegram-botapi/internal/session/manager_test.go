@@ -51,12 +51,13 @@ type fakeTelegram struct {
 	updates   map[string][]botapi.Update
 	offsets   map[string][]int64
 	sendCalls map[string]int
+	methods   map[string]int
 	failSend  map[string]bool
 }
 
 func newFakeTelegram(t *testing.T) *fakeTelegram {
 	t.Helper()
-	fake := &fakeTelegram{bots: make(map[string]botapi.User), updates: make(map[string][]botapi.Update), offsets: make(map[string][]int64), sendCalls: make(map[string]int), failSend: make(map[string]bool)}
+	fake := &fakeTelegram{bots: make(map[string]botapi.User), updates: make(map[string][]botapi.Update), offsets: make(map[string][]int64), sendCalls: make(map[string]int), methods: make(map[string]int), failSend: make(map[string]bool)}
 	return fake
 }
 
@@ -80,6 +81,7 @@ func (f *fakeTelegram) serveHTTP(w http.ResponseWriter, request *http.Request) {
 	_ = json.NewDecoder(request.Body).Decode(&params)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.methods[token+":"+method]++
 	switch method {
 	case "getMe":
 		f.respond(w, f.bots[token])
@@ -104,9 +106,17 @@ func (f *fakeTelegram) serveHTTP(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 		f.respond(w, botapi.Message{MessageID: 99, Date: 200, Chat: botapi.Chat{ID: 42, Type: "private"}})
+	case "sendPhoto", "sendVideo", "sendAudio", "sendVoice", "sendDocument", "editMessageText", "editMessageCaption":
+		f.respond(w, botapi.Message{MessageID: 99, Date: 200, Chat: botapi.Chat{ID: 42, Type: "private"}})
 	default:
 		f.respond(w, true)
 	}
+}
+
+type staticMediaSource struct{}
+
+func (staticMediaSource) Fetch(context.Context, string) (MediaFile, error) {
+	return MediaFile{Data: []byte("document"), MIMEType: "application/pdf", Filename: "guide.pdf"}, nil
 }
 
 func (f *fakeTelegram) respond(w http.ResponseWriter, result any) {
@@ -182,6 +192,36 @@ func TestManagerEncryptsCredentialsAndDeduplicatesUpdates(t *testing.T) {
 	}
 }
 
+func TestLogoutRemovesCredentialAndProviderSessionState(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.addBot("151:logout-secret", 151, "logout_bot")
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, &recordingPublisher{})
+	if _, err := manager.Create(t.Context(), "channel-logout", "151:logout-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Exec(`INSERT INTO adapter_commands (command_id, channel_id, provider_message_id) VALUES ('command-logout', 'channel-logout', '1')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Exec(`INSERT INTO adapter_event_outbox (event_id, channel_id, payload, available_at) VALUES ('event-logout', 'channel-logout', '{}', ?)`, time.Now().Add(time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Logout(t.Context(), "channel-logout"); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"telegram_sessions", "adapter_commands", "adapter_event_outbox"} {
+		var count int
+		if err := manager.db.QueryRow(`SELECT count(*) FROM ` + table + ` WHERE channel_id = 'channel-logout'`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Errorf("%s retained %d rows", table, count)
+		}
+	}
+	if _, err := manager.Snapshot("channel-logout"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Snapshot() error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestManagerRestoresOffsetsAndIsolatesAccounts(t *testing.T) {
 	fake := newFakeTelegram(t)
 	fake.addBot("201:alpha", 201, "alpha_bot")
@@ -221,6 +261,30 @@ func TestManagerRestoresOffsetsAndIsolatesAccounts(t *testing.T) {
 	}
 }
 
+func TestRetryCanReplaceARevokedBotToken(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.addBot("251:old", 251, "old_bot")
+	fake.addBot("252:new-secret", 252, "new_bot")
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, &recordingPublisher{})
+	if _, err := manager.Create(t.Context(), "channel-retry", "251:old"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := manager.Retry(t.Context(), "channel-retry", "252:new-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.RemoteAccountID != "@new_bot" {
+		t.Fatalf("remote account = %q", snapshot.RemoteAccountID)
+	}
+	var encrypted string
+	if err := manager.db.QueryRow(`SELECT encrypted_token FROM telegram_sessions WHERE channel_id = 'channel-retry'`).Scan(&encrypted); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(encrypted, "new-secret") || strings.Contains(encrypted, "251:old") {
+		t.Fatal("replacement bot token was not encrypted")
+	}
+}
+
 func containsOffset(values []int64, want int64) bool {
 	for _, value := range values {
 		if value == want {
@@ -257,6 +321,44 @@ func TestManagerRecordsPermanentOutboundFailureOnce(t *testing.T) {
 	fake.mu.Unlock()
 	if calls != 1 {
 		t.Fatalf("send calls = %d, want 1", calls)
+	}
+}
+
+func TestManagerExecutesSupportedOutboundCommands(t *testing.T) {
+	fake := newFakeTelegram(t)
+	const token = "351:commands"
+	fake.addBot(token, 351, "commands_bot")
+	publisher := &recordingPublisher{}
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, publisher)
+	manager.SetMediaSource(staticMediaSource{})
+	if _, err := manager.Create(t.Context(), "channel-commands", token); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		snapshot, _ := manager.Snapshot("channel-commands")
+		return snapshot.State == messaging.ConnectionConnected
+	})
+	now := time.Now().UTC()
+	commands := []messaging.Command{
+		{SchemaVersion: 1, ID: "send-media", Kind: messaging.CommandSendMessage, Provider: messaging.ProviderTelegram, ChannelID: "channel-commands", CreatedAt: now, MessageID: "local-media", Message: &messaging.Message{ExternalThreadID: "42", Direction: messaging.DirectionOutbound, Sender: messaging.Sender{ExternalID: "business"}, ContentType: messaging.ContentDocument, Text: "caption", Media: &messaging.Media{ID: "media-1", Filename: "guide.pdf", MIMEType: "application/pdf", SizeBytes: 8}, ProviderTimestamp: now}},
+		{SchemaVersion: 1, ID: "edit-text", Kind: messaging.CommandEditMessage, Provider: messaging.ProviderTelegram, ChannelID: "channel-commands", CreatedAt: now, MessageID: "local-edit", Message: &messaging.Message{ProviderMessageID: "50", ExternalThreadID: "42", Direction: messaging.DirectionOutbound, ContentType: messaging.ContentText, Text: "edited", ProviderTimestamp: now}},
+		{SchemaVersion: 1, ID: "delete-message", Kind: messaging.CommandDeleteMessage, Provider: messaging.ProviderTelegram, ChannelID: "channel-commands", CreatedAt: now, MessageID: "local-delete", Message: &messaging.Message{ProviderMessageID: "51", ExternalThreadID: "42", ProviderTimestamp: now}},
+		{SchemaVersion: 1, ID: "react-message", Kind: messaging.CommandChangeReaction, Provider: messaging.ProviderTelegram, ChannelID: "channel-commands", CreatedAt: now, MessageID: "local-react", Reaction: &messaging.Reaction{ProviderMessageID: "52", SenderExternalID: "42", Emoji: "👍", ProviderTimestamp: now}},
+	}
+	for _, command := range commands {
+		if err := manager.Send(t.Context(), command); err != nil {
+			t.Fatalf("Send(%s): %v", command.Kind, err)
+		}
+	}
+	waitFor(t, func() bool {
+		return publisher.count(messaging.EventMessageCreated) == 1 && publisher.count(messaging.EventMessageEdited) == 1 && publisher.count(messaging.EventMessageDeleted) == 1 && publisher.count(messaging.EventReactionChanged) == 1
+	})
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	for _, method := range []string{"sendDocument", "editMessageText", "deleteMessage", "setMessageReaction"} {
+		if fake.methods[token+":"+method] != 1 {
+			t.Errorf("%s calls = %d, want 1", method, fake.methods[token+":"+method])
+		}
 	}
 }
 

@@ -48,6 +48,7 @@ type botSession struct {
 	mu       sync.RWMutex
 	snapshot Snapshot
 	cancel   context.CancelFunc
+	done     chan struct{}
 	sendMu   sync.Mutex
 }
 
@@ -172,6 +173,12 @@ func (m *Manager) Retry(ctx context.Context, channelID, credential string) (Snap
 		}
 		return Snapshot{}, err
 	}
+	credential = strings.TrimSpace(credential)
+	if credential != "" {
+		return m.replaceCredential(ctx, session, credential)
+	}
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
 	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if _, err := m.api.GetMe(validateCtx, session.token); err != nil {
@@ -179,6 +186,55 @@ func (m *Manager) Retry(ctx context.Context, channelID, credential string) (Snap
 		return session.copySnapshot(), errors.New("telegram session: bot token validation failed")
 	}
 	m.restartPolling(session)
+	return session.copySnapshot(), nil
+}
+
+func (m *Manager) replaceCredential(ctx context.Context, session *botSession, credential string) (Snapshot, error) {
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
+	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	bot, err := m.api.GetMe(validateCtx, credential)
+	if err != nil || !bot.IsBot {
+		return session.copySnapshot(), errors.New("telegram session: bot token validation failed")
+	}
+	if err := m.api.DeleteWebhook(validateCtx, credential, true); err != nil {
+		return session.copySnapshot(), errors.New("telegram session: could not enable long polling")
+	}
+	encrypted, err := m.cipher.Encrypt([]byte(credential))
+	if err != nil {
+		return session.copySnapshot(), fmt.Errorf("encrypt replacement telegram bot token: %w", err)
+	}
+	if err := stopPolling(ctx, session); err != nil {
+		return session.copySnapshot(), err
+	}
+	username := strings.TrimSpace(bot.Username)
+	remoteID := fmt.Sprintf("%d", bot.ID)
+	if username != "" {
+		remoteID = "@" + username
+	}
+	_, err = m.db.ExecContext(ctx, `
+		UPDATE telegram_sessions
+		SET bot_id = ?, username = ?, encrypted_token = ?, update_offset = 0,
+		    state = 'connecting', detail = 'Connecting to Telegram.', remote_account_id = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE channel_id = ?
+	`, bot.ID, username, encrypted, remoteID, session.channelID)
+	if err != nil {
+		m.startPolling(session)
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return session.copySnapshot(), ErrAlreadyExists
+		}
+		return session.copySnapshot(), fmt.Errorf("replace telegram bot token: %w", err)
+	}
+	session.mu.Lock()
+	session.botID = bot.ID
+	session.username = username
+	session.token = credential
+	session.snapshot.State = messaging.ConnectionConnecting
+	session.snapshot.Detail = "Connecting to Telegram."
+	session.snapshot.RemoteAccountID = remoteID
+	session.mu.Unlock()
+	m.startPolling(session)
 	return session.copySnapshot(), nil
 }
 
@@ -195,11 +251,27 @@ func (m *Manager) Logout(ctx context.Context, channelID string) error {
 	if err != nil {
 		return err
 	}
-	if session.cancel != nil {
-		session.cancel()
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
+	if err := stopPolling(ctx, session); err != nil {
+		return err
 	}
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM telegram_sessions WHERE channel_id = ?`, channelID); err != nil {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete telegram session: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `DELETE FROM adapter_event_outbox WHERE channel_id = ?`, channelID); err != nil {
+		return fmt.Errorf("delete telegram event state: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM adapter_commands WHERE channel_id = ?`, channelID); err != nil {
+		return fmt.Errorf("delete telegram command state: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM telegram_sessions WHERE channel_id = ?`, channelID); err != nil {
 		return fmt.Errorf("delete telegram session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete telegram session: %w", err)
 	}
 	m.mu.Lock()
 	delete(m.sessions, channelID)
@@ -238,21 +310,43 @@ func (m *Manager) newSession(channelID string, botID int64, username, token stri
 
 func (m *Manager) startPolling(session *botSession) {
 	pollCtx, cancel := context.WithCancel(m.ctx)
+	done := make(chan struct{})
 	session.mu.Lock()
 	session.cancel = cancel
+	session.done = done
 	session.mu.Unlock()
-	m.wg.Go(func() { m.poll(pollCtx, session) })
+	m.wg.Go(func() {
+		defer close(done)
+		m.poll(pollCtx, session)
+	})
 }
 
 func (m *Manager) restartPolling(session *botSession) {
+	_ = stopPolling(context.Background(), session)
 	session.mu.Lock()
-	if session.cancel != nil {
-		session.cancel()
-	}
 	session.snapshot.State = messaging.ConnectionConnecting
 	session.snapshot.Detail = "Reconnecting to Telegram."
 	session.mu.Unlock()
 	m.startPolling(session)
+}
+
+func stopPolling(ctx context.Context, session *botSession) error {
+	session.mu.RLock()
+	cancel := session.cancel
+	done := session.done
+	session.mu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for telegram poller: %w", ctx.Err())
+	}
 }
 
 func (m *Manager) poll(ctx context.Context, session *botSession) {
@@ -334,9 +428,9 @@ func (m *Manager) storeUpdate(ctx context.Context, channelID string, update bota
 	defer tx.Rollback() //nolint:errcheck
 	if publish {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO adapter_event_outbox (event_id, payload, available_at)
-			VALUES (?, ?, ?) ON CONFLICT(event_id) DO NOTHING
-		`, event.ID, payload, time.Now().UnixMilli()); err != nil {
+			INSERT INTO adapter_event_outbox (event_id, channel_id, payload, available_at)
+			VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING
+		`, event.ID, channelID, payload, time.Now().UnixMilli()); err != nil {
 			return fmt.Errorf("enqueue telegram event: %w", err)
 		}
 	}
@@ -451,11 +545,13 @@ func createTables(ctx context.Context, db *sql.DB) error {
 		);
 		CREATE TABLE IF NOT EXISTS adapter_commands (
 			command_id TEXT PRIMARY KEY,
+			channel_id TEXT NOT NULL,
 			provider_message_id TEXT NOT NULL,
 			completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS adapter_event_outbox (
 			event_id TEXT PRIMARY KEY,
+			channel_id TEXT NOT NULL,
 			payload BLOB NOT NULL,
 			available_at INTEGER NOT NULL,
 			attempts INTEGER NOT NULL DEFAULT 0
