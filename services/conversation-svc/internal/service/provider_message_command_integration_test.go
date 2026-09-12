@@ -17,7 +17,7 @@ func TestProviderMessageMutationsShareTheTransactionalOutbox(t *testing.T) {
 	svc, pool, _ := testService(t)
 	ctx := context.Background()
 	accountID, userID := setupTestTenant(t, pool, "provider-message-commands")
-	capabilities, err := json.Marshal(messaging.Capabilities{Reactions: true, Edits: true, Deletes: true})
+	capabilities, err := json.Marshal(messaging.Capabilities{Replies: true, Reactions: true, Edits: true, Deletes: true})
 	require.NoError(t, err)
 	var channelID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, provider, label, status, capabilities) VALUES ($1, 'telegram', 'telegram', 'Test bot', 'connected', $2) RETURNING id`, accountID, capabilities).Scan(&channelID))
@@ -33,6 +33,14 @@ func TestProviderMessageMutationsShareTheTransactionalOutbox(t *testing.T) {
 	require.NoError(t, svc.EditProviderMessage(ctx, accountID, userID, conversationID, messageID, "after"))
 	require.NoError(t, svc.DeleteProviderMessage(ctx, accountID, userID, conversationID, messageID))
 	require.NoError(t, svc.ChangeProviderReaction(ctx, accountID, userID, conversationID, messageID, "👍", false))
+	reply, err := svc.SendMessage(ctx, accountID, conversationID, "human", &userID, "text", "reply", "", &messageID, nil, nil, "", "reply-idempotency-key")
+	require.NoError(t, err)
+	var replyPayload []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT command FROM message_outbox WHERE message_id = $1`, reply.ID).Scan(&replyPayload))
+	var replyCommand messaging.Command
+	require.NoError(t, json.Unmarshal(replyPayload, &replyCommand))
+	require.Equal(t, "71", replyCommand.Message.ReplyToProviderID)
+	require.Equal(t, messageID, *reply.ReplyToMessageID)
 
 	rows, err := pool.Query(ctx, `SELECT command FROM message_outbox WHERE message_id = $1`, messageID)
 	require.NoError(t, err)

@@ -14,7 +14,7 @@ export interface AIReplyDraft {
 }
 
 export class InboxState {
-	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; sending: boolean; error: string }>>({});
+	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; replyToMessageID: string | null; sending: boolean; error: string }>>({});
 	aiControlPending = $state<Record<string, boolean>>({});
 	assignmentPending = $state<Record<string, boolean>>({});
 	mutationErrors = $state<Record<string, string>>({});
@@ -247,7 +247,7 @@ export class InboxState {
 			if (requestVersion !== this.conversationRequestVersion) return;
 
 			this.activeConvoID = convoID;
-			this.composers[convoID] ??= { text: '', aiReplyDraftID: null, sending: false, error: '' };
+			this.composers[convoID] ??= { text: '', aiReplyDraftID: null, replyToMessageID: null, sending: false, error: '' };
 			this.activeConvo = conversation;
 			this.messages = (messageResponse?.messages ?? []).reverse();
 			this.nextCursor = messageResponse?.next_cursor ?? null;
@@ -323,11 +323,12 @@ export class InboxState {
 		media?: { id: string; contentType: 'image' | 'video' | 'audio' | 'document' }
 	): Promise<boolean> {
 		if (!convoID || (!text.trim() && !media)) return false;
-		const composer = this.composers[convoID] ??= { text: '', aiReplyDraftID: null, sending: false, error: '' };
+		const composer = this.composers[convoID] ??= { text: '', aiReplyDraftID: null, replyToMessageID: null, sending: false, error: '' };
 		if (composer.sending) return false;
 		composer.sending = true;
 		composer.error = '';
 		const submittedText = composer.text;
+		const submittedReplyTo = composer.replyToMessageID;
 		const pendingDraftID = this.replyDrafts[convoID]?.id;
 		try {
 			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
@@ -337,6 +338,7 @@ export class InboxState {
 				sender_type: 'human'
 			};
 			if (media) body.media_id = media.id;
+			if (submittedReplyTo) body.reply_to_message_id = submittedReplyTo;
 			if (senderUserId) {
 				body.sender_user_id = senderUserId;
 			}
@@ -361,6 +363,7 @@ export class InboxState {
 			if (composer.text === submittedText) {
 				composer.text = '';
 				composer.aiReplyDraftID = null;
+				if (composer.replyToMessageID === submittedReplyTo) composer.replyToMessageID = null;
 			}
 			return true;
 		} catch (err) {

@@ -28,6 +28,7 @@ export interface MockWorkspaceOptions {
 	productMode?: 'full_workspace' | 'chatbot_only';
 	failures?: string[];
 	conversations?: any[];
+	messages?: any[];
 	replyDraft?: any | null;
 	knowledge?: { concepts?: any[]; patterns?: any[] };
 	activeIngestion?: any;
@@ -188,7 +189,7 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			const conversationID = path.split('/')[2];
 			return json((options.conversations ?? []).find((conversation) => conversation.id === conversationID) ?? {});
 		}
-		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: [], next_cursor: null });
+		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: options.messages ?? [], next_cursor: null });
 		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
 		if (/^\/conversations\/[^/]+\/assign$/.test(path) && request.method() === 'PATCH') {
 			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);

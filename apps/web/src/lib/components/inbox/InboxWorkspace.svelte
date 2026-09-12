@@ -57,6 +57,7 @@
   let emptyComposer = {
     text: "",
     aiReplyDraftID: null,
+    replyToMessageID: null,
     sending: false,
     error: "",
   };
@@ -83,6 +84,14 @@
       (aiControl.reply_override === "enabled" ||
         (aiControl.reply_override === "inherit" && aiAutoReplyEnabled)) &&
       aiControl.state === "active",
+  );
+  let providerSupportsReplies = $derived(
+    ["whatsapp", "telegram"].includes(
+      inbox.activeConvo?.channel?.provider ||
+        inbox.activeConvo?.channel?.type ||
+        inbox.activeConvo?.channel_type ||
+        "",
+    ),
   );
   let displayMessages = $derived.by(() =>
     inbox.messages
@@ -362,6 +371,7 @@
                     class="w-3.5 h-3.5 text-blue-500 inline-block"
                   /><span class="ml-1">{message.delivery_status || "sent"}</span>{/if}</span
               >
+              {#if providerSupportsReplies}<button type="button" title="Reply to message" class="mt-1 text-[10px] text-slate-400 hover:text-blue-600" onclick={() => { composer.replyToMessageID = message.id; }}>Reply</button>{/if}
             </div>{/each}{/if}
       </div>
       <div class="p-3 sm:p-4 bg-white border-t border-slate-100 shrink-0">
@@ -430,6 +440,13 @@
                     : "Take over"}</button
                 >
               </div>{:else}<div class="px-4 py-2.5">
+                {#if composer.replyToMessageID}
+                  {@const replyTarget = displayMessages.find((message) => message.id === composer.replyToMessageID)}
+                  <div class="mb-2 flex items-center justify-between rounded-lg border-l-2 border-blue-500 bg-blue-50 px-2.5 py-2 text-[11px] text-slate-600">
+                    <span class="truncate">Replying to {replyTarget?.parsedContent.text || replyTarget?.parsedContent.caption || "message"}</span>
+                    <button type="button" aria-label="Cancel reply" onclick={() => { composer.replyToMessageID = null; }}><XMarkIcon class="h-3.5 w-3.5" /></button>
+                  </div>
+                {/if}
                 <input
                   type="text"
                   value={composer.text}

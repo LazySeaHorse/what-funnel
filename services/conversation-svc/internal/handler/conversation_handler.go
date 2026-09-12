@@ -27,15 +27,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		ContentType     string `json:"content_type"`
-		Text            string `json:"text"`
-		MediaID         string `json:"media_id"`
-		SenderType      string `json:"sender_type"`
-		SenderUserID    string `json:"sender_user_id"`
-		AIReplyDraftID  string `json:"ai_reply_draft_id"`
-		GenerationEpoch *int64 `json:"generation_epoch"`
-		MessagePurpose  string `json:"message_purpose"`
-		IdempotencyKey  string `json:"idempotency_key"`
+		ContentType      string `json:"content_type"`
+		Text             string `json:"text"`
+		MediaID          string `json:"media_id"`
+		ReplyToMessageID string `json:"reply_to_message_id"`
+		SenderType       string `json:"sender_type"`
+		SenderUserID     string `json:"sender_user_id"`
+		AIReplyDraftID   string `json:"ai_reply_draft_id"`
+		GenerationEpoch  *int64 `json:"generation_epoch"`
+		MessagePurpose   string `json:"message_purpose"`
+		IdempotencyKey   string `json:"idempotency_key"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -66,10 +67,19 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		aiReplyDraftID = &draftID
 	}
+	var replyToMessageID *uuid.UUID
+	if body.ReplyToMessageID != "" {
+		replyID, err := uuid.Parse(body.ReplyToMessageID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid reply_to_message_id")
+			return
+		}
+		replyToMessageID = &replyID
+	}
 
 	msg, err := h.svc.SendMessage(
 		r.Context(), accountID, convoID, body.SenderType, senderUserID,
-		body.ContentType, body.Text, body.MediaID, aiReplyDraftID,
+		body.ContentType, body.Text, body.MediaID, replyToMessageID, aiReplyDraftID,
 		body.GenerationEpoch, body.MessagePurpose, body.IdempotencyKey,
 	)
 	if err != nil {

@@ -14,17 +14,19 @@ import (
 )
 
 type sendMessageCommand struct {
-	accountID       uuid.UUID
-	conversationID  uuid.UUID
-	sender          types.MessageSender
-	senderUserID    *uuid.UUID
-	contentType     string
-	text            string
-	mediaID         string
-	aiReplyDraftID  *uuid.UUID
-	generationEpoch *int64
-	purpose         types.MessagePurpose
-	idempotencyKey  string
+	accountID         uuid.UUID
+	conversationID    uuid.UUID
+	sender            types.MessageSender
+	senderUserID      *uuid.UUID
+	contentType       string
+	text              string
+	mediaID           string
+	replyToMessageID  *uuid.UUID
+	replyToProviderID string
+	aiReplyDraftID    *uuid.UUID
+	generationEpoch   *int64
+	purpose           types.MessagePurpose
+	idempotencyKey    string
 }
 
 func (c sendMessageCommand) human() bool { return c.sender == types.MessageSenderHuman }
@@ -47,6 +49,7 @@ type outboundDestination struct {
 	channelID        uuid.UUID
 	provider         messaging.Provider
 	externalIdentity string
+	capabilities     messaging.Capabilities
 }
 
 // SendMessage sends an outbound message via the registered adapter and records
@@ -57,6 +60,7 @@ func (s *Service) SendMessage(
 	senderType string,
 	senderUserID *uuid.UUID,
 	contentType, text, mediaID string,
+	replyToMessageID *uuid.UUID,
 	aiReplyDraftID *uuid.UUID,
 	generationEpoch *int64,
 	messagePurpose, idempotencyKey string,
@@ -64,7 +68,7 @@ func (s *Service) SendMessage(
 	return s.sendMessage(ctx, sendMessageCommand{
 		accountID: accountID, conversationID: conversationID,
 		sender: types.MessageSender(senderType), senderUserID: senderUserID,
-		contentType: contentType, text: text, mediaID: mediaID,
+		contentType: contentType, text: text, mediaID: mediaID, replyToMessageID: replyToMessageID,
 		aiReplyDraftID: aiReplyDraftID, generationEpoch: generationEpoch,
 		purpose: types.MessagePurpose(messagePurpose), idempotencyKey: idempotencyKey,
 	})
@@ -91,6 +95,12 @@ func (s *Service) sendMessage(ctx context.Context, cmd sendMessageCommand) (*typ
 		return nil, err
 	}
 	if err = lockReplyDraft(ctx, tx, cmd); err != nil {
+		return nil, err
+	}
+	if cmd.replyToMessageID != nil && !destination.capabilities.Replies {
+		return nil, errors.New("this messaging provider does not support replies")
+	}
+	if err = resolveReplyTarget(ctx, tx, &cmd); err != nil {
 		return nil, err
 	}
 
@@ -171,19 +181,23 @@ func authorizeAIMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand) 
 
 func loadOutboundDestination(ctx context.Context, tx pgx.Tx, accountID, conversationID uuid.UUID) (outboundDestination, error) {
 	var destination outboundDestination
+	var capabilityJSON []byte
 	err := tx.QueryRow(ctx, `
 		SELECT c.channel_id, COALESCE(ch.provider, ch.type),
-		       COALESCE(c.external_thread_id, co.external_identity)
+		       COALESCE(c.external_thread_id, co.external_identity), ch.capabilities
 		FROM conversations c
 		JOIN channels ch ON c.channel_id = ch.id
 		JOIN contacts co ON c.contact_id = co.id
 		WHERE c.id = $1 AND c.account_id = $2
-	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity)
+	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity, &capabilityJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return outboundDestination{}, errors.New("conversation not found")
 	}
 	if err != nil {
 		return outboundDestination{}, fmt.Errorf("lookup conversation details: %w", err)
+	}
+	if err := json.Unmarshal(capabilityJSON, &destination.capabilities); err != nil {
+		return outboundDestination{}, fmt.Errorf("decode provider capabilities: %w", err)
 	}
 	return destination, nil
 }
@@ -207,6 +221,24 @@ func lockReplyDraft(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand) erro
 	return nil
 }
 
+func resolveReplyTarget(ctx context.Context, tx pgx.Tx, cmd *sendMessageCommand) error {
+	if cmd.replyToMessageID == nil {
+		return nil
+	}
+	err := tx.QueryRow(ctx, `
+		SELECT provider_message_id FROM messages
+		WHERE id = $1 AND account_id = $2 AND conversation_id = $3
+		  AND provider_message_id IS NOT NULL AND deleted_at IS NULL
+	`, *cmd.replyToMessageID, cmd.accountID, cmd.conversationID).Scan(&cmd.replyToProviderID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("reply target is unavailable")
+	}
+	if err != nil {
+		return fmt.Errorf("resolve reply target: %w", err)
+	}
+	return nil
+}
+
 func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand, externalMessageID string) (*types.Message, error) {
 	content, err := json.Marshal(map[string]any{"text": cmd.text, "media_id": cmd.mediaID})
 	if err != nil {
@@ -215,7 +247,8 @@ func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageComman
 	msg := &types.Message{
 		AccountID: cmd.accountID, ConversationID: cmd.conversationID, Direction: "outbound",
 		SenderType: cmd.sender, SenderUserID: cmd.senderUserID, ContentType: cmd.contentType, Content: content,
-		DeliveryStatus: "queued",
+		DeliveryStatus:   "queued",
+		ReplyToMessageID: cmd.replyToMessageID,
 	}
 	if externalMessageID != "" {
 		msg.ExternalMessageID = &externalMessageID
@@ -226,11 +259,11 @@ func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageComman
 	err = tx.QueryRow(ctx, `
 		INSERT INTO messages (
 			account_id, conversation_id, direction, sender_type, sender_user_id,
-			content_type, content, external_message_id, idempotency_key, delivery_status, created_at
+			content_type, content, external_message_id, reply_to_message_id, idempotency_key, delivery_status, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued', NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'queued', NOW())
 		RETURNING id, created_at
-	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content, msg.ExternalMessageID, msg.IdempotencyKey).Scan(&msg.ID, &msg.CreatedAt)
+	`, msg.AccountID, msg.ConversationID, msg.Direction, msg.SenderType, msg.SenderUserID, msg.ContentType, msg.Content, msg.ExternalMessageID, msg.ReplyToMessageID, msg.IdempotencyKey).Scan(&msg.ID, &msg.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert outbound message: %w", err)
 	}
@@ -257,6 +290,7 @@ func insertOutboxCommand(
 		ContentType:       contentType,
 		Text:              cmd.text,
 		ProviderTimestamp: message.CreatedAt,
+		ReplyToProviderID: cmd.replyToProviderID,
 	}
 	if cmd.mediaID != "" {
 		mediaID, err := uuid.Parse(cmd.mediaID)

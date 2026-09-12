@@ -53,6 +53,24 @@ test('a delayed send stays in its conversation and preserves the next conversati
 	await expect(composer).toHaveValue('Unsent reply for Bob');
 });
 
+test('an agent can reply to a specific provider message', async ({ page }) => {
+	const api = await mockWorkspaceApi(page, {
+		conversations: conversations().slice(0, 1),
+		messages: [{ id: 'message-1', conversation_id: 'conversation-1', content_type: 'text', content: { text: 'Original question' }, direction: 'inbound', sender_type: 'contact', created_at: '2026-01-01T12:00:00Z' }]
+	});
+	await page.goto('/inbox');
+	await page.getByText('Alice', { exact: true }).first().click();
+	await page.getByTitle('Reply to message').click();
+	await expect(page.getByText('Replying to Original question')).toBeVisible();
+	const composer = page.getByPlaceholder('Enter a message...');
+	await composer.fill('A specific answer');
+	await composer.press('Enter');
+	await expect.poll(() => api.requests.find((request) => request.path === '/internal/conversations/conversation-1/send')?.body).toMatchObject({
+		text: 'A specific answer', reply_to_message_id: 'message-1'
+	});
+	await expect(page.getByText('Replying to Original question')).toHaveCount(0);
+});
+
 test('a failed send preserves its draft and scopes its error to that conversation', async ({ page }) => {
 	await mockWorkspaceApi(page, { conversations: conversations() });
 	const send = await holdRequest(page, '**/api-gateway/internal/conversations/*/send');
