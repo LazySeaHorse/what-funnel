@@ -21,7 +21,7 @@ def _clean_json_content(content: str) -> str:
 class ProviderClient:
     api_key: str
     base_url: str
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 1000.0
     max_attempts: int = 3
 
     def _headers(self) -> dict[str, str]:

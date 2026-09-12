@@ -299,6 +299,7 @@ services:
       APP_ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       SESSION_SECRET: ${SESSION_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      AI_REQUEST_TIMEOUT_SECONDS: "1000"
       APP_ENV: production
     networks:
       - backend_net
@@ -327,6 +328,7 @@ services:
       PORT: "8085"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MINING_INTERVAL_HOURS: ${MINING_INTERVAL_HOURS:-6}
+      AI_REQUEST_TIMEOUT_SECONDS: "1000"
       APP_ENV: production
     networks:
       - backend_net

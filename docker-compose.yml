@@ -280,6 +280,7 @@ services:
       APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       SESSION_SECRET: change-me-in-production-at-least-32-chars
       LOG_LEVEL: info
+      AI_REQUEST_TIMEOUT_SECONDS: "1000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -306,6 +307,7 @@ services:
       PORT: "8085"
       LOG_LEVEL: info
       MINING_INTERVAL_HOURS: "6"
+      AI_REQUEST_TIMEOUT_SECONDS: "1000"
     ports:
       - "8085:8085"
     volumes:
