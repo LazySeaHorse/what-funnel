@@ -221,6 +221,7 @@ services:
       PORT: "8087"
       REDIS_URL: redis:6379
       TELEGRAM_DATABASE_PATH: /data/telegram.db
+      TELEGRAM_BOT_API_URL: ${TELEGRAM_BOT_API_URL:-https://api.telegram.org}
       CONVERSATION_INTERNAL_URL: http://conversation-svc:8083
       ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"

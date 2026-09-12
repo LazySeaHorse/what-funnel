@@ -13,6 +13,7 @@ COPY services/workspace-svc/go.mod services/workspace-svc/go.sum* services/works
 COPY services/conversation-svc/go.mod services/conversation-svc/go.sum* services/conversation-svc/
 COPY services/notification-svc/go.mod services/notification-svc/go.sum* services/notification-svc/
 COPY adapters/whatsapp-whatsmeow/go.mod adapters/whatsapp-whatsmeow/go.sum adapters/whatsapp-whatsmeow/
+COPY adapters/telegram-botapi/go.mod adapters/telegram-botapi/go.sum adapters/telegram-botapi/
 COPY tests/integration/go.mod tests/integration/go.sum* tests/integration/
 
 # Download dependencies

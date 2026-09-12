@@ -73,6 +73,7 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 			"ai-answer-svc",
 			"ai-kb-compiler",
 			"whatsapp-adapter",
+			"telegram-adapter",
 		}
 
 		for _, svcName := range internalServices {
