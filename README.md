@@ -7,7 +7,7 @@ adapter services; the core application never handles provider session data.
 The current provider rollout is:
 
 - WhatsApp through `whatsmeow`: implemented.
-- Telegram through the Telegram Bot API: planned.
+- Telegram through the official Telegram Bot API: implemented for private bot chats.
 - Instagram and Facebook Messenger official APIs: shown as coming soon and not enabled.
 
 Matrix, Synapse, Beeper, and mautrix are not part of this architecture.
@@ -20,33 +20,34 @@ provider traffic into `messaging.Event` values and consumes
 `messaging.Command` values. The domain service sees only that normalized contract.
 
 ```text
-WhatsApp network
-      |
-      v
-whatsapp-adapter (whatsmeow + private SQLite session store)
-      |  adapter.events / adapter.commands (Redis Streams)
-      v
+WhatsApp network -> whatsapp-adapter (whatsmeow + private SQLite)
+Telegram Bot API -> telegram-adapter (long polling + encrypted private SQLite)
+                         |
+                         | adapter.events / adapter.commands (Redis Streams)
+                         v
 conversation-svc (PostgreSQL domain state + transactional command outbox)
       |
       v
 api-gateway -> Svelte web inbox
 ```
 
-This boundary supports multiple WhatsApp accounts per workspace and deliberately
-accepts only direct chats. Group events are ignored. Text, images, video, audio,
-documents, replies, reactions, edits, deletes, and receipts exist in the shared
+This boundary supports multiple WhatsApp accounts and Telegram bots per workspace
+and deliberately accepts only direct chats. Group/channel events are ignored.
+Text, images, video, audio, documents, replies, reactions, edits, deletes, and receipts exist in the shared
 contract. Unsupported native events become visible `notice` timeline items that
-tell the user to open WhatsApp.
+tell the user to open the native provider.
 
-Provider credentials and WhatsApp device/session keys stay in the adapter's
-private SQLite volume. PostgreSQL stores only connection state and the remote
-account identifier. Internal adapter HTTP calls require `ADAPTER_SHARED_SECRET`.
+Provider credentials and session keys stay in each adapter's private SQLite
+volume. Telegram bot tokens are encrypted with `ENCRYPTION_KEY`; tokens are
+never returned by an API or written to logs. PostgreSQL stores only connection
+state and the remote account identifier. Internal adapter HTTP calls require
+`ADAPTER_SHARED_SECRET`.
 
 ## Media
 
 Inbound and outbound media is limited to 20 MiB. Files are stored in a private
 conversation-service volume and served only through authenticated endpoints.
-Inbound WhatsApp media is fetched lazily when first opened. Cache retention is:
+Inbound provider media is fetched lazily when first opened. Cache retention is:
 
 | Size | Retention |
 | --- | --- |
@@ -70,13 +71,18 @@ labeled account, scan its QR code in WhatsApp's linked-devices screen, and wait
 for the state to become `connected`. More labeled accounts can be connected the
 same way.
 
+To connect Telegram, create a bot with Telegram's `@BotFather`, add a label and
+paste its token under Settings → Channels. WhatFunnel validates the token and
+immediately clears it from the browser. Telegram users must start the private
+conversation with the bot before WhatFunnel can reply. History is never imported.
+
 The production template is `.env.example`. Generate a high-entropy value for:
 
 ```dotenv
 ADAPTER_SHARED_SECRET=<high-entropy shared secret>
 ```
 
-Never expose the adapter secret, WhatsApp SQLite database, or media volume to
+Never expose the adapter secret, adapter SQLite databases, or media volume to
 browser code or a public network.
 
 ## Tests
@@ -89,8 +95,9 @@ source scripts/codex-env.sh && make test
 source scripts/codex-env.sh && make pw
 ```
 
-`make test-short` includes the separately versioned WhatsApp adapter module.
-`make test` requires the Docker services. Real WhatsApp pairing and delivery are
-manual acceptance tests; automated tests never require a live account.
+`make test-short` includes the separately versioned WhatsApp and Telegram adapter
+modules. `make test` requires the Docker services. Real provider connection and
+delivery are manual acceptance tests; automated tests never contact Telegram or
+require a live account.
 
 See [spec.md](spec.md) for contract and operational decisions.
