@@ -223,13 +223,33 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 		if r.URL.Path == "/chat/completions" {
 			var payload struct {
-				Model string `json:"model"`
+				Model          string `json:"model"`
+				ResponseFormat struct {
+					Type       string `json:"type"`
+					JSONSchema struct {
+						Name   string `json:"name"`
+						Strict bool   `json:"strict"`
+						Schema struct {
+							Type                 string         `json:"type"`
+							Required             []string       `json:"required"`
+							AdditionalProperties bool           `json:"additionalProperties"`
+							Properties           map[string]any `json:"properties"`
+						} `json:"schema"`
+					} `json:"json_schema"`
+				} `json:"response_format"`
 			}
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
 			chatModels = append(chatModels, payload.Model)
+			assert.Equal(t, "json_schema", payload.ResponseFormat.Type)
+			assert.Equal(t, "provider_connection_test", payload.ResponseFormat.JSONSchema.Name)
+			assert.True(t, payload.ResponseFormat.JSONSchema.Strict)
+			assert.Equal(t, "object", payload.ResponseFormat.JSONSchema.Schema.Type)
+			assert.Equal(t, []string{"ok"}, payload.ResponseFormat.JSONSchema.Schema.Required)
+			assert.False(t, payload.ResponseFormat.JSONSchema.Schema.AdditionalProperties)
+			assert.Contains(t, payload.ResponseFormat.JSONSchema.Schema.Properties, "ok")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"}}]}`))
 			return
 		}
 		if r.URL.Path == "/embeddings" {
@@ -254,6 +274,29 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{"analysis-model", "reply-model"}, chatModels)
 	assert.True(t, embedCalled)
+}
+
+func TestTestAIProviderConfig_RequiresStructuredOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/chat/completions" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"[{\"ok\":true}]"}}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+		APIKey:         "test-key",
+		BaseURL:        srv.URL,
+		AnalysisModel:  "analysis-model",
+		ReplyModel:     "reply-model",
+		EmbeddingModel: "test-embed",
+	})
+	assert.ErrorContains(t, err, "analysis model does not support required structured output")
 }
 
 func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
@@ -285,7 +328,7 @@ func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
 		if r.URL.Path == "/chat/completions" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"}}]}`))
 			return
 		}
 		if r.URL.Path == "/embeddings" {

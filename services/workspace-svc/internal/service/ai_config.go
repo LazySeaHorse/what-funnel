@@ -301,8 +301,22 @@ func testCompletionModel(ctx context.Context, client *http.Client, cfg AIProvide
 		"messages": []map[string]string{
 			{"role": "user", "content": `Return exactly {"ok":true} as JSON.`},
 		},
-		"response_format": map[string]string{"type": "json_object"},
-		"max_tokens":      20,
+		"response_format": map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   "provider_connection_test",
+				"strict": true,
+				"schema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"ok": map[string]string{"type": "boolean"},
+					},
+					"required":             []string{"ok"},
+					"additionalProperties": false,
+				},
+			},
+		},
+		"max_tokens": 20,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(chatPayload))
 	if err != nil {
@@ -322,6 +336,29 @@ func testCompletionModel(ctx context.Context, client *http.Client, cfg AIProvide
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := extractAIErrorMessage(resp.StatusCode, bodyBytes)
 		return fmt.Errorf("%s model test failed (%s): %s", role, model, errMsg)
+	}
+
+	var completion struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(bodyBytes, &completion); err != nil || len(completion.Choices) == 0 {
+		return fmt.Errorf("%s model returned an invalid completion response (%s)", role, model)
+	}
+
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(completion.Choices[0].Message.Content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil || !result.OK {
+		return fmt.Errorf("%s model does not support required structured output (%s)", role, model)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%s model does not support required structured output (%s)", role, model)
 	}
 	return nil
 }
