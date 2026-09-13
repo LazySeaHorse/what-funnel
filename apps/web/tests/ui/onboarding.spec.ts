@@ -286,4 +286,25 @@ test.describe('onboarding persistence', () => {
 		await expect(page.getByLabel('Business name')).toHaveValue('Setup Studio');
 		await expect(page.getByLabel('Time zone')).toHaveValue('Asia/Colombo');
 	});
+
+	test('keeps footer pinned at the bottom of the column so scrollable content does not appear below it', async ({ page }) => {
+		await mockOnboardingApi(page);
+		await page.setViewportSize({ width: 1280, height: 600 });
+		await page.goto('/onboarding/5');
+
+		const footer = page.locator('footer');
+		await expect(footer).toBeVisible();
+
+		const footerBox = await footer.boundingBox();
+		expect(footerBox).not.toBeNull();
+		const viewport = page.viewportSize();
+
+		expect(footerBox!.y + footerBox!.height).toBeCloseTo(viewport!.height, 1);
+
+		const scrollContainer = page.locator('.overflow-y-auto');
+		const scrollBox = await scrollContainer.boundingBox();
+		expect(scrollBox).not.toBeNull();
+
+		expect(scrollBox!.y + scrollBox!.height).toBeLessThanOrEqual(footerBox!.y + 1);
+	});
 });
