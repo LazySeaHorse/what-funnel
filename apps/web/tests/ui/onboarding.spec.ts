@@ -82,6 +82,61 @@ test.describe('onboarding persistence', () => {
 		}));
 	});
 
+	test('reuses a successful unchanged provider check when continuing', async ({ page }) => {
+		const api = await mockOnboardingApi(page, [], false);
+		await page.goto('/onboarding/5');
+		await page.getByLabel(/^API key/).fill('test-provider-key');
+		await page.getByRole('button', { name: 'Test connection', exact: true }).click();
+
+		const checkResults = page.getByRole('list', { name: 'AI provider check results' });
+		await expect(checkResults.getByText('analysis', { exact: true })).toBeVisible();
+		await expect(checkResults.getByText('reply', { exact: true })).toBeVisible();
+		await expect(checkResults.getByText('embedding', { exact: true })).toBeVisible();
+		await expect(checkResults).toContainText('gemini-flash-lite-latest → gemini-3.5-flash-lite');
+
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/6$/);
+		expect(api.requests.filter((request) => request.path === '/workspace/account/ai-config/test')).toHaveLength(1);
+	});
+
+	test('checks the provider again after a verified model changes', async ({ page }) => {
+		const api = await mockOnboardingApi(page, [], false);
+		await page.goto('/onboarding/5');
+		await page.getByLabel(/^API key/).fill('test-provider-key');
+		await page.getByRole('button', { name: 'Test connection', exact: true }).click();
+		await expect(page.getByText('AI provider connection verified successfully', { exact: true })).toBeVisible();
+
+		await page.getByLabel('Customer reply model').fill('gemini-flash-latest');
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/6$/);
+		expect(api.requests.filter((request) => request.path === '/workspace/account/ai-config/test')).toHaveLength(2);
+	});
+
+	test('shows each provider failure instead of only the first one', async ({ page }) => {
+		await mockOnboardingApi(page, [], false);
+		await page.route('**/api-gateway/workspace/account/ai-config/test', (route) => route.fulfill({
+			status: 422,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				ok: false,
+				error: 'One or more AI provider checks failed',
+				checks: [
+					{ role: 'analysis', model: 'gemma-4-26b-a4b-it', ok: false, kind: 'timeout', message: 'Provider did not respond before the connection-test timeout' },
+					{ role: 'reply', model: 'gemini-flash-lite-latest', ok: false, kind: 'truncated', message: 'Output was truncated before structured response completed' },
+					{ role: 'embedding', model: 'gemini-embedding-001', ok: true, message: 'Embedding model verified' }
+				]
+			})
+		}));
+		await page.goto('/onboarding/5');
+		await page.getByLabel(/^API key/).fill('test-provider-key');
+		await page.getByRole('button', { name: 'Test connection', exact: true }).click();
+
+		await expect(page.getByText('One or more AI provider checks failed', { exact: true })).toBeVisible();
+		await expect(page.getByText('Provider did not respond before the connection-test timeout', { exact: true })).toBeVisible();
+		await expect(page.getByText('Output was truncated before structured response completed', { exact: true })).toBeVisible();
+		await expect(page.getByText('Embedding model verified', { exact: true })).toBeVisible();
+	});
+
 	test('chatbot-only onboarding skips lead and team setup without requesting their APIs', async ({ page }) => {
 		const api = await mockOnboardingApi(page, [], true, 'chatbot_only');
 		await page.goto('/onboarding/1');

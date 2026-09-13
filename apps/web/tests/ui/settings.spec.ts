@@ -84,6 +84,30 @@ test.describe("in-app settings safety net", () => {
     );
   });
 
+  test("does not repeat an unchanged successful provider check when saving", async ({
+    page,
+  }) => {
+    const api = await mockWorkspaceApi(page);
+    await page.goto("/inbox?tab=settings");
+    await page.getByRole("tab", { name: "AI provider", exact: true }).click();
+    await page.getByLabel("API key", { exact: true }).fill("test-provider-key");
+
+    await page.getByRole("button", { name: "Test connection" }).click();
+    await expect(
+      page.getByRole("list", { name: "AI provider check results" }),
+    ).toContainText("Structured output verified");
+    await page.getByRole("button", { name: "Save provider" }).click();
+
+    await expect(
+      page.getByText("AI provider configuration saved.", { exact: true }),
+    ).toBeVisible();
+    expect(
+      api.requests.filter(
+        (request) => request.path === "/workspace/account/ai-config/test",
+      ),
+    ).toHaveLength(1);
+  });
+
   test("general settings persist through a full page refresh", async ({
     page,
   }) => {

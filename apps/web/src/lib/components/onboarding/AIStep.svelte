@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { CpuChipIcon, SparklesIcon, PencilSquareIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import { apiRequest } from '$lib/api';
+	import {
+		aiProviderConfigFingerprint,
+		aiProviderTestResult,
+		aiProviderTestResultFromError,
+		normalizeAIProviderConfig,
+		type AIProviderTestCheck
+	} from '$lib/ai-provider';
 
 	let {
 		step,
@@ -11,7 +18,8 @@
 		providerBaseURL = $bindable(),
 		analysisModel = $bindable(),
 		replyModel = $bindable(),
-		embeddingModel = $bindable()
+		embeddingModel = $bindable(),
+		verifiedConfigFingerprint = $bindable('')
 	}: {
 		step: number;
 		totalSteps: number;
@@ -22,10 +30,22 @@
 		analysisModel: string;
 		replyModel: string;
 		embeddingModel: string;
+		verifiedConfigFingerprint: string;
 	} = $props();
 
 	let testing = $state(false);
 	let testResult = $state<{ ok: boolean; message: string } | null>(null);
+	let testChecks = $state<AIProviderTestCheck[]>([]);
+
+	function currentConfig() {
+		return normalizeAIProviderConfig({
+			api_key: providerApiKey,
+			base_url: providerBaseURL,
+			analysis_model: analysisModel,
+			reply_model: replyModel,
+			embedding_model: embeddingModel
+		});
+	}
 
 	async function testConnection() {
 		if (!providerConfigured && !providerApiKey.trim()) {
@@ -39,19 +59,21 @@
 
 		testing = true;
 		testResult = null;
+		testChecks = [];
 		try {
+			const config = currentConfig();
 			const res = await apiRequest('/workspace/account/ai-config/test', {
 				method: 'POST',
-				body: {
-					api_key: providerApiKey.trim(),
-					base_url: providerBaseURL.trim().replace(/\/$/, ''),
-					analysis_model: analysisModel.trim(),
-					reply_model: replyModel.trim(),
-					embedding_model: embeddingModel.trim()
-				}
+				body: config
 			});
-			testResult = { ok: true, message: res?.message || 'Connection verified successfully.' };
+			const result = aiProviderTestResult(res);
+			if (!result?.ok) throw new Error('Provider returned an invalid connection-test result.');
+			testChecks = result.checks;
+			verifiedConfigFingerprint = aiProviderConfigFingerprint(config);
+			testResult = { ok: true, message: result.message || 'Connection verified successfully.' };
 		} catch (error: any) {
+			testChecks = aiProviderTestResultFromError(error)?.checks ?? [];
+			verifiedConfigFingerprint = '';
 			testResult = { ok: false, message: error?.message || 'Connection test failed.' };
 		} finally {
 			testing = false;
@@ -174,6 +196,21 @@
 								<div role={testResult.ok ? 'status' : 'alert'} class="rounded-lg border p-2.5 text-xs font-medium {testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}">
 									{testResult.message}
 								</div>
+							{/if}
+							{#if testChecks.length > 0}
+								<ul class="space-y-1.5" aria-label="AI provider check results">
+									{#each testChecks as check (check.role)}
+										<li class="flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs {check.ok ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800' : 'border-rose-200 bg-rose-50/70 text-rose-800'}">
+											<span>
+												<span class="font-medium capitalize">{check.role}</span> · {check.model}
+												{#if check.resolved_model && check.resolved_model !== check.model}
+													→ {check.resolved_model}
+												{/if}
+											</span>
+											<span class="text-right">{check.message}</span>
+										</li>
+									{/each}
+								</ul>
 							{/if}
 						</div>
 					{/if}

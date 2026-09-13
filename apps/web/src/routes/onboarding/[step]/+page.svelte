@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { aiProviderConfigFingerprint, normalizeAIProviderConfig } from '$lib/ai-provider';
 	import { page } from '$app/stores';
 	import { apiRequest } from '$lib/api';
 	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
@@ -85,6 +86,7 @@
 	let aiAnalysisModel = $state('gemma-4-26b-a4b-it');
 	let aiReplyModel = $state('gemini-flash-lite-latest');
 	let aiEmbeddingModel = $state('gemini-embedding-001');
+	let aiVerifiedConfigFingerprint = $state('');
 
 	// Step 6: Knowledge Base
 	let s6RawText = $state('');
@@ -395,26 +397,23 @@
 					throw new Error('Add your AI provider API key, or choose Manual only.');
 				}
 				if (s5AiMode !== 'manual') {
-					await apiRequest('/workspace/account/ai-config/test', {
-						method: 'POST',
-						body: {
-							api_key: aiProviderApiKey.trim(),
-							base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
-							analysis_model: aiAnalysisModel.trim(),
-							reply_model: aiReplyModel.trim(),
-							embedding_model: aiEmbeddingModel.trim()
-						}
+					const providerConfig = normalizeAIProviderConfig({
+						api_key: aiProviderApiKey,
+						base_url: aiProviderBaseURL,
+						analysis_model: aiAnalysisModel,
+						reply_model: aiReplyModel,
+						embedding_model: aiEmbeddingModel
 					});
+					if (aiVerifiedConfigFingerprint !== aiProviderConfigFingerprint(providerConfig)) {
+						await apiRequest('/workspace/account/ai-config/test', {
+							method: 'POST',
+							body: providerConfig
+						});
+					}
 
 					await apiRequest('/workspace/account/ai-config', {
 						method: 'PUT',
-						body: {
-							api_key: aiProviderApiKey.trim(),
-							base_url: aiProviderBaseURL.trim().replace(/\/$/, ''),
-							analysis_model: aiAnalysisModel.trim(),
-							reply_model: aiReplyModel.trim(),
-							embedding_model: aiEmbeddingModel.trim()
-						}
+						body: providerConfig
 					});
 					aiProviderConfigured = true;
 					aiProviderApiKey = '';
@@ -541,7 +540,7 @@
 								<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
 							<!-- STEP 5: AI ASSISTANT -->
 							{:else if stepNum === 5}
-								<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:analysisModel={aiAnalysisModel} bind:replyModel={aiReplyModel} bind:embeddingModel={aiEmbeddingModel} />
+								<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:analysisModel={aiAnalysisModel} bind:replyModel={aiReplyModel} bind:embeddingModel={aiEmbeddingModel} bind:verifiedConfigFingerprint={aiVerifiedConfigFingerprint} />
 
 							<!-- STEP 6: KNOWLEDGE BASE -->
 							{:else if stepNum === 6}

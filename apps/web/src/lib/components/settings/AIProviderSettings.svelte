@@ -1,6 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { apiRequest } from "$lib/api";
+  import {
+    aiProviderConfigFingerprint,
+    aiProviderTestResult,
+    aiProviderTestResultFromError,
+    normalizeAIProviderConfig,
+    type AIProviderTestCheck,
+  } from "$lib/ai-provider";
 
   let configured = $state(false);
   let apiKey = $state("");
@@ -14,9 +21,21 @@
   let loading = $state(true);
   let saving = $state(false);
   let testing = $state(false);
+  let verifiedConfigFingerprint = $state("");
+  let testChecks = $state<AIProviderTestCheck[]>([]);
   let message = $state<{ kind: "success" | "error"; text: string } | null>(
     null,
   );
+
+  function currentConfig() {
+    return normalizeAIProviderConfig({
+      api_key: apiKey,
+      base_url: baseURL,
+      analysis_model: analysisModel,
+      reply_model: replyModel,
+      embedding_model: embeddingModel,
+    });
+  }
 
   onMount(async () => {
     try {
@@ -54,22 +73,24 @@
 
     testing = true;
     message = null;
+    testChecks = [];
     try {
+      const config = currentConfig();
       const res = await apiRequest("/workspace/account/ai-config/test", {
         method: "POST",
-        body: {
-          api_key: apiKey.trim(),
-          base_url: baseURL.trim().replace(/\/$/, ""),
-          analysis_model: analysisModel.trim(),
-          reply_model: replyModel.trim(),
-          embedding_model: embeddingModel.trim(),
-        },
+        body: config,
       });
+      const result = aiProviderTestResult(res);
+      if (!result?.ok) throw new Error("Provider returned an invalid connection-test result.");
+      testChecks = result.checks;
+      verifiedConfigFingerprint = aiProviderConfigFingerprint(config);
       message = {
         kind: "success",
-        text: res?.message || "AI provider connection verified successfully!",
+        text: result.message || "AI provider connection verified successfully!",
       };
     } catch (error: any) {
+      testChecks = aiProviderTestResultFromError(error)?.checks ?? [];
+      verifiedConfigFingerprint = "";
       message = {
         kind: "error",
         text: error?.message || "AI provider test failed.",
@@ -95,27 +116,17 @@
     saving = true;
     message = null;
     try {
-      // Validate credentials first
-      await apiRequest("/workspace/account/ai-config/test", {
-        method: "POST",
-        body: {
-          api_key: apiKey.trim(),
-          base_url: baseURL.trim().replace(/\/$/, ""),
-          analysis_model: analysisModel.trim(),
-          reply_model: replyModel.trim(),
-          embedding_model: embeddingModel.trim(),
-        },
-      });
+      const config = currentConfig();
+      if (verifiedConfigFingerprint !== aiProviderConfigFingerprint(config)) {
+        await apiRequest("/workspace/account/ai-config/test", {
+          method: "POST",
+          body: config,
+        });
+      }
 
       await apiRequest("/workspace/account/ai-config", {
         method: "PUT",
-        body: {
-          api_key: apiKey.trim(),
-          base_url: baseURL.trim().replace(/\/$/, ""),
-          analysis_model: analysisModel.trim(),
-          reply_model: replyModel.trim(),
-          embedding_model: embeddingModel.trim(),
-        },
+        body: config,
       });
       apiKey = "";
       showKey = false;
@@ -177,6 +188,25 @@
       An AI provider is connected. The system encrypts and saves your API key.
       You can update the base URL and model names without entering a new key.
     </div>
+  {/if}
+  {#if testChecks.length > 0}
+    <ul class="space-y-2" aria-label="AI provider check results">
+      {#each testChecks as check (check.role)}
+        <li
+          class="flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs {check.ok
+            ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+            : 'border-rose-200 bg-rose-50/70 text-rose-800'}"
+        >
+          <span>
+            <span class="font-medium capitalize">{check.role}</span> · {check.model}
+            {#if check.resolved_model && check.resolved_model !== check.model}
+              → {check.resolved_model}
+            {/if}
+          </span>
+          <span class="text-right">{check.message}</span>
+        </li>
+      {/each}
+    </ul>
   {/if}
 
   <fieldset

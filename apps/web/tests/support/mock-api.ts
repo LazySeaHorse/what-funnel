@@ -103,7 +103,7 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		}
 		if (path === '/workspace/account/ai-config/status') return json({ configured: aiConfigured });
 		if (path === '/workspace/account/ai-config/test') {
-			return json({ ok: true, message: 'AI provider connection verified successfully' });
+			return json(successfulAIProviderTestResult());
 		}
 		if (path === '/workspace/account/ai-config' && request.method() === 'PUT') {
 			aiConfigured = true;
@@ -346,7 +346,7 @@ export async function mockOnboardingApi(
 			return json({ status: 'updated' });
 		}
 		if (path === '/workspace/account/ai-config/status') return json({ configured: aiConfigured });
-		if (path === '/workspace/account/ai-config/test') return json({ ok: true, message: 'AI provider connection verified successfully' });
+		if (path === '/workspace/account/ai-config/test') return json(successfulAIProviderTestResult());
 		if (path === '/workspace/account/ai-config' && method === 'PUT') {
 			aiConfigured = true;
 			return json({ status: 'updated' });
@@ -398,4 +398,16 @@ export async function mockOnboardingApi(
 	});
 
 	return { requests, getSettings: () => accountSettings, getPipeline: () => pipeline, isAIConfigured: () => aiConfigured };
+}
+
+function successfulAIProviderTestResult() {
+	return {
+		ok: true,
+		message: 'AI provider connection verified successfully',
+		checks: [
+			{ role: 'analysis', model: 'gemma-4-26b-a4b-it', resolved_model: 'gemma-4-26b-a4b-it', ok: true, message: 'Structured output verified' },
+			{ role: 'reply', model: 'gemini-flash-lite-latest', resolved_model: 'gemini-3.5-flash-lite', ok: true, message: 'Structured output verified' },
+			{ role: 'embedding', model: 'gemini-embedding-001', resolved_model: 'gemini-embedding-001', ok: true, message: 'Embedding model verified' }
+		]
+	};
 }
