@@ -5,7 +5,7 @@
 </script>
 
 {#if !(stepNum === 6 && (kbStatus === 'processing' || kbStatus === 'publishing'))}
-	<div class="fixed sm:sticky bottom-0 left-0 right-0 sm:left-auto sm:right-auto px-5 sm:px-0 pt-3 pb-5 sm:pt-8 sm:pb-0 mt-auto border-t border-slate-100 flex items-center justify-between gap-3 w-full bg-white/95 backdrop-blur-xs z-30">
+	<footer class="shrink-0 border-t border-slate-100 flex items-center justify-between gap-3 w-full bg-white px-5 sm:px-10 lg:px-12 py-4 sm:py-5">
 		{#if stepNum === 8}
 			<button type="button" class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 active:scale-[0.98] text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer" onclick={onTour}>View tour</button>
 			<button type="button" class="ml-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 active:scale-[0.98] text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer flex items-center justify-center gap-2" onclick={onInbox}><span>Go to Inbox</span><ChevronRightIcon class="w-4 h-4 text-white" /></button>
@@ -21,5 +21,5 @@
 				</button>
 			{/if}
 		{/if}
-	</div>
+	</footer>
 {/if}
