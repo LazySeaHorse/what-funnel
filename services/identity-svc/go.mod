@@ -1,6 +1,6 @@
 module github.com/whatfunnel/whatfunnel/services/identity-svc
 
-go 1.25.0
+go 1.27.0
 
 require (
 	github.com/aarondl/authboss/v3 v3.5.3
