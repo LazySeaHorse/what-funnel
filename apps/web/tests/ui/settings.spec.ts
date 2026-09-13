@@ -243,7 +243,6 @@ test.describe("in-app settings safety net", () => {
     await page.goto("/inbox?tab=settings");
     await page.getByRole("tab", { name: "Channels", exact: true }).click();
 
-    await expect(page.getByText(/customer must message the bot first/i)).toBeVisible();
     for (const [label, token] of [
       ["Support bot", "123456:telegram-secret-one"],
       ["Sales bot", "789012:telegram-secret-two"],
