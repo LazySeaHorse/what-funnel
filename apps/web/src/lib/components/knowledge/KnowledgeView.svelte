@@ -13,7 +13,11 @@
 		PlusIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
+	import KnowledgeComposer from '$lib/components/knowledge/KnowledgeComposer.svelte';
+	import ConceptCard from '$lib/components/knowledge/ConceptCard.svelte';
+	import PatternCard from '$lib/components/knowledge/PatternCard.svelte';
 	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
+	import { typeColor, typeLabel } from '$lib/knowledge/ingestion';
 
 	let {
 		reviewerID = '',
@@ -353,19 +357,7 @@
 		return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
 
-	function typeLabel(type?: string) {
-		return type ? type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ') : 'General';
-	}
 
-	function typeColor(type?: string) {
-		return ({
-			faq: 'bg-blue-50 text-blue-700 border-blue-200/70',
-			pricing: 'bg-emerald-50 text-emerald-700 border-emerald-200/70',
-			policy: 'bg-orange-50 text-orange-700 border-orange-200/70',
-			hours: 'bg-purple-50 text-purple-700 border-purple-200/70',
-			service: 'bg-rose-50 text-rose-700 border-rose-200/70'
-		} as Record<string, string>)[(type || '').toLowerCase()] || 'bg-slate-50 text-slate-700 border-slate-200/70';
-	}
 
 	function toggleConceptExpansion(id: string) {
 		expandedConcepts[id] = !expandedConcepts[id];
@@ -528,51 +520,13 @@
 					{/if}
 					<div class="pr-1"><IngestionReview bind:concepts={ingestion.concepts} bind:patterns={ingestion.patterns} /></div>
 				{:else}
-					<div class="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 shadow-2xs">
-						<div class="flex items-center justify-between mb-2">
-							<h2 class="text-xs font-semibold text-slate-700 uppercase tracking-wider">Add business knowledge</h2>
-							<span class="text-[11px] text-slate-400">AI-powered extraction</span>
-						</div>
-						<textarea
-							bind:value={pasteText}
-							disabled={ingestion.busy}
-							placeholder="Paste business information, pricing, business hours, and policies. The system extracts concepts and answer patterns."
-							class="w-full h-20 p-3 text-xs text-slate-700 placeholder-slate-400 bg-white rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 resize-none leading-relaxed disabled:opacity-60 transition"
-						></textarea>
-						<div class="flex items-center justify-between mt-2.5">
-							<div class="flex items-center gap-2">
-								{#if pasteResult?.added !== undefined}
-									<div class="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-										<CheckIcon class="w-4 h-4" />
-										<span>{pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} and {pasteResult.patternsAdded ?? 0} pattern{pasteResult.patternsAdded !== 1 ? 's' : ''} added</span>
-									</div>
-								{:else if pasteResult?.error}
-									<div class="flex items-center gap-1.5 text-xs text-rose-600 font-medium">
-										<XMarkIcon class="w-4 h-4" />
-										<span>{pasteResult.error}</span>
-									</div>
-								{:else if ingestion.phase === 'processing'}
-									<div class="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
-										<span class="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
-										<span>Extracting concepts and answer patterns…</span>
-									</div>
-								{:else if ingestion.phase === 'publishing'}
-									<div class="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
-										<span class="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
-										<span>Publishing reviewed knowledge…</span>
-									</div>
-								{/if}
-							</div>
-							<button
-								onclick={compilePaste}
-								disabled={ingestion.busy || !pasteText.trim()}
-								class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98]"
-							>
-								<SparklesIcon class="w-3.5 h-3.5 text-white" />
-								<span>{ingestion.busy ? 'Processing…' : 'Extract with AI'}</span>
-							</button>
-						</div>
-					</div>
+					<KnowledgeComposer
+						bind:value={pasteText}
+						busy={ingestion.busy}
+						phase={ingestion.phase}
+						result={pasteResult}
+						onSubmit={compilePaste}
+					/>
 				{/if}
 			</div>
 
@@ -674,68 +628,13 @@
 								</div>
 							{:else}
 								<!-- Regular Concept Card -->
-								<div class="border border-slate-200/80 hover:border-slate-300 rounded-2xl bg-white p-4 transition shadow-2xs space-y-2.5 flex flex-col justify-between">
-									<div class="space-y-2.5">
-										<div class="flex items-start justify-between gap-2">
-											<div class="flex flex-wrap items-center gap-1.5 min-w-0">
-												<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold border capitalize {typeColor(concept.type)}">{typeLabel(concept.type)}</span>
-												<h3 class="text-sm font-semibold text-slate-900 leading-snug">{concept.title}</h3>
-												{#if concept.source === 'owner_pasted'}
-													<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
-												{/if}
-											</div>
-
-											<!-- Action Controls -->
-											<div class="flex items-center gap-0.5 shrink-0">
-												<button
-													type="button"
-													onclick={() => startEditingConcept(concept)}
-													class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
-													title="Edit concept"
-												>
-													<PencilSquareIcon class="w-3.5 h-3.5" />
-													<span>Edit</span>
-												</button>
-												<button
-													type="button"
-													onclick={() => deleteConcept(concept.id)}
-													class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
-													title="Delete concept"
-												>
-													<TrashIcon class="w-3.5 h-3.5" />
-													<span>Delete</span>
-												</button>
-											</div>
-										</div>
-
-										{#if concept.tags?.length}
-											<div class="flex flex-wrap items-center gap-1">
-												{#each concept.tags as tag}
-													<span class="text-[10px] text-slate-500 bg-slate-100/80 px-2 py-0.5 rounded-md font-medium">{tag}</span>
-												{/each}
-											</div>
-										{/if}
-
-										<!-- Direct Readable Body Text -->
-										<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap {expandedConcepts[concept.id] ? '' : 'line-clamp-4'}">
-											{concept.body_text}
-										</div>
-
-										{#if (concept.body_text || '').length > 180}
-											<button
-												type="button"
-												onclick={() => toggleConceptExpansion(concept.id)}
-												class="text-[11px] font-medium text-blue-600 hover:text-blue-700 cursor-pointer pt-0.5 inline-block"
-											>
-												{expandedConcepts[concept.id] ? 'Show less' : 'Show full content'}
-											</button>
-										{/if}
-									</div>
-
-									<div class="pt-2 mt-1 text-[10px] text-slate-400 border-t border-slate-100/80">
-										<span>Added {formatDate(concept.created_at)}</span>
-									</div>
-								</div>
+								<ConceptCard
+									concept={concept}
+									expanded={expandedConcepts[concept.id]}
+									onToggleExpand={() => toggleConceptExpansion(concept.id)}
+									onEdit={() => startEditingConcept(concept)}
+									onDelete={() => deleteConcept(concept.id)}
+								/>
 							{/if}
 						{/each}
 					</div>
@@ -823,45 +722,11 @@
 							</div>
 						{:else}
 							<!-- Regular Pattern Card (Conversational Q&A Flow) -->
-							<div class="p-4 rounded-2xl border border-slate-200/80 hover:border-slate-300 bg-white space-y-2.5 transition shadow-2xs">
-								<div class="flex items-start justify-between gap-2">
-									<h3 class="text-sm font-semibold text-slate-900 leading-snug">{pattern.canonical_question}</h3>
-									<div class="flex items-center gap-0.5 shrink-0">
-										<button
-											type="button"
-											onclick={() => startEditingPattern(pattern)}
-											class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
-											title="Edit pattern"
-										>
-											<PencilSquareIcon class="w-3.5 h-3.5" />
-											<span>Edit</span>
-										</button>
-										<button
-											type="button"
-											onclick={() => deletePattern(pattern.id)}
-											class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
-											title="Delete pattern"
-										>
-											<TrashIcon class="w-3.5 h-3.5" />
-											<span>Delete</span>
-										</button>
-									</div>
-								</div>
-
-								{#if pattern.trigger_phrases?.length}
-									<div class="flex flex-wrap items-center gap-1 pt-0.5">
-										<span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
-										{#each pattern.trigger_phrases as phrase}
-											<span class="text-xs text-slate-700 bg-slate-100/90 border border-slate-200/50 px-2 py-0.5 rounded-lg">{phrase}</span>
-										{/each}
-									</div>
-								{/if}
-
-								<!-- Direct Answer Bubble -->
-								<div class="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap bg-slate-50/80 p-3 rounded-xl border border-slate-200/70">
-									{pattern.answer_text}
-								</div>
-							</div>
+							<PatternCard
+								pattern={pattern}
+								onEdit={() => startEditingPattern(pattern)}
+								onDelete={() => deletePattern(pattern.id)}
+							/>
 						{/if}
 					{/each}
 				</div>
