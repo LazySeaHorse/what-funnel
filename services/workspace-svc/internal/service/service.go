@@ -10,7 +10,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
@@ -18,8 +22,11 @@ import (
 
 // Service handles workspace operations.
 type Service struct {
-	pool   *pgxpool.Pool
-	cipher *crypto.Cipher
+	pool                     *pgxpool.Pool
+	cipher                   *crypto.Cipher
+	aiProviderTestTimeout    time.Duration
+	aiProviderTestMaxRetries int
+	aiProviderTestRetryDelay time.Duration
 }
 
 // New creates a workspace Service.
@@ -29,7 +36,25 @@ func New(pool *pgxpool.Pool, encryptionKey string) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("workspace service: %w", err)
 	}
-	return &Service{pool: pool, cipher: cipher}, nil
+	return &Service{
+		pool:                     pool,
+		cipher:                   cipher,
+		aiProviderTestTimeout:    durationFromEnv("AI_PROVIDER_TEST_TIMEOUT_SECONDS", 60*time.Second),
+		aiProviderTestMaxRetries: 2,
+		aiProviderTestRetryDelay: 250 * time.Millisecond,
+	}, nil
+}
+
+func durationFromEnv(name string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	seconds, err := strconv.ParseFloat(raw, 64)
+	if err != nil || seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 // Pool returns the underlying database connection pool.

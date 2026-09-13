@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/onboarding"
@@ -223,8 +224,10 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 		if r.URL.Path == "/chat/completions" {
 			var payload struct {
-				Model          string `json:"model"`
-				ResponseFormat struct {
+				Model           string `json:"model"`
+				ReasoningEffort string `json:"reasoning_effort"`
+				MaxTokens       *int   `json:"max_tokens"`
+				ResponseFormat  struct {
 					Type       string `json:"type"`
 					JSONSchema struct {
 						Name   string `json:"name"`
@@ -247,16 +250,16 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 			assert.Equal(t, []string{"ok"}, payload.ResponseFormat.JSONSchema.Schema.Required)
 			assert.False(t, payload.ResponseFormat.JSONSchema.Schema.AdditionalProperties)
 			assert.Contains(t, payload.ResponseFormat.JSONSchema.Schema.Properties, "ok")
+			assert.Equal(t, "minimal", payload.ReasoningEffort)
+			assert.Nil(t, payload.MaxTokens)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"}}]}`))
+			_, _ = w.Write([]byte(`{"model":"resolved-chat-model","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"ok\":true}"}}]}`))
 			return
 		}
 		if r.URL.Path == "/embeddings" {
 			embedCalled = true
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1, 0.2]}]}`))
+			writeSuccessfulEmbedding(t, w)
 			return
 		}
 		http.NotFound(w, r)
@@ -264,7 +267,7 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+	result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
 		APIKey:         "test-key",
 		BaseURL:        srv.URL,
 		AnalysisModel:  "analysis-model",
@@ -272,6 +275,9 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 		EmbeddingModel: "test-embed",
 	})
 	assert.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.Len(t, result.Checks, 3)
+	assert.Equal(t, "resolved-chat-model", result.Checks[0].ResolvedModel)
 	assert.ElementsMatch(t, []string{"analysis-model", "reply-model"}, chatModels)
 	assert.True(t, embedCalled)
 }
@@ -289,14 +295,17 @@ func TestTestAIProviderConfig_RequiresStructuredOutput(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+	result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
 		APIKey:         "test-key",
 		BaseURL:        srv.URL,
 		AnalysisModel:  "analysis-model",
 		ReplyModel:     "reply-model",
 		EmbeddingModel: "test-embed",
 	})
-	assert.ErrorContains(t, err, "analysis model does not support required structured output")
+	assert.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.Equal(t, "schema_validation", result.Checks[0].Kind)
+	assert.Equal(t, "Output did not match the required JSON schema", result.Checks[0].Message)
 }
 
 func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
@@ -312,15 +321,17 @@ func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+	result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
 		APIKey:         "leaked-key",
 		BaseURL:        srv.URL,
 		AnalysisModel:  "analysis-model",
 		ReplyModel:     "reply-model",
 		EmbeddingModel: "test-embed",
 	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Your API key was reported as leaked. Please use another API key.")
+	assert.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.Equal(t, "provider", result.Checks[0].Kind)
+	assert.Contains(t, result.Checks[0].Message, "Your API key was reported as leaked. Please use another API key.")
 }
 
 func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
@@ -342,15 +353,118 @@ func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
 	defer srv.Close()
 
 	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
-	err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+	result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
 		APIKey:         "test-key",
 		BaseURL:        srv.URL,
 		AnalysisModel:  "analysis-model",
 		ReplyModel:     "reply-model",
 		EmbeddingModel: "unknown-embed",
 	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Model 'unknown-embed' not found.")
+	assert.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.Equal(t, "provider", result.Checks[2].Kind)
+	assert.Contains(t, result.Checks[2].Message, "Model 'unknown-embed' not found.")
+}
+
+func TestTestAIProviderConfig_CleansFencedJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/embeddings" {
+			writeSuccessfulEmbedding(t, w)
+			return
+		}
+		_, _ = w.Write([]byte("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"<thought>done</thought>```json\\n{\\\"ok\\\":true}\\n```\"}}]}"))
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	result, err := svc.TestAIProviderConfig(context.Background(), testAIProviderConfig(srv.URL))
+	assert.NoError(t, err)
+	assert.True(t, result.OK)
+}
+
+func TestTestAIProviderConfig_ReportsTruncatedOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/embeddings" {
+			writeSuccessfulEmbedding(t, w)
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"MAX_TOKENS","message":{"content":""}}]}`))
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	result, err := svc.TestAIProviderConfig(context.Background(), testAIProviderConfig(srv.URL))
+	assert.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.Equal(t, "truncated", result.Checks[0].Kind)
+	assert.Contains(t, result.Checks[0].Message, "truncated")
+}
+
+func TestTestAIProviderConfig_RetriesTransientFailure(t *testing.T) {
+	analysisAttempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/embeddings" {
+			writeSuccessfulEmbedding(t, w)
+			return
+		}
+		var payload struct {
+			Model string `json:"model"`
+		}
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		if payload.Model == "analysis-model" {
+			analysisAttempts++
+			if analysisAttempts == 1 {
+				http.Error(w, "try again", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"{\"ok\":true}"}}]}`))
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	svc.aiProviderTestRetryDelay = 0
+	result, err := svc.TestAIProviderConfig(context.Background(), testAIProviderConfig(srv.URL))
+	assert.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.Equal(t, 2, analysisAttempts)
+}
+
+func TestTestAIProviderConfig_ReportsTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"choices":[]}`))
+	}))
+	defer srv.Close()
+
+	svc, _ := New(nil, "test-key-exactly-32-bytes-padded")
+	svc.aiProviderTestTimeout = time.Millisecond
+	svc.aiProviderTestMaxRetries = 0
+	result, err := svc.TestAIProviderConfig(context.Background(), testAIProviderConfig(srv.URL))
+	assert.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.Equal(t, "timeout", result.Checks[0].Kind)
+	assert.Contains(t, result.Checks[0].Message, "timeout")
+}
+
+func testAIProviderConfig(baseURL string) AIProviderConfig {
+	return AIProviderConfig{
+		APIKey:         "real-test-key",
+		BaseURL:        baseURL,
+		AnalysisModel:  "analysis-model",
+		ReplyModel:     "reply-model",
+		EmbeddingModel: "embedding-model",
+	}
+}
+
+func writeSuccessfulEmbedding(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	embedding := make([]float64, 1536)
+	w.Header().Set("Content-Type", "application/json")
+	assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		"model": "resolved-embedding-model",
+		"data":  []any{map[string]any{"embedding": embedding}},
+	}))
 }
 
 func TestAIProviderConfigValidate(t *testing.T) {

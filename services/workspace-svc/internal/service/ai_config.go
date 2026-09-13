@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +26,11 @@ const (
 )
 
 var ErrAIProviderNotConfigured = errors.New("ai provider is not configured")
+
+var (
+	thoughtBlockPattern = regexp.MustCompile(`(?s)<thought>.*?</thought>`)
+	fencedJSONPattern   = regexp.MustCompile("(?s)```(?:json)?\\s*([\\s\\S]*?)\\s*```")
+)
 
 // AIProviderConfig is the private provider configuration used to make AI calls.
 // APIKey is accepted from and returned only to trusted service code.
@@ -42,6 +49,22 @@ type AIProviderStatus struct {
 	AnalysisModel  string `json:"analysis_model,omitempty"`
 	ReplyModel     string `json:"reply_model,omitempty"`
 	EmbeddingModel string `json:"embedding_model,omitempty"`
+}
+
+// AIProviderTestCheck describes one model capability check.
+type AIProviderTestCheck struct {
+	Role          string `json:"role"`
+	Model         string `json:"model"`
+	ResolvedModel string `json:"resolved_model,omitempty"`
+	OK            bool   `json:"ok"`
+	Kind          string `json:"kind,omitempty"`
+	Message       string `json:"message"`
+}
+
+// AIProviderTestResult reports every model check instead of only the first failure.
+type AIProviderTestResult struct {
+	OK     bool                  `json:"ok"`
+	Checks []AIProviderTestCheck `json:"checks"`
 }
 
 func (cfg AIProviderConfig) normalized() AIProviderConfig {
@@ -234,22 +257,23 @@ func extractAIErrorMessage(statusCode int, body []byte) string {
 }
 
 // TestAIProviderConfig validates both completion roles and the embedding model.
-func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConfig) error {
+func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConfig) (AIProviderTestResult, error) {
+	result := AIProviderTestResult{Checks: []AIProviderTestCheck{}}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	cfg = cfg.normalized()
 	if err := cfg.validate(true); err != nil {
-		return err
+		return result, err
 	}
 
 	// In automated test environments with synthetic keys, bypass external network requests
 	if cfg.APIKey == "e2e-provider-key" || strings.HasPrefix(cfg.APIKey, "e2e-") || strings.HasPrefix(cfg.APIKey, "sk-test-") || cfg.APIKey == "test-provider-key" || strings.Contains(cfg.BaseURL, "example.test") {
-		return nil
+		return successfulAIProviderTestResult(cfg), nil
 	}
 
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: svc.aiProviderTestTimeout,
 	}
 
 	completionModels := []struct {
@@ -260,43 +284,79 @@ func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConf
 		{role: "reply", model: cfg.ReplyModel},
 	}
 	for _, candidate := range completionModels {
-		if err := testCompletionModel(ctx, client, cfg, candidate.role, candidate.model); err != nil {
-			return err
-		}
+		result.Checks = append(
+			result.Checks,
+			svc.testCompletionModel(ctx, client, cfg, candidate.role, candidate.model),
+		)
 	}
+	result.Checks = append(result.Checks, svc.testEmbeddingModel(ctx, client, cfg))
+	result.OK = allAIProviderChecksPassed(result.Checks)
+	return result, nil
+}
 
+func (svc *Service) testEmbeddingModel(
+	ctx context.Context,
+	client *http.Client,
+	cfg AIProviderConfig,
+) AIProviderTestCheck {
+	check := AIProviderTestCheck{
+		Role:    "embedding",
+		Model:   cfg.EmbeddingModel,
+		Message: "Embedding model verified",
+	}
 	embedURL := cfg.BaseURL + "/embeddings"
-	embedPayload, _ := json.Marshal(map[string]any{
+	embedPayload, err := json.Marshal(map[string]any{
 		"model":      cfg.EmbeddingModel,
 		"input":      "ping",
 		"dimensions": 1536,
 	})
-
-	reqEmb, err := http.NewRequestWithContext(ctx, http.MethodPost, embedURL, bytes.NewReader(embedPayload))
 	if err != nil {
-		return fmt.Errorf("failed to create embedding request: %w", err)
+		return failedAIProviderCheck(check, "request", "Could not create embedding test request")
 	}
-	reqEmb.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	reqEmb.Header.Set("Content-Type", "application/json")
 
-	respEmb, err := client.Do(reqEmb)
+	statusCode, body, err := svc.doAIProviderRequest(ctx, client, embedURL, cfg.APIKey, embedPayload)
 	if err != nil {
-		return fmt.Errorf("failed to connect to AI provider embedding endpoint (%s): %w", embedURL, err)
+		return failedAIProviderCheck(check, requestFailureKind(err), requestFailureMessage(err))
 	}
-	defer respEmb.Body.Close()
-
-	bodyEmbBytes, _ := io.ReadAll(respEmb.Body)
-	if respEmb.StatusCode < 200 || respEmb.StatusCode >= 300 {
-		errMsg := extractAIErrorMessage(respEmb.StatusCode, bodyEmbBytes)
-		return fmt.Errorf("embedding test failed (%s): %s", cfg.EmbeddingModel, errMsg)
+	if statusCode < 200 || statusCode >= 300 {
+		return failedAIProviderCheck(check, "provider", extractAIErrorMessage(statusCode, body))
 	}
 
-	return nil
+	var response struct {
+		Model string `json:"model"`
+		Data  []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil || len(response.Data) == 0 {
+		return failedAIProviderCheck(check, "invalid_response", "Provider returned an invalid embedding response")
+	}
+	if len(response.Data[0].Embedding) != 1536 {
+		message := fmt.Sprintf(
+			"Provider returned %d embedding dimensions; 1536 required",
+			len(response.Data[0].Embedding),
+		)
+		return failedAIProviderCheck(check, "dimension_mismatch", message)
+	}
+	check.OK = true
+	check.ResolvedModel = response.Model
+	return check
 }
 
-func testCompletionModel(ctx context.Context, client *http.Client, cfg AIProviderConfig, role, model string) error {
+func (svc *Service) testCompletionModel(
+	ctx context.Context,
+	client *http.Client,
+	cfg AIProviderConfig,
+	role string,
+	model string,
+) AIProviderTestCheck {
+	check := AIProviderTestCheck{
+		Role:    role,
+		Model:   model,
+		Message: "Structured output verified",
+	}
 	chatURL := cfg.BaseURL + "/chat/completions"
-	chatPayload, _ := json.Marshal(map[string]any{
+	chatPayload, err := json.Marshal(map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": `Return exactly {"ok":true} as JSON.`},
@@ -316,49 +376,178 @@ func testCompletionModel(ctx context.Context, client *http.Client, cfg AIProvide
 				},
 			},
 		},
-		"max_tokens": 20,
+		"reasoning_effort": "minimal",
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(chatPayload))
 	if err != nil {
-		return fmt.Errorf("create %s model test request: %w", role, err)
+		return failedAIProviderCheck(check, "request", "Could not create completion test request")
 	}
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
+
+	statusCode, body, err := svc.doAIProviderRequest(ctx, client, chatURL, cfg.APIKey, chatPayload)
 	if err != nil {
-		return fmt.Errorf("connect to ai provider %s model endpoint (%s): %w", role, chatURL, err)
+		return failedAIProviderCheck(check, requestFailureKind(err), requestFailureMessage(err))
 	}
-	defer resp.Body.Close()
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read ai provider %s model response: %w", role, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errMsg := extractAIErrorMessage(resp.StatusCode, bodyBytes)
-		return fmt.Errorf("%s model test failed (%s): %s", role, model, errMsg)
+	if statusCode < 200 || statusCode >= 300 {
+		return failedAIProviderCheck(check, "provider", extractAIErrorMessage(statusCode, body))
 	}
 
 	var completion struct {
+		Model   string `json:"model"`
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(bodyBytes, &completion); err != nil || len(completion.Choices) == 0 {
-		return fmt.Errorf("%s model returned an invalid completion response (%s)", role, model)
+	if err := json.Unmarshal(body, &completion); err != nil || len(completion.Choices) == 0 {
+		return failedAIProviderCheck(check, "invalid_response", "Provider returned an invalid completion response")
+	}
+	check.ResolvedModel = completion.Model
+	choice := completion.Choices[0]
+	if isTruncatedFinishReason(choice.FinishReason) {
+		return failedAIProviderCheck(check, "truncated", "Output was truncated before structured response completed")
+	}
+	content := cleanJSONContent(choice.Message.Content)
+	if content == "" {
+		return failedAIProviderCheck(check, "empty_response", "Provider returned an empty structured response")
 	}
 
 	var result struct {
 		OK bool `json:"ok"`
 	}
-	decoder := json.NewDecoder(strings.NewReader(completion.Choices[0].Message.Content))
+	decoder := json.NewDecoder(strings.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil || !result.OK {
-		return fmt.Errorf("%s model does not support required structured output (%s)", role, model)
+		return failedAIProviderCheck(check, "schema_validation", "Output did not match the required JSON schema")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%s model does not support required structured output (%s)", role, model)
+		return failedAIProviderCheck(check, "schema_validation", "Output contained data outside the required JSON object")
 	}
-	return nil
+	check.OK = true
+	return check
+}
+
+func (svc *Service) doAIProviderRequest(
+	ctx context.Context,
+	client *http.Client,
+	url string,
+	apiKey string,
+	payload []byte,
+) (int, []byte, error) {
+	var lastErr error
+	for attempt := 0; attempt <= svc.aiProviderTestMaxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+		if err != nil {
+			return 0, nil, fmt.Errorf("create provider request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt == svc.aiProviderTestMaxRetries {
+				break
+			}
+			if err := waitForRetry(ctx, svc.aiProviderTestRetryDelay*time.Duration(attempt+1)); err != nil {
+				return 0, nil, err
+			}
+			continue
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		closeErr := resp.Body.Close()
+		if readErr != nil {
+			return 0, nil, fmt.Errorf("read provider response: %w", readErr)
+		}
+		if closeErr != nil {
+			return 0, nil, fmt.Errorf("close provider response: %w", closeErr)
+		}
+		if !isTransientAIProviderStatus(resp.StatusCode) || attempt == svc.aiProviderTestMaxRetries {
+			return resp.StatusCode, body, nil
+		}
+		if err := waitForRetry(ctx, svc.aiProviderTestRetryDelay*time.Duration(attempt+1)); err != nil {
+			return 0, nil, err
+		}
+	}
+	return 0, nil, lastErr
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func successfulAIProviderTestResult(cfg AIProviderConfig) AIProviderTestResult {
+	return AIProviderTestResult{
+		OK: true,
+		Checks: []AIProviderTestCheck{
+			{Role: "analysis", Model: cfg.AnalysisModel, OK: true, Message: "Structured output verified"},
+			{Role: "reply", Model: cfg.ReplyModel, OK: true, Message: "Structured output verified"},
+			{Role: "embedding", Model: cfg.EmbeddingModel, OK: true, Message: "Embedding model verified"},
+		},
+	}
+}
+
+func failedAIProviderCheck(check AIProviderTestCheck, kind string, message string) AIProviderTestCheck {
+	check.Kind = kind
+	check.Message = message
+	return check
+}
+
+func allAIProviderChecksPassed(checks []AIProviderTestCheck) bool {
+	for _, check := range checks {
+		if !check.OK {
+			return false
+		}
+	}
+	return len(checks) > 0
+}
+
+func cleanJSONContent(content string) string {
+	content = strings.TrimSpace(thoughtBlockPattern.ReplaceAllString(content, ""))
+	match := fencedJSONPattern.FindStringSubmatch(content)
+	if len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	return content
+}
+
+func isTruncatedFinishReason(reason string) bool {
+	switch strings.ToLower(reason) {
+	case "length", "max_tokens":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTransientAIProviderStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout ||
+		statusCode == http.StatusTooManyRequests ||
+		statusCode >= http.StatusInternalServerError
+}
+
+func requestFailureKind(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	return "network"
+}
+
+func requestFailureMessage(err error) string {
+	if requestFailureKind(err) == "timeout" {
+		return "Provider did not respond before the connection-test timeout"
+	}
+	return "Could not connect to the provider"
 }

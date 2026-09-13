@@ -156,17 +156,24 @@ func (h *Handler) TestAIConfig(w http.ResponseWriter, r *http.Request) {
 		config.APIKey = existing.APIKey
 	}
 
-	if err := h.svc.TestAIProviderConfig(r.Context(), config); err != nil {
+	result, err := h.svc.TestAIProviderConfig(r.Context(), config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !result.OK {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-			"ok":    false,
-			"error": err.Error(),
+			"ok":     false,
+			"error":  "One or more AI provider checks failed",
+			"checks": result.Checks,
 		})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
+		"ok":      result.OK,
 		"message": "AI provider connection verified successfully",
+		"checks":  result.Checks,
 	})
 }
 

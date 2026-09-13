@@ -106,6 +106,7 @@ services:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       SESSION_SECRET: change-me-in-production-at-least-32-chars
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      AI_PROVIDER_TEST_TIMEOUT_SECONDS: "60"
       PORT: "8082"
       LOG_LEVEL: info
     ports:
