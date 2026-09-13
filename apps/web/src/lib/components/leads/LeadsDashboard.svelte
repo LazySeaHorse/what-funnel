@@ -74,12 +74,11 @@
           assignees: (conversation.assigned_user_ids || []).map(
             (userID: string) => {
               const user = inbox.users.find((item) => item.id === userID);
+              const displayName = user?.name?.trim() || user?.username?.trim() || user?.email?.split("@")[0] || "User";
               return {
                 id: userID,
-                name: user?.name || user?.email?.split("@")[0] || "User",
-                initials: (user?.name || user?.email || "U")
-                  .charAt(0)
-                  .toUpperCase(),
+                name: displayName,
+                initials: displayName.charAt(0).toUpperCase(),
                 avatar: user?.avatar_url || "",
                 bg: "bg-blue-600",
               };
@@ -234,7 +233,7 @@
                   ><option value="all">All Assignees</option><option
                     value="unassigned">Unassigned</option
                   >{#each inbox.users as user}<option value={user.id}
-                      >{user.name || user.email || "User"}</option
+                      >{user.name?.trim() || user.username?.trim() || user.email || "User"}</option
                     >{/each}</select
                 >
               </div>{/if}

@@ -1,6 +1,14 @@
 import { apiRequest } from '$lib/api';
 import { getUICapabilities, type UICapabilities } from '$lib/ui-capabilities';
 
+function normalizeUser(user: any) {
+	if (!user || typeof user !== 'object') return user;
+	return {
+		...user,
+		name: user.name?.trim() || user.username?.trim() || ''
+	};
+}
+
 /**
  * Workspace data is shared by all dashboard tabs. Keeping it here removes
  * duplicate requests when moving between Inbox, Leads, and Settings.
@@ -38,7 +46,7 @@ export class WorkspaceState {
 					: Promise.resolve(this.users)
 			]);
 			this.pipeline = Array.isArray(pipelines) ? pipelines[0] ?? null : null;
-			this.users = Array.isArray(users) ? users : [];
+			this.users = Array.isArray(users) ? users.map(normalizeUser) : [];
 			this.coreReady = true;
 		})().finally(() => {
 			this.coreLoading = false;
@@ -82,7 +90,7 @@ export class WorkspaceState {
 	async refreshUsers() {
 		if (!this.capabilities.manageTeam) return;
 		const users = await apiRequest('/workspace/users');
-		this.users = Array.isArray(users) ? users : [];
+		this.users = Array.isArray(users) ? users.map(normalizeUser) : [];
 	}
 
 	async refreshChannels() {

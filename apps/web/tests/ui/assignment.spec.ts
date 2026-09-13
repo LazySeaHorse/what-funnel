@@ -79,4 +79,38 @@ test.describe('conversation assignment UI workflows', () => {
 			expect.arrayContaining(['/leads/lead-1/state', '/leads/lead-1/tags', '/leads/lead-1/notes'])
 		);
 	});
+
+	test('displays names for team members in assign popup, falling back to email if no name', async ({ page }) => {
+		await mockWorkspaceApi(page, {
+			role: 'manager',
+			productMode: 'full_workspace',
+			conversations: [{ ...conversation }],
+			users: [
+				{ id: 'user-1', email: 'owner@example.test', username: '', role: 'manager' },
+				{ id: 'user-2', email: '', username: 'john', role: 'agent' },
+				{ id: 'user-3', email: '', username: 'jane', role: 'agent' },
+				{ id: 'user-4', name: 'Alex Rivera', email: 'alex@example.test', username: 'arivera', role: 'agent' }
+			]
+		});
+
+		await page.goto('/inbox');
+		const leadPanel = page.locator('.lead-panel');
+		await expect(leadPanel).toBeVisible();
+
+		const assignBtn = leadPanel.getByTitle('Assign conversation');
+		await expect(assignBtn).toBeVisible();
+		await assignBtn.click();
+
+		await expect(leadPanel.getByText('Assign team member')).toBeVisible();
+
+		// User 1 has only email -> shows email
+		await expect(leadPanel.getByRole('button', { name: 'owner@example.test' })).toBeVisible();
+
+		// Users 2 & 3 have usernames -> show username as name (not blank!)
+		await expect(leadPanel.getByRole('button', { name: 'john' })).toBeVisible();
+		await expect(leadPanel.getByRole('button', { name: 'jane' })).toBeVisible();
+
+		// User 4 has full name -> shows name
+		await expect(leadPanel.getByRole('button', { name: 'Alex Rivera' })).toBeVisible();
+	});
 });

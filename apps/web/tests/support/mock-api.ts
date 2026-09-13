@@ -34,6 +34,7 @@ export interface MockWorkspaceOptions {
 	activeIngestion?: any;
 	aiConfigured?: boolean;
 	autoReplyEnabled?: boolean;
+	users?: Array<{ id?: string; email?: string; username?: string; name?: string; role?: string; password?: string }>;
 }
 
 export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
@@ -44,9 +45,15 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 	let accountSlug = 'test-slug';
 	let productMode: string = options.productMode ?? 'full_workspace';
 	let accountSettings = settings;
-	let users: Array<{ id: string; email: string; username: string; role: string; password?: string }> = [
-		{ id: 'user-1', email: `${role}@example.test`, username: role, role }
-	];
+	let users: Array<{ id: string; email: string; username: string; name?: string; role: string; password?: string }> = options.users
+		? options.users.map((u, i) => ({
+				id: u.id || `user-${i + 1}`,
+				email: u.email ?? '',
+				username: u.username ?? '',
+				name: u.name,
+				role: u.role ?? 'agent'
+		  }))
+		: [{ id: 'user-1', email: `${role}@example.test`, username: role, role }];
 	let replyMode: string | null = null;
 	let channels: Array<{ id: string; type: string; status: string }> = [];
 	let providerConnections: Array<{ channel_id: string; provider: string; label: string; state: string; detail: string; capabilities: Record<string, boolean> }> = [];
