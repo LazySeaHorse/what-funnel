@@ -9,9 +9,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+)
+
+var (
+	ErrAdapterConnectionNotFound     = errors.New("adapter connection not found")
+	ErrProviderConnectionLabelExists = errors.New("provider connection label already exists")
 )
 
 type AdapterSnapshot struct {
@@ -85,6 +91,9 @@ func (s *Service) StartProviderConnection(
 		&connection.UpdatedAt,
 	)
 	if err != nil {
+		if isProviderConnectionLabelConflict(err) {
+			return nil, ErrProviderConnectionLabelExists
+		}
 		return nil, fmt.Errorf("create provider connection: %w", err)
 	}
 
@@ -199,7 +208,7 @@ func (s *Service) DeleteProviderConnection(
 	if err != nil {
 		return err
 	}
-	if err := control.Logout(ctx, channelID.String()); err != nil {
+	if err := control.Logout(ctx, channelID.String()); err != nil && !errors.Is(err, ErrAdapterConnectionNotFound) {
 		return fmt.Errorf("unlink provider account: %w", err)
 	}
 
@@ -233,6 +242,13 @@ func (s *Service) DeleteProviderConnection(
 		return fmt.Errorf("commit provider connection deletion: %w", err)
 	}
 	return nil
+}
+
+func isProviderConnectionLabelConflict(err error) bool {
+	var databaseError *pgconn.PgError
+	return errors.As(err, &databaseError) &&
+		databaseError.Code == "23505" &&
+		databaseError.ConstraintName == "idx_channels_account_provider_label"
 }
 
 func (s *Service) adapterControl(provider messaging.Provider) (AdapterControl, error) {

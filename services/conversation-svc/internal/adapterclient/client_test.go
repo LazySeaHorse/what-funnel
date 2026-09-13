@@ -3,18 +3,41 @@ package adapterclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestClientLogoutMissingConnection(t *testing.T) {
+	t.Parallel()
+
+	client, err := New("http://whatsapp-adapter:8085", "shared-secret")
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	client.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"error":"not found"}`)),
+		}, nil
+	})
+
+	err = client.Logout(context.Background(), "missing")
+	if !errors.Is(err, service.ErrAdapterConnectionNotFound) {
+		t.Fatalf("Logout() error = %v, want ErrAdapterConnectionNotFound", err)
+	}
 }
 
 func TestClientCreate(t *testing.T) {

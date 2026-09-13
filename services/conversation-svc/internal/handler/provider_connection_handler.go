@@ -76,6 +76,10 @@ func (h *Handler) StartProviderConnection(w http.ResponseWriter, request *http.R
 	}
 	connection, err := h.svc.StartProviderConnection(request.Context(), accountID, body.Provider, body.Label, body.Credential)
 	if err != nil {
+		if errors.Is(err, service.ErrProviderConnectionLabelExists) {
+			writeError(w, http.StatusConflict, "A channel connection with that label already exists.")
+			return
+		}
 		if connection != nil {
 			// The durable connection record contains a safe, user-facing failure
 			// detail and lets the UI retry or unlink it. Adapter internals stay out

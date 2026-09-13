@@ -85,8 +85,14 @@ func (c *Client) Snapshot(ctx context.Context, channelID string) (service.Adapte
 }
 
 func (c *Client) Logout(ctx context.Context, channelID string) error {
-	return c.request(ctx, http.MethodDelete, "/v1/connections/"+url.PathEscape(channelID), nil, nil)
+	err := c.request(ctx, http.MethodDelete, "/v1/connections/"+url.PathEscape(channelID), nil, nil)
+	if errors.Is(err, errAdapterNotFound) {
+		return service.ErrAdapterConnectionNotFound
+	}
+	return err
 }
+
+var errAdapterNotFound = errors.New("adapter resource not found")
 
 func (c *Client) Download(ctx context.Context, channelID, providerRef string) (service.ProviderMedia, error) {
 	path := "/v1/media/" + url.PathEscape(channelID) + "/" + url.PathEscape(providerRef)
@@ -141,6 +147,9 @@ func (c *Client) request(
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusNotFound {
+			return errAdapterNotFound
+		}
 		return fmt.Errorf("call adapter: status %d", response.StatusCode)
 	}
 	if result == nil || response.StatusCode == http.StatusNoContent {
