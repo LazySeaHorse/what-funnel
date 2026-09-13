@@ -307,4 +307,22 @@ test.describe('onboarding persistence', () => {
 
 		expect(scrollBox!.y + scrollBox!.height).toBeLessThanOrEqual(footerBox!.y + 1);
 	});
+
+	test('renders unified knowledge composer card on step 6 and appends quick templates', async ({ page }) => {
+		await mockOnboardingApi(page);
+		await page.goto('/onboarding/6');
+
+		await expect(page.getByRole('heading', { name: 'Add business knowledge' })).toBeVisible();
+		await expect(page.getByText('AI-powered extraction')).toBeVisible();
+
+		const textarea = page.getByPlaceholder(/Paste raw business info/);
+		await expect(textarea).toBeVisible();
+		await expect(textarea).toHaveValue('');
+
+		await page.getByRole('button', { name: /Pricing/ }).click();
+		await expect(textarea).toHaveValue(/Services & Pricing:/);
+
+		await page.getByRole('button', { name: /Hours/ }).click();
+		await expect(textarea).toHaveValue(/Business Hours:/);
+	});
 });
