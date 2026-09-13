@@ -17,6 +17,7 @@ const maxRequestBytes = 1024 * 1024
 
 type Controller interface {
 	Create(ctx context.Context, channelID string) (session.Snapshot, error)
+	Retry(ctx context.Context, channelID string) (session.Snapshot, error)
 	Snapshot(channelID string) (session.Snapshot, error)
 	Logout(ctx context.Context, channelID string) error
 	Download(ctx context.Context, channelID, providerRef string) (session.MediaFile, error)
@@ -37,10 +38,35 @@ func NewHandler(controller Controller, secret string) (*Handler, error) {
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/connections", h.create)
+	mux.HandleFunc("POST /v1/connections/{channelID}/retry", h.retry)
 	mux.HandleFunc("GET /v1/connections/{channelID}", h.get)
 	mux.HandleFunc("DELETE /v1/connections/{channelID}", h.delete)
 	mux.HandleFunc("GET /v1/media/{channelID}/{providerRef}", h.download)
 	return h.authenticate(mux)
+}
+
+func (h *Handler) retry(w http.ResponseWriter, request *http.Request) {
+	defer request.Body.Close()
+	decoder := json.NewDecoder(http.MaxBytesReader(w, request.Body, maxRequestBytes))
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Credential string `json:"credential"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+
+	snapshot, err := h.controller.Retry(request.Context(), request.PathValue("channelID"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Could not restart WhatsApp pairing.")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, snapshot)
 }
 
 func (h *Handler) download(w http.ResponseWriter, request *http.Request) {

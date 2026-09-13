@@ -71,7 +71,7 @@ func run(logger *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              ":" + config.Port,
-		Handler:           mux,
+		Handler:           logRequests(logger, mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      70 * time.Second,
@@ -105,4 +105,39 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusRecorder) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		recorder := &statusRecorder{ResponseWriter: w}
+		startedAt := time.Now()
+		next.ServeHTTP(recorder, request)
+		status := recorder.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		logger.Info("whatsapp control request",
+			"method", request.Method,
+			"path", request.URL.Path,
+			"status", status,
+			"duration", time.Since(startedAt),
+		)
+	})
 }

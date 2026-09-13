@@ -13,8 +13,15 @@ import (
 )
 
 type fakeController struct {
-	snapshot session.Snapshot
-	err      error
+	snapshot    session.Snapshot
+	err         error
+	retryCalled bool
+}
+
+func (f *fakeController) Retry(_ context.Context, channelID string) (session.Snapshot, error) {
+	f.retryCalled = true
+	f.snapshot.ChannelID = channelID
+	return f.snapshot, f.err
 }
 
 func (f *fakeController) Create(_ context.Context, channelID string) (session.Snapshot, error) {
@@ -88,6 +95,31 @@ func TestHandlerGetNotFound(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandlerRetry(t *testing.T) {
+	t.Parallel()
+
+	controller := &fakeController{snapshot: session.Snapshot{State: messaging.ConnectionAwaitingScan, QRData: "new-qr-data"}}
+	handler, err := NewHandler(controller, "secret-value")
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/connections/channel-1/retry", strings.NewReader(`{}`))
+	request.Header.Set("Authorization", "Bearer secret-value")
+	recorder := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusAccepted, recorder.Body.String())
+	}
+	if !controller.retryCalled {
+		t.Fatal("Retry() was not called")
+	}
+	if !strings.Contains(recorder.Body.String(), `"channel_id":"channel-1"`) {
+		t.Errorf("body = %s, want channel id", recorder.Body.String())
 	}
 }
 

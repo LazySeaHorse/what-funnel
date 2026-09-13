@@ -22,6 +22,7 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -127,6 +128,7 @@ func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error
 	if channelID == "" {
 		return Snapshot{}, errors.New("whatsapp session: empty channel id")
 	}
+	m.logger.Info("starting whatsapp pairing", "channel_id", channelID)
 
 	m.mu.Lock()
 	if _, exists := m.sessions[channelID]; exists {
@@ -140,8 +142,10 @@ func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error
 	qrChannel, err := session.client.GetQRChannel(m.ctx)
 	if err != nil {
 		m.removeSession(channelID)
+		m.logger.Error("prepare whatsapp qr pairing", "channel_id", channelID, "error", err)
 		return Snapshot{}, fmt.Errorf("prepare qr pairing: %w", err)
 	}
+	m.logger.Info("whatsapp qr channel prepared", "channel_id", channelID)
 	m.wg.Go(func() {
 		m.consumeQR(session, qrChannel)
 	})
@@ -150,9 +154,38 @@ func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error
 	defer cancel()
 	if err := session.client.ConnectContext(connectCtx); err != nil {
 		m.setStatus(session, messaging.ConnectionError, "Could not connect to WhatsApp.", "")
+		m.logger.Error("connect whatsapp pairing transport", "channel_id", channelID, "error", err)
 		return session.copySnapshot(), fmt.Errorf("connect whatsapp: %w", err)
 	}
-	return session.copySnapshot(), nil
+	snapshot := session.copySnapshot()
+	m.logger.Info("whatsapp pairing start returned", "channel_id", channelID, "state", snapshot.State, "has_qr", snapshot.QRData != "")
+	return snapshot, nil
+}
+
+func (m *Manager) Retry(ctx context.Context, channelID string) (Snapshot, error) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return Snapshot{}, errors.New("whatsapp session: empty channel id")
+	}
+	m.logger.Info("restarting whatsapp pairing", "channel_id", channelID)
+
+	session, err := m.get(channelID)
+	if errors.Is(err, ErrNotFound) {
+		// Unpaired devices have no durable WhatsMeow identity, so they are not
+		// restored after an adapter restart. Recreate the session from the
+		// durable channel ID held by conversation-svc.
+		return m.Create(ctx, channelID)
+	}
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if session.client.IsLoggedIn() {
+		return session.copySnapshot(), nil
+	}
+	if err := m.Logout(ctx, channelID); err != nil {
+		return Snapshot{}, fmt.Errorf("reset whatsapp pairing: %w", err)
+	}
+	return m.Create(ctx, channelID)
 }
 
 func (m *Manager) Snapshot(channelID string) (Snapshot, error) {
@@ -208,7 +241,9 @@ func (m *Manager) Close() error {
 }
 
 func (m *Manager) newSession(channelID string, device *store.Device) *clientSession {
-	client := whatsmeow.NewClient(device, nil)
+	// Warning and error messages include the WebSocket failure reason, while
+	// avoiding debug-level protocol frames that can contain pairing material.
+	client := whatsmeow.NewClient(device, waLog.Stdout("whatsmeow", "WARN", false))
 	session := &clientSession{
 		client: client,
 		snapshot: Snapshot{
@@ -267,8 +302,10 @@ func (m *Manager) consumeQR(session *clientSession, qrChannel <-chan whatsmeow.Q
 			return
 		case item, ok := <-qrChannel:
 			if !ok {
+				m.logger.Warn("whatsapp qr channel closed", "channel_id", session.copySnapshot().ChannelID)
 				return
 			}
+			m.logger.Info("whatsapp qr event", "channel_id", session.copySnapshot().ChannelID, "event", item.Event, "has_code", item.Code != "")
 			switch item.Event {
 			case "code":
 				m.setStatus(session, messaging.ConnectionAwaitingScan, "Scan this code in WhatsApp Linked Devices.", item.Code)
@@ -440,6 +477,7 @@ func (m *Manager) setStatus(session *clientSession, state messaging.ConnectionSt
 	session.snapshot.QRData = qrData
 	snapshot := session.snapshot
 	session.mu.Unlock()
+	m.logger.Info("whatsapp connection status changed", "channel_id", snapshot.ChannelID, "state", state, "detail", detail, "has_qr", qrData != "")
 
 	now := time.Now().UTC()
 	event := messaging.Event{
