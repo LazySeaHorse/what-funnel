@@ -403,7 +403,7 @@
 				{#each [{ key: 'concepts', label: 'KB Concepts', count: filteredConcepts.length }, { key: 'patterns', label: 'Patterns', count: filteredPatterns.length }, { key: 'suggestions', label: 'AI Suggestions', count: filteredSuggestions.length }] as tab}
 					<button
 						onclick={() => (activeTab = tab.key as typeof activeTab)}
-						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {activeTab === tab.key ? 'bg-white text-slate-900 shadow-2xs font-semibold' : 'text-slate-500 hover:text-slate-800'}"
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {activeTab === tab.key ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}"
 					>
 						<span>{tab.label}</span>
 						<span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium {activeTab === tab.key ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/60 text-slate-500'}">
@@ -447,7 +447,7 @@
 						></span>
 					</span>
 					<span>Global AI auto-reply</span>
-					<span class="text-[10px] font-semibold {autoReplyEnabled && providerConfigured ? 'text-emerald-600' : 'text-slate-400'}">
+					<span class="text-[10px] font-medium {autoReplyEnabled && providerConfigured ? 'text-emerald-600' : 'text-slate-400'}">
 						{autoReplyEnabled && providerConfigured ? 'ON' : 'OFF'}
 					</span>
 				</button>
@@ -500,7 +500,7 @@
 				{#if ingestion.phase === 'review'}
 					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
 						<div>
-							<div class="text-sm font-semibold text-slate-900">Review structured knowledge</div>
+							<div class="text-sm font-medium text-slate-900">Review structured knowledge</div>
 							<div class="text-xs text-slate-500 mt-0.5">The same concept and deterministic-pattern review used during onboarding.</div>
 						</div>
 						<div class="flex items-center gap-2">
@@ -551,7 +551,7 @@
 								<!-- Inline Concept Editor -->
 								<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
 									<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-										<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Concept</span>
+										<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Concept</span>
 										{#if saveConceptError}
 											<span class="text-xs text-rose-600 font-medium">{saveConceptError}</span>
 										{/if}
@@ -563,7 +563,7 @@
 												id={`edit-concept-title-${concept.id}`}
 												bind:value={editConceptDraft.title}
 												placeholder="Concept title"
-												class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+												class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
 											/>
 										</div>
 										<div>
@@ -662,7 +662,7 @@
 							<!-- Inline Pattern Editor -->
 							<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
 								<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-									<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
+									<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
 									{#if savePatternError}
 										<span class="text-xs text-rose-600 font-medium">{savePatternError}</span>
 									{/if}
@@ -673,7 +673,7 @@
 										id={`edit-pattern-question-${pattern.id}`}
 										bind:value={editPatternDraft.canonical_question}
 										placeholder="Canonical question"
-										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
 									/>
 								</div>
 								<div>
@@ -753,14 +753,14 @@
 						<div class="p-4 rounded-2xl border border-slate-200/80 bg-white space-y-3 shadow-2xs">
 							<div class="flex items-center justify-between gap-2">
 								<div class="flex items-center gap-2 min-w-0">
-									<span class="px-2 py-0.5 rounded text-[10px] font-semibold border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
+									<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
 										{typeLabel(suggestion._payload?.type ?? suggestion.type)}
 									</span>
-									<h3 class="text-sm font-semibold text-slate-900 truncate">
+									<h3 class="text-sm font-medium text-slate-900 truncate">
 										{suggestion._payload?.title ?? suggestion._payload?.canonical_question ?? 'Untitled suggestion'}
 									</h3>
 								</div>
-								<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
+								<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
 									{Math.round((suggestion.confidence ?? 0) * 100)}% match
 								</span>
 							</div>

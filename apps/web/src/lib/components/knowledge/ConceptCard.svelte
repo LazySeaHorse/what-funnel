@@ -38,10 +38,10 @@
 	<div class="space-y-2.5">
 		<div class="flex items-start justify-between gap-2">
 			<div class="flex flex-wrap items-center gap-1.5 min-w-0">
-				<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold border capitalize {typeColor(concept.type)}">
+				<span class="px-2 py-0.5 rounded-md text-[10px] font-medium border capitalize {typeColor(concept.type)}">
 					{typeLabel(concept.type)}
 				</span>
-				<h3 class="text-sm font-semibold text-slate-900 leading-snug">{concept.title}</h3>
+				<h3 class="text-sm font-medium text-slate-900 leading-snug">{concept.title}</h3>
 				{#if concept.source === 'owner_pasted'}
 					<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
 				{/if}

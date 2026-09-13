@@ -53,7 +53,7 @@
 
 <div class="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 shadow-2xs transition-all w-full">
 	<div class="flex items-center justify-between mb-2">
-		<h2 class="text-xs font-semibold text-slate-700 uppercase tracking-wider">{title}</h2>
+		<h2 class="text-xs font-medium text-slate-700 uppercase tracking-wider">{title}</h2>
 		<div class="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-white border border-slate-200/70 px-2 py-0.5 rounded-lg shadow-2xs">
 			<SparklesIcon class="w-3 h-3 text-blue-600" />
 			<span>{badge}</span>

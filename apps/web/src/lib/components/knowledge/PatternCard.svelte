@@ -23,7 +23,7 @@
 
 <div class="p-4 rounded-2xl border border-slate-200/80 hover:border-slate-300 bg-white space-y-2.5 transition shadow-2xs">
 	<div class="flex items-start justify-between gap-2">
-		<h3 class="text-sm font-semibold text-slate-900 leading-snug">{pattern.canonical_question}</h3>
+		<h3 class="text-sm font-medium text-slate-900 leading-snug">{pattern.canonical_question}</h3>
 		{#if showActions && (onEdit || onDelete)}
 			<div class="flex items-center gap-0.5 shrink-0">
 				{#if onEdit}
@@ -54,7 +54,7 @@
 
 	{#if pattern.trigger_phrases?.length}
 		<div class="flex flex-wrap items-center gap-1 pt-0.5">
-			<span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
+			<span class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
 			{#each pattern.trigger_phrases as phrase}
 				<span class="text-xs text-slate-700 bg-slate-100/90 border border-slate-200/50 px-2 py-0.5 rounded-lg">{phrase}</span>
 			{/each}

@@ -69,7 +69,7 @@
 				<SparklesIcon class="w-6 h-6" />
 			</div>
 			<div class="space-y-1">
-				<h3 class="text-base font-semibold text-slate-900">{status === 'publishing' ? 'Publishing knowledge items…' : 'Compiling knowledge items…'}</h3>
+				<h3 class="text-base font-medium text-slate-900">{status === 'publishing' ? 'Publishing knowledge items…' : 'Compiling knowledge items…'}</h3>
 				<p class="text-xs sm:text-sm text-slate-500 max-w-sm font-normal">
 					{status === 'publishing' ? 'Creating searchable concepts for the knowledge base.' : 'Structuring notes into categorized knowledge concepts.'}
 				</p>
