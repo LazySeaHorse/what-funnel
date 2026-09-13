@@ -201,9 +201,10 @@ test.describe('onboarding persistence', () => {
 
 		await expect(page.getByText('Structured Knowledge', { exact: true })).toBeVisible();
 		await expect(page.getByLabel('Concept title')).toHaveCount(4);
-		await expect(page.getByLabel('Canonical question')).toHaveCount(2);
 		await page.getByLabel('Concept title').first().fill('Advisory consulting');
 		await page.getByLabel('Include Cancellation').uncheck();
+		await page.getByRole('navigation', { name: 'Review sections' }).getByRole('button', { name: /Patterns/ }).click();
+		await expect(page.getByLabel('Canonical question')).toHaveCount(2);
 		await page.getByLabel('Canonical question').first().fill('How much does advisory consulting cost?');
 		await page.getByRole('button', { name: 'Add to Knowledge Base', exact: true }).click();
 

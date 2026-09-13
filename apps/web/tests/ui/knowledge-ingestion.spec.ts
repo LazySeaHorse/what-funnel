@@ -10,6 +10,7 @@ test('Knowledge tab uses the same reviewed ingestion contract as onboarding', as
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Concept title')).toHaveValue('Pricing');
+	await page.getByRole('navigation', { name: 'Review sections' }).getByRole('button', { name: /Patterns/ }).click();
 	await expect(page.getByLabel('Canonical question')).toHaveValue('What does it cost?');
 
 	await page.getByLabel('Canonical question').fill('How much does consulting cost?');
@@ -98,5 +99,6 @@ test('Knowledge tab resumes the latest active ingestion through the shared workf
 	await page.goto('/inbox?tab=knowledge');
 	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Concept title')).toHaveValue('Pricing');
+	await page.getByRole('navigation', { name: 'Review sections' }).getByRole('button', { name: /Patterns/ }).click();
 	await expect(page.getByLabel('Canonical question')).toHaveValue('What does it cost?');
 });
