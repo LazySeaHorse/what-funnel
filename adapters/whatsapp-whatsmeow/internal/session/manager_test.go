@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 )
 
@@ -161,4 +162,138 @@ func TestManagerRetriesPersistedEvents(t *testing.T) {
 	if attempts != 2 {
 		t.Errorf("publish attempts = %d, want 2", attempts)
 	}
+}
+
+func TestSessionLifecycleContext(t *testing.T) {
+	publisher := &recordingPublisher{notify: make(chan struct{}, 1)}
+	manager, err := NewManager(t.Context(), t.TempDir()+"/sessions/store.db", publisher, nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	session := manager.newSession("test-lifecycle", manager.container.NewDevice())
+	if session.ctx == nil {
+		t.Fatal("session.ctx is nil")
+	}
+	if session.ctx.Err() != nil {
+		t.Fatalf("session.ctx is already canceled: %v", session.ctx.Err())
+	}
+
+	manager.mu.Lock()
+	manager.sessions["test-lifecycle"] = session
+	manager.mu.Unlock()
+
+	manager.removeSession("test-lifecycle")
+	if session.ctx.Err() == nil {
+		t.Fatal("session.ctx was not canceled on removeSession")
+	}
+}
+
+func TestWaitForInitialQR(t *testing.T) {
+	t.Parallel()
+
+	t.Run("signals on QR awaiting scan", func(t *testing.T) {
+		t.Parallel()
+		session := &clientSession{
+			qrReady: make(chan struct{}),
+		}
+		done := make(chan struct{})
+		go func() {
+			session.waitForInitialQR(context.Background(), time.Second)
+			close(done)
+		}()
+
+		session.signalQRReady()
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("waitForInitialQR did not unblock after signalQRReady")
+		}
+	})
+
+	t.Run("times out gracefully", func(t *testing.T) {
+		t.Parallel()
+		session := &clientSession{
+			qrReady: make(chan struct{}),
+		}
+		done := make(chan struct{})
+		go func() {
+			session.waitForInitialQR(context.Background(), 20*time.Millisecond)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("waitForInitialQR timed out unexpectedly")
+		}
+	})
+
+	t.Run("respects caller cancellation", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		session := &clientSession{
+			qrReady: make(chan struct{}),
+		}
+		done := make(chan struct{})
+		go func() {
+			session.waitForInitialQR(ctx, time.Second)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("waitForInitialQR did not unblock on cancelled context")
+		}
+	})
+}
+
+func TestSignalQRReadySafety(t *testing.T) {
+	t.Parallel()
+
+	var nilSession *clientSession
+	nilSession.signalQRReady()
+
+	uninitSession := &clientSession{}
+	uninitSession.signalQRReady()
+
+	session := &clientSession{qrReady: make(chan struct{})}
+	session.signalQRReady()
+	session.signalQRReady()
+	select {
+	case <-session.qrReady:
+	default:
+		t.Fatal("qrReady channel should be closed")
+	}
+}
+
+func TestClientSessionConnect(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns error on nil client", func(t *testing.T) {
+		t.Parallel()
+		session := &clientSession{}
+		err := session.connect(100 * time.Millisecond)
+		if err == nil {
+			t.Fatal("connect() expected error for nil client")
+		}
+	})
+
+	t.Run("aborts on canceled session context", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		session := &clientSession{
+			client: &whatsmeow.Client{},
+			ctx:    ctx,
+			cancel: cancel,
+		}
+		err := session.connect(100 * time.Millisecond)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("connect() error = %v, want context.Canceled", err)
+		}
+	})
 }

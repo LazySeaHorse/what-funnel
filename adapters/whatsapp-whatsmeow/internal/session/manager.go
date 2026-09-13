@@ -45,8 +45,12 @@ type Snapshot struct {
 }
 
 type clientSession struct {
-	client *whatsmeow.Client
-	sendMu sync.Mutex
+	client      *whatsmeow.Client
+	ctx         context.Context
+	cancel      context.CancelFunc
+	qrReady     chan struct{}
+	qrReadyOnce sync.Once
+	sendMu      sync.Mutex
 
 	mu       sync.RWMutex
 	snapshot Snapshot
@@ -139,7 +143,7 @@ func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error
 	m.sessions[channelID] = session
 	m.mu.Unlock()
 
-	qrChannel, err := session.client.GetQRChannel(m.ctx)
+	qrChannel, err := session.client.GetQRChannel(session.ctx)
 	if err != nil {
 		m.removeSession(channelID)
 		m.logger.Error("prepare whatsapp qr pairing", "channel_id", channelID, "error", err)
@@ -150,13 +154,14 @@ func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error
 		m.consumeQR(session, qrChannel)
 	})
 
-	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	if err := session.client.ConnectContext(connectCtx); err != nil {
+	if err := session.connect(15 * time.Second); err != nil {
 		m.setStatus(session, messaging.ConnectionError, "Could not connect to WhatsApp.", "")
 		m.logger.Error("connect whatsapp pairing transport", "channel_id", channelID, "error", err)
 		return session.copySnapshot(), fmt.Errorf("connect whatsapp: %w", err)
 	}
+
+	session.waitForInitialQR(ctx, 2*time.Second)
+
 	snapshot := session.copySnapshot()
 	m.logger.Info("whatsapp pairing start returned", "channel_id", channelID, "state", snapshot.State, "has_qr", snapshot.QRData != "")
 	return snapshot, nil
@@ -234,6 +239,10 @@ func (m *Manager) Close() error {
 	}
 	m.mu.RUnlock()
 	for _, session := range sessions {
+		session.signalQRReady()
+		if session.cancel != nil {
+			session.cancel()
+		}
 		session.client.Disconnect()
 	}
 	m.wg.Wait()
@@ -241,11 +250,16 @@ func (m *Manager) Close() error {
 }
 
 func (m *Manager) newSession(channelID string, device *store.Device) *clientSession {
+	sessionCtx, sessionCancel := context.WithCancel(m.ctx)
 	// Warning and error messages include the WebSocket failure reason, while
 	// avoiding debug-level protocol frames that can contain pairing material.
 	client := whatsmeow.NewClient(device, waLog.Stdout("whatsmeow", "WARN", false))
+	client.BackgroundEventCtx = sessionCtx
 	session := &clientSession{
-		client: client,
+		client:   client,
+		ctx:      sessionCtx,
+		cancel:   sessionCancel,
+		qrReady:  make(chan struct{}),
 		snapshot: Snapshot{
 			ChannelID: channelID,
 			State:     messaging.ConnectionPending,
@@ -255,6 +269,77 @@ func (m *Manager) newSession(channelID string, device *store.Device) *clientSess
 		m.handleEvent(channelID, session, event)
 	})
 	return session
+}
+
+func (s *clientSession) signalQRReady() {
+	if s == nil || s.qrReady == nil {
+		return
+	}
+	s.qrReadyOnce.Do(func() {
+		close(s.qrReady)
+	})
+}
+
+func (s *clientSession) waitForInitialQR(ctx context.Context, timeout time.Duration) {
+	if s == nil || s.qrReady == nil {
+		return
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	var sessionDone <-chan struct{}
+	if s.ctx != nil {
+		sessionDone = s.ctx.Done()
+	}
+	var callerDone <-chan struct{}
+	if ctx != nil {
+		callerDone = ctx.Done()
+	}
+
+	select {
+	case <-s.qrReady:
+	case <-timer.C:
+	case <-callerDone:
+	case <-sessionDone:
+	}
+}
+
+func (s *clientSession) connect(timeout time.Duration) error {
+	if s.client == nil {
+		return errors.New("whatsapp session: nil client")
+	}
+	if s.ctx != nil && s.ctx.Err() != nil {
+		return s.ctx.Err()
+	}
+	sessionCtx := s.ctx
+	if sessionCtx == nil {
+		sessionCtx = context.Background()
+	}
+	connectDone := make(chan error, 1)
+	go func() {
+		connectDone <- s.client.ConnectContext(sessionCtx)
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	var sessionDone <-chan struct{}
+	if s.ctx != nil {
+		sessionDone = s.ctx.Done()
+	}
+
+	select {
+	case err := <-connectDone:
+		return err
+	case <-timer.C:
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.client.Disconnect()
+		return errors.New("connect whatsapp: timeout connecting to WhatsApp")
+	case <-sessionDone:
+		return s.ctx.Err()
+	}
 }
 
 func (m *Manager) handleEvent(channelID string, session *clientSession, event any) {
@@ -300,8 +385,11 @@ func (m *Manager) consumeQR(session *clientSession, qrChannel <-chan whatsmeow.Q
 		select {
 		case <-m.ctx.Done():
 			return
+		case <-session.ctx.Done():
+			return
 		case item, ok := <-qrChannel:
 			if !ok {
+				session.signalQRReady()
 				m.logger.Warn("whatsapp qr channel closed", "channel_id", session.copySnapshot().ChannelID)
 				return
 			}
@@ -345,10 +433,7 @@ func (m *Manager) restore(ctx context.Context) error {
 		}
 		session := m.newSession(channelID, device)
 		m.sessions[channelID] = session
-		connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err = session.client.ConnectContext(connectCtx)
-		cancel()
-		if err != nil {
+		if err := session.connect(15 * time.Second); err != nil {
 			m.setStatus(session, messaging.ConnectionError, "Could not restore the WhatsApp connection.", "")
 			m.logger.Warn("restore whatsapp connection", "channel_id", channelID, "error", err)
 		}
@@ -466,6 +551,10 @@ func (m *Manager) removeSession(channelID string) {
 	delete(m.sessions, channelID)
 	m.mu.Unlock()
 	if session != nil {
+		session.signalQRReady()
+		if session.cancel != nil {
+			session.cancel()
+		}
 		session.client.Disconnect()
 	}
 }
@@ -477,6 +566,9 @@ func (m *Manager) setStatus(session *clientSession, state messaging.ConnectionSt
 	session.snapshot.QRData = qrData
 	snapshot := session.snapshot
 	session.mu.Unlock()
+	if state == messaging.ConnectionAwaitingScan || state == messaging.ConnectionConnected || state == messaging.ConnectionError {
+		session.signalQRReady()
+	}
 	m.logger.Info("whatsapp connection status changed", "channel_id", snapshot.ChannelID, "state", state, "detail", detail, "has_qr", qrData != "")
 
 	now := time.Now().UTC()
