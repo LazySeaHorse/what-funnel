@@ -499,8 +499,9 @@
 		<OnboardingChrome stepNum={stepNum} stepItems={visibleStepItems} onStep={goToStep} />
 
 		<!-- Right Main Form Content Column: Takes Up Full Remaining Width -->
-		<div class="flex-1 relative overflow-y-auto bg-white flex flex-col justify-between min-h-0 p-5 sm:p-10 lg:p-12 pb-24 sm:pb-8">
-			<div class="w-full flex flex-col min-h-full justify-between relative z-10">
+		<div class="flex-1 flex flex-col min-h-0 h-full bg-white">
+			<!-- Scrollable Form Content -->
+			<div class="flex-1 relative overflow-y-auto min-h-0 p-5 sm:p-10 lg:p-12">
 				<div class="w-full">
 					<!-- Mobile Top Bar: Back Button & Step Progress Stepper -->
 					<div class="lg:hidden flex items-center justify-between pb-4 mb-5 border-b border-slate-100">
@@ -569,24 +570,26 @@
 						</div>
 					{/key}
 				</div>
-
-				<OnboardingFooter
-					stepNum={stepNum}
-					kbStatus={s6Status}
-					rawText={s6RawText}
-					submitting={submitting}
-					compiling={knowledgeIngestion.busy}
-					continueDisabled={loading || (stepNum === 5 && s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim())}
-					onBack={handleBack}
-					onContinue={handleContinue}
-					onTour={() => goto('/inbox?tour=true')}
-					onInbox={() => goto('/inbox')}
-				/>
-
-				{#if error}
-					<div role="alert" class="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
-				{/if}
 			</div>
+
+			{#if error}
+				<div class="px-5 sm:px-10 lg:px-12 pt-3 shrink-0 bg-white">
+					<div role="alert" class="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
+				</div>
+			{/if}
+
+			<OnboardingFooter
+				stepNum={stepNum}
+				kbStatus={s6Status}
+				rawText={s6RawText}
+				submitting={submitting}
+				compiling={knowledgeIngestion.busy}
+				continueDisabled={loading || (stepNum === 5 && s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim())}
+				onBack={handleBack}
+				onContinue={handleContinue}
+				onTour={() => goto('/inbox?tour=true')}
+				onInbox={() => goto('/inbox')}
+			/>
 		</div>
 	</div>
 {/if}
