@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { SparklesIcon, ArrowRightIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import KnowledgeComposer from '$lib/components/knowledge/KnowledgeComposer.svelte';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 
 	type Concept = { id: string; title: string; type: string; tags: string[]; body_text: string; approved: boolean };
@@ -28,19 +29,6 @@
 		onSkipWaiting: () => void;
 		onEditNotes: () => void;
 	} = $props();
-
-	function appendTemplateChunk(label: string, text: string) {
-		if (rawText.includes(label)) return;
-		const trimmed = rawText.trim();
-		rawText = trimmed ? `${trimmed}\n\n${label}:\n${text}` : `${label}:\n${text}`;
-	}
-
-	const templates = [
-		{ label: 'Services & Pricing', buttonLabel: 'Pricing', content: '- Standard service: $50\n- Premium package: $120' },
-		{ label: 'Business Hours', buttonLabel: 'Hours', content: '- Monday–Friday: 9:00 AM – 6:00 PM\n- Saturday: 10:00 AM – 4:00 PM' },
-		{ label: 'Cancellation Policy', buttonLabel: 'Policy', content: '- 24-hour advance notice required' },
-		{ label: 'FAQs', buttonLabel: 'FAQs', content: '- Free customer parking on-site\n- Walk-ins accepted based on availability' }
-	];
 </script>
 
 {#if errorMessage}
@@ -51,53 +39,53 @@
 	<div class="text-center lg:text-left mb-6">
 		<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
 		<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Add knowledge base sources</h2>
-		<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add notes, price lists, business hours, and policies. The system extracts concepts and answer patterns automatically.</p>
+		<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Add notes, price lists, business hours, and policies. WhatFunnel extracts concepts and answer patterns automatically.</p>
 	</div>
 
-	<div class="space-y-4 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-		<div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
-			<span class="text-xs font-medium text-slate-500">Templates:</span>
-			{#each templates as t}
-				{@const isAdded = rawText.includes(t.label)}
-				<button
-					type="button"
-					disabled={isAdded}
-					onclick={() => appendTemplateChunk(t.label, t.content)}
-					class="px-2.5 py-1 text-xs font-medium rounded-lg transition cursor-pointer {isAdded ? 'bg-slate-100/60 text-slate-400 cursor-not-allowed' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}"
-				>
-					{isAdded ? '✓' : '+'} {t.buttonLabel}
-				</button>
-			{/each}
-		</div>
-
-		<textarea
-			class="w-full h-52 p-4 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none leading-relaxed resize-none font-normal"
-			placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
+	<div class="w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
+		<KnowledgeComposer
 			bind:value={rawText}
-		></textarea>
+			title="Add business knowledge"
+			badge="AI-powered extraction"
+			placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
+			showTemplates={true}
+			showSubmitButton={false}
+			busy={compiling}
+			phase={status}
+		/>
 	</div>
 
 {:else if status === 'processing' || status === 'publishing'}
-	<div class="py-14 flex flex-col items-center justify-center text-center space-y-4 w-full">
-		<div class="relative w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-			<span class="absolute inset-0 rounded-2xl border-2 border-blue-400/30 animate-ping"></span>
-			<SparklesIcon class="w-6 h-6" />
-		</div>
-		<h2 class="text-xl font-medium text-slate-900">{status === 'publishing' ? 'Publishing knowledge items…' : 'Compiling knowledge items…'}</h2>
-		<p class="text-xs sm:text-sm text-slate-500 max-w-sm lg:max-w-none font-normal">
-			{status === 'publishing' ? 'Creating searchable concepts for the knowledge base.' : 'Structuring notes into categorized knowledge concepts.'}
-		</p>
+	<div class="text-center lg:text-left mb-6">
+		<div class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Step {step} of {totalSteps}</div>
+		<h2 class="text-2xl font-medium text-slate-900 tracking-tight mb-1">Processing knowledge</h2>
+		<p class="text-sm text-slate-500 font-normal max-w-lg lg:max-w-none mx-auto lg:mx-0">Analyzing and structuring notes into categorized knowledge concepts.</p>
+	</div>
 
-		{#if status === 'processing'}
-			<button
-				type="button"
-				class="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-xl transition cursor-pointer"
-				onclick={onSkipWaiting}
-			>
-				<span>Skip waiting and go to next page</span>
-				<ArrowRightIcon class="w-3.5 h-3.5" />
-			</button>
-		{/if}
+	<div class="w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
+		<div class="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-8 sm:p-12 shadow-2xs text-center flex flex-col items-center justify-center space-y-4">
+			<div class="relative w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+				<span class="absolute inset-0 rounded-2xl border-2 border-blue-400/30 animate-ping"></span>
+				<SparklesIcon class="w-6 h-6" />
+			</div>
+			<div class="space-y-1">
+				<h3 class="text-base font-semibold text-slate-900">{status === 'publishing' ? 'Publishing knowledge items…' : 'Compiling knowledge items…'}</h3>
+				<p class="text-xs sm:text-sm text-slate-500 max-w-sm font-normal">
+					{status === 'publishing' ? 'Creating searchable concepts for the knowledge base.' : 'Structuring notes into categorized knowledge concepts.'}
+				</p>
+			</div>
+
+			{#if status === 'processing'}
+				<button
+					type="button"
+					class="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-xl border border-slate-200 shadow-2xs transition cursor-pointer active:scale-[0.98]"
+					onclick={onSkipWaiting}
+				>
+					<span>Skip waiting and go to next page</span>
+					<ArrowRightIcon class="w-3.5 h-3.5" />
+				</button>
+			{/if}
+		</div>
 	</div>
 
 {:else if status === 'results'}
