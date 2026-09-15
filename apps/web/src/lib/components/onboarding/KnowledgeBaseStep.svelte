@@ -51,7 +51,7 @@
 			showTemplates={true}
 			showSubmitButton={false}
 			busy={compiling}
-			phase={status}
+			phase="idle"
 		/>
 	</div>
 

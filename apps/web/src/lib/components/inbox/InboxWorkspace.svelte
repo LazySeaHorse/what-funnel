@@ -13,14 +13,11 @@
   import ChannelBadge from "$lib/components/ChannelBadge.svelte";
   import UserAvatar from "$lib/components/UserAvatar.svelte";
   import {
-    BoltIcon,
-    BookmarkIcon,
     CheckCircleIcon,
     CheckIcon,
     ChevronLeftIcon,
-    FaceSmileIcon,
     PaperAirplaneIcon,
-    PlusIcon,
+    PaperClipIcon,
     SparklesIcon,
     XMarkIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
@@ -463,18 +460,26 @@
                   </div>
                 {/if}
               </div>
-              <div class="flex justify-between px-3 py-2 border-t border-slate-100">
-                <div class="flex text-slate-400">
-                  <input bind:this={attachmentInput} type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" onchange={(event) => { attachment = event.currentTarget.files?.[0] || null; }} />
-                  <button title="Add attachment" onclick={() => attachmentInput?.click()}
-                    ><PlusIcon class="w-4 h-4" /></button
-                  ><button title="Emoji picker"
-                    ><FaceSmileIcon class="w-4 h-4" /></button
-                  ><button title="Saved replies"
-                    ><BookmarkIcon class="w-4 h-4" /></button
-                  ><button title="Quick automation"
-                    ><BoltIcon class="w-4 h-4" /></button
+              <div class="flex items-center justify-between px-3 py-2 border-t border-slate-100">
+                <div class="flex items-center">
+                  <input
+                    bind:this={attachmentInput}
+                    type="file"
+                    class="hidden"
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
+                    onchange={(event) => {
+                      attachment = event.currentTarget.files?.[0] || null;
+                    }}
+                  />
+                  <button
+                    type="button"
+                    title="Add attachment"
+                    aria-label="Add attachment"
+                    onclick={() => attachmentInput?.click()}
+                    class="attachment-btn w-8 h-8 rounded-full border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-500 hover:text-slate-700 flex items-center justify-center transition cursor-pointer"
                   >
+                    <PaperClipIcon class="w-4 h-4" />
+                  </button>
                 </div>
                 <button
                   onclick={sendMessage}
