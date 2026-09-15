@@ -8,7 +8,7 @@
 		EyeSlashIcon,
 		ExclamationCircleIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
-	import { Button } from '$lib/components/ui';
+	import { Button, Input } from '$lib/components/ui';
 
 	let identifier = $state('');
 	let password = $state('');
@@ -58,44 +58,40 @@
 						<!-- Sign In Form -->
 						<form onsubmit={handleLogin} class="mt-6 space-y-4">
 							<!-- Identifier Input -->
-							<div>
-								<label for="identifier-input" class="block text-xs font-medium text-slate-700 mb-1.5">Email or username</label>
-								<div class="relative">
-									<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-										<EnvelopeIcon class="w-4 h-4" />
-									</div>
-									<input
-										type="text"
-										id="identifier-input"
-										bind:value={identifier}
-										placeholder="you@company.com or acme-username"
-										required
-										disabled={loading}
-										class="wf-input py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-400"
-									/>
-								</div>
-							</div>
+							<Input
+								id="identifier-input"
+								label="Email or username"
+								type="text"
+								bind:value={identifier}
+								placeholder="you@company.com or acme-username"
+								required
+								disabled={loading}
+								class="text-sm"
+							>
+								{#snippet leading()}
+									<EnvelopeIcon class="w-4 h-4" />
+								{/snippet}
+							</Input>
 
 							<!-- Password Input -->
-							<div>
-								<label for="password-input" class="block text-xs font-medium text-slate-700 mb-1.5">Password</label>
-								<div class="relative">
-									<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-										<LockClosedIcon class="w-4 h-4" />
-									</div>
-									<input
-										type={showPassword ? 'text' : 'password'}
-										id="password-input"
-										bind:value={password}
-										placeholder="Enter your password"
-										required
-										disabled={loading}
-										class="wf-input py-2.5 pl-10 pr-11 text-sm placeholder:text-slate-400"
-									/>
+							<Input
+								id="password-input"
+								label="Password"
+								type={showPassword ? 'text' : 'password'}
+								bind:value={password}
+								placeholder="Enter your password"
+								required
+								disabled={loading}
+								class="text-sm"
+							>
+								{#snippet leading()}
+									<LockClosedIcon class="w-4 h-4" />
+								{/snippet}
+								{#snippet trailing()}
 									<button
 										type="button"
 										onclick={() => (showPassword = !showPassword)}
-										class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+										class="flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
 										aria-label={showPassword ? 'Hide password' : 'Show password'}
 									>
 										{#if showPassword}
@@ -104,8 +100,8 @@
 											<EyeIcon class="w-4 h-4" />
 										{/if}
 									</button>
-								</div>
-							</div>
+								{/snippet}
+							</Input>
 
 							<!-- Submit Button -->
 							<Button

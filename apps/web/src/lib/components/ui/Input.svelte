@@ -33,7 +33,6 @@
 	{#if label}
 		<label for={id} class="block text-xs font-medium text-slate-700">
 			{label}
-			{#if required}<span class="text-rose-500 ml-0.5">*</span>{/if}
 		</label>
 	{/if}
 	<div class="relative w-full">

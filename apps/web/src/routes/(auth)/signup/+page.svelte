@@ -10,7 +10,7 @@
 		ExclamationCircleIcon,
 		InformationCircleIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
-	import { Button } from '$lib/components/ui';
+	import { Button, Input } from '$lib/components/ui';
 	import WorkspaceTypeSelector from '$lib/components/WorkspaceTypeSelector.svelte';
 
 	let accountName = $state('');
@@ -76,64 +76,57 @@
 					<!-- Signup Form -->
 					<form onsubmit={handleSignup} class="mt-6 space-y-4">
 						<!-- Business Name Input -->
-						<div>
-							<label for="account-name-input" class="block text-xs font-medium text-slate-700 mb-1.5">Business name</label>
-							<div class="relative">
-								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-									<BuildingOffice2Icon class="w-4 h-4" />
-								</div>
-								<input
-									type="text"
-									id="account-name-input"
-									bind:value={accountName}
-									placeholder="Acme Corp"
-									required
-									disabled={loading}
-									class="wf-input py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-400"
-								/>
-							</div>
-						</div>
+						<Input
+							id="account-name-input"
+							label="Business name"
+							type="text"
+							bind:value={accountName}
+							placeholder="Acme Corp"
+							required
+							disabled={loading}
+							class="text-sm"
+						>
+							{#snippet leading()}
+								<BuildingOffice2Icon class="w-4 h-4" />
+							{/snippet}
+						</Input>
 
 						<!-- Email Input -->
-						<div>
-							<label for="signup-email-input" class="block text-xs font-medium text-slate-700 mb-1.5">Email</label>
-							<div class="relative">
-								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-									<EnvelopeIcon class="w-4 h-4" />
-								</div>
-								<input
-									type="email"
-									id="signup-email-input"
-									bind:value={email}
-									placeholder="you@email.com"
-									required
-									disabled={loading}
-									class="wf-input py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-400"
-								/>
-							</div>
-						</div>
+						<Input
+							id="signup-email-input"
+							label="Email"
+							type="email"
+							bind:value={email}
+							placeholder="you@email.com"
+							required
+							disabled={loading}
+							class="text-sm"
+						>
+							{#snippet leading()}
+								<EnvelopeIcon class="w-4 h-4" />
+							{/snippet}
+						</Input>
 
 						<!-- Password Input -->
-						<div>
-							<label for="signup-password-input" class="block text-xs font-medium text-slate-700 mb-1.5">Password</label>
-							<div class="relative">
-								<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-									<LockClosedIcon class="w-4 h-4" />
-								</div>
-								<input
-									type={showPassword ? 'text' : 'password'}
-									id="signup-password-input"
-									bind:value={password}
-									placeholder="At least 8 characters"
-									required
-									minlength={8}
-									disabled={loading}
-									class="wf-input py-2.5 pl-10 pr-11 text-sm placeholder:text-slate-400"
-								/>
+						<Input
+							id="signup-password-input"
+							label="Password"
+							type={showPassword ? 'text' : 'password'}
+							bind:value={password}
+							placeholder="At least 8 characters"
+							required
+							minlength={8}
+							disabled={loading}
+							class="text-sm"
+						>
+							{#snippet leading()}
+								<LockClosedIcon class="w-4 h-4" />
+							{/snippet}
+							{#snippet trailing()}
 								<button
 									type="button"
 									onclick={() => (showPassword = !showPassword)}
-									class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+									class="flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
 									aria-label={showPassword ? 'Hide password' : 'Show password'}
 								>
 									{#if showPassword}
@@ -142,8 +135,8 @@
 										<EyeIcon class="w-4 h-4" />
 									{/if}
 								</button>
-							</div>
-						</div>
+							{/snippet}
+						</Input>
 
 						<!-- Workspace Type Selection -->
 						<div>
