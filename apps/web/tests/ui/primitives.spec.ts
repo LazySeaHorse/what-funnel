@@ -10,7 +10,7 @@ test.describe('atomic UI primitives integration', () => {
 		// Verify primary variant class styling
 		await expect(submitBtn).toHaveClass(/bg-blue-600/);
 
-		// Fill in form and trigger submit to verify busy/loading state
+		// Fill in form to verify disabled/busy state
 		await page.getByLabel('Email or username').fill('agent@example.test');
 		await page.getByLabel('Password', { exact: true }).fill('password123');
 	});
@@ -24,8 +24,8 @@ test.describe('atomic UI primitives integration', () => {
 		await page.getByRole('tab', { name: 'Users & permissions', exact: true }).click();
 		await expect(page.getByRole('heading', { name: 'Users & permissions', exact: true })).toBeVisible();
 
-		// Click "Add team member" button to open modal
-		await page.getByRole('button', { name: 'Add team member' }).click();
+		// Click "Add user" button to open modal
+		await page.getByRole('button', { name: 'Add user' }).click();
 
 		const dialog = page.getByRole('dialog', { name: 'Add Team Member' });
 		await expect(dialog).toBeVisible();
@@ -41,7 +41,7 @@ test.describe('atomic UI primitives integration', () => {
 		await page.goto('/inbox?tab=settings');
 
 		await page.getByRole('tab', { name: 'Users & permissions', exact: true }).click();
-		await page.getByRole('button', { name: 'Add team member' }).click();
+		await page.getByRole('button', { name: 'Add user' }).click();
 
 		const dialog = page.getByRole('dialog', { name: 'Add Team Member' });
 		await expect(dialog).toBeVisible();
@@ -51,7 +51,7 @@ test.describe('atomic UI primitives integration', () => {
 		await expect(dialog).not.toBeVisible();
 	});
 
-	test('Popover and Tabs components work seamlessly in the lead drawer', async ({ page }) => {
+	test('Popover and Tabs components work seamlessly in the lead sidepanel', async ({ page }) => {
 		await mockWorkspaceApi(page, {
 			role: 'manager',
 			productMode: 'full_workspace',
@@ -70,18 +70,20 @@ test.describe('atomic UI primitives integration', () => {
 		});
 
 		await page.goto('/inbox');
+		await expect(page.getByRole('heading', { name: 'Alex Rivera', exact: true })).toBeVisible();
+
 		const leadPanel = page.locator('.lead-panel');
 		await expect(leadPanel).toBeVisible();
 
 		// Verify Tabs component functionality
-		const notesTab = leadPanel.getByRole('button', { name: 'Notes', exact: true });
-		await expect(notesTab).toBeVisible();
-		await notesTab.click();
-		await expect(notesTab).toHaveAttribute('aria-pressed', 'true');
+		const detailsTab = leadPanel.getByRole('button', { name: 'Details', exact: true });
+		await expect(detailsTab).toBeVisible();
+		await detailsTab.click();
+		await expect(detailsTab).toHaveAttribute('aria-pressed', 'true');
 
-		const overviewTab = leadPanel.getByRole('button', { name: 'Overview', exact: true });
-		await overviewTab.click();
-		await expect(overviewTab).toHaveAttribute('aria-pressed', 'true');
+		const leadTab = leadPanel.getByRole('button', { name: 'Lead', exact: true });
+		await leadTab.click();
+		await expect(leadTab).toHaveAttribute('aria-pressed', 'true');
 
 		// Verify Popover component for Lead stage picker
 		const stageBtn = leadPanel.getByLabel('Change lead stage');

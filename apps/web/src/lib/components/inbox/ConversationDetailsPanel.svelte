@@ -15,6 +15,7 @@
     SparklesIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import { fade } from "svelte/transition";
+  import { Tabs } from "$lib/components/ui";
 
   let {
     inbox,
@@ -42,15 +43,16 @@
   class="lead-panel hidden lg:flex w-[300px] xl:w-[320px] bg-white flex-col shrink-0 overflow-y-auto min-h-0 h-full"
   aria-label="Conversation details"
 >
-  <div
-    class="flex items-center justify-around border-b border-slate-100 text-xs font-medium text-slate-400 pt-3 px-2"
-  >
-    {#each ["lead", "details", "activity"] as key}<button
-        onclick={() => (tab = key as typeof tab)}
-        class="pb-2.5 px-4 capitalize {tab === key
-          ? 'text-blue-600 border-b-2 border-blue-600'
-          : 'hover:text-slate-700'}">{key}</button
-      >{/each}
+  <div class="px-2 pt-3">
+    <Tabs
+      tabs={[
+        { key: "lead", label: "Lead" },
+        { key: "details", label: "Details" },
+        { key: "activity", label: "Activity" }
+      ]}
+      bind:activeTab={tab}
+      class="justify-around"
+    />
   </div>
   <div class="p-4 space-y-5 flex-1 text-xs">
     {#if !inbox.activeConvo}<div
