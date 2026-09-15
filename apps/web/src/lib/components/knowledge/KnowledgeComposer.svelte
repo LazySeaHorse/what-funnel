@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CheckIcon, SparklesIcon, XMarkIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 
 	export interface KnowledgeTemplate {
 		label: string;
@@ -111,15 +112,16 @@
 		</div>
 
 		{#if showSubmitButton && onSubmit}
-			<button
-				type="button"
+			<Button
+				variant="primary"
+				size="sm"
 				onclick={onSubmit}
 				disabled={busy || !value.trim()}
-				class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] shrink-0"
+				busy={busy}
 			>
 				<SparklesIcon class="w-3.5 h-3.5 text-white" />
-				<span>{busy ? 'Processing…' : buttonText}</span>
-			</button>
+				<span>{buttonText}</span>
+			</Button>
 		{/if}
 	</div>
 </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { PencilSquareIcon, TrashIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 	import { typeColor, typeLabel } from '$lib/knowledge/ingestion';
 
 	export interface ConceptItem {
@@ -50,26 +51,28 @@
 			{#if showActions && (onEdit || onDelete)}
 				<div class="flex items-center gap-0.5 shrink-0">
 					{#if onEdit}
-						<button
-							type="button"
+						<Button
+							variant="ghost"
+							size="xs"
 							onclick={onEdit}
-							class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50/70 transition cursor-pointer"
+							class="text-slate-500 hover:text-blue-600 hover:bg-blue-50/70"
 							title="Edit concept"
 						>
 							<PencilSquareIcon class="w-3.5 h-3.5" />
 							<span>Edit</span>
-						</button>
+						</Button>
 					{/if}
 					{#if onDelete}
-						<button
-							type="button"
+						<Button
+							variant="ghost"
+							size="xs"
 							onclick={onDelete}
-							class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-600 hover:bg-rose-50/70 transition cursor-pointer"
+							class="text-slate-400 hover:text-rose-600 hover:bg-rose-50/70"
 							title="Delete concept"
 						>
 							<TrashIcon class="w-3.5 h-3.5" />
 							<span>Delete</span>
-						</button>
+						</Button>
 					{/if}
 				</div>
 			{/if}

@@ -16,6 +16,7 @@
 	import KnowledgeComposer from '$lib/components/knowledge/KnowledgeComposer.svelte';
 	import ConceptCard from '$lib/components/knowledge/ConceptCard.svelte';
 	import PatternCard from '$lib/components/knowledge/PatternCard.svelte';
+	import { Button, Input } from '$lib/components/ui';
 	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
 	import { typeColor, typeLabel } from '$lib/knowledge/ingestion';
 
@@ -373,26 +374,31 @@
 
 			<div class="flex flex-wrap items-center gap-2.5">
 				<!-- Audit Run Action -->
-				<button
+				<Button
+					variant="secondary"
+					size="sm"
 					onclick={triggerMining}
 					disabled={mining}
-					class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 shadow-2xs transition active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+					busy={mining}
 					title={lastRun ? `Last audit: ${formatDate(lastRun.run_at)} (${lastRun.messages_scanned} msgs)` : 'Analyze recent chats for missing knowledge'}
 				>
 					<SparklesIcon class="w-3.5 h-3.5 text-blue-600" />
-					<span>{mining ? 'Scanning…' : 'Run audit now'}</span>
-				</button>
+					<span>Run audit now</span>
+				</Button>
 
 				<!-- Purge Action (quiet danger button) -->
-				<button
+				<Button
+					variant="secondary"
+					size="sm"
 					onclick={purgeKnowledgeBase}
 					disabled={purging || ingestion.phase !== 'idle'}
-					class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-rose-200 bg-white hover:bg-rose-50/70 text-xs font-medium text-slate-500 hover:text-rose-600 shadow-2xs transition active:scale-[0.98] disabled:opacity-40 cursor-pointer"
+					busy={purging}
+					class="hover:border-rose-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50/70"
 					title="Permanently remove all concepts and deterministic patterns"
 				>
 					<TrashIcon class="w-3.5 h-3.5" />
-					<span>{purging ? 'Purging…' : 'Purge knowledge base'}</span>
-				</button>
+					<span>Purge knowledge base</span>
+				</Button>
 			</div>
 		</div>
 
@@ -504,12 +510,12 @@
 							<div class="text-xs text-slate-500 mt-0.5">The same concept and deterministic-pattern review used during onboarding.</div>
 						</div>
 						<div class="flex items-center gap-2">
-							<button onclick={discardIngestion} disabled={ingestion.busy} class="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-medium transition cursor-pointer disabled:opacity-50">
+							<Button variant="secondary" size="sm" onclick={discardIngestion} disabled={ingestion.busy}>
 								Discard
-							</button>
-							<button onclick={publishIngestion} disabled={ingestion.busy} class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98]">
-								{ingestion.busy ? 'Publishing…' : 'Add selected to Knowledge Base'}
-							</button>
+							</Button>
+							<Button variant="primary" size="sm" onclick={publishIngestion} disabled={ingestion.busy} busy={ingestion.busy}>
+								Add selected to Knowledge Base
+							</Button>
 						</div>
 					</div>
 					{#if pasteResult?.error}
@@ -609,21 +615,22 @@
 												placeholder="Add tag and press Enter"
 												class="flex-1 max-w-xs bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
 											/>
-											<button type="button" onclick={addTagToConceptDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
+											<Button variant="secondary" size="xs" onclick={addTagToConceptDraft}>Add</Button>
 										</div>
 									</div>
 									<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-										<button type="button" onclick={cancelEditingConcept} class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+										<Button variant="ghost" size="sm" onclick={cancelEditingConcept}>
 											Cancel
-										</button>
-										<button
-											type="button"
+										</Button>
+										<Button
+											variant="primary"
+											size="sm"
 											onclick={() => saveConcept(concept.id)}
 											disabled={savingConcept}
-											class="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
+											busy={savingConcept}
 										>
-											{savingConcept ? 'Saving…' : 'Save changes'}
-										</button>
+											Save changes
+										</Button>
 									</div>
 								</div>
 							{:else}
@@ -694,7 +701,7 @@
 											placeholder="Add trigger phrase and press Enter"
 											class="flex-1 min-w-0 bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
 										/>
-										<button type="button" onclick={addTriggerToPatternDraft} class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium cursor-pointer transition">Add</button>
+										<Button variant="secondary" size="xs" onclick={addTriggerToPatternDraft}>Add</Button>
 									</div>
 								</div>
 								<div>
@@ -707,17 +714,18 @@
 									></textarea>
 								</div>
 								<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-									<button type="button" onclick={cancelEditingPattern} class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+									<Button variant="ghost" size="sm" onclick={cancelEditingPattern}>
 										Cancel
-									</button>
-									<button
-										type="button"
+									</Button>
+									<Button
+										variant="primary"
+										size="sm"
 										onclick={() => savePattern(pattern.id)}
 										disabled={savingPattern}
-										class="px-4 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
+										busy={savingPattern}
 									>
-										{savingPattern ? 'Saving…' : 'Save changes'}
-									</button>
+										Save changes
+									</Button>
 								</div>
 							</div>
 						{:else}
@@ -768,12 +776,12 @@
 								{suggestion._payload?.body_text ?? suggestion._payload?.answer_text ?? ''}
 							</div>
 							<div class="flex items-center justify-end gap-2 pt-1 text-xs">
-								<button onclick={() => reviewSuggestion(suggestion.id, 'reject')} class="px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer font-medium">
+								<Button variant="ghost" size="sm" onclick={() => reviewSuggestion(suggestion.id, 'reject')}>
 									Dismiss
-								</button>
-								<button onclick={() => reviewSuggestion(suggestion.id, 'approve')} class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]">
+								</Button>
+								<Button variant="primary" size="sm" onclick={() => reviewSuggestion(suggestion.id, 'approve')}>
 									Add to Knowledge Base
-								</button>
+								</Button>
 							</div>
 						</div>
 					{/each}
