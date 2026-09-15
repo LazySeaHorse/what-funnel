@@ -12,24 +12,23 @@
 		class: className = ''
 	}: {
 		tabs: TabItem[];
-		activeTab: string;
-		onchange?: (key: string) => void;
+		activeTab: any;
+		onchange?: (key: any) => void;
 		class?: string;
 	} = $props();
 
-	function selectTab(key: string) {
+	function selectTab(key: any) {
 		activeTab = key;
 		onchange?.(key);
 	}
 </script>
 
-<div class="flex items-center gap-1 border-b border-slate-100 text-xs font-medium text-slate-400 {className}" role="tablist">
+<div class="flex items-center gap-1 border-b border-slate-100 text-xs font-medium text-slate-400 {className}">
 	{#each tabs as tab (tab.key)}
 		{@const isActive = activeTab === tab.key}
 		<button
 			type="button"
-			role="tab"
-			aria-selected={isActive}
+			aria-pressed={isActive}
 			onclick={() => selectTab(tab.key)}
 			class="pb-2.5 px-2.5 transition cursor-pointer border-b-2 {isActive ? 'text-blue-600 font-medium border-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}"
 		>

@@ -14,6 +14,7 @@
 		EllipsisVerticalIcon,
 		ChevronDownIcon,
 	} from '@fvilers/heroicons-svelte/24/outline';
+	import { Button, Tabs } from '$lib/components/ui';
 
 	let {
 		lead,
@@ -52,13 +53,14 @@
 <aside transition:fly={{ x: 28, duration: 200, easing: cubicOut }} class="lead-panel w-[320px] xl:w-[350px] bg-white flex flex-col shrink-0 overflow-y-auto min-h-0 h-full border-l border-slate-100 select-none">
 	<!-- Top Drawer Actions -->
 	<div class="px-5 pt-4 pb-2 flex items-center justify-between">
-		<button
+		<Button
+			variant="primary"
+			size="sm"
 			onclick={() => onOpenChat(lead.convoId)}
-			class="wf-button-primary px-3.5 py-1.5"
 		>
 			<PlusIcon class="w-3.5 h-3.5" />
 			<span>Add lead</span>
-		</button>
+		</Button>
 
 		<button
 			onclick={onClose}
@@ -94,16 +96,17 @@
 	</div>
 
 	<!-- Drawer Nav Tabs -->
-	<div class="flex items-center justify-between border-b border-slate-100 text-xs font-medium text-slate-400 pt-2 px-5">
-		{#each [{ key: 'overview', label: 'Overview' }, { key: 'details', label: 'Details' }, { key: 'notes', label: 'Notes' }, { key: 'activity', label: 'Activity' }] as tab}
-			{@const isActive = activeTab === tab.key}
-			<button
-				onclick={() => activeTab = tab.key as typeof activeTab}
-				class="pb-2.5 px-1.5 transition cursor-pointer {isActive ? 'text-blue-600 font-medium border-b-2 border-blue-600' : 'hover:text-slate-700'}"
-			>
-				{tab.label}
-			</button>
-		{/each}
+	<div class="px-5 pt-2">
+		<Tabs
+			tabs={[
+				{ key: 'overview', label: 'Overview' },
+				{ key: 'details', label: 'Details' },
+				{ key: 'notes', label: 'Notes' },
+				{ key: 'activity', label: 'Activity' }
+			]}
+			bind:activeTab
+			class="justify-between"
+		/>
 	</div>
 
 	<!-- Drawer Content -->
