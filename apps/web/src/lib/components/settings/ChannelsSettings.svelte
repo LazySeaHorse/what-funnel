@@ -205,11 +205,25 @@
           </div>
           <div class="flex items-center gap-2">
             {#if !healthy}
-              <button onclick={() => { selectedProvider = connection.provider; activeConnection = connection; credential = ""; showDialog = true; void refreshActive(); }} class="wf-button px-3 py-2 text-xs text-blue-600">Continue</button>
+              <Button
+                variant="ghost"
+                size="xs"
+                class="text-blue-600 hover:text-blue-700"
+                onclick={() => { selectedProvider = connection.provider; activeConnection = connection; credential = ""; showDialog = true; void refreshActive(); }}
+              >
+                Continue
+              </Button>
             {/if}
-            <button onclick={() => unlink(connection)} disabled={deletingID === connection.channel_id} class="wf-button px-3 py-2 text-xs text-rose-600 disabled:opacity-50">
+            <Button
+              variant="ghost"
+              size="xs"
+              class="text-rose-600 hover:text-rose-700"
+              onclick={() => unlink(connection)}
+              disabled={deletingID === connection.channel_id}
+              busy={deletingID === connection.channel_id}
+            >
               {deletingID === connection.channel_id ? "Unlinking…" : "Unlink"}
-            </button>
+            </Button>
           </div>
         </div>
       {:else}

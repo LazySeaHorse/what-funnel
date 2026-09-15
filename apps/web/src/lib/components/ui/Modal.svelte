@@ -46,13 +46,13 @@
 {#if open}
 	<div
 		transition:fade={{ duration: 150 }}
-		class="wf-modal-backdrop"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
 		role="presentation"
 		onclick={(e) => e.target === e.currentTarget && onclose()}
 	>
 		<div
 			transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }}
-			class="wf-modal {maxWidth} space-y-4"
+			class="w-full {maxWidth} space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
 			role="dialog"
 			aria-modal="true"
 			aria-label={dialogLabel}
