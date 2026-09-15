@@ -4,7 +4,7 @@
   import type { WorkspaceState } from "$lib/workspace.svelte";
   import ChannelBadge from "$lib/components/ChannelBadge.svelte";
   import { ChatBubbleLeftRightIcon } from "@fvilers/heroicons-svelte/24/outline";
-  import { Modal, Button } from "$lib/components/ui";
+  import { Modal, Button, Input } from "$lib/components/ui";
 
   interface Capabilities {
     media: boolean; replies: boolean; reactions: boolean;
@@ -228,17 +228,29 @@
     onclose={closeDialog}
   >
     {#if !activeConnection}
-      <label class="my-5 block text-xs font-medium text-slate-700">
-        Account label
-        <input bind:value={label} maxlength="80" autocomplete="off" class="wf-input mt-1.5 w-full" placeholder={selectedProvider === "telegram" ? "e.g. Support bot" : "e.g. Sales WhatsApp"} />
-        <span class="mt-1.5 block text-[11px] font-normal text-slate-400">This label only appears inside WhatFunnel.</span>
-      </label>
+      <div class="my-5">
+        <Input
+          id="channelAccountLabel"
+          label="Account label"
+          bind:value={label}
+          maxlength={80}
+          autocomplete="off"
+          placeholder={selectedProvider === "telegram" ? "e.g. Support bot" : "e.g. Sales WhatsApp"}
+          helper="This label only appears inside WhatFunnel."
+        />
+      </div>
       {#if selectedProvider === "telegram"}
-        <label class="mb-5 block text-xs font-medium text-slate-700">
-          Bot token
-          <input bind:value={credential} type="password" autocomplete="new-password" class="wf-input mt-1.5 w-full" placeholder="Token from @BotFather" />
-          <span class="mt-1.5 block text-[11px] font-normal text-slate-400">The token is encrypted at rest and is never shown again.</span>
-        </label>
+        <div class="mb-5">
+          <Input
+            id="channelBotToken"
+            label="Bot token"
+            type="password"
+            bind:value={credential}
+            autocomplete="new-password"
+            placeholder="Token from @BotFather"
+            helper="The token is encrypted at rest and is never shown again."
+          />
+        </div>
       {/if}
       <div class="flex justify-end gap-2">
         <Button variant="ghost" onclick={closeDialog}>Cancel</Button>
@@ -270,10 +282,15 @@
     {:else if activeConnection.state === "error" || activeConnection.state === "disconnected"}
       <div class="my-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">{activeConnection.detail || "WhatsApp disconnected this account. Unlink it and pair again."}</div>
       {#if activeConnection.provider === "telegram"}
-        <label class="mb-4 block text-xs font-medium text-slate-700">
-          Replacement bot token <span class="font-normal text-slate-400">(optional)</span>
-          <input bind:value={credential} type="password" autocomplete="new-password" class="wf-input mt-1.5 w-full" />
-        </label>
+        <div class="mb-4">
+          <Input
+            id="channelReplacementBotToken"
+            label="Replacement bot token (optional)"
+            type="password"
+            bind:value={credential}
+            autocomplete="new-password"
+          />
+        </div>
       {/if}
       <div class="flex justify-end gap-2">
         <Button variant="ghost" onclick={closeDialog}>Close</Button>

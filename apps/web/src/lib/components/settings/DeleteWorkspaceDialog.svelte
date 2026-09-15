@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ExclamationTriangleIcon } from "@fvilers/heroicons-svelte/24/outline";
-  import { Modal, Button } from "$lib/components/ui";
+  import { Modal, Button, Input } from "$lib/components/ui";
 
   let {
     workspaceName,
@@ -45,11 +45,10 @@
         >{workspaceName}</span
       > to confirm:
     </p>
-    <input
-      type="text"
+    <Input
       bind:value={confirmation}
       placeholder={workspaceName}
-      class="wf-input focus:border-red-500 focus:ring-red-100"
+      class="focus:border-red-500 focus:ring-red-100"
     />
   </div>
 

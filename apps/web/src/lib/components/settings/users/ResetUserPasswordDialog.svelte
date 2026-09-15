@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { generatePassword, type UserCredentials, type WorkspaceUser } from './types';
-	import { Modal, Button } from '$lib/components/ui';
+	import { Modal, Button, Input } from '$lib/components/ui';
 
 	let { user, onclose, onreset }: { user: WorkspaceUser; onclose: () => void; onreset: (password: string) => Promise<UserCredentials> } = $props();
 	let password = $state(generatePassword());
@@ -20,11 +20,11 @@
 <Modal title="Reset User Password" ariaLabelledby="reset-user-password-title" onclose={onclose}>
 	<p class="text-xs text-slate-500">Set a new password for <span class="font-medium text-slate-800">{user.username || user.email}</span>.</p>
 	<div class="space-y-1.5 text-xs">
-		<div class="flex items-center justify-between">
-			<label for="resetPasswordInput" class="font-medium text-slate-700">New Password</label>
-			<button type="button" onclick={() => (password = generatePassword())} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
-		</div>
-		<input id="resetPasswordInput" type="text" bind:value={password} class="wf-input font-mono" />
+		<Input id="resetPasswordInput" label="New Password" type="text" bind:value={password} class="font-mono">
+			{#snippet trailing()}
+				<button type="button" onclick={() => (password = generatePassword())} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
+			{/snippet}
+		</Input>
 		{#if error}<p class="text-xs font-medium text-rose-600">{error}</p>{/if}
 	</div>
 

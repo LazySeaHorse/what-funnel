@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { generatePassword, type UserCredentials } from './types';
-	import { Modal, Button } from '$lib/components/ui';
+	import { Modal, Button, Input } from '$lib/components/ui';
 
 	let {
 		accountSlug,
@@ -34,16 +34,15 @@
 <Modal title="Add Team Member" ariaLabelledby="add-team-member-title" onclose={onclose}>
 	<div class="space-y-3.5 text-xs">
 		<div class="space-y-1">
-			<label for="newUsernameInput" class="font-medium text-slate-700">Username</label>
-			<input id="newUsernameInput" type="text" bind:value={username} placeholder="e.g. john" class="wf-input" />
+			<Input id="newUsernameInput" label="Username" type="text" bind:value={username} placeholder="e.g. john" />
 			<p class="text-[11px] text-slate-400">Login username: <span class="font-mono">{accountSlug || 'prefix'}-{username || '[username]'}</span></p>
 		</div>
 		<div class="space-y-1">
-			<div class="flex items-center justify-between">
-				<label for="newPasswordInput" class="font-medium text-slate-700">Initial password</label>
-				<button type="button" onclick={() => (password = generatePassword())} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
-			</div>
-			<input id="newPasswordInput" type="text" bind:value={password} placeholder="Password" class="wf-input font-mono" />
+			<Input id="newPasswordInput" label="Initial password" type="text" bind:value={password} placeholder="Password" class="font-mono">
+				{#snippet trailing()}
+					<button type="button" onclick={() => (password = generatePassword())} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
+				{/snippet}
+			</Input>
 		</div>
 		<div class="space-y-1">
 			<label for="newRoleSelect" class="font-medium text-slate-700">Role</label>
