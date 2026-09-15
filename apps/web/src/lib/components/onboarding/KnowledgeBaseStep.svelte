@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { SparklesIcon, ArrowRightIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 	import KnowledgeComposer from '$lib/components/knowledge/KnowledgeComposer.svelte';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 
@@ -76,14 +77,15 @@
 			</div>
 
 			{#if status === 'processing'}
-				<button
-					type="button"
-					class="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-xl border border-slate-200 shadow-2xs transition cursor-pointer active:scale-[0.98]"
+				<Button
+					variant="secondary"
+					size="xs"
+					class="mt-2"
 					onclick={onSkipWaiting}
 				>
 					<span>Skip waiting and go to next page</span>
 					<ArrowRightIcon class="w-3.5 h-3.5" />
-				</button>
+				</Button>
 			{/if}
 		</div>
 	</div>
@@ -95,9 +97,14 @@
 			<h2 class="text-2xl font-medium text-slate-900 tracking-tight">Structured Knowledge</h2>
 			<p class="text-sm text-slate-500 font-normal mt-0.5">Review the concepts and answer patterns extracted from your notes.</p>
 		</div>
-		<button type="button" class="px-3.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer" onclick={onEditNotes}>
+		<Button
+			variant="ghost"
+			size="xs"
+			class="text-blue-600 hover:bg-blue-50"
+			onclick={onEditNotes}
+		>
 			Edit notes
-		</button>
+		</Button>
 	</div>
 
 	<div class="w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">

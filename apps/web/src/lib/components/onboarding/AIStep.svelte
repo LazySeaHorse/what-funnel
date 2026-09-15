@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CpuChipIcon, SparklesIcon, PencilSquareIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button, Input } from '$lib/components/ui';
 	import { apiRequest } from '$lib/api';
 	import {
 		aiProviderConfigFingerprint,
@@ -167,30 +168,60 @@
 								<p class="mt-1 text-xs leading-relaxed text-slate-500">The system encrypts API credentials before storage. The AI does not generate responses until you configure a provider.</p>
 							</div>
 							<div class="space-y-1.5">
-								<label for="ai-provider-key" class="block text-xs font-medium text-slate-700">API key {providerConfigured ? '(leave blank to keep current key)' : ''}</label>
-								<input id="ai-provider-key" type="password" autocomplete="new-password" bind:value={providerApiKey} class="wf-input" placeholder={providerConfigured ? 'Configured' : 'Required'} />
+								<Input
+									id="ai-provider-key"
+									label={`API key ${providerConfigured ? '(leave blank to keep current key)' : ''}`}
+									type="password"
+									autocomplete="new-password"
+									bind:value={providerApiKey}
+									placeholder={providerConfigured ? 'Configured' : 'Required'}
+								/>
 								{#if !providerConfigured && !providerApiKey.trim()}
 									<p class="text-[11px] text-orange-700">Enter your AI provider API key, or select Manual only.</p>
 								{/if}
 							</div>
-							<div class="space-y-1.5">
-								<label for="ai-provider-url" class="block text-xs font-medium text-slate-700">OpenAI-compatible base URL</label>
-								<input id="ai-provider-url" type="url" bind:value={providerBaseURL} class="wf-input" required />
-							</div>
+							<Input
+								id="ai-provider-url"
+								label="OpenAI-compatible base URL"
+								type="url"
+								bind:value={providerBaseURL}
+								required
+							/>
 							<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-								<label class="space-y-1.5 text-xs font-medium text-slate-700">Analysis model<input aria-label="Analysis model" bind:value={analysisModel} class="wf-input" required /><span class="block text-[11px] font-normal text-slate-500">Ingestion, spam, summaries</span></label>
-								<label class="space-y-1.5 text-xs font-medium text-slate-700">Customer reply model<input aria-label="Customer reply model" bind:value={replyModel} class="wf-input" required /><span class="block text-[11px] font-normal text-slate-500">Generated replies only</span></label>
-								<label class="space-y-1.5 text-xs font-medium text-slate-700">Embedding model<input aria-label="Embedding model" bind:value={embeddingModel} class="wf-input" required /></label>
+								<Input
+									id="ai-provider-analysis-model"
+									label="Analysis model"
+									aria-label="Analysis model"
+									bind:value={analysisModel}
+									helper="Ingestion, spam, summaries"
+									required
+								/>
+								<Input
+									id="ai-provider-reply-model"
+									label="Customer reply model"
+									aria-label="Customer reply model"
+									bind:value={replyModel}
+									helper="Generated replies only"
+									required
+								/>
+								<Input
+									id="ai-provider-embedding-model"
+									label="Embedding model"
+									aria-label="Embedding model"
+									bind:value={embeddingModel}
+									required
+								/>
 							</div>
 							<div class="flex items-center justify-between pt-1">
-								<button
-									type="button"
+								<Button
+									variant="secondary"
+									size="xs"
 									onclick={testConnection}
 									disabled={testing || (!providerConfigured && !providerApiKey.trim())}
-									class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+									busy={testing}
 								>
-									{testing ? 'Testing...' : 'Test connection'}
-								</button>
+									Test connection
+								</Button>
 							</div>
 							{#if testResult}
 								<div role={testResult.ok ? 'status' : 'alert'} class="rounded-lg border p-2.5 text-xs font-medium {testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}">

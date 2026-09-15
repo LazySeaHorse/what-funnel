@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
 	import { CheckIcon, ChatBubbleLeftRightIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 	let { step, totalSteps, channels, onConnect }: { step: number; totalSteps: number; channels: any[]; onConnect: (channel: any) => void } = $props();
 </script>
 
@@ -20,14 +21,23 @@
 
 			<div>
 				{#if ch.connected}
-					<button type="button" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium cursor-pointer" onclick={() => onConnect(ch)}>
+					<Button
+						variant="secondary"
+						size="xs"
+						class="bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+						onclick={() => onConnect(ch)}
+					>
 						<CheckIcon class="w-3.5 h-3.5 text-emerald-600" />
 						<span>Connected</span>
-					</button>
+					</Button>
 				{:else if ch.id === 'whatsapp' || ch.id === 'telegram'}
-					<button type="button" class="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer shadow-xs" onclick={() => onConnect(ch)}>
+					<Button
+						variant="secondary"
+						size="xs"
+						onclick={() => onConnect(ch)}
+					>
 						Connect
-					</button>
+					</Button>
 				{:else}
 					<span class="px-2.5 py-1 text-[11px] font-medium text-slate-400 bg-slate-100 rounded-lg">Coming soon</span>
 				{/if}

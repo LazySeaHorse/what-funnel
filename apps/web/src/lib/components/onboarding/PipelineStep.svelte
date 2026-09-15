@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { TrashIcon, PlusIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button, Input } from '$lib/components/ui';
 	type Stage = { key: string; label: string; color: string };
 	let { step, totalSteps, stages = $bindable() }: { step: number; totalSteps: number; stages: Stage[] } = $props();
 	function add() {
@@ -28,13 +29,14 @@
 					<input aria-label="{stage.label} color" type="color" bind:value={stage.color} class="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
 				</div>
 
-				<input
-					type="text"
-					aria-label="Stage label"
-					class="wf-input min-w-32 flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-900 border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100 font-normal transition"
-					bind:value={stage.label}
-					placeholder="Stage name"
-				/>
+				<div class="flex-1 min-w-32">
+					<Input
+						type="text"
+						aria-label="Stage label"
+						bind:value={stage.label}
+						placeholder="Stage name"
+					/>
+				</div>
 
 				<button
 					type="button"
@@ -50,8 +52,12 @@
 		{/each}
 	</div>
 
-	<button type="button" class="mt-2 flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed" onclick={add}>
+	<Button
+		variant="secondary"
+		onclick={add}
+		class="mt-2 border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 font-medium"
+	>
 		<PlusIcon class="w-4 h-4" />
 		<span>Add stage</span>
-	</button>
+	</Button>
 </div>

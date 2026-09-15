@@ -7,6 +7,7 @@
 		CpuChipIcon,
 		BookOpenIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 
 	let {
 		step,
@@ -53,7 +54,7 @@
 								<div class="text-sm font-medium text-slate-900">{businessName || 'Your workspace'}</div>
 							</div>
 						</div>
-						<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => onEdit(1)}>Edit</button>
+						<Button variant="ghost" size="xs" class="text-blue-600 hover:underline" onclick={() => onEdit(1)}>Edit</Button>
 					</div>
 
 					<!-- Channels -->
@@ -67,7 +68,7 @@
 								<div class="text-sm font-medium text-slate-900">{channelsText}</div>
 							</div>
 						</div>
-						<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => onEdit(2)}>Edit</button>
+						<Button variant="ghost" size="xs" class="text-blue-600 hover:underline" onclick={() => onEdit(2)}>Edit</Button>
 					</div>
 
 					{#if productMode === 'full_workspace'}
@@ -82,7 +83,7 @@
 								<div class="text-sm font-medium text-slate-900">{pipelineStageCount} stages configured</div>
 							</div>
 						</div>
-						<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => onEdit(3)}>Edit</button>
+						<Button variant="ghost" size="xs" class="text-blue-600 hover:underline" onclick={() => onEdit(3)}>Edit</Button>
 					</div>
 
 					<!-- Team Members -->
@@ -96,7 +97,7 @@
 								<div class="text-sm font-medium text-slate-900">{teamMemberCount > 0 ? `${teamMemberCount} team member(s) added (prefix: ${slug || 'default'})` : `Prefix: ${slug || 'default'} (no extra members)`}</div>
 							</div>
 						</div>
-						<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => onEdit(4)}>Edit</button>
+						<Button variant="ghost" size="xs" class="text-blue-600 hover:underline" onclick={() => onEdit(4)}>Edit</Button>
 					</div>
 					{/if}
 
@@ -111,7 +112,7 @@
 								<div class="text-sm font-medium text-slate-900">{aiMode}</div>
 							</div>
 						</div>
-						<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => onEdit(5)}>Edit</button>
+						<Button variant="ghost" size="xs" class="text-blue-600 hover:underline" onclick={() => onEdit(5)}>Edit</Button>
 					</div>
 
 					<!-- Knowledge Base -->
@@ -125,6 +126,6 @@
 								<div class="text-sm font-medium text-slate-900">{knowledgeSummary}</div>
 							</div>
 						</div>
-						<button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick={() => onEdit(6)}>Edit</button>
+						<Button variant="ghost" size="xs" class="text-blue-600 hover:underline" onclick={() => onEdit(6)}>Edit</Button>
 					</div>
 				</div>

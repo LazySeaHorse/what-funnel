@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ChevronRightIcon } from '@fvilers/heroicons-svelte/20/solid';
+	import { Button } from '$lib/components/ui';
 	let { stepNum, kbStatus, rawText, submitting, compiling, continueDisabled = false, onBack, onContinue, onTour, onInbox }:
 		{ stepNum: number; kbStatus: string; rawText: string; submitting: boolean; compiling: boolean; continueDisabled?: boolean; onBack: () => void; onContinue: () => void; onTour: () => void; onInbox: () => void } = $props();
 </script>
@@ -7,18 +8,36 @@
 {#if !(stepNum === 6 && (kbStatus === 'processing' || kbStatus === 'publishing'))}
 	<footer class="shrink-0 border-t border-slate-100 flex items-center justify-between gap-3 w-full bg-white px-5 sm:px-10 lg:px-12 py-4 sm:py-5">
 		{#if stepNum === 8}
-			<button type="button" class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 active:scale-[0.98] text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer" onclick={onTour}>View tour</button>
-			<button type="button" class="ml-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 active:scale-[0.98] text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer flex items-center justify-center gap-2" onclick={onInbox}><span>Go to Inbox</span><ChevronRightIcon class="w-4 h-4 text-white" /></button>
+			<Button variant="secondary" size="lg" onclick={onTour}>View tour</Button>
+			<Button variant="primary" size="lg" class="ml-auto flex items-center gap-2" onclick={onInbox}>
+				<span>Go to Inbox</span>
+				<ChevronRightIcon class="w-4 h-4 text-white" />
+			</Button>
 		{:else}
 			<div class="hidden sm:block">
 				{#if stepNum > 1}
-					<button type="button" class="px-5 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 active:scale-[0.98] text-slate-700 text-sm font-medium hover:bg-slate-50 transition cursor-pointer disabled:opacity-50" onclick={onBack} disabled={submitting || compiling}>Back</button>
+					<Button variant="secondary" size="lg" onclick={onBack} disabled={submitting || compiling}>Back</Button>
 				{/if}
 			</div>
 			{#if stepNum < 8}
-				<button type="button" class="ml-auto w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 active:scale-[0.98] text-white font-medium rounded-xl text-sm shadow-xs hover:shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2" onclick={onContinue} disabled={submitting || compiling || continueDisabled}>
-					{#if submitting || compiling}<span>Processing...</span>{:else if stepNum === 6 && kbStatus === 'input'}<span>{rawText.trim() ? 'Organize with AI' : 'Skip'}</span>{:else if stepNum === 6 && kbStatus === 'results'}<span>Add to Knowledge Base</span>{:else if stepNum === 7}<span>Complete setup</span>{:else}<span>Continue</span>{/if}
-				</button>
+				<Button
+					variant="primary"
+					size="lg"
+					class="ml-auto"
+					onclick={onContinue}
+					disabled={submitting || compiling || continueDisabled}
+					busy={submitting || compiling}
+				>
+					{#if stepNum === 6 && kbStatus === 'input'}
+						<span>{rawText.trim() ? 'Organize with AI' : 'Skip'}</span>
+					{:else if stepNum === 6 && kbStatus === 'results'}
+						<span>Add to Knowledge Base</span>
+					{:else if stepNum === 7}
+						<span>Complete setup</span>
+					{:else}
+						<span>Continue</span>
+					{/if}
+				</Button>
 			{/if}
 		{/if}
 	</footer>

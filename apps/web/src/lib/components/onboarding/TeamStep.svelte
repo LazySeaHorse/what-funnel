@@ -5,6 +5,7 @@
 		DocumentDuplicateIcon,
 		TrashIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
+	import { Button, Input } from '$lib/components/ui';
 
 	type User = { id: string; username: string; role: string; plaintextPassword?: string };
 
@@ -77,16 +78,14 @@
 <div class="space-y-6 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
 	<!-- Workspace Slug Setup -->
 	<div class="p-4 sm:p-5 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-3">
-		<label for="workspace-slug" class="block text-xs font-medium text-slate-900">Workspace login prefix</label>
-		<div class="relative">
-			<input
-				id="workspace-slug"
-				type="text"
-				class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-				placeholder="company-name"
-				bind:value={slug}
-			/>
-		</div>
+		<Input
+			id="workspace-slug"
+			label="Workspace login prefix"
+			type="text"
+			class="font-mono"
+			placeholder="company-name"
+			bind:value={slug}
+		/>
 		<div class="space-y-1 text-xs text-slate-500 font-normal">
 			<p>
 				Team members log in with: <span class="font-mono font-medium text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">{slug || 'your-company'}-[username]</span>
@@ -102,30 +101,26 @@
 		<h3 class="text-sm font-medium text-slate-900">Add team member</h3>
 
 		<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-			<div>
-				<label for="new-member-username" class="block text-xs font-medium text-slate-700 mb-1">Username</label>
-				<input
-					id="new-member-username"
-					type="text"
-					class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
-					placeholder="e.g. john"
-					bind:value={newUsername}
-				/>
-			</div>
+			<Input
+				id="new-member-username"
+				label="Username"
+				type="text"
+				placeholder="e.g. john"
+				bind:value={newUsername}
+			/>
 
-			<div>
-				<div class="flex items-center justify-between mb-1">
-					<label for="new-member-password" class="block text-xs font-medium text-slate-700">Password</label>
+			<Input
+				id="new-member-password"
+				label="Password"
+				type="text"
+				class="font-mono"
+				placeholder="Password"
+				bind:value={newPassword}
+			>
+				{#snippet trailing()}
 					<button type="button" class="text-[10px] text-blue-600 hover:underline cursor-pointer" onclick={generatePassword}>Generate</button>
-				</div>
-				<input
-					id="new-member-password"
-					type="text"
-					class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 font-mono placeholder:text-slate-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none"
-					placeholder="Password"
-					bind:value={newPassword}
-				/>
-			</div>
+				{/snippet}
+			</Input>
 
 			<div>
 				<label for="new-member-role" class="block text-xs font-medium text-slate-700 mb-1">Role</label>
@@ -138,15 +133,15 @@
 						<option value="agent">Agent</option>
 						<option value="manager">Manager</option>
 					</select>
-					<button
-						type="button"
-						class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-xl transition cursor-pointer disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+					<Button
+						variant="primary"
 						onclick={addUser}
 						disabled={adding || !newUsername.trim() || !newPassword.trim()}
+						busy={adding}
 					>
 						<PlusIcon class="w-3.5 h-3.5" />
 						<span>Add</span>
-					</button>
+					</Button>
 				</div>
 			</div>
 		</div>
