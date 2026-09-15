@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { apiRequest } from "$lib/api";
+  import { Input, Button } from "$lib/components/ui";
   import {
     aiProviderConfigFingerprint,
     aiProviderTestResult,
@@ -213,100 +214,76 @@
     disabled={loading || saving || testing}
     class="space-y-4 text-xs disabled:opacity-60"
   >
-    <div class="space-y-1.5">
-      <label for="aiSettingsApiKey" class="block font-medium text-slate-700"
-        >{configured ? "New API key" : "API key"}</label
-      >
-      <div class="relative">
-        <input
-          id="aiSettingsApiKey"
-          type={showKey ? "text" : "password"}
-          autocomplete="new-password"
-          bind:value={apiKey}
-          class="wf-input pr-16"
-          placeholder={configured
-            ? "Enter a replacement key"
-            : "Enter your provider API key"}
-        />
+    <Input
+      id="aiSettingsApiKey"
+      type={showKey ? "text" : "password"}
+      label={configured ? "New API key" : "API key"}
+      autocomplete="new-password"
+      bind:value={apiKey}
+      class="pr-16"
+      placeholder={configured
+        ? "Enter a replacement key"
+        : "Enter your provider API key"}
+      helper="The system does not show the API key after saving."
+    >
+      {#snippet trailing()}
         <button
           type="button"
           onclick={() => (showKey = !showKey)}
-          class="absolute inset-y-0 right-0 px-3 text-[11px] font-medium text-slate-500 hover:text-slate-800"
+          class="px-3 text-[11px] font-medium text-slate-500 hover:text-slate-800 cursor-pointer"
           aria-label={showKey ? "Hide API key" : "Show API key"}
           >{showKey ? "Hide" : "Show"}</button
         >
-      </div>
-      <p class="text-[11px] leading-relaxed text-slate-500">
-        The system does not show the API key after saving.
-      </p>
-    </div>
-    <div class="space-y-1.5">
-      <label for="aiSettingsBaseURL" class="block font-medium text-slate-700"
-        >OpenAI-compatible base URL</label
-      ><input
-        id="aiSettingsBaseURL"
-        type="url"
-        bind:value={baseURL}
-        class="wf-input"
+      {/snippet}
+    </Input>
+    <Input
+      id="aiSettingsBaseURL"
+      type="url"
+      label="OpenAI-compatible base URL"
+      bind:value={baseURL}
+      required
+    />
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <Input
+        id="aiSettingsAnalysisModel"
+        label="Analysis model"
+        bind:value={analysisModel}
+        helper="Knowledge ingestion, spam checks, and summaries."
+        required
+      />
+      <Input
+        id="aiSettingsReplyModel"
+        label="Customer reply model"
+        bind:value={replyModel}
+        helper="Customer-facing generated replies only."
+        required
+      />
+      <Input
+        id="aiSettingsEmbeddingModel"
+        label="Embedding model"
+        bind:value={embeddingModel}
         required
       />
     </div>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      <div class="space-y-1.5">
-        <label
-          for="aiSettingsAnalysisModel"
-          class="block font-medium text-slate-700">Analysis model</label
-        ><input
-          id="aiSettingsAnalysisModel"
-          bind:value={analysisModel}
-          class="wf-input"
-          required
-        />
-        <p class="text-[11px] leading-relaxed text-slate-500">Knowledge ingestion, spam checks, and summaries.</p>
-      </div>
-      <div class="space-y-1.5">
-        <label
-          for="aiSettingsReplyModel"
-          class="block font-medium text-slate-700">Customer reply model</label
-        ><input
-          id="aiSettingsReplyModel"
-          bind:value={replyModel}
-          class="wf-input"
-          required
-        />
-        <p class="text-[11px] leading-relaxed text-slate-500">Customer-facing generated replies only.</p>
-      </div>
-      <div class="space-y-1.5">
-        <label
-          for="aiSettingsEmbeddingModel"
-          class="block font-medium text-slate-700">Embedding model</label
-        ><input
-          id="aiSettingsEmbeddingModel"
-          bind:value={embeddingModel}
-          class="wf-input"
-          required
-        />
-      </div>
-    </div>
   </fieldset>
   <div class="flex items-center justify-between border-t border-slate-100 pt-5">
-    <button
+    <Button
       type="button"
+      variant="secondary"
       onclick={testConnection}
       disabled={loading || saving || testing || (!configured && !apiKey.trim())}
-      class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      busy={testing}
     >
-      {testing ? "Testing..." : "Test connection"}
-    </button>
-    <button
+      Test connection
+    </Button>
+    <Button
       type="submit"
+      variant="primary"
       disabled={loading || saving || testing || (!configured && !apiKey.trim())}
-      class="wf-button-primary px-5 py-2.5 disabled:cursor-not-allowed disabled:opacity-50"
-      >{saving
-        ? "Saving..."
-        : configured
-          ? "Save changes"
-          : "Save provider"}</button
+      busy={saving}
+      class="px-5 py-2.5"
     >
+      {configured ? "Save changes" : "Save provider"}
+    </Button>
   </div>
 </form>

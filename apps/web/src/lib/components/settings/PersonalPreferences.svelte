@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { apiRequest } from "$lib/api";
+  import { Button } from "$lib/components/ui";
   import type { InboxState } from "$lib/store.svelte";
   import type { WorkspaceState } from "$lib/workspace.svelte";
 
@@ -235,12 +236,13 @@
                   >{modeLabel(effectiveReplyMode)}</span
                 >
               </p>
-              <button
+              <Button
+                variant="primary"
                 onclick={saveReplyMode}
                 disabled={saving}
-                class="wf-button-primary px-4 py-2"
-                >{saving ? "Saving..." : "Save preference"}</button
-              >
+                busy={saving}
+                class="px-4 py-2"
+              >Save preference</Button>
             </div>
           {:else}
             <p

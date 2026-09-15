@@ -1,5 +1,6 @@
 <script lang="ts">
   import { CheckIcon } from "@fvilers/heroicons-svelte/24/outline";
+  import { Button } from "$lib/components/ui";
 
   let {
     currentPlan,
@@ -31,11 +32,12 @@
     <span class="text-xs font-medium text-slate-700">Workspace plan</span>
     <div class="flex items-center justify-between">
       <span class="text-sm font-medium text-slate-900">{currentPlan}</span>
-      <button
+      <Button
+        variant="secondary"
+        size="xs"
         onclick={onManagePlan}
-        class="text-xs font-medium text-blue-600 bg-white hover:bg-blue-50/80 border border-slate-200 hover:border-blue-200 rounded-lg px-3 py-1 transition cursor-pointer"
-        >Manage</button
-      >
+        class="text-blue-600 hover:text-blue-700 border-slate-200"
+      >Manage</Button>
     </div>
     <div class="space-y-2 text-xs text-slate-600 pt-1">
       {#each features as feature}
@@ -76,11 +78,12 @@
           You cannot undo this action.
         </div>
       </div>
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         onclick={onDelete}
-        class="text-xs font-medium text-red-600 bg-white border border-red-200 rounded-xl px-3.5 py-1.5 shadow-2xs hover:bg-red-50 shrink-0"
-        >Delete</button
-      >
+        class="text-red-600 border-red-200 hover:bg-red-50 shrink-0"
+      >Delete</Button>
     </div>
   </div>
 </div>

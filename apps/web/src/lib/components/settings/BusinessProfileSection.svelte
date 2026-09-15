@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Input, Button } from "$lib/components/ui";
   import type { WorkspaceSettingsForm } from "./types";
   let {
     form = $bindable(),
@@ -19,64 +20,42 @@
     </p>
   </div>
   <div class="space-y-4 text-xs">
-    <div class="space-y-1.5">
-      <label for="inputCategory" class="block font-medium text-slate-700"
-        >Business category</label
-      ><input
-        id="inputCategory"
-        type="text"
-        bind:value={form.businessCategory}
-        class="wf-input"
-      />
-    </div>
+    <Input
+      id="inputCategory"
+      label="Business category"
+      bind:value={form.businessCategory}
+    />
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div class="space-y-1.5">
-        <label for="inputPhone" class="block font-medium text-slate-700"
-          >Phone number</label
-        ><input
-          id="inputPhone"
-          type="text"
-          bind:value={form.businessPhone}
-          class="wf-input"
-        />
-      </div>
-      <div class="space-y-1.5">
-        <label for="inputEmail" class="block font-medium text-slate-700"
-          >Public email</label
-        ><input
-          id="inputEmail"
-          type="email"
-          bind:value={form.businessEmail}
-          class="wf-input"
-        />
-      </div>
-    </div>
-    <div class="space-y-1.5">
-      <label for="inputAddress" class="block font-medium text-slate-700"
-        >Address / Location</label
-      ><input
-        id="inputAddress"
-        type="text"
-        bind:value={form.businessAddress}
-        class="wf-input"
+      <Input
+        id="inputPhone"
+        label="Phone number"
+        bind:value={form.businessPhone}
+      />
+      <Input
+        id="inputEmail"
+        type="email"
+        label="Public email"
+        bind:value={form.businessEmail}
       />
     </div>
-    <div class="space-y-1.5">
-      <label for="inputHours" class="block font-medium text-slate-700"
-        >Operating hours</label
-      ><input
-        id="inputHours"
-        type="text"
-        bind:value={form.businessHours}
-        class="wf-input"
-      />
-    </div>
+    <Input
+      id="inputAddress"
+      label="Address / Location"
+      bind:value={form.businessAddress}
+    />
+    <Input
+      id="inputHours"
+      label="Operating hours"
+      bind:value={form.businessHours}
+    />
     <div class="pt-4 flex justify-end">
-      <button
+      <Button
+        variant="primary"
         onclick={onSave}
         disabled={saving}
-        class="wf-button-primary px-5 py-2.5">Save profile</button
-      >
+        busy={saving}
+        class="px-5 py-2.5"
+      >Save profile</Button>
     </div>
   </div>
 </div>

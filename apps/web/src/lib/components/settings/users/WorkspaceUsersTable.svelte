@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { TrashIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 	import type { WorkspaceUser } from './types';
 
 	let { users, accountSlug, currentUserID, onRoleChange, onReset, onDelete }: {
@@ -24,8 +25,8 @@
 			</div>
 			<div class="flex items-center gap-2.5 shrink-0">
 				<select aria-label="Role for {user.username || user.email}" value={user.role} onchange={(event) => void onRoleChange(user.id, event.currentTarget.value)} class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium capitalize text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"><option value="agent">Agent</option><option value="manager">Manager</option></select>
-				<button type="button" class="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer" onclick={() => onReset(user)} title="Reset Password">Reset password</button>
-				{#if user.id !== currentUserID}<button type="button" class="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer" onclick={() => onDelete(user)} title="Delete user"><TrashIcon class="w-4 h-4" /></button>{/if}
+				<Button variant="secondary" size="xs" onclick={() => onReset(user)} title="Reset Password">Reset password</Button>
+				{#if user.id !== currentUserID}<Button variant="ghost" size="xs" class="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50" onclick={() => onDelete(user)} title="Delete user" aria-label="Delete user"><TrashIcon class="w-4 h-4" /></Button>{/if}
 			</div>
 		</div>
 	{/each}

@@ -4,6 +4,7 @@
 	import type { InboxState } from '$lib/store.svelte';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
 	import { PlusIcon } from '@fvilers/heroicons-svelte/24/outline';
+	import { Button } from '$lib/components/ui';
 	import AddUserDialog from './users/AddUserDialog.svelte';
 	import DeleteUserDialog from './users/DeleteUserDialog.svelte';
 	import ResetUserPasswordDialog from './users/ResetUserPasswordDialog.svelte';
@@ -104,7 +105,10 @@
 			<h2 class="text-base font-medium text-slate-900">Users & permissions</h2>
 			<p class="text-xs text-slate-500 mt-0.5">Manage team members and their workspace access.</p>
 		</div>
-		<button type="button" onclick={() => (dialog = { kind: 'add' })} class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"><PlusIcon class="w-3.5 h-3.5" /><span>Add user</span></button>
+		<Button variant="primary" onclick={() => (dialog = { kind: 'add' })}>
+			<PlusIcon class="w-3.5 h-3.5" />
+			<span>Add user</span>
+		</Button>
 	</div>
 	<WorkspaceSlugCard bind:slug={accountSlug} {onStatus} />
 	<WorkspaceUsersTable {users} {accountSlug} currentUserID={inbox?.currentUser?.id} onRoleChange={updateUserRole} onReset={(user) => (dialog = { kind: 'reset', user })} onDelete={(user) => (dialog = { kind: 'delete', user })} />

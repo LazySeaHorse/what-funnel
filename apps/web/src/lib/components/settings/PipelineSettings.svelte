@@ -7,6 +7,7 @@
     TrashIcon,
     PlusIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
+  import { Button, Input } from "$lib/components/ui";
   import type { WorkspaceState } from "$lib/workspace.svelte";
 
   let { workspace }: { workspace?: WorkspaceState } = $props();
@@ -164,12 +165,13 @@
           </div>
 
           <!-- Stage Name Input -->
-          <input
-            aria-label="Stage label"
-            bind:value={state.label}
-            class="wf-input min-w-32 flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-900 border border-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100 font-normal transition"
-            placeholder="Stage name"
-          />
+          <div class="flex-1 min-w-32">
+            <Input
+              aria-label="Stage label"
+              bind:value={state.label}
+              placeholder="Stage name"
+            />
+          </div>
 
           <!-- Actions (Move up/down, Remove) -->
           <div class="ml-auto flex items-center gap-1 shrink-0">
@@ -205,22 +207,23 @@
     </div>
 
     <!-- Add another stage button matching Onboarding -->
-    <button
-      type="button"
-      class="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition cursor-pointer border border-blue-200 border-dashed"
+    <Button
+      variant="secondary"
       onclick={addState}
+      class="border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 font-medium"
     >
       <PlusIcon class="w-3.5 h-3.5" />
       <span>Add another stage</span>
-    </button>
+    </Button>
 
     <div class="flex justify-end pt-2">
-      <button
+      <Button
+        variant="primary"
         onclick={savePipeline}
         disabled={saving}
-        class="wf-button-primary px-4 py-2.5"
-        >{saving ? "Saving…" : "Save pipeline"}</button
-      >
+        busy={saving}
+        class="px-4 py-2.5"
+      >Save pipeline</Button>
     </div>
   {/if}
 </div>

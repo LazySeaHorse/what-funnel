@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronDownIcon } from "@fvilers/heroicons-svelte/24/outline";
   import WorkspaceTypeSelector from "$lib/components/WorkspaceTypeSelector.svelte";
+  import { Input, Button } from "$lib/components/ui";
   import { formatTimeZoneLabel, supportedTimeZones } from "./timezones";
   import type { WorkspaceSettingsForm } from "./types";
 
@@ -20,17 +21,12 @@
 <div class="space-y-6">
   <h2 class="text-base font-medium text-slate-900">General</h2>
   <div class="space-y-5 text-xs">
-    <div class="space-y-1.5">
-      <label for="inputWorkspaceName" class="block font-medium text-slate-700"
-        >Workspace name</label
-      ><input
-        id="inputWorkspaceName"
-        type="text"
-        bind:value={form.workspaceName}
-        class="wf-input"
-        placeholder="Enter workspace name"
-      />
-    </div>
+    <Input
+      id="inputWorkspaceName"
+      label="Workspace name"
+      bind:value={form.workspaceName}
+      placeholder="Enter workspace name"
+    />
     <div class="space-y-1.5">
       <label for="selectTimeZone" class="block font-medium text-slate-700"
         >Default time zone</label
@@ -136,12 +132,13 @@
       />
     </div>
     <div class="pt-6 flex justify-end">
-      <button
+      <Button
+        variant="primary"
         onclick={onSave}
         disabled={saving}
-        class="wf-button-primary px-5 py-2.5"
-        >{saving ? "Saving..." : "Save changes"}</button
-      >
+        busy={saving}
+        class="px-5 py-2.5"
+      >Save changes</Button>
     </div>
   </div>
 </div>
