@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { fade, scale } from "svelte/transition";
-  import { cubicOut } from "svelte/easing";
   import { ExclamationTriangleIcon } from "@fvilers/heroicons-svelte/24/outline";
+  import { Modal, Button } from "$lib/components/ui";
+
   let {
     workspaceName,
     saving,
@@ -13,17 +13,12 @@
     onDelete: () => void;
     onClose: () => void;
   } = $props();
+
   let confirmation = $state("");
 </script>
 
-<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
-  <div
-    transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }}
-    class="wf-modal"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="delete-workspace-title"
-  >
+<Modal ariaLabelledby="delete-workspace-title" onclose={onClose} showClose={false}>
+  {#snippet header()}
     <div class="flex items-center gap-3 text-red-600">
       <div
         class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0"
@@ -42,29 +37,31 @@
         </p>
       </div>
     </div>
-    <div class="text-xs text-slate-600 space-y-2">
-      <p>
-        Please type <span class="font-medium text-slate-900 select-all"
-          >{workspaceName}</span
-        > to confirm:
-      </p>
-      <input
-        type="text"
-        bind:value={confirmation}
-        placeholder={workspaceName}
-        class="wf-input focus:border-red-500 focus:ring-red-100"
-      />
-    </div>
-    <div class="flex items-center justify-end gap-3 pt-2">
-      <button
-        onclick={onClose}
-        class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl"
-        >Cancel</button
-      ><button
-        disabled={confirmation !== workspaceName || saving}
-        onclick={onDelete}
-        class="wf-button-danger">Delete permanently</button
-      >
-    </div>
+  {/snippet}
+
+  <div class="text-xs text-slate-600 space-y-2">
+    <p>
+      Please type <span class="font-medium text-slate-900 select-all"
+        >{workspaceName}</span
+      > to confirm:
+    </p>
+    <input
+      type="text"
+      bind:value={confirmation}
+      placeholder={workspaceName}
+      class="wf-input focus:border-red-500 focus:ring-red-100"
+    />
   </div>
-</div>
+
+  {#snippet footer()}
+    <Button variant="ghost" onclick={onClose}>Cancel</Button>
+    <Button
+      variant="danger"
+      busy={saving}
+      disabled={confirmation !== workspaceName || saving}
+      onclick={onDelete}
+    >
+      Delete permanently
+    </Button>
+  {/snippet}
+</Modal>

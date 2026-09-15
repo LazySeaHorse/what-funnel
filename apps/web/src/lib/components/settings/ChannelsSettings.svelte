@@ -4,6 +4,7 @@
   import type { WorkspaceState } from "$lib/workspace.svelte";
   import ChannelBadge from "$lib/components/ChannelBadge.svelte";
   import { ChatBubbleLeftRightIcon } from "@fvilers/heroicons-svelte/24/outline";
+  import { Modal, Button } from "$lib/components/ui";
 
   interface Capabilities {
     media: boolean; replies: boolean; reactions: boolean;
@@ -219,60 +220,72 @@
 </div>
 
 {#if showDialog}
-  <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" role="presentation" onclick={(event) => event.currentTarget === event.target && closeDialog()}>
-    <div class="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={`Connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}`}>
-      <div class="flex items-start justify-between gap-4">
-        <div>
-          <h3 class="text-sm font-medium text-slate-900">Connect {selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}</h3>
-          <p class="mt-1 text-xs leading-5 text-slate-500">Each connection is isolated and can use a different {selectedProvider === "telegram" ? "bot" : "WhatsApp account"}.</p>
-        </div>
-        <button aria-label="Close connection dialog" onclick={closeDialog} class="text-lg text-slate-400 hover:text-slate-600">×</button>
-      </div>
-
-      {#if !activeConnection}
-        <label class="my-5 block text-xs font-medium text-slate-700">
-          Account label
-          <input bind:value={label} maxlength="80" autocomplete="off" class="wf-input mt-1.5 w-full" placeholder={selectedProvider === "telegram" ? "e.g. Support bot" : "e.g. Sales WhatsApp"} />
-          <span class="mt-1.5 block text-[11px] font-normal text-slate-400">This label only appears inside WhatFunnel.</span>
+  <Modal
+    ariaLabel={`Connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}`}
+    closeAriaLabel="Close connection dialog"
+    title={`Connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}`}
+    description={`Each connection is isolated and can use a different ${selectedProvider === "telegram" ? "bot" : "WhatsApp account"}.`}
+    onclose={closeDialog}
+  >
+    {#if !activeConnection}
+      <label class="my-5 block text-xs font-medium text-slate-700">
+        Account label
+        <input bind:value={label} maxlength="80" autocomplete="off" class="wf-input mt-1.5 w-full" placeholder={selectedProvider === "telegram" ? "e.g. Support bot" : "e.g. Sales WhatsApp"} />
+        <span class="mt-1.5 block text-[11px] font-normal text-slate-400">This label only appears inside WhatFunnel.</span>
+      </label>
+      {#if selectedProvider === "telegram"}
+        <label class="mb-5 block text-xs font-medium text-slate-700">
+          Bot token
+          <input bind:value={credential} type="password" autocomplete="new-password" class="wf-input mt-1.5 w-full" placeholder="Token from @BotFather" />
+          <span class="mt-1.5 block text-[11px] font-normal text-slate-400">The token is encrypted at rest and is never shown again.</span>
         </label>
-        {#if selectedProvider === "telegram"}
-          <label class="mb-5 block text-xs font-medium text-slate-700">
-            Bot token
-            <input bind:value={credential} type="password" autocomplete="new-password" class="wf-input mt-1.5 w-full" placeholder="Token from @BotFather" />
-            <span class="mt-1.5 block text-[11px] font-normal text-slate-400">The token is encrypted at rest and is never shown again.</span>
-          </label>
-        {/if}
-        <div class="flex justify-end gap-2">
-          <button onclick={closeDialog} class="wf-button px-3 py-2 text-slate-600">Cancel</button>
-          <button onclick={startConnection} disabled={busy || !label.trim() || (selectedProvider === "telegram" && !credential.trim())} class="wf-button-primary px-3 py-2">{busy ? "Starting…" : selectedProvider === "telegram" ? "Connect bot" : "Show QR code"}</button>
-        </div>
-      {:else if activeConnection.provider === "whatsapp" && activeConnection.state === "awaiting_scan"}
-        <div class="my-5 space-y-4">
-          <div class="mx-auto h-64 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white p-2">
-            <img class="h-full w-full object-contain" src={`/api-gateway/channel-connections/${activeConnection.channel_id}/qr?refresh=${qrRefreshToken}`} alt="WhatsApp pairing QR code" />
-          </div>
-          <p class="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">On your phone, open WhatsApp → Settings → Linked devices → Link a device, then scan this code.</p>
-        </div>
-        <div class="flex justify-end gap-2">
-          <button onclick={() => void refreshActive()} class="wf-button px-3 py-2 text-slate-600">Refresh</button>
-          <button onclick={closeDialog} class="wf-button-primary px-3 py-2">I scanned it</button>
-        </div>
-      {:else if activeConnection.state === "connected"}
-        <div class="my-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">{activeConnection.label} is connected. One-to-one messages will appear in the unified inbox.</div>
-        <div class="flex justify-end"><button onclick={closeDialog} class="wf-button-primary px-3 py-2">Done</button></div>
-      {:else if activeConnection.state === "error" || activeConnection.state === "disconnected"}
-        <div class="my-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">{activeConnection.detail || "WhatsApp disconnected this account. Unlink it and pair again."}</div>
-        {#if activeConnection.provider === "telegram"}
-          <label class="mb-4 block text-xs font-medium text-slate-700">
-            Replacement bot token <span class="font-normal text-slate-400">(optional)</span>
-            <input bind:value={credential} type="password" autocomplete="new-password" class="wf-input mt-1.5 w-full" />
-          </label>
-        {/if}
-        <div class="flex justify-end gap-2"><button onclick={closeDialog} class="wf-button px-3 py-2">Close</button><button onclick={() => retry(activeConnection!)} disabled={busy} class="wf-button-primary px-3 py-2">{busy ? "Retrying…" : "Retry"}</button></div>
-      {:else}
-        <div class="my-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">{activeConnection.detail || "Connecting to WhatsApp…"}</div>
-        <div class="flex justify-end"><button onclick={() => void refreshActive()} class="wf-button-primary px-3 py-2">Check status</button></div>
       {/if}
-    </div>
-  </div>
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" onclick={closeDialog}>Cancel</Button>
+        <Button
+          variant="primary"
+          onclick={startConnection}
+          disabled={busy || !label.trim() || (selectedProvider === "telegram" && !credential.trim())}
+          busy={busy}
+        >
+          {busy ? "Starting…" : selectedProvider === "telegram" ? "Connect bot" : "Show QR code"}
+        </Button>
+      </div>
+    {:else if activeConnection.provider === "whatsapp" && activeConnection.state === "awaiting_scan"}
+      <div class="my-5 space-y-4">
+        <div class="mx-auto h-64 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white p-2">
+          <img class="h-full w-full object-contain" src={`/api-gateway/channel-connections/${activeConnection.channel_id}/qr?refresh=${qrRefreshToken}`} alt="WhatsApp pairing QR code" />
+        </div>
+        <p class="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">On your phone, open WhatsApp → Settings → Linked devices → Link a device, then scan this code.</p>
+      </div>
+      <div class="flex justify-end gap-2">
+        <Button variant="secondary" onclick={() => void refreshActive()}>Refresh</Button>
+        <Button variant="primary" onclick={closeDialog}>I scanned it</Button>
+      </div>
+    {:else if activeConnection.state === "connected"}
+      <div class="my-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">{activeConnection.label} is connected. One-to-one messages will appear in the unified inbox.</div>
+      <div class="flex justify-end">
+        <Button variant="primary" onclick={closeDialog}>Done</Button>
+      </div>
+    {:else if activeConnection.state === "error" || activeConnection.state === "disconnected"}
+      <div class="my-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">{activeConnection.detail || "WhatsApp disconnected this account. Unlink it and pair again."}</div>
+      {#if activeConnection.provider === "telegram"}
+        <label class="mb-4 block text-xs font-medium text-slate-700">
+          Replacement bot token <span class="font-normal text-slate-400">(optional)</span>
+          <input bind:value={credential} type="password" autocomplete="new-password" class="wf-input mt-1.5 w-full" />
+        </label>
+      {/if}
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" onclick={closeDialog}>Close</Button>
+        <Button variant="primary" onclick={() => retry(activeConnection!)} disabled={busy} busy={busy}>
+          {busy ? "Retrying…" : "Retry"}
+        </Button>
+      </div>
+    {:else}
+      <div class="my-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">{activeConnection.detail || "Connecting to WhatsApp…"}</div>
+      <div class="flex justify-end">
+        <Button variant="primary" onclick={() => void refreshActive()}>Check status</Button>
+      </div>
+    {/if}
+  </Modal>
 {/if}

@@ -10,7 +10,9 @@
 		description = '',
 		maxWidth = 'max-w-md',
 		showClose = true,
+		ariaLabel,
 		ariaLabelledby,
+		closeAriaLabel = 'Close dialog',
 		onclose = () => {},
 		header,
 		children,
@@ -21,12 +23,16 @@
 		description?: string;
 		maxWidth?: string;
 		showClose?: boolean;
+		ariaLabel?: string;
 		ariaLabelledby?: string;
+		closeAriaLabel?: string;
 		onclose?: () => void;
 		header?: Snippet;
 		children: Snippet;
 		footer?: Snippet;
 	} = $props();
+
+	let dialogLabel = $derived(ariaLabel || (!ariaLabelledby && title ? title : undefined));
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (open && event.key === 'Escape') {
@@ -49,6 +55,7 @@
 			class="wf-modal {maxWidth} space-y-4"
 			role="dialog"
 			aria-modal="true"
+			aria-label={dialogLabel}
 			aria-labelledby={ariaLabelledby}
 		>
 			{#if header}
@@ -69,7 +76,7 @@
 						<button
 							type="button"
 							onclick={onclose}
-							aria-label="Close dialog"
+							aria-label={closeAriaLabel}
 							class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer shrink-0"
 						>
 							<XMarkIcon class="w-4 h-4" />

@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { fade, scale } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
 	import { generatePassword, type UserCredentials, type WorkspaceUser } from './types';
+	import { Modal, Button } from '$lib/components/ui';
 
 	let { user, onclose, onreset }: { user: WorkspaceUser; onclose: () => void; onreset: (password: string) => Promise<UserCredentials> } = $props();
 	let password = $state(generatePassword());
@@ -18,18 +17,19 @@
 	}
 </script>
 
-<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
-	<div transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }} class="wf-modal" role="dialog" aria-modal="true" aria-labelledby="reset-user-password-title">
-		<h3 id="reset-user-password-title" class="text-sm font-medium text-slate-900">Reset User Password</h3>
-		<p class="text-xs text-slate-500">Set a new password for <span class="font-medium">{user.username || user.email}</span>.</p>
-		<div class="space-y-1 text-xs">
-			<div class="flex justify-between"><label for="resetPasswordInput">New Password</label><button type="button" onclick={() => (password = generatePassword())} class="text-blue-600">Generate</button></div>
-			<input id="resetPasswordInput" type="text" bind:value={password} class="wf-input font-mono" />
-			{#if error}<p class="text-rose-600">{error}</p>{/if}
+<Modal title="Reset User Password" ariaLabelledby="reset-user-password-title" onclose={onclose}>
+	<p class="text-xs text-slate-500">Set a new password for <span class="font-medium text-slate-800">{user.username || user.email}</span>.</p>
+	<div class="space-y-1.5 text-xs">
+		<div class="flex items-center justify-between">
+			<label for="resetPasswordInput" class="font-medium text-slate-700">New Password</label>
+			<button type="button" onclick={() => (password = generatePassword())} class="text-[11px] text-blue-600 hover:underline cursor-pointer">Generate</button>
 		</div>
-		<div class="flex justify-end gap-3">
-			<button type="button" onclick={onclose} class="px-4 py-2 text-xs">Cancel</button>
-			<button type="button" onclick={() => void submit()} disabled={pending || !password.trim()} class="wf-button-primary disabled:opacity-50">{pending ? 'Updating...' : 'Set Password'}</button>
-		</div>
+		<input id="resetPasswordInput" type="text" bind:value={password} class="wf-input font-mono" />
+		{#if error}<p class="text-xs font-medium text-rose-600">{error}</p>{/if}
 	</div>
-</div>
+
+	{#snippet footer()}
+		<Button variant="ghost" onclick={onclose}>Cancel</Button>
+		<Button variant="primary" onclick={() => void submit()} disabled={pending || !password.trim()} busy={pending}>Set Password</Button>
+	{/snippet}
+</Modal>

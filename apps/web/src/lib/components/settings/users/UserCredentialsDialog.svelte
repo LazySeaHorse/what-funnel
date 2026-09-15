@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { fade, scale } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
 	import { CheckIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import type { UserCredentials } from './types';
+	import { Modal, Button } from '$lib/components/ui';
 
 	let { accountSlug, credentials, onclose }: { accountSlug: string; credentials: UserCredentials; onclose: () => void } = $props();
 	let copied = $state(false);
@@ -24,23 +23,31 @@
 	}
 </script>
 
-<div transition:fade={{ duration: 150 }} class="wf-modal-backdrop">
-	<div transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }} class="wf-modal max-w-md" role="dialog" aria-modal="true" aria-labelledby="user-credentials-title">
+<Modal ariaLabelledby="user-credentials-title" onclose={onclose} showClose={false}>
+	{#snippet header()}
 		<div class="flex items-center gap-3">
-			<div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><CheckIcon class="w-5 h-5" /></div>
+			<div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+				<CheckIcon class="w-5 h-5" />
+			</div>
 			<div>
 				<h3 id="user-credentials-title" class="text-sm font-medium text-slate-900">User credentials</h3>
 				<p class="text-xs text-slate-500">Save these credentials now. The system does not show this password again.</p>
 			</div>
 		</div>
-		<div class="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
-			<div class="flex justify-between"><span>Login username:</span><span>{login}</span></div>
-			<div class="flex justify-between"><span>Role:</span><span class="capitalize">{credentials.role}</span></div>
-			{#if credentials.plaintextPassword}<div class="flex justify-between"><span>Password:</span><span class="text-blue-700">{credentials.plaintextPassword}</span></div>{/if}
-		</div>
-		<div class="flex justify-end gap-3">
-			{#if credentials.plaintextPassword}<button type="button" onclick={() => void copy()} class="px-4 py-2 text-xs bg-slate-100 rounded-xl">{copied ? 'Copied!' : 'Copy credentials'}</button>{/if}
-			<button type="button" onclick={onclose} class="wf-button-primary px-4 py-2">Done</button>
-		</div>
+	{/snippet}
+
+	<div class="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
+		<div class="flex justify-between"><span>Login username:</span><span>{login}</span></div>
+		<div class="flex justify-between"><span>Role:</span><span class="capitalize">{credentials.role}</span></div>
+		{#if credentials.plaintextPassword}
+			<div class="flex justify-between"><span>Password:</span><span class="text-blue-700">{credentials.plaintextPassword}</span></div>
+		{/if}
 	</div>
-</div>
+
+	{#snippet footer()}
+		{#if credentials.plaintextPassword}
+			<Button variant="secondary" onclick={() => void copy()}>{copied ? 'Copied!' : 'Copy credentials'}</Button>
+		{/if}
+		<Button variant="primary" onclick={onclose}>Done</Button>
+	{/snippet}
+</Modal>
