@@ -53,7 +53,8 @@ export class LeadEditor {
 	}
 
 	async changeStage(stateKey: string) {
-		const leadID = this.requireLeadID();
+		if (!this.leadID) return;
+		const leadID = this.leadID;
 		const updated = await this.request(`/leads/${leadID}/state`, {
 			method: 'PATCH',
 			body: { state_key: stateKey }
@@ -65,20 +66,23 @@ export class LeadEditor {
 	}
 
 	async addTag(tag: string) {
+		if (!this.leadID) return;
 		const value = tag.trim();
-		const leadID = this.requireLeadID();
+		const leadID = this.leadID;
 		const tags = this.lead?.tags ?? [];
 		if (!value || tags.includes(value)) return;
 		await this.updateTags(leadID, [...tags, value]);
 	}
 
 	async removeTag(tag: string) {
-		const leadID = this.requireLeadID();
+		if (!this.leadID) return;
+		const leadID = this.leadID;
 		await this.updateTags(leadID, (this.lead?.tags ?? []).filter((value: string) => value !== tag));
 	}
 
 	async toggleAssignee(userID: string) {
-		const conversationID = this.requireConversationID();
+		if (!this.conversationID) return;
+		const conversationID = this.conversationID;
 		const current = this.conversation?.assigned_user_ids ?? [];
 		await this.inbox.assignConversation(
 			conversationID,
@@ -89,7 +93,8 @@ export class LeadEditor {
 	}
 
 	async addNote(body: string) {
-		const leadID = this.requireLeadID();
+		if (!this.leadID) return;
+		const leadID = this.leadID;
 		const value = body.trim();
 		if (!value) return;
 		await this.request(`/leads/${leadID}/notes`, { method: 'POST', body: { body: value } });
