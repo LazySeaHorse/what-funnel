@@ -7,11 +7,11 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/api-gateway': {
-				target: 'http://localhost:18080',
+				target: process.env.API_GATEWAY_URL || 'http://localhost:18080',
 				rewrite: (path) => path.replace(/^\/api-gateway/, '')
 			},
 			'/ws': {
-				target: 'ws://localhost:18080',
+				target: process.env.WS_GATEWAY_URL || 'ws://localhost:18080',
 				ws: true
 			}
 		}
