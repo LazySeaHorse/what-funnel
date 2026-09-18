@@ -190,7 +190,7 @@ export class DeterministicMonkeyFuzzer {
 		const label = text.slice(0, 40).replace(/\s+/g, ' ').trim() || tagName;
 
 		this.recordAction('CLICK', `${tagName}[${label}]`);
-		await element.click({ timeout: 1000, force: true }).catch(() => {});
+		await element.click({ timeout: 500, force: true }).catch(() => {});
 	}
 
 	private async actionFillInput(): Promise<void> {
@@ -208,7 +208,7 @@ export class DeterministicMonkeyFuzzer {
 		this.recordAction('FILL', `${name}`, payload.length > 50 ? `${payload.slice(0, 47)}...` : payload);
 
 		// Either fill directly or type with random dispatch
-		await input.fill(payload, { timeout: 1000 }).catch(() => {});
+		await input.fill(payload, { timeout: 500 }).catch(() => {});
 	}
 
 	private async actionKeyPress(): Promise<void> {

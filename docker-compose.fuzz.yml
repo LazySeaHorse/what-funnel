@@ -1,0 +1,186 @@
+# ===========================================================================
+# WhatFunnel — Ephemeral Fuzz / Monkey Testing Stack
+# ===========================================================================
+# Runs in an isolated Docker network with anonymous volumes and separate ports.
+# Teardown: docker compose -f docker-compose.fuzz.yml -p wf-fuzz down -v
+# ===========================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: whatfunnel
+      POSTGRES_PASSWORD: whatfunnel
+      POSTGRES_DB: whatfunnel
+    ports:
+      - "5443:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatfunnel -d whatfunnel"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: ./packages/go-common/migrations
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      GOOSE_MIGRATION_DIR: /migrations
+    volumes:
+      - ./packages/go-common/migrations:/migrations:ro
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  identity-svc:
+    image: what-funnel-identity-svc:latest
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      SESSION_SECRET: fuzz-secret-at-least-32-chars-long-xxx
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8081"
+      LOG_LEVEL: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  workspace-svc:
+    image: what-funnel-workspace-svc:latest
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      SESSION_SECRET: fuzz-secret-at-least-32-chars-long-xxx
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      AI_PROVIDER_TEST_TIMEOUT_SECONDS: "60"
+      PORT: "8082"
+      LOG_LEVEL: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  whatsapp-adapter:
+    image: what-funnel-whatsapp-adapter:latest
+    environment:
+      PORT: "8086"
+      REDIS_URL: redis:6379
+      WHATSAPP_DATABASE_PATH: /data/whatsapp.db
+      CONVERSATION_INTERNAL_URL: http://conversation-svc:8083
+      ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
+      ADAPTER_CONSUMER_NAME: whatsapp-adapter-fuzz
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8086/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  telegram-adapter:
+    image: what-funnel-telegram-adapter:latest
+    environment:
+      PORT: "8087"
+      REDIS_URL: redis:6379
+      TELEGRAM_DATABASE_PATH: /data/telegram.db
+      CONVERSATION_INTERNAL_URL: http://conversation-svc:8083
+      ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      ADAPTER_CONSUMER_NAME: telegram-adapter-fuzz
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8087/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  conversation-svc:
+    image: what-funnel-conversation-svc:latest
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
+      SESSION_SECRET: fuzz-secret-at-least-32-chars-long-xxx
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8083"
+      LOG_LEVEL: warn
+      WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
+      TELEGRAM_ADAPTER_URL: http://telegram-adapter:8087
+      ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
+      MEDIA_CACHE_PATH: /data/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  notification-svc:
+    image: what-funnel-notification-svc:latest
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
+      SESSION_SECRET: fuzz-secret-at-least-32-chars-long-xxx
+      ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8084"
+      LOG_LEVEL: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  ai-kb-compiler:
+    image: what-funnel-ai-kb-compiler:latest
+    environment:
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis:6379
+      APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      PORT: "8085"
+      LOG_LEVEL: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  api-gateway:
+    image: what-funnel-api-gateway:latest
+    environment:
+      IDENTITY_SVC_URL: http://identity-svc:8081
+      WORKSPACE_SVC_URL: http://workspace-svc:8082
+      CONVERSATION_SVC_URL: http://conversation-svc:8083
+      NOTIFICATION_SVC_URL: http://notification-svc:8084
+      AI_KB_COMPILER_URL: http://ai-kb-compiler:8085
+      SESSION_SECRET: fuzz-secret-at-least-32-chars-long-xxx
+      PORT: "8080"
+      LOG_LEVEL: warn
+    ports:
+      - "18089:8080"
+    depends_on:
+      - identity-svc
+      - workspace-svc
+      - notification-svc
+      - ai-kb-compiler

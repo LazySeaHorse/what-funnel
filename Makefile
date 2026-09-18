@@ -120,3 +120,17 @@ pw: ## Run the Playwright E2E test suite (requires `make up` and `cd apps/web &&
 
 pw-ui: ## Open Playwright interactive test runner
 	cd apps/web && npx playwright test --ui
+
+pw-fuzz: ## Run deterministic UI monkey fuzz tests in fast mock mode
+	cd apps/web && npx playwright test tests/fuzz/monkey-mock.spec.ts
+
+pw-fuzz-live: ## Run deterministic UI monkey tests against an ephemeral isolated Docker pod stack
+	@echo "Spinning up ephemeral fuzz stack (wf-fuzz)..."
+	docker compose -f docker-compose.fuzz.yml -p wf-fuzz up -d
+	@echo "Waiting for services to be ready..."
+	@sleep 5
+	@echo "Running live UI monkey fuzzing..."
+	@ROOT_DIR=$$(pwd); \
+	bash -c "trap 'echo Teardown ephemeral stack... && docker compose -f $$ROOT_DIR/docker-compose.fuzz.yml -p wf-fuzz down -v' EXIT; \
+		cd apps/web && API_GATEWAY_URL=http://localhost:18089 WS_GATEWAY_URL=ws://localhost:18089 npx playwright test tests/fuzz/monkey-live.spec.ts"
+

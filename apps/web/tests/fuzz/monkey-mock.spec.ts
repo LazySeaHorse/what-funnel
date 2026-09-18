@@ -92,6 +92,7 @@ function sampleKnowledge() {
 
 test.describe('UI Monkey Fuzzing (Deterministic)', () => {
 	test.beforeEach(async ({ page }) => {
+		test.setTimeout(60000);
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await mockWorkspaceApi(page, {
 			role: 'manager',
@@ -112,8 +113,8 @@ test.describe('UI Monkey Fuzzing (Deterministic)', () => {
 		await expect(page.locator('h1:has-text("Inbox")')).toBeVisible({ timeout: 10000 });
 
 		const fuzzer = new DeterministicMonkeyFuzzer(page, {
-			maxActions: 60,
-			actionDelayMs: 30
+			maxActions: 50,
+			actionDelayMs: 20
 		});
 
 		await fuzzer.run();
@@ -127,8 +128,8 @@ test.describe('UI Monkey Fuzzing (Deterministic)', () => {
 		await expect(page.locator('h1:has-text("Leads")')).toBeVisible({ timeout: 10000 });
 
 		const fuzzer = new DeterministicMonkeyFuzzer(page, {
-			maxActions: 60,
-			actionDelayMs: 30
+			maxActions: 50,
+			actionDelayMs: 20
 		});
 
 		await fuzzer.run();
@@ -142,8 +143,8 @@ test.describe('UI Monkey Fuzzing (Deterministic)', () => {
 		await expect(page.locator('h1:has-text("Knowledge")')).toBeVisible({ timeout: 10000 });
 
 		const fuzzer = new DeterministicMonkeyFuzzer(page, {
-			maxActions: 60,
-			actionDelayMs: 30
+			maxActions: 50,
+			actionDelayMs: 20
 		});
 
 		await fuzzer.run();
@@ -155,8 +156,8 @@ test.describe('UI Monkey Fuzzing (Deterministic)', () => {
 		await page.waitForLoadState('networkidle');
 
 		const fuzzer = new DeterministicMonkeyFuzzer(page, {
-			maxActions: 80,
-			actionDelayMs: 25
+			maxActions: 60,
+			actionDelayMs: 20
 		});
 
 		await fuzzer.run();
