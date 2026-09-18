@@ -126,7 +126,9 @@ export class LeadEditor {
 				this.history = Array.isArray(history) ? history : [];
 			}
 		} catch (error) {
-			if (!(error instanceof DOMException && error.name === 'AbortError')) throw error;
+			if (!(error instanceof DOMException && error.name === 'AbortError')) {
+				console.error('Failed to load lead details:', error);
+			}
 		} finally {
 			if (version === this.requestVersion) {
 				this.loading = false;

@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { Mulberry32 } from '../fuzz/monkey';
 
 function encodeSettings(value: unknown) {
 	const bytes = new TextEncoder().encode(JSON.stringify(value));
@@ -35,6 +36,14 @@ export interface MockWorkspaceOptions {
 	aiConfigured?: boolean;
 	autoReplyEnabled?: boolean;
 	users?: Array<{ id?: string; email?: string; username?: string; name?: string; role?: string; password?: string }>;
+	chaos?: {
+		seed?: number;
+		errorRate?: number;
+		delayRate?: number;
+		minDelayMs?: number;
+		maxDelayMs?: number;
+		abortRate?: number;
+	};
 }
 
 export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
@@ -70,6 +79,13 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 	let knowledgeConcepts = options.knowledge?.concepts ?? [];
 	let knowledgePatterns = options.knowledge?.patterns ?? [];
 
+	const chaosRng = options.chaos ? new Mulberry32(options.chaos.seed ?? 12345) : null;
+	const chaosErrorRate = options.chaos?.errorRate ?? 0.12;
+	const chaosDelayRate = options.chaos?.delayRate ?? 0.20;
+	const chaosAbortRate = options.chaos?.abortRate ?? 0.04;
+	const minDelay = options.chaos?.minDelayMs ?? 150;
+	const maxDelay = options.chaos?.maxDelayMs ?? 600;
+
 	await page.route('**/api-gateway/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname.replace('/api-gateway', '');
@@ -79,6 +95,28 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (failures.includes(path)) {
 			await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Service unavailable' }) });
 			return;
+		}
+
+		const isBootstrap = path.startsWith('/auth') || path.startsWith('/workspace/account') || path.startsWith('/workspace/pipelines') || path.startsWith('/workspace/users') || path.startsWith('/onboarding');
+		if (chaosRng && !isBootstrap) {
+			const roll = chaosRng.next();
+			if (roll < chaosAbortRate) {
+				await route.abort('failed').catch(() => {});
+				return;
+			}
+			if (roll < chaosAbortRate + chaosErrorRate) {
+				const status = chaosRng.pick([500, 502, 503, 429]);
+				await route.fulfill({
+					status,
+					contentType: 'application/json',
+					body: JSON.stringify({ error: `Chaos fault injected: status ${status}`, code: 'CHAOS_FAULT' })
+				});
+				return;
+			}
+			if (roll < chaosAbortRate + chaosErrorRate + chaosDelayRate) {
+				const delay = chaosRng.int(minDelay, maxDelay);
+				await new Promise((r) => setTimeout(r, delay));
+			}
 		}
 
 		const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
