@@ -124,6 +124,9 @@ pw-ui: ## Open Playwright interactive test runner
 pw-fuzz: ## Run deterministic UI monkey fuzz tests in fast mock mode
 	cd apps/web && npx playwright test tests/fuzz/monkey-mock.spec.ts
 
+pw-fuzz-soak: ## Run multi-seed deep soak sweep fuzz tests
+	cd apps/web && npx playwright test tests/fuzz/soak-sweep.spec.ts
+
 pw-fuzz-live: ## Run deterministic UI monkey tests against an ephemeral isolated Docker pod stack
 	@echo "Spinning up ephemeral fuzz stack (wf-fuzz)..."
 	docker compose -f docker-compose.fuzz.yml -p wf-fuzz up -d

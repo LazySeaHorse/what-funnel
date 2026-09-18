@@ -14,6 +14,7 @@
 		"test:e2e:ui": "playwright test tests/ui",
 		"test:e2e:update-snapshots": "playwright test --update-snapshots",
 		"test:fuzz": "playwright test tests/fuzz/monkey-mock.spec.ts",
+		"test:fuzz:soak": "playwright test tests/fuzz/soak-sweep.spec.ts",
 		"test:fuzz:live": "API_GATEWAY_URL=http://localhost:18089 WS_GATEWAY_URL=ws://localhost:18089 playwright test tests/fuzz/monkey-live.spec.ts"
 	},
 	"devDependencies": {
