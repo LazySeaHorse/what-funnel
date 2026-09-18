@@ -74,7 +74,7 @@ export class DeterministicMonkeyFuzzer {
 		this.maxActions = options.maxActions ?? 50;
 		this.actionDelayMs = options.actionDelayMs ?? 40;
 		this.allowDestructive = options.allowDestructive ?? false;
-		this.ignoredConsoleErrors = options.ignoredConsoleErrors ?? [
+		const defaultIgnored = [
 			/favicon\.ico/i,
 			/ws proxy error/i,
 			/ws proxy socket error/i,
@@ -82,6 +82,10 @@ export class DeterministicMonkeyFuzzer {
 			/WebSocket/i,
 			/WS error/i,
 			/Failed to load resource: the server responded with a status of 404/i
+		];
+		this.ignoredConsoleErrors = [
+			...defaultIgnored,
+			...(options.ignoredConsoleErrors ?? [])
 		];
 		this.onActionCallback = options.onAction;
 

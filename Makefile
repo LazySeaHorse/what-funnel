@@ -130,6 +130,15 @@ pw-fuzz-soak: ## Run multi-seed deep soak sweep fuzz tests
 pw-fuzz-chaos: ## Run UI monkey testing under network fault injection (500s, latency, drops)
 	cd apps/web && npx playwright test tests/fuzz/chaos.spec.ts
 
+pw-fuzz-auth: ## Run deterministic UI monkey tests on login and signup forms
+	cd apps/web && npx playwright test tests/fuzz/auth-monkey.spec.ts
+
+pw-fuzz-onboarding: ## Run deterministic UI monkey tests on the onboarding wizard
+	cd apps/web && npx playwright test tests/fuzz/onboarding-monkey.spec.ts
+
+pw-fuzz-all: ## Run all fast UI monkey fuzz test suites
+	cd apps/web && npx playwright test tests/fuzz/monkey-mock.spec.ts tests/fuzz/auth-monkey.spec.ts tests/fuzz/onboarding-monkey.spec.ts tests/fuzz/chaos.spec.ts
+
 
 pw-fuzz-live: ## Run deterministic UI monkey tests against an ephemeral isolated Docker pod stack
 	@echo "Spinning up ephemeral fuzz stack (wf-fuzz)..."
