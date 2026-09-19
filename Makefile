@@ -90,6 +90,9 @@ test-verbose: ## Run full test suite with verbose output
 	cd adapters/whatsapp-whatsmeow && go test ./... -v -count=1 -timeout 120s
 	cd adapters/telegram-botapi && go test ./... -v -count=1 -timeout 120s
 
+test-scale-fuzz: ## Run non-deterministic concurrent scale fuzz test (5 agents, 2 managers, 20 customers)
+	go test ./tests/integration/... -v -count=1 -run TestConcurrentScaleMultiAgentFuzz_E2E
+
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
