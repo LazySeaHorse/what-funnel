@@ -203,9 +203,13 @@
 
 	async function deleteConcept(id: string) {
 		if (!confirm('Delete this knowledge concept?')) return;
-		await apiRequest(`/api/kb/concepts/${id}`, { method: 'DELETE' });
-		concepts = concepts.filter((concept) => concept.id !== id);
-		if (editingConceptId === id) editingConceptId = null;
+		try {
+			await apiRequest(`/api/kb/concepts/${id}`, { method: 'DELETE' });
+			concepts = concepts.filter((concept) => concept.id !== id);
+			if (editingConceptId === id) editingConceptId = null;
+		} catch (err) {
+			console.error('Failed to delete concept', err);
+		}
 	}
 
 	// Pattern Actions
@@ -266,9 +270,13 @@
 
 	async function deletePattern(id: string) {
 		if (!confirm('Delete this pattern?')) return;
-		await apiRequest(`/api/kb/patterns/${id}`, { method: 'DELETE' });
-		patterns = patterns.filter((pattern) => pattern.id !== id);
-		if (editingPatternId === id) editingPatternId = null;
+		try {
+			await apiRequest(`/api/kb/patterns/${id}`, { method: 'DELETE' });
+			patterns = patterns.filter((pattern) => pattern.id !== id);
+			if (editingPatternId === id) editingPatternId = null;
+		} catch (err) {
+			console.error('Failed to delete pattern', err);
+		}
 	}
 
 	async function purgeKnowledgeBase() {
@@ -337,9 +345,13 @@
 	}
 
 	async function reviewSuggestion(id: string, action: 'approve' | 'reject') {
-		await apiRequest(`/api/kb/suggestions/${id}/${action}`, { method: 'POST', body: { reviewed_by: reviewerID } });
-		suggestions = suggestions.filter((suggestion) => suggestion.id !== id);
-		if (action === 'approve') await load(true);
+		try {
+			await apiRequest(`/api/kb/suggestions/${id}/${action}`, { method: 'POST', body: { reviewed_by: reviewerID } });
+			suggestions = suggestions.filter((suggestion) => suggestion.id !== id);
+			if (action === 'approve') await load(true);
+		} catch (err) {
+			console.error('Failed to review suggestion', err);
+		}
 	}
 
 	async function triggerMining() {
@@ -348,6 +360,8 @@
 		try {
 			miningResult = await apiRequest('/api/kb/mine/trigger', { method: 'POST' });
 			await load(true);
+		} catch (err) {
+			console.error('Failed to trigger mining', err);
 		} finally {
 			mining = false;
 		}
