@@ -44,6 +44,11 @@ export interface MockWorkspaceOptions {
 		maxDelayMs?: number;
 		abortRate?: number;
 	};
+	reorder?: {
+		seed?: number;
+		minDelayMs?: number;
+		maxDelayMs?: number;
+	};
 }
 
 export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
@@ -86,6 +91,10 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 	const minDelay = options.chaos?.minDelayMs ?? 150;
 	const maxDelay = options.chaos?.maxDelayMs ?? 600;
 
+	const reorderRng = options.reorder ? new Mulberry32(options.reorder.seed ?? 54321) : null;
+	const reorderMinDelay = options.reorder?.minDelayMs ?? 30;
+	const reorderMaxDelay = options.reorder?.maxDelayMs ?? 300;
+
 	await page.route('**/api-gateway/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname.replace('/api-gateway', '');
@@ -98,6 +107,10 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		}
 
 		const isBootstrap = path.startsWith('/auth') || path.startsWith('/workspace/account') || path.startsWith('/workspace/pipelines') || path.startsWith('/workspace/users') || path.startsWith('/onboarding');
+		if (reorderRng && !isBootstrap) {
+			const delay = reorderRng.int(reorderMinDelay, reorderMaxDelay);
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
 		if (chaosRng && !isBootstrap) {
 			const roll = chaosRng.next();
 			if (roll < chaosAbortRate) {

@@ -41,6 +41,7 @@ export interface MonkeyFuzzerOptions {
 	maxActions?: number;
 	actionDelayMs?: number;
 	allowDestructive?: boolean;
+	enableRaceActions?: boolean;
 	ignoredConsoleErrors?: Array<string | RegExp>;
 	onAction?: (action: FuzzActionRecord) => void;
 }
@@ -61,6 +62,7 @@ export class DeterministicMonkeyFuzzer {
 	private maxActions: number;
 	private actionDelayMs: number;
 	private allowDestructive: boolean;
+	private enableRaceActions: boolean;
 	private ignoredConsoleErrors: Array<string | RegExp>;
 	private onActionCallback?: (action: FuzzActionRecord) => void;
 
@@ -74,6 +76,7 @@ export class DeterministicMonkeyFuzzer {
 		this.maxActions = options.maxActions ?? 50;
 		this.actionDelayMs = options.actionDelayMs ?? 40;
 		this.allowDestructive = options.allowDestructive ?? false;
+		this.enableRaceActions = options.enableRaceActions ?? false;
 		const defaultIgnored = [
 			/favicon\.ico/i,
 			/ws proxy error/i,
@@ -93,6 +96,11 @@ export class DeterministicMonkeyFuzzer {
 	}
 
 	private setupErrorListeners(): void {
+		this.page.on('dialog', (dialog) => {
+			this.recordAction('DIALOG', dialog.type(), dialog.message());
+			void dialog.dismiss().catch(() => {});
+		});
+
 		this.page.on('pageerror', (err) => {
 			this.caughtErrors.push({
 				type: 'pageerror',
@@ -151,16 +159,34 @@ export class DeterministicMonkeyFuzzer {
 			const roll = this.rng.next();
 
 			try {
-				if (roll < 0.45) {
-					await this.actionClickInteractive();
-				} else if (roll < 0.70) {
-					await this.actionFillInput();
-				} else if (roll < 0.82) {
-					await this.actionKeyPress();
-				} else if (roll < 0.92) {
-					await this.actionTabHop();
+				if (this.enableRaceActions) {
+					if (roll < 0.25) {
+						await this.actionClickInteractive();
+					} else if (roll < 0.45) {
+						await this.actionFillInput();
+					} else if (roll < 0.60) {
+						await this.actionBurstClick();
+					} else if (roll < 0.75) {
+						await this.actionRapidTabTear();
+					} else if (roll < 0.85) {
+						await this.actionKeyPress();
+					} else if (roll < 0.95) {
+						await this.actionTabHop();
+					} else {
+						await this.actionScroll();
+					}
 				} else {
-					await this.actionScroll();
+					if (roll < 0.45) {
+						await this.actionClickInteractive();
+					} else if (roll < 0.70) {
+						await this.actionFillInput();
+					} else if (roll < 0.82) {
+						await this.actionKeyPress();
+					} else if (roll < 0.92) {
+						await this.actionTabHop();
+					} else {
+						await this.actionScroll();
+					}
 				}
 			} catch (err: any) {
 				// Benign action dispatch failure (element detached, modal closed mid-click)
@@ -238,6 +264,43 @@ export class DeterministicMonkeyFuzzer {
 		const deltaY = this.rng.pick([-500, -200, 200, 500, 1000]);
 		this.recordAction('SCROLL', `deltaY=${deltaY}`);
 		await this.page.mouse.wheel(0, deltaY).catch(() => {});
+	}
+
+	private async actionBurstClick(): Promise<void> {
+		const selector = 'button:visible:not([disabled]), [role="button"]:visible:not([disabled])';
+		const elements = await this.page.locator(selector).all();
+		if (elements.length === 0) return;
+
+		const targetIndex = this.rng.int(0, elements.length - 1);
+		const element = elements[targetIndex];
+
+		const text = (await element.innerText().catch(() => '')) || (await element.getAttribute('aria-label').catch(() => '')) || '';
+		if (this.isDestructive(text)) return;
+
+		const tagName = await element.evaluate((el) => el.tagName.toLowerCase()).catch(() => 'element');
+		const label = text.slice(0, 40).replace(/\s+/g, ' ').trim() || tagName;
+
+		this.recordAction('BURST_CLICK', `${tagName}[${label}]`);
+		// Fire 2 rapid clicks concurrently without delay
+		await Promise.allSettled([
+			element.click({ timeout: 400, force: true }),
+			element.click({ timeout: 400, force: true })
+		]);
+	}
+
+	private async actionRapidTabTear(): Promise<void> {
+		const sections = ['Inbox', 'Leads', 'Knowledge', 'Simulate', 'Settings'];
+		const targetSection = this.rng.pick(sections);
+		const navButton = this.page.locator(`button:has-text("${targetSection}")`).first();
+
+		if (await navButton.isVisible().catch(() => false)) {
+			this.recordAction('TAB_TEAR', targetSection);
+			const randomClickable = this.page.locator('button:visible:not([disabled]), a[href]:visible').first();
+			await Promise.allSettled([
+				randomClickable.click({ timeout: 400, force: true }).catch(() => {}),
+				navButton.click({ timeout: 400, force: true }).catch(() => {})
+			]);
+		}
 	}
 
 	assertNoErrors(): void {

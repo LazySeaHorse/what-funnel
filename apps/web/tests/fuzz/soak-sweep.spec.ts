@@ -94,7 +94,7 @@ function sampleKnowledge() {
 
 const DEFAULT_SEEDS = [104729, 224737, 349281, 481920, 592810];
 const SEEDS_TO_RUN: number[] = process.env.SOAK_SEEDS
-	? process.env.SOAK_SEEDS.split(',').map((s) => parseInt(s.trim(), 10))
+	? process.env.SOAK_SEEDS.split(',').map((s: string) => parseInt(s.trim(), 10))
 	: DEFAULT_SEEDS;
 
 const ACTIONS_COUNT = process.env.SOAK_ACTIONS

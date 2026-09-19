@@ -18,6 +18,7 @@
 		"test:fuzz:chaos": "playwright test tests/fuzz/chaos.spec.ts",
 		"test:fuzz:auth": "playwright test tests/fuzz/auth-monkey.spec.ts",
 		"test:fuzz:onboarding": "playwright test tests/fuzz/onboarding-monkey.spec.ts",
+		"test:fuzz:race": "playwright test tests/fuzz/race-monkey.spec.ts",
 		"test:fuzz:live": "API_GATEWAY_URL=http://localhost:18089 WS_GATEWAY_URL=ws://localhost:18089 playwright test tests/fuzz/monkey-live.spec.ts"
 	},
 	"devDependencies": {

@@ -136,8 +136,11 @@ pw-fuzz-auth: ## Run deterministic UI monkey tests on login and signup forms
 pw-fuzz-onboarding: ## Run deterministic UI monkey tests on the onboarding wizard
 	cd apps/web && npx playwright test tests/fuzz/onboarding-monkey.spec.ts
 
+pw-fuzz-race: ## Run deterministic race condition & network jitter fuzz tests
+	cd apps/web && npx playwright test tests/fuzz/race-monkey.spec.ts
+
 pw-fuzz-all: ## Run all fast UI monkey fuzz test suites
-	cd apps/web && npx playwright test tests/fuzz/monkey-mock.spec.ts tests/fuzz/auth-monkey.spec.ts tests/fuzz/onboarding-monkey.spec.ts tests/fuzz/chaos.spec.ts
+	cd apps/web && npx playwright test tests/fuzz/monkey-mock.spec.ts tests/fuzz/auth-monkey.spec.ts tests/fuzz/onboarding-monkey.spec.ts tests/fuzz/chaos.spec.ts tests/fuzz/race-monkey.spec.ts
 
 
 pw-fuzz-live: ## Run deterministic UI monkey tests against an ephemeral isolated Docker pod stack

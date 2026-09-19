@@ -8,6 +8,12 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+	namespace NodeJS {
+		type Timeout = any;
+	}
+	const process: {
+		env: Record<string, string | undefined>;
+	};
 }
 
 export {};
