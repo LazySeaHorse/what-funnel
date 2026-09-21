@@ -525,78 +525,14 @@ def segment_inbound(bubbles: list[str]) -> list[str]:
 
 def match_tier1_proposed(patterns: list[dict], bubbles: list[str]) -> tuple[dict | None, float]:
     """
-    Proposed Architecture Improvement:
-    1. Safety / Escalation Guard: Filters emergency medical, legal threats, billing disputes, no-shows.
-    2. Multi-bubble & Sentence Segmentation: Extracts clean semantic clauses without filler greetings.
-    3. Token-Level Normalization: Replaces punctuation to avoid hyphen/compound tokenization mismatch.
-    4. Content Token Extraction & Root Matching: Distinguishes domain tokens, handles plurals/stems.
-    5. Guarded Hybrid Scoring: Combines Levenshtein ratio, token sort, and content-coverage token sets.
+    Proposed Architecture Improvement / Final Integrated Engine (Fix 3):
+    Directly delegates to match_tier1_patterns from matcher.py, integrating:
+    1. Fix 1: Multi-bubble & Sentence Segmentation + Filler Stripping + Normalization
+    2. Fix 2: Content Token Matching + Root Stem Overlap + Coverage Safeguards
+    3. Fix 3: Safety & Escalation Guard (is_escalation)
     """
-    full_text = " ".join(bubbles)
-    for pat in ESCALATION_PATTERNS:
-        if re.search(pat, full_text.lower()):
-            return None, 0.0
+    return match_tier1_patterns(patterns, bubbles)
 
-    segments = segment_inbound(bubbles)
-    if not segments:
-        return None, 0.0
-
-    best_pattern = None
-    best_score = 0.0
-
-    for pat in patterns:
-        triggers = pat.get("trigger_phrases") or []
-        for trig in triggers:
-            c_trig = normalize_text(trig)
-            t_tokens = set(extract_content_tokens(c_trig))
-
-            for seg in segments:
-                c_seg = normalize_text(seg)
-                s_tokens = set(extract_content_tokens(c_seg))
-
-                # 1. Exact or near-exact Levenshtein ratio (typos, minor variance)
-                r_score = fuzz.ratio(c_trig, c_seg)
-                if r_score >= 88.0 and r_score > best_score:
-                    best_score = r_score
-                    best_pattern = pat
-                    continue
-
-                # 2. Token Sort Ratio (word reordering)
-                tsr_score = fuzz.token_sort_ratio(c_trig, c_seg)
-                max_len = max(len(c_trig), len(c_seg))
-                len_ratio = min(len(c_trig), len(c_seg)) / max_len if max_len > 0 else 0
-                if tsr_score >= 85.0 and len_ratio >= 0.40 and tsr_score > best_score:
-                    best_score = tsr_score
-                    best_pattern = pat
-                    continue
-
-                # 3. Content Token Matching with Length & Coverage Safeguards
-                if not t_tokens or not s_tokens:
-                    continue
-
-                overlap_cnt = count_token_overlap(t_tokens, s_tokens)
-                t_cov = overlap_cnt / len(t_tokens)
-                s_cov = overlap_cnt / len(s_tokens)
-
-                # Terse input match: 1-2 content words completely matched in trigger
-                # (e.g. "hours" -> "clinic hours", "parking" -> "parking options")
-                if len(s_tokens) <= 2 and overlap_cnt == len(s_tokens):
-                    if all(len(w) > 2 for w in s_tokens) and 92.0 > best_score:
-                        best_score = 92.0
-                        best_pattern = pat
-                        continue
-
-                # Conversational coverage match:
-                # Trigger concepts are substantially contained in query clause
-                if (t_cov >= 0.50 and s_cov >= 0.35) or (t_cov == 1.0 and s_cov >= 0.25):
-                    score = max(88.0, fuzz.token_set_ratio(c_trig, c_seg))
-                    if score > best_score:
-                        best_score = score
-                        best_pattern = pat
-
-    if best_score >= 85.0:
-        return best_pattern, best_score
-    return None, 0.0
 
 # ==============================================================================
 # 4. Metric Collection and Evaluation Utilities
@@ -816,9 +752,79 @@ def match_tier1_fix1(patterns: list[dict], bubbles: list[str]) -> tuple[dict | N
     return None, 0.0
 
 
+def match_tier1_fix2(patterns: list[dict], bubbles: list[str]) -> tuple[dict | None, float]:
+    """
+    Fix 2 implementation: Fix 1 + Content token matching, root matching,
+    token sort ratio, and coverage safeguards (without Fix 3 escalation guard).
+    """
+    if not patterns or not bubbles:
+        return None, 0.0
+
+    segments = segment_inbound(bubbles)
+    if not segments:
+        return None, 0.0
+
+    best_pattern = None
+    best_score = 0.0
+
+    for pat in patterns:
+        triggers = pat.get("trigger_phrases") or []
+        for trig in triggers:
+            c_trig = normalize_text(trig)
+            raw_trig = trig.lower().strip()
+            t_tokens = set(extract_content_tokens(c_trig))
+
+            for seg in segments:
+                c_seg = normalize_text(seg)
+                raw_seg = seg.lower().strip()
+                s_tokens = set(extract_content_tokens(c_seg))
+
+                # 1. Exact or near-exact Levenshtein ratio
+                r_score = max(float(fuzz.ratio(c_trig, c_seg)), float(fuzz.ratio(raw_trig, raw_seg)))
+                if r_score >= 88.0 and r_score > best_score:
+                    best_score = r_score
+                    best_pattern = pat
+                    if best_score == 100.0:
+                        return best_pattern, 100.0
+                    continue
+
+                # 2. Token Sort Ratio (word reordering) with length safeguard
+                tsr_score = float(fuzz.token_sort_ratio(c_trig, c_seg))
+                max_len = max(len(c_trig), len(c_seg))
+                len_ratio = min(len(c_trig), len(c_seg)) / max_len if max_len > 0 else 0.0
+                if tsr_score >= 85.0 and len_ratio >= 0.40 and tsr_score > best_score:
+                    best_score = tsr_score
+                    best_pattern = pat
+                    continue
+
+                # 3. Content Token Matching with Length & Coverage Safeguards
+                if not t_tokens or not s_tokens:
+                    continue
+
+                overlap_cnt = count_token_overlap(t_tokens, s_tokens)
+                t_cov = overlap_cnt / len(t_tokens)
+                s_cov = overlap_cnt / len(s_tokens)
+
+                if len(s_tokens) <= 2 and overlap_cnt == len(s_tokens):
+                    if all(len(w) > 2 for w in s_tokens) and 92.0 > best_score:
+                        best_score = 92.0
+                        best_pattern = pat
+                        continue
+
+                if (t_cov >= 0.50 and s_cov >= 0.35) or (t_cov == 1.0 and s_cov >= 0.25):
+                    score = max(88.0, float(fuzz.token_set_ratio(c_trig, c_seg)))
+                    if score > best_score:
+                        best_score = score
+                        best_pattern = pat
+
+    if best_score >= 85.0:
+        return best_pattern, best_score
+    return None, 0.0
+
+
 def test_fix1_tier1_benchmark_runs():
     """Verify Fix 1 (clause segmentation, filler stripping, normalization) runs and improves over baseline."""
-    baseline = evaluate_engine("Current Tier 1", match_tier1_current)
+    baseline = evaluate_engine("Baseline", match_tier1_current)
     fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
     assert fix1.total_queries == 66
     assert fix1.mundane_faq_queries == 51
@@ -830,10 +836,10 @@ def test_fix1_tier1_benchmark_runs():
 
 
 def test_fix2_tier1_benchmark_runs():
-    """Verify Fix 2 (content token matching, root matching, token sort ratio, coverage safeguards) in matcher.py."""
-    baseline = evaluate_engine("Current Tier 1", match_tier1_current)
+    """Verify Fix 2 (content token matching, root matching, token sort ratio, coverage safeguards)."""
+    baseline = evaluate_engine("Baseline", match_tier1_current)
     fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
-    fix2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_patterns)
+    fix2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_fix2)
     assert fix2.total_queries == 66
     assert fix2.mundane_faq_queries == 51
     assert fix2.false_positives == 0
@@ -843,11 +849,29 @@ def test_fix2_tier1_benchmark_runs():
     print(f"Fix 2 False Positives: {fix2.false_positives}")
 
 
+def test_fix3_tier1_integrated_benchmark():
+    """Verify Fix 3 (Final Integrated Engine with Safety & Escalation Guard) directly from matcher.py."""
+    baseline = evaluate_engine("Baseline", match_tier1_current)
+    fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
+    fix2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_fix2)
+    fix3 = evaluate_engine("Fix 3 (Final)", match_tier1_patterns)
+    assert fix3.total_queries == 66
+    assert fix3.mundane_faq_queries == 51
+    assert fix3.false_positives == 0
+    assert fix3.true_positives == 51
+    assert fix3.engagement_rate == 100.0
+    assert fix3.precision == 100.0
+    assert fix3.accuracy == 100.0
+    assert fix3.f1_score == 100.0
+    assert fix3.category_tn["edge_case_negative"] == 15
+    print(f"\nFix 3 Engagement Rate: {fix3.engagement_rate:.1f}% (Fix 2: {fix2.engagement_rate:.1f}%, Fix 1: {fix1.engagement_rate:.1f}%, Baseline: {baseline.engagement_rate:.1f}%)")
+    print(f"Fix 3 False Positives: {fix3.false_positives}")
+
+
 if __name__ == "__main__":
-    b = evaluate_engine("Current Tier 1", match_tier1_current)
+    b = evaluate_engine("Baseline (Original)", match_tier1_current)
     f1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
-    f2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_patterns)
-    n = evaluate_engine("Naive Token Set", match_tier1_naive_token_set)
-    p = evaluate_engine("Proposed V2", match_tier1_proposed)
-    print(format_results_table([b, f1, f2, n, p]))
+    f2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_fix2)
+    f3 = evaluate_engine("Fix 3 (Final Engine)", match_tier1_patterns)
+    print(format_results_table([b, f1, f2, f3]))
 

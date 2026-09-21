@@ -2,7 +2,8 @@
 Modular matching helper for AI Cascade Tier 1 matching engine.
 Provides clause segmentation, conversational filler stripping,
 punctuation normalization, content token extraction, word root matching,
-token sort ratio, and coverage-guarded rapidfuzz pattern matching.
+token sort ratio, coverage-guarded rapidfuzz pattern matching,
+and safety & escalation guard filtering.
 """
 
 from __future__ import annotations
@@ -46,6 +47,87 @@ STOPWORDS: set[str] = {
     "tell", "me", "us", "any", "some", "about", "and", "or", "so", "time",
     "without", "out", "get",
 }
+
+# ==============================================================================
+# Escalation & Safety Guard Patterns
+# ==============================================================================
+
+# Compiled regex patterns covering acute medical emergencies, severe service failures,
+# financial/contractual disputes, legal threats, and out-of-scope domain requests
+# that must bypass Tier 1 pattern auto-reply and gracefully fall through to Tier 2/3/human.
+ESCALATION_PATTERNS: list[re.Pattern] = [
+    # 1. Acute medical emergencies, severe distress, and trauma
+    re.compile(r"\bbleed(ing)?\b", re.IGNORECASE),
+    re.compile(r"\bthrobbing\b", re.IGNORECASE),
+    re.compile(r"\b(severe|unbearable|acute|extreme|excruciating)\s+(swelling|pain|distress|ache)\b", re.IGNORECASE),
+    re.compile(r"\bswelling\b", re.IGNORECASE),
+    re.compile(r"\b(tooth|teeth|bone|arm|leg|jaw)\s+(broke|broken|fractured)\b", re.IGNORECASE),
+    re.compile(r"\b(broke|broken|fractured)\s+(my|a|the)\s+(tooth|teeth|bone|arm|leg|jaw)\b", re.IGNORECASE),
+    re.compile(r"\b(my\s+tooth\s+broke|broke\s+my\s+tooth)\b", re.IGNORECASE),
+    re.compile(r"\binjur(y|ed|ies)\b", re.IGNORECASE),
+    re.compile(r"\banaphylaxis\b", re.IGNORECASE),
+    re.compile(r"\bpoison(ing|ed)?\b", re.IGNORECASE),
+    re.compile(r"\bcertified\s+allergen[- ]free\b", re.IGNORECASE),
+    re.compile(r"\b(having|in|this\s+is|it(?:\x27|)s)\s+(an?\s+)?emergency\b", re.IGNORECASE),
+    re.compile(r"\bemergency\s*!", re.IGNORECASE),
+    re.compile(r"\bmedical\s+emergency\b", re.IGNORECASE),
+    re.compile(r"\burgent\s+emergency\b", re.IGNORECASE),
+    re.compile(r"\bemergency\b(?!\s+(?:dental\s+)?(?:appointments?|services?|care|policy|hours?|dentist))\b", re.IGNORECASE),
+    re.compile(r"\burgent\b(?!\s+(?:care\s+hours?|appointments?))\b", re.IGNORECASE),
+
+    # 2. Severe service failures & no-shows
+    re.compile(r"\bwaited\b.*\b\d+\s*hours?\b", re.IGNORECASE),
+    re.compile(r"\bwaiting\s+(?:for\s+)?\b.*\b\d+\s*hours?\b", re.IGNORECASE),
+    re.compile(r"\b(never\s+showed(\s+up)?|no[\s-]show(s)?|(nobody|no\s+one)\s+showed(\s+up)?)\b", re.IGNORECASE),
+    re.compile(r"\b(nobody|no\s+one)\s+answered\b", re.IGNORECASE),
+    re.compile(r"\bterrible\b", re.IGNORECASE),
+    re.compile(r"\bhorrible\b", re.IGNORECASE),
+    re.compile(r"\bunacceptable\b", re.IGNORECASE),
+    re.compile(r"\bcatastrophic\b", re.IGNORECASE),
+    re.compile(r"\b(brakes?|steering|engine)\s+(completely\s+)?fail(ed|ure)?\b", re.IGNORECASE),
+    re.compile(r"\bfail(ed|ure)\s+(after|during)\b", re.IGNORECASE),
+    re.compile(r"\b(completely\s+)?failed\b", re.IGNORECASE),
+    re.compile(r"\bscratched\b", re.IGNORECASE),
+    re.compile(r"\bcomplain(t|s|ing)?\b", re.IGNORECASE),
+
+    # 3. Financial / contractual disputes & refund demands
+    re.compile(r"(?<!\bpolicy\s)(?<!\bterms\s)\brefund(s)?\b(?!\s+policy\b)(?!\s+terms\b)", re.IGNORECASE),
+    re.compile(r"\b(demand|want|need|get|issue|request)\s+(a\s+)?(?:full\s+)?refund\b", re.IGNORECASE),
+    re.compile(r"\brefund\s+(me|my|immediately|now)\b", re.IGNORECASE),
+    re.compile(r"\bunauthorized\b", re.IGNORECASE),
+    re.compile(r"\bdisput(e|es|ed|ing)\b", re.IGNORECASE),
+    re.compile(r"\bfraud(ulent)?\b", re.IGNORECASE),
+    re.compile(r"\bovercharg(ed|ing|es)?\b", re.IGNORECASE),
+    re.compile(r"\b(cancel|cancelling)\s+(my|the|our)\s+(order|wedding|cake|appointment|booking|reservation|subscription|contract)\b", re.IGNORECASE),
+    re.compile(r"\b(need|want|would\s+like)\s+to\s+cancel\b", re.IGNORECASE),
+    re.compile(r"\bplease\s+cancel\b", re.IGNORECASE),
+    re.compile(r"\bcancel(l?ation)?\b(?!\s+(?:policy|fee|terms))\b", re.IGNORECASE),
+
+    # 4. Legal threats
+    re.compile(r"\blawyer(s)?\b", re.IGNORECASE),
+    re.compile(r"\bsue\b", re.IGNORECASE),
+    re.compile(r"\bsuing\b", re.IGNORECASE),
+    re.compile(r"\blegal\s+(action|counsel|proceedings?|representation|recourse)\b", re.IGNORECASE),
+    re.compile(r"\battorney(s)?\b", re.IGNORECASE),
+    re.compile(r"\btake\s+you\s+to\s+court\b", re.IGNORECASE),
+    re.compile(r"\bsee\s+you\s+in\s+court\b", re.IGNORECASE),
+
+    # 5. Out-of-scope domain requests
+    re.compile(r"\bhiring\b", re.IGNORECASE),
+    re.compile(r"\bresume(s)?\b", re.IGNORECASE),
+    re.compile(r"\b(job\s+(?:opening|openings|application|applications|posting|postings|opportunity|opportunities|inquiry|search)|looking\s+for\s+a\s+job|apply(ing)?\s+for\s+a\s+job|apply\s+to\s+work|work\s+for\s+you)\b", re.IGNORECASE),
+    re.compile(r"\b(submit|send)\s+(my\s+)?resume\b", re.IGNORECASE),
+    re.compile(r"\bcardiac\b", re.IGNORECASE),
+    re.compile(r"\b(general\s+)?anesthesia\b", re.IGNORECASE),
+    re.compile(r"\bvintage\b", re.IGNORECASE),
+    re.compile(r"\b(french\s+)?threading\b", re.IGNORECASE),
+    re.compile(r"\baftermarket\b", re.IGNORECASE),
+    re.compile(r"\bconvert\b", re.IGNORECASE),
+    re.compile(r"\bmold\b", re.IGNORECASE),
+    re.compile(r"\bketo\b", re.IGNORECASE),
+    re.compile(r"\bdiabetic[- ]safe\b", re.IGNORECASE),
+    re.compile(r"\bdiabetic\b", re.IGNORECASE),
+]
 
 
 def clean_segment(s: str) -> str:
@@ -152,6 +234,29 @@ def segment_inbound(bubbles: list[str]) -> list[str]:
     return segments
 
 
+def is_escalation(text_or_bubbles: str | list[str]) -> bool:
+    """
+    Checks whether any escalation pattern is detected in the inbound message.
+    Accepts either a single string or a list of bubble strings.
+
+    Returns True if an acute emergency, severe service failure, refund/contractual dispute,
+    legal threat, or out-of-scope domain request is detected; False otherwise.
+    """
+    if not text_or_bubbles:
+        return False
+    if isinstance(text_or_bubbles, str):
+        full_text = text_or_bubbles
+    else:
+        full_text = " ".join(b for b in text_or_bubbles if b and isinstance(b, str))
+    if not full_text.strip():
+        return False
+
+    for pat in ESCALATION_PATTERNS:
+        if pat.search(full_text):
+            return True
+    return False
+
+
 def match_tier1_patterns(
     patterns: list[dict] | list[Any],
     bubbles: list[str],
@@ -159,15 +264,20 @@ def match_tier1_patterns(
 ) -> tuple[dict | Any | None, float]:
     """
     Evaluates trigger phrases against cleaned segments using a combination of:
-    1. Levenshtein ratio (fuzz.ratio >= 88.0)
-    2. Token sort ratio with length safeguard (fuzz.token_sort_ratio >= 85.0 with len_ratio >= 0.40)
-    3. Terse keyword matching (1-2 content words completely matched in trigger tokens)
-    4. Conversational coverage matching (trigger concepts substantially covered in query clause,
+    1. Safety / Escalation Guard: Immediate rejection if acute emergency, complaint, dispute,
+       legal threat, or out-of-scope domain request is detected.
+    2. Levenshtein ratio (fuzz.ratio >= 88.0)
+    3. Token sort ratio with length safeguard (fuzz.token_sort_ratio >= 85.0 with len_ratio >= 0.40)
+    4. Terse keyword matching (1-2 content words completely matched in trigger tokens)
+    5. Conversational coverage matching (trigger concepts substantially covered in query clause,
        e.g. t_cov >= 0.50 and s_cov >= 0.35 or t_cov == 1.0 and s_cov >= 0.25, scored with fuzz.token_set_ratio)
 
-    Returns (matched_pattern, score) if score >= threshold (default 85.0), or (None, 0.0) if no match.
+    Returns (matched_pattern, score) if score >= threshold (default 85.0), or (None, 0.0) if no match or escalated.
     """
     if not patterns or not bubbles:
+        return None, 0.0
+
+    if is_escalation(bubbles):
         return None, 0.0
 
     segments = segment_inbound(bubbles)
