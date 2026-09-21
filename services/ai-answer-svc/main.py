@@ -574,28 +574,31 @@ async def execute_conversation_cascade(
     elif action == "drafted":
         draft_id = await db.fetchval(
             """
-            WITH previous AS (
-                SELECT id FROM ai_reply_drafts
-                WHERE conversation_id = $2 AND account_id = $1 AND status = 'pending'
-                FOR UPDATE
-            ), cancelled AS (
+            WITH state_guard AS (
+				SELECT generation_epoch
+				FROM conversation_ai_state
+				WHERE conversation_id = $2::uuid AND account_id = $1::uuid
+				  AND state = 'active' AND generation_epoch = $7::bigint
+			), draft_lock AS (
+                SELECT pg_advisory_xact_lock(hashtextextended($2::uuid::text, 0))
+				FROM state_guard
+            ), superseded AS (
                 UPDATE ai_reply_drafts
                 SET status = 'superseded', updated_at = NOW()
-                WHERE id IN (SELECT id FROM previous)
+                FROM draft_lock
+                WHERE account_id = $1::uuid AND conversation_id = $2::uuid AND status = 'pending'
             ), new_draft AS (
                 INSERT INTO ai_reply_drafts (
-                    account_id, conversation_id, message_id,
-                    draft_text, status, generation_epoch, stage_matched, confidence,
-                    created_at, updated_at
+                    account_id, conversation_id, source_message_id, draft_text,
+                    stage_matched, confidence
                 )
-                SELECT $1, $2, $3, $4, 'pending', $7, $5, $6, NOW(), NOW()
-                WHERE (SELECT state FROM conversation_ai_state WHERE conversation_id = $2 AND account_id = $1) = 'active'
-                  AND (SELECT generation_epoch FROM conversation_ai_state WHERE conversation_id = $2 AND account_id = $1) = $7
+                SELECT $1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::float
+                FROM draft_lock
                 RETURNING id
             ), logged_event AS (
                 INSERT INTO ai_answer_events (
-                    account_id, conversation_id, message_id,
-                    stage_matched, confidence, action, reply_message_id
+                    account_id, conversation_id, message_id, stage_matched,
+                    confidence, action, reply_message_id
                 )
                 SELECT $1::uuid, $2::uuid, $3::uuid, $5::text, $6::float, 'drafted', NULL
                 FROM new_draft
