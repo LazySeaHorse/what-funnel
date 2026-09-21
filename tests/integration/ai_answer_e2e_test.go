@@ -138,7 +138,7 @@ func TestAIAnswerE2E(t *testing.T) {
 		assert.Equal(t, "ai.reply_ready", draftWSMsg.Type)
 		assert.Equal(t, "drafted", draftWSMsg.Action)
 		assert.Equal(t, "Yes, we offer house calls.", draftWSMsg.DraftText)
-	case <-time.After(10 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("Timeout waiting for drafted ai.reply_ready websocket event")
 	}
 
@@ -208,7 +208,7 @@ func TestAIAnswerE2E(t *testing.T) {
 	case <-doneWS2:
 		assert.Equal(t, "ai.reply_ready", autoSentWSMsg.Type)
 		assert.Equal(t, "auto_sent", autoSentWSMsg.Action)
-	case <-time.After(10 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("Timeout waiting for auto_sent ai.reply_ready websocket event")
 	}
 

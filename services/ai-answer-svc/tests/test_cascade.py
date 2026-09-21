@@ -23,6 +23,10 @@ def ai_config():
         embedding_model="embedding-model",
     )
 
+@pytest.fixture(autouse=True)
+def disable_debounce(monkeypatch):
+    monkeypatch.setattr("main.config.AI_DEBOUNCE_ENABLED", False)
+
 # A mock Record class to simulate asyncpg row returns
 class MockRecord(dict):
     def __getattr__(self, name):

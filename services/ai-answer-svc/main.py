@@ -18,10 +18,17 @@ from plain_text import normalize_plain_text
 from control import (
     COOLDOWN_DELAYS,
     HUMAN_REVIEW_REPLY,
+    NON_TEXT_HUMAN_REVIEW_REPLY,
     UNANSWERED_WINDOW,
     next_cooldown_level,
     resolve_reply_mode,
     transcript_within_byte_budget,
+)
+from debounce import (
+    cancel_debounce,
+    pop_due_conversations,
+    record_inbound_message,
+    requeue_in_flight,
 )
 from rapidfuzz import fuzz
 
@@ -172,18 +179,46 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     direction = msg_row["direction"]
     content_type = msg_row["content_type"]
 
-    # Only process inbound text messages
-    if direction != "inbound" or content_type != "text":
-        logger.debug(f"Message {msg_uuid} is direction={direction}, content_type={content_type}. Skipping cascade.")
+    # If outbound: human agent or bot sent a reply -> cancel any active debounce!
+    if direction == "outbound":
+        await cancel_debounce(redis_client, convo_uuid)
         return
 
-    # Extract text content
-    try:
-        content = json.loads(msg_row["content"])
-        inbound_text = content.get("text", "")
-    except Exception as e:
-        logger.error(f"Failed to parse content for message {msg_uuid}: {e}")
+    if direction != "inbound":
+        logger.debug(f"Message {msg_uuid} is direction={direction}. Skipping cascade.")
         return
+
+    # If debounce is disabled or zero-seconds configured, process cascade immediately
+    if not config.AI_DEBOUNCE_ENABLED or config.AI_DEBOUNCE_FIRST_SECONDS <= 0:
+        await execute_conversation_cascade(
+            convo_uuid, account_uuid, msg_uuid, db_pool, redis_client,
+            has_non_text=(content_type != "text"),
+        )
+        return
+
+    # Multi-bubble debounce handling
+    is_text = (content_type == "text")
+    scheduled, delay = await record_inbound_message(
+        redis_client, account_uuid, convo_uuid, msg_uuid, is_text=is_text
+    )
+    if not scheduled:
+        logger.info(f"Duplicate message {msg_uuid} ignored for debounce.")
+    else:
+        logger.info(
+            f"Debounced conversation {convo_uuid}: scheduled in %.1fs (is_text=%s)",
+            delay, is_text
+        )
+
+
+async def execute_conversation_cascade(
+    convo_uuid: uuid.UUID,
+    account_uuid: uuid.UUID,
+    msg_uuid: uuid.UUID,
+    db_pool,
+    redis_client,
+    has_non_text: bool = False,
+):
+    db = ScopedDB(db_pool, account_uuid)
 
     # Fetch the durable conversation control state before any inference work.
     convo_row = await db.fetchrow(
@@ -258,7 +293,8 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         convo_uuid, account_uuid,
     )
     if not generation_row:
-        logger.info("A generation is already active for conversation %s", convo_uuid)
+        logger.info("A generation is already active for conversation %s, re-queuing for retry", convo_uuid)
+        await requeue_in_flight(redis_client, convo_uuid, account_uuid, msg_uuid, has_non_text=has_non_text, delay=2.0)
         return
     generation_epoch = int(generation_row["generation_epoch"])
     await publish_redis_stream(redis_client, "ai.control.updated", {
@@ -268,6 +304,97 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         "run_state": "replying",
     })
 
+    # Non-text media bubbles: multimodal unsupported -> mark for human review & send pre-written handoff
+    if has_non_text:
+        stage_matched = "non_text"
+        confidence = None
+        action = "flagged_human"
+        flag_reason = "non_text_unsupported"
+        reply_message_id = None
+
+        await supersede_pending_draft(db, redis_client, account_uuid, convo_uuid)
+        if effective_mode == "auto_send":
+            level, acknowledgement_epoch = await enter_unanswered_cooldown(
+                db, convo_uuid, msg_uuid, int(convo_row["cooldown_level"]),
+                int(convo_row["unanswered_count"]),
+                convo_row["unanswered_window_started_at"],
+            )
+            try:
+                response = await send_ai_message(
+                    account_uuid, convo_uuid, NON_TEXT_HUMAN_REVIEW_REPLY,
+                    acknowledgement_epoch, "human_review_ack",
+                    f"human-review-non-text:{convo_uuid}:{level}:{msg_uuid}",
+                )
+                reply_message_id = uuid.UUID(response["id"])
+            except Exception as error:
+                logger.error("Failed to send non-text human-review acknowledgement: %s", error)
+        else:
+            await db.execute(
+                """
+                UPDATE conversation_ai_state
+                SET state = 'review_required', state_reason = $3, run_state = 'idle',
+                    run_started_at = NULL,
+                    generation_epoch = generation_epoch + 1, next_review_at = NULL,
+                    version = version + 1, updated_at = NOW()
+                WHERE conversation_id = $1 AND account_id = $2
+                """,
+                convo_uuid, account_uuid, flag_reason,
+            )
+        await db.execute(
+            """
+            INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """,
+            account_uuid, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
+        )
+        final_state = "cooldown" if effective_mode == "auto_send" else "review_required"
+        await publish_redis_stream(redis_client, "ai.control.updated", {
+            "account_id": str(account_uuid),
+            "conversation_id": str(convo_uuid),
+            "state": final_state,
+            "run_state": "idle",
+        })
+        logger.info("Non-text message flagged for human review for convo %s", convo_uuid)
+        return
+
+    # Extract all unreplied inbound text messages (multi-bubble batch)
+    unreplied_rows = await db.fetch(
+        """
+        SELECT id, content, created_at
+        FROM messages
+        WHERE conversation_id = $1 AND account_id = $2
+          AND direction = 'inbound' AND content_type = 'text'
+          AND created_at > COALESCE(
+              (SELECT MAX(created_at) FROM messages WHERE conversation_id = $1 AND account_id = $2 AND direction = 'outbound'),
+              '1970-01-01'::timestamptz
+          )
+        ORDER BY created_at ASC
+        """,
+        convo_uuid, account_uuid
+    )
+    bubble_texts = []
+    for r in unreplied_rows:
+        try:
+            c = json.loads(r["content"])
+            t = c.get("text", "").strip()
+            if t:
+                bubble_texts.append(t)
+        except Exception:
+            pass
+
+    if bubble_texts:
+        inbound_text = "\n".join(bubble_texts)
+    else:
+        msg_row = await db.fetchrow(
+            "SELECT content FROM messages WHERE id = $1 AND account_id = $2",
+            msg_uuid, account_uuid
+        )
+        try:
+            inbound_text = json.loads(msg_row["content"]).get("text", "")
+        except Exception:
+            inbound_text = ""
+        bubble_texts = [inbound_text] if inbound_text else []
+
     # Run the Cascade!
     stage_matched = "none"
     confidence = None
@@ -276,7 +403,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     answer_text = ""
     reply_message_id = None
 
-    # Step 1: Rapidfuzz trigger match
+    # Step 1: Rapidfuzz trigger match (checks both combined text and individual bubbles)
     patterns = await db.fetch(
         "SELECT trigger_phrases, answer_text FROM patterns WHERE account_id = $1",
         account_uuid
@@ -287,12 +414,23 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     for pat in patterns:
         triggers = pat["trigger_phrases"] or []
         for trig in triggers:
-            score = fuzz.ratio(trig.lower().strip(), inbound_text.lower().strip())
+            trig_clean = trig.lower().strip()
+            score = fuzz.ratio(trig_clean, inbound_text.lower().strip())
             if score >= RAPIDFUZZ_THRESHOLD:
                 matched_pattern = pat
                 confidence = 1.0
                 stage_matched = "pattern"
                 answer_text = normalize_plain_text(pat["answer_text"])
+                break
+            for b in bubble_texts:
+                b_score = fuzz.ratio(trig_clean, b.lower().strip())
+                if b_score >= RAPIDFUZZ_THRESHOLD:
+                    matched_pattern = pat
+                    confidence = 1.0
+                    stage_matched = "pattern"
+                    answer_text = normalize_plain_text(pat["answer_text"])
+                    break
+            if matched_pattern:
                 break
         if matched_pattern:
             break
@@ -301,9 +439,9 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
     if stage_matched == "none" and patterns:
         try:
             # Fetch AI config
-            config = await get_ai_config(db)
-            client = provider_client(config)
-            inbound_emb = await client.embed(config.embedding_model, inbound_text)
+            ai_cfg = await get_ai_config(db)
+            client = provider_client(ai_cfg)
+            inbound_emb = await client.embed(ai_cfg.embedding_model, inbound_text)
 
             # Query database for closest pattern
             # pgvector distance operator: <=> (cosine distance). Cosine similarity = 1 - distance.
@@ -318,21 +456,23 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                 str(inbound_emb), account_uuid
             )
             EMBEDDING_THRESHOLD = 0.85
-            if closest_pat and closest_pat["similarity"] >= EMBEDDING_THRESHOLD:
-                stage_matched = "embedding"
-                confidence = float(closest_pat["similarity"])
-                answer_text = normalize_plain_text(closest_pat["answer_text"])
+            if closest_pat and closest_pat["similarity"] is not None:
+                sim = float(closest_pat["similarity"])
+                if sim >= EMBEDDING_THRESHOLD:
+                    stage_matched = "embedding"
+                    confidence = sim
+                    answer_text = normalize_plain_text(closest_pat["answer_text"])
         except Exception as e:
-            logger.error(f"Embedding stage failed: {e}")
+            logger.error(f"Pattern embedding stage failed: {e}")
 
     # Step 3: Concept RAG stage
     if stage_matched == "none":
         try:
-            config = await get_ai_config(db)
-            client = provider_client(config)
-            inbound_emb = await client.embed(config.embedding_model, inbound_text)
+            ai_cfg = await get_ai_config(db)
+            client = provider_client(ai_cfg)
+            inbound_emb = await client.embed(ai_cfg.embedding_model, inbound_text)
 
-            # Retrieve top-5 kb_concepts
+            # Query top 5 closest kb_concepts
             concepts = await db.fetch(
                 """
                 SELECT title, body_text, 1 - (embedding <=> $1::vector) as similarity
@@ -390,7 +530,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                     }
                 ]
                 llm_res = await client.complete(
-                    config.reply_model,
+                    ai_cfg.reply_model,
                     prompt_msgs,
                     CascadeLLMResponse,
                 )
@@ -419,43 +559,43 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
                 f"ai-reply:{msg_uuid}",
             )
             reply_message_id = uuid.UUID(res_data["id"])
+            await release_generation(db, convo_uuid, generation_epoch)
+            await db.execute(
+                """
+                INSERT INTO ai_answer_events (account_id, conversation_id, message_id, stage_matched, confidence, action, reply_message_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """,
+                account_uuid, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
+            )
         except Exception as e:
-            logger.error(f"Failed to auto-send reply message for conversation {convo_uuid}: {e}")
-            action = "flagged_human"
-            flag_reason = "delivery_failed"
-
-    draft_id = None
-    if action == "drafted":
-        # The advisory lock serializes competing draft generations for the same
-        # conversation. The CTE then supersedes the old draft, stores the new
-        # one, and writes the audit event atomically.
+            logger.error(f"Failed to auto-send AI message: {e}")
+            await release_generation(db, convo_uuid, generation_epoch)
+            action = "failed"
+    elif action == "drafted":
         draft_id = await db.fetchval(
             """
-            WITH state_guard AS (
-				SELECT generation_epoch
-				FROM conversation_ai_state
-				WHERE conversation_id = $2::uuid AND account_id = $1::uuid
-				  AND state = 'active' AND generation_epoch = $7::bigint
-			), draft_lock AS (
-                SELECT pg_advisory_xact_lock(hashtextextended($2::uuid::text, 0))
-				FROM state_guard
-            ), superseded AS (
+            WITH previous AS (
+                SELECT id FROM ai_reply_drafts
+                WHERE conversation_id = $2 AND account_id = $1 AND status = 'pending'
+                FOR UPDATE
+            ), cancelled AS (
                 UPDATE ai_reply_drafts
                 SET status = 'superseded', updated_at = NOW()
-                FROM draft_lock
-                WHERE account_id = $1::uuid AND conversation_id = $2::uuid AND status = 'pending'
+                WHERE id IN (SELECT id FROM previous)
             ), new_draft AS (
                 INSERT INTO ai_reply_drafts (
-                    account_id, conversation_id, source_message_id, draft_text,
-                    stage_matched, confidence
+                    account_id, conversation_id, message_id,
+                    draft_text, status, generation_epoch, stage_matched, confidence,
+                    created_at, updated_at
                 )
-                SELECT $1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::float
-                FROM draft_lock
+                SELECT $1, $2, $3, $4, 'pending', $7, $5, $6, NOW(), NOW()
+                WHERE (SELECT state FROM conversation_ai_state WHERE conversation_id = $2 AND account_id = $1) = 'active'
+                  AND (SELECT generation_epoch FROM conversation_ai_state WHERE conversation_id = $2 AND account_id = $1) = $7
                 RETURNING id
             ), logged_event AS (
                 INSERT INTO ai_answer_events (
-                    account_id, conversation_id, message_id, stage_matched,
-                    confidence, action, reply_message_id
+                    account_id, conversation_id, message_id,
+                    stage_matched, confidence, action, reply_message_id
                 )
                 SELECT $1::uuid, $2::uuid, $3::uuid, $5::text, $6::float, 'drafted', NULL
                 FROM new_draft
@@ -538,6 +678,7 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         "state": final_state,
         "run_state": "idle",
     })
+
 
 
 async def review_due_cooldown(db_pool, redis_client) -> bool:
@@ -666,6 +807,30 @@ async def cooldown_scheduler(db_pool, redis_client):
             logger.exception("Cooldown scheduler failed: %s", error)
             await asyncio.sleep(1)
 
+async def debounce_scheduler(db_pool, redis_client):
+    while True:
+        try:
+            due_conversations = await pop_due_conversations(redis_client)
+            if not due_conversations:
+                await asyncio.sleep(0.5)
+                continue
+            for item in due_conversations:
+                try:
+                    await execute_conversation_cascade(
+                        item["conversation_id"],
+                        item["account_id"],
+                        item["latest_message_id"],
+                        db_pool,
+                        redis_client,
+                        has_non_text=item.get("has_non_text", False),
+                    )
+                except Exception as e:
+                    logger.exception("Error processing debounced conversation %s: %s", item["conversation_id"], e)
+        except Exception as error:
+            logger.exception("Debounce scheduler failed: %s", error)
+            await asyncio.sleep(1)
+
+
 async def process_conversation_closed(data: dict, db_pool, redis_client):
     account_id = data.get("account_id") or data.get("AccountID")
     conversation_id = data.get("conversation_id") or data.get("ConversationID")
@@ -676,6 +841,9 @@ async def process_conversation_closed(data: dict, db_pool, redis_client):
 
     account_uuid = uuid.UUID(account_id)
     convo_uuid = uuid.UUID(conversation_id)
+
+    # Cancel any active AI debounce timer for closed conversation
+    await cancel_debounce(redis_client, convo_uuid)
 
     db = ScopedDB(db_pool, account_uuid)
 
@@ -880,6 +1048,7 @@ async def main():
             process_conversation_closed
         ),
         cooldown_scheduler(db_pool, redis_client),
+        debounce_scheduler(db_pool, redis_client),
     )
 
 if __name__ == "__main__":

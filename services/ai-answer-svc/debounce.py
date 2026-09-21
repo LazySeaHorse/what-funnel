@@ -61,7 +61,11 @@ async def record_inbound_message(
 
     # 2. Update metadata
     meta_key = f"{DEBOUNCE_META_PREFIX}{convo_str}"
-    bubble_count = await redis_client.hincrby(meta_key, "bubble_count", 1)
+    raw_count = await redis_client.hincrby(meta_key, "bubble_count", 1)
+    try:
+        bubble_count = int(raw_count)
+    except (TypeError, ValueError):
+        bubble_count = 1
     mapping = {
         "account_id": str(account_id),
         "latest_message_id": msg_str,
