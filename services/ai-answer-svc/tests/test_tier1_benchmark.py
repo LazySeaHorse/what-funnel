@@ -12,6 +12,8 @@ from typing import Any, Callable
 import pytest
 from rapidfuzz import fuzz
 
+from matcher import match_tier1_patterns
+
 # ==============================================================================
 # 1. Realistic Small Business Definitions & Knowledge Base Patterns
 # ==============================================================================
@@ -783,8 +785,22 @@ def test_edge_cases_rejected():
             )
 
 
+def test_fix1_tier1_benchmark_runs():
+    """Verify Fix 1 (clause segmentation, filler stripping, normalization) runs and improves over baseline."""
+    baseline = evaluate_engine("Current Tier 1", match_tier1_current)
+    fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_patterns)
+    assert fix1.total_queries == 66
+    assert fix1.mundane_faq_queries == 51
+    assert fix1.false_positives == 0
+    assert fix1.true_positives >= baseline.true_positives
+    assert fix1.engagement_rate >= baseline.engagement_rate
+    print(f"\nFix 1 Engagement Rate: {fix1.engagement_rate:.1f}% (Baseline: {baseline.engagement_rate:.1f}%)")
+    print(f"Fix 1 False Positives: {fix1.false_positives}")
+
+
 if __name__ == "__main__":
     b = evaluate_engine("Current Tier 1", match_tier1_current)
+    f1 = evaluate_engine("Fix 1 (Segment)", match_tier1_patterns)
     n = evaluate_engine("Naive Token Set", match_tier1_naive_token_set)
     p = evaluate_engine("Proposed V2", match_tier1_proposed)
-    print(format_results_table([b, n, p]))
+    print(format_results_table([b, f1, n, p]))

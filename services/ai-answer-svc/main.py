@@ -14,6 +14,7 @@ from pydantic import BaseModel, create_model
 from config import config
 from db import ScopedDB, create_db_pool
 from llm import get_ai_config, provider_client
+from matcher import match_tier1_patterns
 from plain_text import normalize_plain_text
 from control import (
     COOLDOWN_DELAYS,
@@ -403,37 +404,16 @@ async def execute_conversation_cascade(
     answer_text = ""
     reply_message_id = None
 
-    # Step 1: Rapidfuzz trigger match (checks both combined text and individual bubbles)
+    # Step 1: Rapidfuzz trigger match using clause segmentation and filler stripping
     patterns = await db.fetch(
         "SELECT trigger_phrases, answer_text FROM patterns WHERE account_id = $1",
         account_uuid
     )
-    RAPIDFUZZ_THRESHOLD = 90.0
-    matched_pattern = None
-
-    for pat in patterns:
-        triggers = pat["trigger_phrases"] or []
-        for trig in triggers:
-            trig_clean = trig.lower().strip()
-            score = fuzz.ratio(trig_clean, inbound_text.lower().strip())
-            if score >= RAPIDFUZZ_THRESHOLD:
-                matched_pattern = pat
-                confidence = 1.0
-                stage_matched = "pattern"
-                answer_text = normalize_plain_text(pat["answer_text"])
-                break
-            for b in bubble_texts:
-                b_score = fuzz.ratio(trig_clean, b.lower().strip())
-                if b_score >= RAPIDFUZZ_THRESHOLD:
-                    matched_pattern = pat
-                    confidence = 1.0
-                    stage_matched = "pattern"
-                    answer_text = normalize_plain_text(pat["answer_text"])
-                    break
-            if matched_pattern:
-                break
-        if matched_pattern:
-            break
+    matched_pattern, match_score = match_tier1_patterns(patterns, bubble_texts)
+    if matched_pattern:
+        confidence = 1.0
+        stage_matched = "pattern"
+        answer_text = normalize_plain_text(matched_pattern["answer_text"])
 
     # Step 2: Embedding stage
     if stage_matched == "none" and patterns:
