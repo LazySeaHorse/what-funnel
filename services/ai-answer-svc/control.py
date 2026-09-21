@@ -6,6 +6,10 @@ HUMAN_REVIEW_REPLY = (
     "This is an automated reply. We received your message and sent it to our "
     "support team. A team member will answer you soon."
 )
+NON_TEXT_HUMAN_REVIEW_REPLY = (
+    "This is an automated reply. We received your attachment and sent it to our "
+    "support team. A team member will answer you soon."
+)
 UNANSWERED_WINDOW = timedelta(minutes=10)
 COOLDOWN_DELAYS = {
     1: timedelta(seconds=30),
@@ -43,7 +47,7 @@ def transcript_within_byte_budget(
     selected: list[str] = []
     remaining = byte_budget
     for role, text in reversed(list(messages)):
-        if text == HUMAN_REVIEW_REPLY:
+        if text == HUMAN_REVIEW_REPLY or text == NON_TEXT_HUMAN_REVIEW_REPLY:
             continue
         line = f"{role}: {text.strip()}"
         encoded = line.encode("utf-8")
