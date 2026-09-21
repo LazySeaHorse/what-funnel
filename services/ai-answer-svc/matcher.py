@@ -1,7 +1,8 @@
 """
 Modular matching helper for AI Cascade Tier 1 matching engine.
 Provides clause segmentation, conversational filler stripping,
-punctuation normalization, and rapidfuzz pattern matching.
+punctuation normalization, content token extraction, word root matching,
+token sort ratio, and coverage-guarded rapidfuzz pattern matching.
 """
 
 from __future__ import annotations
@@ -33,7 +34,18 @@ FILLER_PREFIXES = [
 
 PUNCTUATION_SPLIT_REGEX = re.compile(r"[\n.?!;]+")
 STRIP_PUNCTUATION = " ,!.-?:;\"\x27\n\t"
-RAPIDFUZZ_DEFAULT_THRESHOLD = 90.0
+RAPIDFUZZ_DEFAULT_THRESHOLD = 85.0
+
+# Common grammar, preposition, auxiliary, pronoun, and conversational stopwords
+STOPWORDS: set[str] = {
+    "a", "an", "the", "in", "on", "at", "for", "to", "of", "with", "by", "from",
+    "is", "are", "was", "were", "be", "been", "being", "do", "does", "did",
+    "have", "has", "had", "i", "you", "he", "she", "it", "we", "they", "my", "your",
+    "our", "their", "what", "which", "who", "whom", "this", "that", "these", "those",
+    "am", "can", "could", "would", "should", "there", "here", "guys", "please",
+    "tell", "me", "us", "any", "some", "about", "and", "or", "so", "time",
+    "without", "out", "get",
+}
 
 
 def clean_segment(s: str) -> str:
@@ -67,6 +79,60 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def extract_content_tokens(text: str) -> list[str]:
+    """
+    Extracts content tokens from text, ignoring stopwords and single-character tokens.
+    """
+    if not text or not isinstance(text, str):
+        return []
+    norm = normalize_text(text)
+    return [w for w in norm.split() if w not in STOPWORDS and len(w) > 1]
+
+
+def token_match(t1: str, t2: str) -> bool:
+    """
+    Matches words taking into account plurals, inflections, and stems.
+    Examples:
+        - "cakes" ~ "cake"
+        - "ebikes" ~ "ebike"
+        - "located" ~ "location"
+        - fuzz.ratio >= 80 for words >= 4 chars
+    """
+    if not t1 or not t2:
+        return False
+    t1 = t1.lower().strip()
+    t2 = t2.lower().strip()
+    if t1 == t2:
+        return True
+    if t1 + "s" == t2 or t2 + "s" == t1 or t1 + "es" == t2 or t2 + "es" == t1:
+        return True
+    if len(t1) >= 4 and len(t2) >= 4:
+        if fuzz.ratio(t1, t2) >= 80.0:
+            return True
+        if t1[:4] == t2[:4]:
+            return True
+    return False
+
+
+def count_token_overlap(set1: set[str], set2: set[str]) -> int:
+    """
+    Counts semantic token overlap between two sets.
+    Matches words accounting for plurals, inflections, and stems.
+    Each word in set2 is matched at most once.
+    """
+    if not set1 or not set2:
+        return 0
+    cnt = 0
+    matched_s2: set[str] = set()
+    for w1 in set1:
+        for w2 in set2:
+            if w2 not in matched_s2 and token_match(w1, w2):
+                cnt += 1
+                matched_s2.add(w2)
+                break
+    return cnt
+
+
 def segment_inbound(bubbles: list[str]) -> list[str]:
     """
     Splits bubbles by punctuation boundaries [.?!;\n]+, cleans each segment,
@@ -92,8 +158,14 @@ def match_tier1_patterns(
     threshold: float = RAPIDFUZZ_DEFAULT_THRESHOLD,
 ) -> tuple[dict | Any | None, float]:
     """
-    Evaluates trigger phrases against cleaned segments using rapidfuzz fuzz.ratio.
-    Returns (matched_pattern, score) if score >= threshold, or (None, 0.0) if no match.
+    Evaluates trigger phrases against cleaned segments using a combination of:
+    1. Levenshtein ratio (fuzz.ratio >= 88.0)
+    2. Token sort ratio with length safeguard (fuzz.token_sort_ratio >= 85.0 with len_ratio >= 0.40)
+    3. Terse keyword matching (1-2 content words completely matched in trigger tokens)
+    4. Conversational coverage matching (trigger concepts substantially covered in query clause,
+       e.g. t_cov >= 0.50 and s_cov >= 0.35 or t_cov == 1.0 and s_cov >= 0.25, scored with fuzz.token_set_ratio)
+
+    Returns (matched_pattern, score) if score >= threshold (default 85.0), or (None, 0.0) if no match.
     """
     if not patterns or not bubbles:
         return None, 0.0
@@ -118,21 +190,57 @@ def match_tier1_patterns(
                 continue
             c_trig = normalize_text(trig)
             raw_trig = trig.lower().strip()
+            t_tokens = set(extract_content_tokens(c_trig))
 
             for seg in segments:
                 c_seg = normalize_text(seg)
                 raw_seg = seg.lower().strip()
+                s_tokens = set(extract_content_tokens(c_seg))
 
-                score_norm = float(fuzz.ratio(c_trig, c_seg))
-                score_raw = float(fuzz.ratio(raw_trig, raw_seg))
-                score = max(score_norm, score_raw)
-
-                if score >= threshold and score > best_score:
-                    best_score = score
+                # 1. Exact or near-exact Levenshtein ratio (typos, minor variance)
+                r_norm = float(fuzz.ratio(c_trig, c_seg))
+                r_raw = float(fuzz.ratio(raw_trig, raw_seg))
+                r_score = max(r_norm, r_raw)
+                if r_score >= 88.0 and r_score > best_score:
+                    best_score = r_score
                     best_pattern = pat
                     if best_score == 100.0:
                         return best_pattern, 100.0
+                    continue
 
-    if best_pattern is not None:
+                # 2. Token Sort Ratio (word reordering) with length safeguard
+                tsr_score = float(fuzz.token_sort_ratio(c_trig, c_seg))
+                max_len = max(len(c_trig), len(c_seg))
+                len_ratio = min(len(c_trig), len(c_seg)) / max_len if max_len > 0 else 0.0
+                if tsr_score >= 85.0 and len_ratio >= 0.40 and tsr_score > best_score:
+                    best_score = tsr_score
+                    best_pattern = pat
+                    continue
+
+                # 3. Content Token Matching with Length & Coverage Safeguards
+                if not t_tokens or not s_tokens:
+                    continue
+
+                overlap_cnt = count_token_overlap(t_tokens, s_tokens)
+                t_cov = overlap_cnt / len(t_tokens)
+                s_cov = overlap_cnt / len(s_tokens)
+
+                # Terse input match: 1-2 content words completely matched in trigger tokens
+                # (e.g. "hours" -> "clinic hours", "parking" -> "parking options")
+                if len(s_tokens) <= 2 and overlap_cnt == len(s_tokens):
+                    if all(len(w) > 2 for w in s_tokens) and 92.0 > best_score:
+                        best_score = 92.0
+                        best_pattern = pat
+                        continue
+
+                # Conversational coverage match:
+                # Trigger concepts are substantially contained in query clause
+                if (t_cov >= 0.50 and s_cov >= 0.35) or (t_cov == 1.0 and s_cov >= 0.25):
+                    score = max(88.0, float(fuzz.token_set_ratio(c_trig, c_seg)))
+                    if score > best_score:
+                        best_score = score
+                        best_pattern = pat
+
+    if best_score >= threshold:
         return best_pattern, best_score
     return None, 0.0

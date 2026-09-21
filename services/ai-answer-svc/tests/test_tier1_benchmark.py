@@ -785,10 +785,41 @@ def test_edge_cases_rejected():
             )
 
 
+def match_tier1_fix1(patterns: list[dict], bubbles: list[str]) -> tuple[dict | None, float]:
+    """
+    Fix 1 implementation: clause segmentation, filler stripping, and punctuation normalization
+    with strict Levenshtein ratio >= 90.0.
+    """
+    if not patterns or not bubbles:
+        return None, 0.0
+    segments = segment_inbound(bubbles)
+    if not segments:
+        return None, 0.0
+    best_pattern = None
+    best_score = 0.0
+    for pat in patterns:
+        triggers = pat.get("trigger_phrases") or []
+        for trig in triggers:
+            c_trig = normalize_text(trig)
+            raw_trig = trig.lower().strip()
+            for seg in segments:
+                c_seg = normalize_text(seg)
+                raw_seg = seg.lower().strip()
+                score = max(float(fuzz.ratio(c_trig, c_seg)), float(fuzz.ratio(raw_trig, raw_seg)))
+                if score >= 90.0 and score > best_score:
+                    best_score = score
+                    best_pattern = pat
+                    if best_score == 100.0:
+                        return best_pattern, 100.0
+    if best_pattern is not None:
+        return best_pattern, best_score
+    return None, 0.0
+
+
 def test_fix1_tier1_benchmark_runs():
     """Verify Fix 1 (clause segmentation, filler stripping, normalization) runs and improves over baseline."""
     baseline = evaluate_engine("Current Tier 1", match_tier1_current)
-    fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_patterns)
+    fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
     assert fix1.total_queries == 66
     assert fix1.mundane_faq_queries == 51
     assert fix1.false_positives == 0
@@ -798,9 +829,25 @@ def test_fix1_tier1_benchmark_runs():
     print(f"Fix 1 False Positives: {fix1.false_positives}")
 
 
+def test_fix2_tier1_benchmark_runs():
+    """Verify Fix 2 (content token matching, root matching, token sort ratio, coverage safeguards) in matcher.py."""
+    baseline = evaluate_engine("Current Tier 1", match_tier1_current)
+    fix1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
+    fix2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_patterns)
+    assert fix2.total_queries == 66
+    assert fix2.mundane_faq_queries == 51
+    assert fix2.false_positives == 0
+    assert fix2.true_positives > fix1.true_positives
+    assert fix2.engagement_rate >= 90.0
+    print(f"\nFix 2 Engagement Rate: {fix2.engagement_rate:.1f}% (Fix 1: {fix1.engagement_rate:.1f}%, Baseline: {baseline.engagement_rate:.1f}%)")
+    print(f"Fix 2 False Positives: {fix2.false_positives}")
+
+
 if __name__ == "__main__":
     b = evaluate_engine("Current Tier 1", match_tier1_current)
-    f1 = evaluate_engine("Fix 1 (Segment)", match_tier1_patterns)
+    f1 = evaluate_engine("Fix 1 (Segment)", match_tier1_fix1)
+    f2 = evaluate_engine("Fix 2 (Tokens)", match_tier1_patterns)
     n = evaluate_engine("Naive Token Set", match_tier1_naive_token_set)
     p = evaluate_engine("Proposed V2", match_tier1_proposed)
-    print(format_results_table([b, f1, n, p]))
+    print(format_results_table([b, f1, f2, n, p]))
+
