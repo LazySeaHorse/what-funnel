@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ func CSRFProtection() func(http.Handler) http.Handler {
 				p == "/auth/login" || p == "/api-gateway/auth/login" ||
 				p == "/auth/signup" || p == "/api-gateway/auth/signup" ||
 				strings.HasPrefix(p, "/webhooks") || strings.HasPrefix(p, "/api-gateway/webhooks") ||
-				p == "/simulate-inbound" || p == "/api-gateway/simulate-inbound" {
+				((p == "/simulate-inbound" || p == "/api-gateway/simulate-inbound") && os.Getenv("APP_ENV") != "production") {
 				next.ServeHTTP(w, r)
 				return
 			}

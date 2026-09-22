@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -137,12 +138,14 @@ func newRouter(
 	// Proxy /leads/* → conversation-svc
 	r.PathPrefix("/leads").Handler(proxy.HTTP(conversationBase, logger))
 
-	// Proxy /internal/conversations/* → conversation-svc
-	r.PathPrefix("/internal/conversations").Handler(proxy.HTTP(conversationBase, logger))
-
-	// Proxy /simulate-inbound and /simulate/* → conversation-svc (dev test simulation)
-	r.PathPrefix("/simulate").Handler(proxy.HTTP(conversationBase, logger))
-	r.Handle("/simulate-inbound", proxy.HTTP(conversationBase, logger))
+	// In production, internal inter-service endpoints and simulation test harnesses
+	// are not mounted on the public gateway to prevent unauthorized external access.
+	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+	if appEnv != "production" || os.Getenv("ENABLE_SIMULATION_ROUTES") == "true" {
+		r.PathPrefix("/internal/conversations").Handler(proxy.HTTP(conversationBase, logger))
+		r.PathPrefix("/simulate").Handler(proxy.HTTP(conversationBase, logger))
+		r.Handle("/simulate-inbound", proxy.HTTP(conversationBase, logger))
+	}
 
 	// Proxy /ws → notification-svc (WebSocket)
 	// Note: In production, Nginx proxies /ws directly to notification-svc:8084 to eliminate

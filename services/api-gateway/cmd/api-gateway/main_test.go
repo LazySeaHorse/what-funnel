@@ -285,3 +285,34 @@ func TestGatewayForwardsKBResponseShape(t *testing.T) {
 		}
 	}
 }
+
+func TestGateway_SimulationAndInternalRoutesBlockedInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("ENABLE_SIMULATION_ROUTES", "false")
+
+	identitySrv := startFakeIdentity(t, true, "admin")
+	kbSrv, _ := startFakeKB(t)
+
+	gw := httptest.NewServer(buildRouter(t, identitySrv.URL, kbSrv.URL))
+	defer gw.Close()
+
+	// 1. /internal/conversations should be blocked (404)
+	resp, err := http.Get(gw.URL + "/internal/conversations")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for /internal/conversations in production, got %d", resp.StatusCode)
+	}
+
+	// 2. /simulate-inbound should be blocked (404)
+	respSim, err := http.Post(gw.URL+"/simulate-inbound", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respSim.Body.Close()
+	if respSim.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for /simulate-inbound in production, got %d", respSim.StatusCode)
+	}
+}

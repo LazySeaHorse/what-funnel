@@ -34,6 +34,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 
 	// Outbound Send
 	r.Handle("/internal/conversations/{id}/send", auth(http.HandlerFunc(h.SendMessage))).Methods(http.MethodPost)
+	r.Handle("/conversations/{id}/send", auth(http.HandlerFunc(h.SendMessage))).Methods(http.MethodPost)
 
 	// Channel lifecycle
 	r.Handle("/channels", auth(admin(http.HandlerFunc(h.ListChannels)))).Methods(http.MethodGet)
