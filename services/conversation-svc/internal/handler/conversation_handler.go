@@ -133,6 +133,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
 	conversationID, messageID, ok := providerMessageIDs(w, r)
 	if !ok {
 		return
@@ -144,7 +145,15 @@ func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.svc.EditProviderMessage(r.Context(), accountID, userID, conversationID, messageID, body.Text); err != nil {
+	if err := h.svc.EditProviderMessage(r.Context(), accountID, userID, role, conversationID, messageID, body.Text); err != nil {
+		if strings.Contains(err.Error(), "forbidden") {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -154,11 +163,20 @@ func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteProviderMessage(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
 	conversationID, messageID, ok := providerMessageIDs(w, r)
 	if !ok {
 		return
 	}
-	if err := h.svc.DeleteProviderMessage(r.Context(), accountID, userID, conversationID, messageID); err != nil {
+	if err := h.svc.DeleteProviderMessage(r.Context(), accountID, userID, role, conversationID, messageID); err != nil {
+		if strings.Contains(err.Error(), "forbidden") {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -168,6 +186,7 @@ func (h *Handler) DeleteProviderMessage(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request) {
 	accountID, _ := middleware.AccountIDFromContext(r)
 	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
 	conversationID, messageID, ok := providerMessageIDs(w, r)
 	if !ok {
 		return
@@ -180,7 +199,15 @@ func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := h.svc.ChangeProviderReaction(r.Context(), accountID, userID, conversationID, messageID, body.Emoji, body.Removed); err != nil {
+	if err := h.svc.ChangeProviderReaction(r.Context(), accountID, userID, role, conversationID, messageID, body.Emoji, body.Removed); err != nil {
+		if strings.Contains(err.Error(), "forbidden") {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

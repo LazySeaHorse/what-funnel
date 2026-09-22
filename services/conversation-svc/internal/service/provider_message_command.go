@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
 type providerMessageTarget struct {
@@ -21,29 +22,35 @@ type providerMessageTarget struct {
 	providerMessage string
 	contentType     messaging.ContentType
 	capabilities    messaging.Capabilities
+	senderUserID    *uuid.UUID
 }
 
-func (s *ConversationService) EditProviderMessage(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, text string) error {
+func (s *ConversationService) EditProviderMessage(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return errors.New("message text is required")
 	}
-	return s.enqueueProviderMessageCommand(ctx, accountID, userID, conversationID, messageID, messaging.CommandEditMessage, text, "", false)
+	return s.enqueueProviderMessageCommand(ctx, accountID, userID, role, conversationID, messageID, messaging.CommandEditMessage, text, "", false)
 }
 
-func (s *ConversationService) DeleteProviderMessage(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID) error {
-	return s.enqueueProviderMessageCommand(ctx, accountID, userID, conversationID, messageID, messaging.CommandDeleteMessage, "", "", false)
+func (s *ConversationService) DeleteProviderMessage(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID) error {
+	return s.enqueueProviderMessageCommand(ctx, accountID, userID, role, conversationID, messageID, messaging.CommandDeleteMessage, "", "", false)
 }
 
-func (s *ConversationService) ChangeProviderReaction(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, emoji string, removed bool) error {
+func (s *ConversationService) ChangeProviderReaction(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, emoji string, removed bool) error {
 	emoji = strings.TrimSpace(emoji)
 	if !removed && emoji == "" {
 		return errors.New("reaction emoji is required")
 	}
-	return s.enqueueProviderMessageCommand(ctx, accountID, userID, conversationID, messageID, messaging.CommandChangeReaction, "", emoji, removed)
+	return s.enqueueProviderMessageCommand(ctx, accountID, userID, role, conversationID, messageID, messaging.CommandChangeReaction, "", emoji, removed)
 }
 
-func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, kind messaging.CommandKind, text, emoji string, removed bool) error {
+func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, kind messaging.CommandKind, text, emoji string, removed bool) error {
+	// 1. Verify caller can see the conversation (SEC-06)
+	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+		return errors.New("conversation not found")
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin provider message command: %w", err)
@@ -54,6 +61,18 @@ func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context,
 	if err != nil {
 		return err
 	}
+
+	// 2. Enforce message ownership policy for mutations (SEC-06)
+	// Managers and Admins can edit or delete any message.
+	// Regular agents can only edit or delete messages they personally authored.
+	if role != types.RoleAdmin && role != types.RoleManager {
+		if kind == messaging.CommandEditMessage || kind == messaging.CommandDeleteMessage {
+			if target.senderUserID == nil || *target.senderUserID != userID {
+				return errors.New("forbidden: cannot modify messages sent by other users")
+			}
+		}
+	}
+
 	if err := requireProviderCapability(target.capabilities, kind); err != nil {
 		return err
 	}
@@ -106,14 +125,14 @@ func loadProviderMessageTarget(ctx context.Context, tx pgx.Tx, accountID, conver
 	var capabilityJSON []byte
 	err := tx.QueryRow(ctx, `
 		SELECT ch.id, COALESCE(ch.provider, ch.type), COALESCE(c.external_thread_id, co.external_identity),
-		       m.provider_message_id, m.content_type, ch.capabilities
+		       m.provider_message_id, m.content_type, ch.capabilities, m.sender_user_id
 		FROM messages m
 		JOIN conversations c ON c.id = m.conversation_id
 		JOIN channels ch ON ch.id = c.channel_id
 		JOIN contacts co ON co.id = c.contact_id
 		WHERE m.id = $1 AND m.conversation_id = $2 AND m.account_id = $3
 		  AND m.direction = 'outbound' AND m.provider_message_id IS NOT NULL
-	`, messageID, conversationID, accountID).Scan(&target.channelID, &target.provider, &target.externalThread, &target.providerMessage, &target.contentType, &capabilityJSON)
+	`, messageID, conversationID, accountID).Scan(&target.channelID, &target.provider, &target.externalThread, &target.providerMessage, &target.contentType, &capabilityJSON, &target.senderUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return providerMessageTarget{}, errors.New("provider message not found or is not mutable")
 	}
