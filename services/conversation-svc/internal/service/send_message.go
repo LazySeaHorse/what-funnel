@@ -52,26 +52,45 @@ type outboundDestination struct {
 	capabilities     messaging.Capabilities
 }
 
+// SendMessageParams contains all arguments for sending an outbound message.
+type SendMessageParams struct {
+	AccountID         uuid.UUID
+	ConversationID    uuid.UUID
+	Sender            types.MessageSender
+	SenderUserID      *uuid.UUID
+	ContentType       string
+	Text              string
+	MediaID           string
+	ReplyToMessageID  *uuid.UUID
+	ReplyToProviderID string
+	AIReplyDraftID    *uuid.UUID
+	GenerationEpoch   *int64
+	Purpose           types.MessagePurpose
+	IdempotencyKey    string
+}
+
+func (p SendMessageParams) toCommand() sendMessageCommand {
+	return sendMessageCommand{
+		accountID:         p.AccountID,
+		conversationID:    p.ConversationID,
+		sender:            p.Sender,
+		senderUserID:      p.SenderUserID,
+		contentType:       p.ContentType,
+		text:              p.Text,
+		mediaID:           p.MediaID,
+		replyToMessageID:  p.ReplyToMessageID,
+		replyToProviderID: p.ReplyToProviderID,
+		aiReplyDraftID:    p.AIReplyDraftID,
+		generationEpoch:   p.GenerationEpoch,
+		purpose:           p.Purpose,
+		idempotencyKey:    p.IdempotencyKey,
+	}
+}
+
 // SendMessage sends an outbound message via the registered adapter and records
 // it in the database within a single transaction.
-func (s *Service) SendMessage(
-	ctx context.Context,
-	accountID, conversationID uuid.UUID,
-	senderType string,
-	senderUserID *uuid.UUID,
-	contentType, text, mediaID string,
-	replyToMessageID *uuid.UUID,
-	aiReplyDraftID *uuid.UUID,
-	generationEpoch *int64,
-	messagePurpose, idempotencyKey string,
-) (*types.Message, error) {
-	return s.sendMessage(ctx, sendMessageCommand{
-		accountID: accountID, conversationID: conversationID,
-		sender: types.MessageSender(senderType), senderUserID: senderUserID,
-		contentType: contentType, text: text, mediaID: mediaID, replyToMessageID: replyToMessageID,
-		aiReplyDraftID: aiReplyDraftID, generationEpoch: generationEpoch,
-		purpose: types.MessagePurpose(messagePurpose), idempotencyKey: idempotencyKey,
-	})
+func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) (*types.Message, error) {
+	return s.sendMessage(ctx, params.toCommand())
 }
 
 func (s *Service) sendMessage(ctx context.Context, cmd sendMessageCommand) (*types.Message, error) {

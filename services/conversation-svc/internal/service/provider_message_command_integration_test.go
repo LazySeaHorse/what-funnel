@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 func TestProviderMessageMutationsShareTheTransactionalOutbox(t *testing.T) {
@@ -33,7 +35,16 @@ func TestProviderMessageMutationsShareTheTransactionalOutbox(t *testing.T) {
 	require.NoError(t, svc.EditProviderMessage(ctx, accountID, userID, conversationID, messageID, "after"))
 	require.NoError(t, svc.DeleteProviderMessage(ctx, accountID, userID, conversationID, messageID))
 	require.NoError(t, svc.ChangeProviderReaction(ctx, accountID, userID, conversationID, messageID, "👍", false))
-	reply, err := svc.SendMessage(ctx, accountID, conversationID, "human", &userID, "text", "reply", "", &messageID, nil, nil, "", "reply-idempotency-key")
+	reply, err := svc.SendMessage(ctx, service.SendMessageParams{
+		AccountID:        accountID,
+		ConversationID:   conversationID,
+		Sender:           types.MessageSenderHuman,
+		SenderUserID:     &userID,
+		ContentType:      "text",
+		Text:             "reply",
+		ReplyToMessageID: &messageID,
+		IdempotencyKey:   "reply-idempotency-key",
+	})
 	require.NoError(t, err)
 	var replyPayload []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT command FROM message_outbox WHERE message_id = $1`, reply.ID).Scan(&replyPayload))

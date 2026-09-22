@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
@@ -77,11 +78,20 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		replyToMessageID = &replyID
 	}
 
-	msg, err := h.svc.SendMessage(
-		r.Context(), accountID, convoID, body.SenderType, senderUserID,
-		body.ContentType, body.Text, body.MediaID, replyToMessageID, aiReplyDraftID,
-		body.GenerationEpoch, body.MessagePurpose, body.IdempotencyKey,
-	)
+	msg, err := h.svc.SendMessage(r.Context(), service.SendMessageParams{
+		AccountID:        accountID,
+		ConversationID:   convoID,
+		Sender:           types.MessageSender(body.SenderType),
+		SenderUserID:     senderUserID,
+		ContentType:      body.ContentType,
+		Text:             body.Text,
+		MediaID:          body.MediaID,
+		ReplyToMessageID: replyToMessageID,
+		AIReplyDraftID:   aiReplyDraftID,
+		GenerationEpoch:  body.GenerationEpoch,
+		Purpose:          types.MessagePurpose(body.MessagePurpose),
+		IdempotencyKey:   body.IdempotencyKey,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
