@@ -305,12 +305,13 @@ services:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       REDIS_URL: redis:6379
       APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
+      INTERNAL_SERVICE_TOKEN: "change-me-in-production-at-least-32-chars"
       PORT: "8085"
       LOG_LEVEL: info
       MINING_INTERVAL_HOURS: "6"
       AI_REQUEST_TIMEOUT_SECONDS: "1000"
-    ports:
-      - "8085:8085"
+    expose:
+      - "8085"
     volumes:
       - ./services/ai-kb-compiler:/app
     depends_on:
