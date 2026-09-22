@@ -20,6 +20,16 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 )
 
+// Option configures a workspace Service.
+type Option func(*Service)
+
+// WithIdentityProvisioner configures a custom IdentityProvisioner.
+func WithIdentityProvisioner(p IdentityProvisioner) Option {
+	return func(s *Service) {
+		s.identity = p
+	}
+}
+
 // Service handles workspace operations.
 type Service struct {
 	pool                     *pgxpool.Pool
@@ -27,22 +37,28 @@ type Service struct {
 	aiProviderTestTimeout    time.Duration
 	aiProviderTestMaxRetries int
 	aiProviderTestRetryDelay time.Duration
+	identity                 IdentityProvisioner
 }
 
 // New creates a workspace Service.
 // encryptionKey is a 32-byte raw string or 64-char hex key for AES-256-GCM.
-func New(pool *pgxpool.Pool, encryptionKey string) (*Service, error) {
+func New(pool *pgxpool.Pool, encryptionKey string, opts ...Option) (*Service, error) {
 	cipher, err := crypto.NewCipherFromHex(encryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("workspace service: %w", err)
 	}
-	return &Service{
+	svc := &Service{
 		pool:                     pool,
 		cipher:                   cipher,
 		aiProviderTestTimeout:    durationFromEnv("AI_PROVIDER_TEST_TIMEOUT_SECONDS", 60*time.Second),
 		aiProviderTestMaxRetries: 2,
 		aiProviderTestRetryDelay: 250 * time.Millisecond,
-	}, nil
+		identity:                 NewIdentityProvisioner(pool, os.Getenv("IDENTITY_SVC_URL")),
+	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc, nil
 }
 
 func durationFromEnv(name string, fallback time.Duration) time.Duration {

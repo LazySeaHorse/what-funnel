@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	ab "github.com/aarondl/authboss/v3"
@@ -19,11 +20,22 @@ import (
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/store"
 )
 
-// Service handles auth lifecycle: signup, login, logout.
+// Option configures an identity Service.
+type Option func(*Service)
+
+// WithWorkspaceProvisioner injects a custom WorkspaceProvisioner into Service.
+func WithWorkspaceProvisioner(wp WorkspaceProvisioner) Option {
+	return func(s *Service) {
+		s.workspaceProvisioner = wp
+	}
+}
+
+// Service handles auth lifecycle: signup, login, logout, and user provisioning.
 type Service struct {
-	pool     *pgxpool.Pool
-	sessions *session.Store
-	ab       *ab.Authboss
+	pool                 *pgxpool.Pool
+	sessions             *session.Store
+	ab                   *ab.Authboss
+	workspaceProvisioner WorkspaceProvisioner
 }
 
 // SignupRequest carries the fields needed to create an account + manager user.
@@ -43,7 +55,7 @@ type LoginRequest struct {
 }
 
 // New creates a Service wired to the given pool and session store.
-func New(pool *pgxpool.Pool, sessions *session.Store) (*Service, error) {
+func New(pool *pgxpool.Pool, sessions *session.Store, opts ...Option) (*Service, error) {
 	cfg := ab.New()
 	cfg.Config.Paths.RootURL = "http://localhost:8081"
 	// We use authboss only for its password-hashing primitives in this
@@ -53,11 +65,17 @@ func New(pool *pgxpool.Pool, sessions *session.Store) (*Service, error) {
 		return nil, fmt.Errorf("service: authboss init: %w", err)
 	}
 
-	return &Service{
-		pool:     pool,
-		sessions: sessions,
-		ab:       cfg,
-	}, nil
+	svc := &Service{
+		pool:                 pool,
+		sessions:             sessions,
+		ab:                   cfg,
+		workspaceProvisioner: NewDefaultWorkspaceProvisioner(),
+	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+
+	return svc, nil
 }
 
 // Signup creates an account, manager user, and default pipeline in one atomic
@@ -132,16 +150,11 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		return nil, fmt.Errorf("service: create user: %w", err)
 	}
 
-	// 4. Seed default pipeline
-	statesJSON, err := json.Marshal(types.DefaultPipelineStates)
-	if err != nil {
-		return nil, fmt.Errorf("service: marshal default states: %w", err)
-	}
-	_, err = tx.Exec(ctx,
-		`INSERT INTO lead_pipelines (account_id, name, states) VALUES ($1, $2, $3)`,
-		accountID, "Default Pipeline", statesJSON)
-	if err != nil {
-		return nil, fmt.Errorf("service: seed default pipeline: %w", err)
+	// 4. Provision workspace / CRM domain entities via WorkspaceProvisioner
+	if svc.workspaceProvisioner != nil {
+		if err := svc.workspaceProvisioner.ProvisionWorkspace(ctx, tx, accountID, req.ProductMode); err != nil {
+			return nil, fmt.Errorf("service: provision workspace: %w", err)
+		}
 	}
 
 	// 5. Write account audit log
@@ -260,6 +273,240 @@ func (svc *Service) Logout(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	return nil
+}
+
+// CreateUserRequest carries fields needed to create a user.
+type CreateUserRequest struct {
+	Email    string `json:"email,omitempty"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+}
+
+// CreateUserResult is returned by CreateUser.
+type CreateUserResult struct {
+	ID                uuid.UUID `json:"id"`
+	Email             string    `json:"email,omitempty"`
+	Username          string    `json:"username"`
+	Role              string    `json:"role"`
+	PlaintextPassword string    `json:"password,omitempty"`
+}
+
+// CreateUser creates a user under an account, enforcing username rules and hashing password via Authboss.
+func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID, req CreateUserRequest) (*CreateUserResult, error) {
+	if req.Role != types.RoleManager && req.Role != types.RoleAgent {
+		return nil, fmt.Errorf("invalid role: %q", req.Role)
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		return nil, fmt.Errorf("username is required")
+	}
+	if len(req.Username) < 2 {
+		return nil, fmt.Errorf("username must be at least 2 characters")
+	}
+	for _, ch := range req.Username {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+			return nil, fmt.Errorf("username may only contain alphanumeric characters, hyphens, and underscores")
+		}
+	}
+	if req.Password == "" {
+		return nil, fmt.Errorf("password is required")
+	}
+
+	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(req.Password)
+	if err != nil {
+		return nil, fmt.Errorf("service: hash password: %w", err)
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if req.Email != "" {
+		var count int
+		_ = tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE email = $1`, req.Email).Scan(&count)
+		if count > 0 {
+			return nil, fmt.Errorf("service: email already registered")
+		}
+	}
+
+	var userID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (account_id, email, username, password_hash, role) VALUES ($1, NULLIF($2, ''), $3, $4, $5) RETURNING id`,
+		accountID, req.Email, req.Username, hash, req.Role).Scan(&userID)
+	if err != nil {
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionUserCreatedByAdmin,
+		TargetType:  audit.TargetUser,
+		TargetID:    &userID,
+		Metadata:    map[string]any{"username": req.Username, "role": req.Role},
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &CreateUserResult{
+		ID:                userID,
+		Email:             req.Email,
+		Username:          req.Username,
+		Role:              req.Role,
+		PlaintextPassword: req.Password,
+	}, nil
+}
+
+// ResetUserPassword hashes the new password with Authboss, updates users table, and revokes sessions.
+func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newPassword string) error {
+	if newPassword == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(newPassword)
+	if err != nil {
+		return fmt.Errorf("service: hash password: %w", err)
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var exists bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
+		Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("user not found in account")
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE users SET password_hash = $1 WHERE id = $2 AND account_id = $3`, hash, targetUserID, accountID)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	// Revoke all existing sessions for targetUserID
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionUserPasswordReset,
+		TargetType:  audit.TargetUser,
+		TargetID:    &targetUserID,
+		Metadata:    map[string]any{},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// DeleteUser removes a user from an account and revokes existing sessions.
+func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUserID uuid.UUID) error {
+	if actorID == targetUserID {
+		return fmt.Errorf("cannot delete own account")
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var exists bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
+		Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("user not found in account")
+	}
+
+	_, err = tx.Exec(ctx, `DELETE FROM users WHERE id = $1 AND account_id = $2`, targetUserID, accountID)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+
+	// Revoke all existing sessions for targetUserID
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionUserDeleted,
+		TargetType:  audit.TargetUser,
+		TargetID:    &targetUserID,
+		Metadata:    map[string]any{},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ChangeUserRole updates the role of a user and revokes old sessions.
+func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newRole string) error {
+	if newRole != types.RoleManager && newRole != types.RoleAgent {
+		return fmt.Errorf("invalid role: %q", newRole)
+	}
+
+	tx, err := svc.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var exists bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
+		Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("user not found in account")
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE users SET role = $1 WHERE id = $2 AND account_id = $3`, newRole, targetUserID, accountID)
+	if err != nil {
+		return fmt.Errorf("update role: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+
+	aw := audit.NewWriterFromTx(tx)
+	if err := aw.Write(ctx, audit.Entry{
+		AccountID:   accountID,
+		ActorUserID: &actorID,
+		Action:      audit.ActionUserRoleChanged,
+		TargetType:  audit.TargetUser,
+		TargetID:    &targetUserID,
+		Metadata:    map[string]any{"role": newRole},
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 // pgxExecer wraps pgxpool.Pool to satisfy the audit.Writer's Exec interface.
