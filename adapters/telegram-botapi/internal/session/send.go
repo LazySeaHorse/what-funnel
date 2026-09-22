@@ -15,12 +15,6 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 )
 
-type MediaFile struct {
-	Data     []byte
-	MIMEType string
-	Filename string
-}
-
 type MediaSource interface {
 	Fetch(context.Context, string) (MediaFile, error)
 }

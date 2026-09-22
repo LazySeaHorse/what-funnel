@@ -18,26 +18,25 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/botapi"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/normalize"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	wfcrypto "github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 )
 
 var (
-	ErrAlreadyExists = errors.New("telegram session: bot already connected")
-	ErrNotFound      = errors.New("telegram session: channel not found")
-	ErrNotConnected  = errors.New("telegram session: channel not connected")
+	ErrAlreadyExists = adapterkit.ErrAlreadyExists
+	ErrNotFound      = adapterkit.ErrNotFound
+	ErrNotConnected  = adapterkit.ErrNotConnected
 )
 
 type EventPublisher interface {
 	Publish(context.Context, messaging.Event) error
 }
 
-type Snapshot struct {
-	ChannelID       string                     `json:"channel_id"`
-	State           messaging.ConnectionStatus `json:"state"`
-	Detail          string                     `json:"detail,omitempty"`
-	RemoteAccountID string                     `json:"remote_account_id,omitempty"`
-}
+type (
+	Snapshot  = adapterkit.Snapshot
+	MediaFile = adapterkit.MediaFile
+)
 
 type botSession struct {
 	channelID string
