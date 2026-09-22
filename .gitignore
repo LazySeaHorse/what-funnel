@@ -5,6 +5,7 @@
 *.so
 *.dylib
 bin/
+/services/api-gateway/api-gateway
 
 # Go build artifacts
 *.test
