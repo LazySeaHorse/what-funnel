@@ -22,27 +22,25 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
 var (
-	ErrAlreadyExists = errors.New("whatsapp session: channel already exists")
-	ErrNotFound      = errors.New("whatsapp session: channel not found")
-	ErrNotConnected  = errors.New("whatsapp session: channel not connected")
+	ErrAlreadyExists = adapterkit.ErrAlreadyExists
+	ErrNotFound      = adapterkit.ErrNotFound
+	ErrNotConnected  = adapterkit.ErrNotConnected
 )
 
 type EventPublisher interface {
 	Publish(context.Context, messaging.Event) error
 }
 
-type Snapshot struct {
-	ChannelID       string                     `json:"channel_id"`
-	State           messaging.ConnectionStatus `json:"state"`
-	Detail          string                     `json:"detail,omitempty"`
-	QRData          string                     `json:"qr_data,omitempty"`
-	RemoteAccountID string                     `json:"remote_account_id,omitempty"`
-}
+type (
+	Snapshot  = adapterkit.Snapshot
+	MediaFile = adapterkit.MediaFile
+)
 
 type clientSession struct {
 	client      *whatsmeow.Client

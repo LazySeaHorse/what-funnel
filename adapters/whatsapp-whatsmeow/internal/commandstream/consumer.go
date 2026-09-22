@@ -1,10 +1,7 @@
 package commandstream
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
@@ -14,39 +11,24 @@ const (
 	consumerGroup  = "whatsapp-adapter"
 )
 
-type Sender interface {
-	Send(context.Context, messaging.Command) error
-}
+type Sender = adapterkit.CommandSender
 
 type Consumer struct {
-	client       *pubsub.Client
-	sender       Sender
+	*adapterkit.CommandConsumer
 	consumerName string
+	sender       Sender
 }
 
 func NewConsumer(client *pubsub.Client, sender Sender, consumerName string) *Consumer {
-	return &Consumer{client: client, sender: sender, consumerName: consumerName}
-}
-
-func (c *Consumer) Run(ctx context.Context) error {
-	err := c.client.Consume(
-		ctx,
-		CommandsStream,
-		consumerGroup,
-		c.consumerName,
-		func(ctx context.Context, _ string, payload []byte) error {
-			var command messaging.Command
-			if err := json.Unmarshal(payload, &command); err != nil {
-				return nil
-			}
-			if err := command.Validate(); err != nil || command.Provider != messaging.ProviderWhatsApp {
-				return nil
-			}
-			return c.sender.Send(ctx, command)
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("consume whatsapp commands: %w", err)
+	base := adapterkit.NewCommandConsumer(client, sender, adapterkit.ConsumerConfig{
+		Provider:     messaging.ProviderWhatsApp,
+		ConsumerName: consumerName,
+		Stream:       CommandsStream,
+		Group:        consumerGroup,
+	})
+	return &Consumer{
+		CommandConsumer: base,
+		consumerName:    consumerName,
+		sender:          sender,
 	}
-	return nil
 }

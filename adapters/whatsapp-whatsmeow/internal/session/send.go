@@ -24,12 +24,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type MediaFile struct {
-	Data     []byte
-	MIMEType string
-	Filename string
-}
-
 type MediaSource interface {
 	Fetch(context.Context, string) (MediaFile, error)
 }
