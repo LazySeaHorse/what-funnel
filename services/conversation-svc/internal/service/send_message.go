@@ -106,11 +106,11 @@ func (s *ConversationService) sendMessage(ctx context.Context, cmd sendMessageCo
 	if existing, err := findIdempotentMessage(ctx, tx, cmd); err != nil || existing != nil {
 		return existing, err
 	}
-	if err = authorizeAIMessage(ctx, tx, cmd); err != nil {
-		return nil, err
-	}
 	destination, err := loadOutboundDestination(ctx, tx, cmd.accountID, cmd.conversationID)
 	if err != nil {
+		return nil, err
+	}
+	if err = authorizeAIMessage(ctx, tx, cmd); err != nil {
 		return nil, err
 	}
 	if err = lockReplyDraft(ctx, tx, cmd); err != nil {
@@ -210,6 +210,7 @@ func loadOutboundDestination(ctx context.Context, tx pgx.Tx, accountID, conversa
 		JOIN channels ch ON c.channel_id = ch.id
 		JOIN contacts co ON c.contact_id = co.id
 		WHERE c.id = $1 AND c.account_id = $2
+		FOR UPDATE OF c
 	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity, &capabilityJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return outboundDestination{}, errors.New("conversation not found")
