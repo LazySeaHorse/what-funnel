@@ -52,8 +52,12 @@ func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, resolver Pipelin
 	err = tx.QueryRow(ctx, `
 		INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key)
 		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (conversation_id) DO NOTHING
 		RETURNING id
 	`, accountID, conversationID, pipeline.ID, pipeline.FirstStateKey).Scan(&leadID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("auto-create lead: %w", err)
 	}

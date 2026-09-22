@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -128,13 +129,22 @@ func (s *LeadService) CreateLead(ctx context.Context, accountID, userID, convoID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key, created_by)
 		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (conversation_id) DO NOTHING
 		RETURNING id, created_at, updated_at
 	`, accountID, convoID, pipelineID, firstStateKey, userID).Scan(&leadID, &createdAt, &updatedAt)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		// Race: another request inserted the lead between our check and insert.
-		if lead, err2 := scanExisting(tx); err2 == nil {
-			return lead, nil
+		// Because ON CONFLICT DO NOTHING does not error, the transaction is not aborted.
+		lead, err2 := scanExisting(tx)
+		if err2 != nil {
+			return nil, fmt.Errorf("scan existing lead after conflict: %w", err2)
 		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit existing lead tx: %w", err)
+		}
+		return lead, nil
+	}
+	if err != nil {
 		return nil, fmt.Errorf("create lead: %w", err)
 	}
 
