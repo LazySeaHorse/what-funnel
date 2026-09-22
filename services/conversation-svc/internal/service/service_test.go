@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -537,4 +538,65 @@ func TestCloseConversation_Workflow(t *testing.T) {
 	`, accountID, convoID).Scan(&auditCount)
 	require.NoError(t, err)
 	assert.Equal(t, 1, auditCount)
+}
+
+func TestConcurrentIngestInbound_NoUniqueViolation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+
+	accountID, _ := setupTestTenant(t, pool, "concurrent-ingest")
+
+	var channelID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO channels (account_id, type, status)
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
+	`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	const concurrency = 10
+	errCh := make(chan error, concurrency)
+	var wg sync.WaitGroup
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		msgID := fmt.Sprintf("concurrent-msg-%d", i)
+		go func(mid string) {
+			defer wg.Done()
+			event := types.InboundEvent{
+				ChannelID:        channelID.String(),
+				ExternalThreadID: "concurrent-thread",
+				Contact: types.ContactRef{
+					ExternalIdentity: "concurrent-contact",
+					DisplayName:      "Concurrent User",
+				},
+				Message: types.NormalizedMessage{
+					ContentType:       "text",
+					Text:              "Concurrent message: " + mid,
+					ExternalMessageID: mid,
+				},
+				Timestamp: time.Now(),
+			}
+			errCh <- svc.IngestInbound(ctx, event)
+		}(msgID)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	var convoCount int
+	err = pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM conversations c
+		JOIN contacts co ON c.contact_id = co.id
+		WHERE co.channel_id = $1 AND co.external_identity = 'concurrent-contact'
+	`, channelID).Scan(&convoCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, convoCount)
 }

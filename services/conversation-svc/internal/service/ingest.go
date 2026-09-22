@@ -97,23 +97,14 @@ func (s *IngestionService) IngestInbound(ctx context.Context, event types.Inboun
 
 	var conversationID uuid.UUID
 	var isNew bool
-	err = tx.QueryRow(ctx, `SELECT id FROM conversations WHERE contact_id = $1 AND channel_id = $2`, contactID, channelID).Scan(&conversationID)
-	if err != nil {
-		if err != pgx.ErrNoRows {
-			return fmt.Errorf("check existing conversation: %w", err)
-		}
-		isNew = true
-	}
-
-	if isNew {
-		err = tx.QueryRow(ctx, `
-			INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at)
-			VALUES ($1, $2, $3, $4)
-			RETURNING id
-		`, accountID, contactID, channelID, timestamp).Scan(&conversationID)
-	} else {
-		_, err = tx.Exec(ctx, `UPDATE conversations SET last_message_at = $1 WHERE id = $2`, timestamp, conversationID)
-	}
+	err = tx.QueryRow(ctx, `
+		INSERT INTO conversations (account_id, contact_id, channel_id, last_message_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (contact_id, channel_id)
+		DO UPDATE SET
+			last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at)
+		RETURNING id, (xmax = 0) AS is_new
+	`, accountID, contactID, channelID, timestamp).Scan(&conversationID, &isNew)
 	if err != nil {
 		return fmt.Errorf("upsert conversation: %w", err)
 	}

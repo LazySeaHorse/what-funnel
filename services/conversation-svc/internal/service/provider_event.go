@@ -235,19 +235,16 @@ func upsertProviderConversation(
 	}
 
 	var conversationID uuid.UUID
-	isNew := false
+	var isNew bool
 	err = tx.QueryRow(ctx, `
-		SELECT id FROM conversations
-		WHERE channel_id = $1 AND external_thread_id = $2
-	`, channelID, message.ExternalThreadID).Scan(&conversationID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		isNew = true
-		err = tx.QueryRow(ctx, `
-			INSERT INTO conversations (account_id, contact_id, channel_id, external_thread_id, last_message_at)
-			VALUES ($1, $2, $3, $4, $5)
-			RETURNING id
-		`, accountID, contactID, channelID, message.ExternalThreadID, message.ProviderTimestamp).Scan(&conversationID)
-	}
+		INSERT INTO conversations (account_id, contact_id, channel_id, external_thread_id, last_message_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (contact_id, channel_id)
+		DO UPDATE SET
+			last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at),
+			external_thread_id = COALESCE(conversations.external_thread_id, EXCLUDED.external_thread_id)
+		RETURNING id, (xmax = 0) AS is_new
+	`, accountID, contactID, channelID, message.ExternalThreadID, message.ProviderTimestamp).Scan(&conversationID, &isNew)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, false, fmt.Errorf("upsert provider conversation: %w", err)
 	}
