@@ -153,6 +153,13 @@ func (h *Handler) TestAIConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "ai provider api key is required")
 			return
 		}
+		// Prevent credential exfiltration: if reusing stored API key, require that BaseURL
+		// matches the stored BaseURL (cannot dispatch stored production key to an unverified target).
+		if strings.TrimSpace(config.BaseURL) != "" && strings.TrimRight(strings.TrimSpace(config.BaseURL), "/") != strings.TrimRight(strings.TrimSpace(existing.BaseURL), "/") {
+			writeError(w, http.StatusBadRequest, "cannot test new base_url without providing api_key")
+			return
+		}
+		config.BaseURL = existing.BaseURL
 		config.APIKey = existing.APIKey
 	}
 

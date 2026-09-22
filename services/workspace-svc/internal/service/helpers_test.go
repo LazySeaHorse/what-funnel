@@ -473,17 +473,47 @@ func TestAIProviderConfigValidate(t *testing.T) {
 		config   AIProviderConfig
 		expected string
 	}{
-		{name: "missing key", config: AIProviderConfig{BaseURL: "url", AnalysisModel: "analysis", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "api key"},
+		{name: "missing key", config: AIProviderConfig{BaseURL: "https://api.openai.com/v1", AnalysisModel: "analysis", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "api key"},
 		{name: "missing base url", config: AIProviderConfig{APIKey: "key", AnalysisModel: "analysis", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "base url"},
-		{name: "missing analysis model", config: AIProviderConfig{APIKey: "key", BaseURL: "url", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "analysis model"},
-		{name: "missing reply model", config: AIProviderConfig{APIKey: "key", BaseURL: "url", AnalysisModel: "analysis", EmbeddingModel: "embed"}, expected: "reply model"},
-		{name: "missing embedding model", config: AIProviderConfig{APIKey: "key", BaseURL: "url", AnalysisModel: "analysis", ReplyModel: "reply"}, expected: "embedding model"},
+		{name: "missing analysis model", config: AIProviderConfig{APIKey: "key", BaseURL: "https://api.openai.com/v1", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "analysis model"},
+		{name: "missing reply model", config: AIProviderConfig{APIKey: "key", BaseURL: "https://api.openai.com/v1", AnalysisModel: "analysis", EmbeddingModel: "embed"}, expected: "reply model"},
+		{name: "missing embedding model", config: AIProviderConfig{APIKey: "key", BaseURL: "https://api.openai.com/v1", AnalysisModel: "analysis", ReplyModel: "reply"}, expected: "embedding model"},
+		{name: "invalid base url scheme", config: AIProviderConfig{APIKey: "key", BaseURL: "ftp://api.openai.com", AnalysisModel: "analysis", ReplyModel: "reply", EmbeddingModel: "embed"}, expected: "http or https URL"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.normalized().validate(true)
 			assert.ErrorContains(t, err, tt.expected)
+		})
+	}
+}
+
+func TestTestAIProviderConfig_BlocksSSRF(t *testing.T) {
+	svc, err := New(nil, "test-key-exactly-32-bytes-padded")
+	assert.NoError(t, err)
+
+	ssrfTargets := []string{
+		"http://169.254.169.254/latest/meta-data",
+		"http://10.0.0.1:8080/v1",
+		"http://172.16.0.1:5432/v1",
+		"http://192.168.1.1:6379/v1",
+	}
+
+	for _, target := range ssrfTargets {
+		t.Run(target, func(t *testing.T) {
+			result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+				APIKey:         "custom-user-supplied-key",
+				BaseURL:        target,
+				AnalysisModel:  "analysis-model",
+				ReplyModel:     "reply-model",
+				EmbeddingModel: "embed-model",
+			})
+			assert.NoError(t, err)
+			assert.False(t, result.OK)
+			// At least one check must fail due to SSRF block
+			assert.NotEmpty(t, result.Checks)
+			assert.Contains(t, result.Checks[0].Message, "SSRF protection")
 		})
 	}
 }

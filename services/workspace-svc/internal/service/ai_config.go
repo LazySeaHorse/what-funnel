@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -82,6 +84,16 @@ func (cfg AIProviderConfig) validate(requireAPIKey bool) error {
 	}
 	if cfg.BaseURL == "" {
 		return fmt.Errorf("ai provider base url is required")
+	}
+	parsedURL, err := url.Parse(cfg.BaseURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		return fmt.Errorf("ai provider base url must be a valid http or https URL")
+	}
+	if parsedURL.Hostname() == "" {
+		return fmt.Errorf("ai provider base url host is required")
+	}
+	if os.Getenv("APP_ENV") == "production" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("ai provider base url must use https in production")
 	}
 	if cfg.AnalysisModel == "" {
 		return fmt.Errorf("ai provider analysis model is required")
@@ -256,6 +268,78 @@ func extractAIErrorMessage(statusCode int, body []byte) string {
 	return fmt.Sprintf("HTTP status %d", statusCode)
 }
 
+// isBlockedIP reports whether the given IP address is private, loopback, or in a restricted cloud metadata range.
+func isBlockedIP(ip net.IP, allowLoopback bool) bool {
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if ip.IsPrivate() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 100 && (ip4[1]&0xc0) == 64 { // 100.64.0.0/10 Carrier-grade NAT
+			return true
+		}
+		if ip4[0] == 169 && ip4[1] == 254 { // 169.254.0.0/16 Link local / Cloud metadata (AWS/GCP/Azure)
+			return true
+		}
+		if ip4[0] == 0 { // 0.0.0.0/8
+			return true
+		}
+	}
+	if ip.IsLoopback() {
+		return !allowLoopback
+	}
+	return false
+}
+
+func (svc *Service) newSafeAIHTTPClient(cfg AIProviderConfig) *http.Client {
+	allowLoopback := os.Getenv("APP_ENV") != "production"
+
+	dialer := &net.Dialer{
+		Timeout: svc.aiProviderTestTimeout,
+	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+			if err != nil {
+				return nil, fmt.Errorf("resolve host %s: %w", host, err)
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("no IP addresses found for host %s", host)
+			}
+			for _, ip := range ips {
+				if isBlockedIP(ip, allowLoopback) {
+					return nil, fmt.Errorf("connection to private or internal IP %s is blocked (SSRF protection)", ip.String())
+				}
+			}
+			targetAddr := net.JoinHostPort(ips[0].String(), port)
+			return dialer.DialContext(ctx, network, targetAddr)
+		},
+	}
+
+	return &http.Client{
+		Timeout:   svc.aiProviderTestTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("stopped after 5 redirects")
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("invalid redirect scheme: %s", req.URL.Scheme)
+			}
+			if os.Getenv("APP_ENV") == "production" && req.URL.Scheme != "https" {
+				return errors.New("redirects must use https in production")
+			}
+			return nil
+		},
+	}
+}
+
 // TestAIProviderConfig validates both completion roles and the embedding model.
 func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConfig) (AIProviderTestResult, error) {
 	result := AIProviderTestResult{Checks: []AIProviderTestCheck{}}
@@ -272,9 +356,7 @@ func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConf
 		return successfulAIProviderTestResult(cfg), nil
 	}
 
-	client := &http.Client{
-		Timeout: svc.aiProviderTestTimeout,
-	}
+	client := svc.newSafeAIHTTPClient(cfg)
 
 	completionModels := []struct {
 		role  string
@@ -446,6 +528,9 @@ func (svc *Service) doAIProviderRequest(
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
+			if strings.Contains(err.Error(), "SSRF protection") {
+				return 0, nil, err
+			}
 			if attempt == svc.aiProviderTestMaxRetries {
 				break
 			}
@@ -535,6 +620,9 @@ func isTransientAIProviderStatus(statusCode int) bool {
 }
 
 func requestFailureKind(err error) string {
+	if strings.Contains(err.Error(), "SSRF protection") {
+		return "ssrf_blocked"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "timeout"
 	}
@@ -546,6 +634,9 @@ func requestFailureKind(err error) string {
 }
 
 func requestFailureMessage(err error) string {
+	if requestFailureKind(err) == "ssrf_blocked" {
+		return err.Error()
+	}
 	if requestFailureKind(err) == "timeout" {
 		return "Provider did not respond before the connection-test timeout"
 	}
