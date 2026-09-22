@@ -57,6 +57,15 @@ func (s *botSession) copySnapshot() Snapshot {
 	return s.snapshot
 }
 
+func (s *botSession) stop() {
+	s.mu.RLock()
+	cancel := s.cancel
+	s.mu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 type Manager struct {
 	db          *sql.DB
 	api         *botapi.Client
@@ -281,12 +290,14 @@ func (m *Manager) Logout(ctx context.Context, channelID string) error {
 func (m *Manager) Close() error {
 	m.cancel()
 	m.mu.RLock()
+	sessions := make([]*botSession, 0, len(m.sessions))
 	for _, session := range m.sessions {
-		if session.cancel != nil {
-			session.cancel()
-		}
+		sessions = append(sessions, session)
 	}
 	m.mu.RUnlock()
+	for _, session := range sessions {
+		session.stop()
+	}
 	m.wg.Wait()
 	return m.db.Close()
 }
