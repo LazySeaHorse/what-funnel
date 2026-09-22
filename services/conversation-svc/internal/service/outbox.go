@@ -10,13 +10,27 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
 
 const (
 	whatsAppCommandsStream = "adapter.commands.whatsapp"
 	telegramCommandsStream = "adapter.commands.telegram"
 )
+
+type OutboxService struct {
+	pool   *pgxpool.Pool
+	pubsub *pubsub.Client
+}
+
+func NewOutboxService(pool *pgxpool.Pool, pubsub *pubsub.Client) *OutboxService {
+	return &OutboxService{
+		pool:   pool,
+		pubsub: pubsub,
+	}
+}
 
 type claimedCommand struct {
 	id       uuid.UUID
@@ -27,7 +41,7 @@ type claimedCommand struct {
 // DispatchOutbox runs until ctx is cancelled and delivers committed commands
 // to the provider streams. Database claims expire so another replica can
 // recover work after a crash.
-func (s *Service) DispatchOutbox(ctx context.Context) error {
+func (s *OutboxService) DispatchOutbox(ctx context.Context) error {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -51,12 +65,12 @@ func (s *Service) DispatchOutbox(ctx context.Context) error {
 
 // DispatchOutboxOnce attempts one ready command. It is also used as a
 // best-effort low-latency nudge after an outbound message commits.
-func (s *Service) DispatchOutboxOnce(ctx context.Context) error {
+func (s *OutboxService) DispatchOutboxOnce(ctx context.Context) error {
 	_, err := s.dispatchOutboxOnce(ctx)
 	return err
 }
 
-func (s *Service) dispatchOutboxOnce(ctx context.Context) (bool, error) {
+func (s *OutboxService) dispatchOutboxOnce(ctx context.Context) (bool, error) {
 	claimID := uuid.NewString()
 	claimed, err := s.claimOutboxCommand(ctx, claimID)
 	if err != nil || claimed == nil {
@@ -79,7 +93,7 @@ func (s *Service) dispatchOutboxOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (s *Service) claimOutboxCommand(ctx context.Context, claimID string) (*claimedCommand, error) {
+func (s *OutboxService) claimOutboxCommand(ctx context.Context, claimID string) (*claimedCommand, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin outbox claim: %w", err)
@@ -130,7 +144,7 @@ func (s *Service) claimOutboxCommand(ctx context.Context, claimID string) (*clai
 
 // rejectOutboxCommand permanently consumes an internally corrupt row. Retrying
 // bytes that can never form a valid command would otherwise poison the queue.
-func (s *Service) rejectOutboxCommand(
+func (s *OutboxService) rejectOutboxCommand(
 	ctx context.Context,
 	tx pgx.Tx,
 	rowID uuid.UUID,
@@ -159,7 +173,7 @@ func (s *Service) rejectOutboxCommand(
 	return fmt.Errorf("outbox command %s was permanently rejected: %w", rowID, reason)
 }
 
-func (s *Service) markOutboxDispatched(ctx context.Context, id uuid.UUID, claimID string) error {
+func (s *OutboxService) markOutboxDispatched(ctx context.Context, id uuid.UUID, claimID string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE message_outbox
 		SET dispatched_at = NOW(), claimed_at = NULL, claimed_by = NULL, last_error = NULL
@@ -174,7 +188,7 @@ func (s *Service) markOutboxDispatched(ctx context.Context, id uuid.UUID, claimI
 	return nil
 }
 
-func (s *Service) releaseOutboxCommand(ctx context.Context, id uuid.UUID, claimID string, dispatchErr error) error {
+func (s *OutboxService) releaseOutboxCommand(ctx context.Context, id uuid.UUID, claimID string, dispatchErr error) error {
 	detail := dispatchErr.Error()
 	if len(detail) > 1000 {
 		detail = detail[:1000]

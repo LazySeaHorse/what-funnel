@@ -10,12 +10,38 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 )
+
+type ProviderMedia struct {
+	Data     []byte
+	MIMEType string
+	Filename string
+}
+
+type ProviderMediaFetcher interface {
+	Download(context.Context, string, string) (ProviderMedia, error)
+}
+
+type MediaService struct {
+	pool          *pgxpool.Pool
+	mediaRoot     string
+	mediaFetchers map[messaging.Provider]ProviderMediaFetcher
+	mediaMu       sync.RWMutex
+}
+
+func NewMediaService(pool *pgxpool.Pool) *MediaService {
+	return &MediaService{
+		pool:          pool,
+		mediaFetchers: make(map[messaging.Provider]ProviderMediaFetcher),
+	}
+}
 
 type MediaObject struct {
 	ID        uuid.UUID `json:"id"`
@@ -30,7 +56,7 @@ type MediaContent struct {
 	Reader io.ReadCloser
 }
 
-func (s *Service) ConfigureMediaCache(root string) error {
+func (s *MediaService) ConfigureMediaCache(root string) error {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return errors.New("media cache path is required")
@@ -47,7 +73,7 @@ func (s *Service) ConfigureMediaCache(root string) error {
 	return nil
 }
 
-func (s *Service) RegisterProviderMediaFetcher(provider messaging.Provider, fetcher ProviderMediaFetcher) {
+func (s *MediaService) RegisterProviderMediaFetcher(provider messaging.Provider, fetcher ProviderMediaFetcher) {
 	s.mediaMu.Lock()
 	defer s.mediaMu.Unlock()
 	if fetcher == nil {
@@ -57,7 +83,7 @@ func (s *Service) RegisterProviderMediaFetcher(provider messaging.Provider, fetc
 	s.mediaFetchers[provider] = fetcher
 }
 
-func (s *Service) SaveOutboundMedia(
+func (s *MediaService) SaveOutboundMedia(
 	ctx context.Context,
 	accountID, conversationID uuid.UUID,
 	filename, mimeType string,
@@ -117,7 +143,7 @@ func (s *Service) SaveOutboundMedia(
 	return media, nil
 }
 
-func (s *Service) OpenMedia(ctx context.Context, accountID *uuid.UUID, mediaID uuid.UUID) (MediaContent, error) {
+func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, mediaID uuid.UUID) (MediaContent, error) {
 	var (
 		media       MediaObject
 		channelID   uuid.UUID
@@ -203,7 +229,7 @@ func (s *Service) OpenMedia(ctx context.Context, accountID *uuid.UUID, mediaID u
 	return MediaContent{MediaObject: media, Reader: io.NopCloser(bytes.NewReader(downloaded.Data))}, nil
 }
 
-func (s *Service) RunMediaCleanup(ctx context.Context) error {
+func (s *MediaService) RunMediaCleanup(ctx context.Context) error {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -218,7 +244,7 @@ func (s *Service) RunMediaCleanup(ctx context.Context) error {
 	}
 }
 
-func (s *Service) CleanupExpiredMediaOnce(ctx context.Context) error {
+func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, storage_key
 		FROM media_objects
@@ -260,7 +286,7 @@ func (s *Service) CleanupExpiredMediaOnce(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) writeMediaFile(id uuid.UUID, data []byte) (string, error) {
+func (s *MediaService) writeMediaFile(id uuid.UUID, data []byte) (string, error) {
 	s.mediaMu.RLock()
 	root := s.mediaRoot
 	s.mediaMu.RUnlock()
@@ -291,7 +317,7 @@ func (s *Service) writeMediaFile(id uuid.UUID, data []byte) (string, error) {
 	return key, nil
 }
 
-func (s *Service) mediaPath(key string) string {
+func (s *MediaService) mediaPath(key string) string {
 	s.mediaMu.RLock()
 	root := s.mediaRoot
 	s.mediaMu.RUnlock()

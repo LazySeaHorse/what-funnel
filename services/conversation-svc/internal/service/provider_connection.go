@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
@@ -35,13 +37,26 @@ type AdapterControl interface {
 	Logout(context.Context, string) error
 }
 
-func (s *Service) RegisterAdapterControl(provider messaging.Provider, control AdapterControl) {
+type ConnectionService struct {
+	pool       *pgxpool.Pool
+	controls   map[messaging.Provider]AdapterControl
+	controlsMu sync.RWMutex
+}
+
+func NewConnectionService(pool *pgxpool.Pool) *ConnectionService {
+	return &ConnectionService{
+		pool:     pool,
+		controls: make(map[messaging.Provider]AdapterControl),
+	}
+}
+
+func (s *ConnectionService) RegisterAdapterControl(provider messaging.Provider, control AdapterControl) {
 	s.controlsMu.Lock()
 	defer s.controlsMu.Unlock()
 	s.controls[provider] = control
 }
 
-func (s *Service) StartProviderConnection(
+func (s *ConnectionService) StartProviderConnection(
 	ctx context.Context,
 	accountID uuid.UUID,
 	provider messaging.Provider,
@@ -112,7 +127,7 @@ func (s *Service) StartProviderConnection(
 	return connection, nil
 }
 
-func (s *Service) RetryProviderConnection(
+func (s *ConnectionService) RetryProviderConnection(
 	ctx context.Context,
 	accountID, channelID uuid.UUID,
 	credential string,
@@ -140,7 +155,7 @@ func (s *Service) RetryProviderConnection(
 	return connection, nil
 }
 
-func (s *Service) GetProviderConnection(
+func (s *ConnectionService) GetProviderConnection(
 	ctx context.Context,
 	accountID, channelID uuid.UUID,
 	refresh bool,
@@ -167,7 +182,7 @@ func (s *Service) GetProviderConnection(
 	return connection, nil
 }
 
-func (s *Service) ListProviderConnections(ctx context.Context, accountID uuid.UUID) ([]*types.ProviderConnection, error) {
+func (s *ConnectionService) ListProviderConnections(ctx context.Context, accountID uuid.UUID) ([]*types.ProviderConnection, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT pc.channel_id, pc.account_id, pc.provider, ch.label, pc.state,
 		       COALESCE(pc.detail, ''), COALESCE(pc.remote_account_id, ''),
@@ -196,7 +211,7 @@ func (s *Service) ListProviderConnections(ctx context.Context, accountID uuid.UU
 	return connections, nil
 }
 
-func (s *Service) DeleteProviderConnection(
+func (s *ConnectionService) DeleteProviderConnection(
 	ctx context.Context,
 	accountID, actorID, channelID uuid.UUID,
 ) error {
@@ -251,7 +266,7 @@ func isProviderConnectionLabelConflict(err error) bool {
 		databaseError.ConstraintName == "idx_channels_account_provider_label"
 }
 
-func (s *Service) adapterControl(provider messaging.Provider) (AdapterControl, error) {
+func (s *ConnectionService) adapterControl(provider messaging.Provider) (AdapterControl, error) {
 	s.controlsMu.RLock()
 	control := s.controls[provider]
 	s.controlsMu.RUnlock()
@@ -261,7 +276,7 @@ func (s *Service) adapterControl(provider messaging.Provider) (AdapterControl, e
 	return control, nil
 }
 
-func (s *Service) loadProviderConnection(
+func (s *ConnectionService) loadProviderConnection(
 	ctx context.Context,
 	accountID, channelID uuid.UUID,
 ) (*types.ProviderConnection, error) {
@@ -308,7 +323,7 @@ func scanProviderConnection(row providerConnectionScanner) (*types.ProviderConne
 	return connection, nil
 }
 
-func (s *Service) updateProviderConnection(
+func (s *ConnectionService) updateProviderConnection(
 	ctx context.Context,
 	channelID uuid.UUID,
 	state messaging.ConnectionStatus,

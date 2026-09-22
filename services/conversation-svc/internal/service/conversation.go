@@ -10,22 +10,34 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+type ConversationService struct {
+	pool   *pgxpool.Pool
+	pubsub *pubsub.Client
+	outbox *OutboxService
+}
+
+func NewConversationService(pool *pgxpool.Pool, pubsub *pubsub.Client, outbox *OutboxService) *ConversationService {
+	return &ConversationService{
+		pool:   pool,
+		pubsub: pubsub,
+		outbox: outbox,
+	}
+}
 
 // ---------------------------------------------------------------------------
 // RBAC helper — lightweight visibility check
 // ---------------------------------------------------------------------------
 
-// canSeeConversation is a cheap 2-column query used as a guard before any
-// operation that requires conversation visibility. It replaces the previous
-// pattern of calling GetConversation (a 25-column lateral JOIN) just to
-// throw away the result.
-func (s *Service) canSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
+func canSeeConversation(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
 	var assignedUserIDs []uuid.UUID
 	var settingsBytes []byte
-	err := s.pool.QueryRow(ctx, `
+	err := pool.QueryRow(ctx, `
 		SELECT c.assigned_user_ids, a.settings
 		FROM conversations c
 		JOIN accounts a ON c.account_id = a.id
@@ -41,6 +53,10 @@ func (s *Service) canSeeConversation(ctx context.Context, accountID, userID uuid
 		return errors.New("conversation not found")
 	}
 	return nil
+}
+
+func (s *ConversationService) canSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
+	return canSeeConversation(ctx, s.pool, accountID, userID, convoID, role)
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +212,7 @@ const sharedConversationSQL = `
 
 // ListConversations returns conversations visible to the given user, with
 // optional filter (all/mine/unassigned) and lead state filtering.
-func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string) ([]*types.ConversationListItem, error) {
+func (s *ConversationService) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string) ([]*types.ConversationListItem, error) {
 	var settingsBytes []byte
 	if err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes); err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
@@ -243,7 +259,7 @@ func (s *Service) ListConversations(ctx context.Context, accountID, userID uuid.
 }
 
 // GetConversation fetches a single conversation, enforcing RBAC visibility.
-func (s *Service) GetConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string) (*types.ConversationListItem, error) {
+func (s *ConversationService) GetConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string) (*types.ConversationListItem, error) {
 	var settingsBytes []byte
 	if err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes); err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
@@ -272,7 +288,7 @@ func (s *Service) GetConversation(ctx context.Context, accountID, userID, conver
 
 // GetConversationMessages returns paginated messages for a conversation.
 // Visibility is checked via the lightweight canSeeConversation guard.
-func (s *Service) GetConversationMessages(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string, beforeCursor string, limit int) ([]*types.Message, string, error) {
+func (s *ConversationService) GetConversationMessages(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string, beforeCursor string, limit int) ([]*types.Message, string, error) {
 	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, userRole); err != nil {
 		return nil, "", err
 	}
@@ -334,7 +350,7 @@ func (s *Service) GetConversationMessages(ctx context.Context, accountID, userID
 	return messages, nextCursor, nil
 }
 
-func (s *Service) loadMessageReactions(ctx context.Context, accountID uuid.UUID, messages []*types.Message) error {
+func (s *ConversationService) loadMessageReactions(ctx context.Context, accountID uuid.UUID, messages []*types.Message) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -372,7 +388,7 @@ func (s *Service) loadMessageReactions(ctx context.Context, accountID uuid.UUID,
 }
 
 // AssignConversation sets the assigned users on a conversation.
-func (s *Service) AssignConversation(ctx context.Context, accountID, conversationID uuid.UUID, assignedUserIDs []uuid.UUID, actorUserID uuid.UUID) error {
+func (s *ConversationService) AssignConversation(ctx context.Context, accountID, conversationID uuid.UUID, assignedUserIDs []uuid.UUID, actorUserID uuid.UUID) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -416,7 +432,7 @@ func (s *Service) AssignConversation(ctx context.Context, accountID, conversatio
 }
 
 // ReadConversation upserts a read-receipt for the given user.
-func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID) error {
+func (s *ConversationService) ReadConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO conversation_reads (account_id, conversation_id, user_id, last_read_at)
 		VALUES ($1, $2, $3, NOW())
@@ -432,7 +448,7 @@ func (s *Service) ReadConversation(ctx context.Context, accountID, userID, conve
 // CloseConversation marks a conversation as closed and resets AI control for
 // the next customer contact,
 // records an audit log, and publishes conversation.closed and conversation.updated events.
-func (s *Service) CloseConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) error {
+func (s *ConversationService) CloseConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) error {
 	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
 		return err
 	}

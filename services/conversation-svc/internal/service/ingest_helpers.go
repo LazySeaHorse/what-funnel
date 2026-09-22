@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -28,7 +27,7 @@ func accountIDForChannel(ctx context.Context, q rowQuerier, channelID uuid.UUID)
 	return accountID, nil
 }
 
-func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, accountID, conversationID uuid.UUID) (*uuid.UUID, error) {
+func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, resolver PipelineResolver, accountID, conversationID uuid.UUID) (*uuid.UUID, error) {
 	var settingsRaw []byte
 	var productMode string
 	if err := tx.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&productMode, &settingsRaw); err != nil {
@@ -38,38 +37,30 @@ func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, accountID, conve
 		return nil, nil
 	}
 
-	var pipelineID uuid.UUID
-	var statesJSON []byte
-	err := tx.QueryRow(ctx, `SELECT id, states FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`, accountID).Scan(&pipelineID, &statesJSON)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+	if resolver == nil {
+		resolver = &DBLeadPipelineResolver{}
 	}
+	pipeline, err := resolver.ResolveInitialPipeline(ctx, tx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get lead pipeline for auto-lead: %w", err)
 	}
-
-	var states []types.PipelineState
-	if err := json.Unmarshal(statesJSON, &states); err != nil {
-		return nil, fmt.Errorf("unmarshal pipeline states: %w", err)
-	}
-	if len(states) == 0 {
+	if pipeline == nil {
 		return nil, nil
 	}
 
-	firstStateKey := states[0].Key
 	var leadID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO leads (account_id, conversation_id, pipeline_id, current_state_key)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id
-	`, accountID, conversationID, pipelineID, firstStateKey).Scan(&leadID)
+	`, accountID, conversationID, pipeline.ID, pipeline.FirstStateKey).Scan(&leadID)
 	if err != nil {
 		return nil, fmt.Errorf("auto-create lead: %w", err)
 	}
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO lead_state_history (account_id, lead_id, from_state, to_state)
 		VALUES ($1, $2, NULL, $3)
-	`, accountID, leadID, firstStateKey); err != nil {
+	`, accountID, leadID, pipeline.FirstStateKey); err != nil {
 		return nil, fmt.Errorf("insert lead state history for auto-lead: %w", err)
 	}
 
@@ -82,7 +73,7 @@ func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, accountID, conve
 		TargetID:    &leadID,
 		Metadata: map[string]any{
 			"conversation_id":   conversationID,
-			"current_state_key": firstStateKey,
+			"current_state_key": pipeline.FirstStateKey,
 			"auto":              true,
 		},
 	}); err != nil {

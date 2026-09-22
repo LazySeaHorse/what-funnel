@@ -22,7 +22,7 @@ type providerEventResult struct {
 // IngestProviderEvent is the single provider-neutral ingress boundary. The
 // event marker and every domain mutation commit atomically, making Redis
 // redelivery safe.
-func (s *Service) IngestProviderEvent(ctx context.Context, event messaging.Event) error {
+func (s *IngestionService) IngestProviderEvent(ctx context.Context, event messaging.Event) error {
 	if err := event.Validate(); err != nil {
 		return fmt.Errorf("validate provider event: %w", err)
 	}
@@ -65,7 +65,7 @@ func (s *Service) IngestProviderEvent(ctx context.Context, event messaging.Event
 	result := providerEventResult{accountID: accountID}
 	switch event.Kind {
 	case messaging.EventMessageCreated:
-		result, err = ingestProviderMessage(ctx, tx, accountID, channelID, event)
+		result, err = ingestProviderMessage(ctx, tx, s.pipelineResolver, accountID, channelID, event)
 	case messaging.EventMessageEdited:
 		result, err = editProviderMessage(ctx, tx, accountID, channelID, event)
 	case messaging.EventMessageDeleted:
@@ -86,9 +86,11 @@ func (s *Service) IngestProviderEvent(ctx context.Context, event messaging.Event
 		return fmt.Errorf("commit provider event: %w", err)
 	}
 
-	if result.conversationID != uuid.Nil && result.messageID != uuid.Nil {
+	if result.conversationID != uuid.Nil {
 		if _, err := s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
-			AccountID: result.accountID, ConversationID: result.conversationID, MessageID: result.messageID,
+			AccountID:      result.accountID,
+			ConversationID: result.conversationID,
+			MessageID:      result.messageID,
 		}); err != nil {
 			fmt.Printf("failed to publish conversation.updated for provider event: %v\n", err)
 		}
@@ -99,6 +101,20 @@ func (s *Service) IngestProviderEvent(ctx context.Context, event messaging.Event
 func ingestProviderMessage(
 	ctx context.Context,
 	tx pgx.Tx,
+	resolver PipelineResolver,
+	accountID, channelID uuid.UUID,
+	event messaging.Event,
+) (providerEventResult, error) {
+	if event.Message == nil {
+		return providerEventResult{}, messaging.ErrInvalidEnvelope
+	}
+	return upsertProviderMessage(ctx, tx, resolver, accountID, channelID, event)
+}
+
+func upsertProviderMessage(
+	ctx context.Context,
+	tx pgx.Tx,
+	resolver PipelineResolver,
 	accountID, channelID uuid.UUID,
 	event messaging.Event,
 ) (providerEventResult, error) {
@@ -137,7 +153,7 @@ func ingestProviderMessage(
 		return providerEventResult{}, err
 	}
 	if isNew {
-		if _, err := createInitialLeadIfEnabled(ctx, tx, accountID, conversationID); err != nil {
+		if _, err := createInitialLeadIfEnabled(ctx, tx, resolver, accountID, conversationID); err != nil {
 			return providerEventResult{}, err
 		}
 	}

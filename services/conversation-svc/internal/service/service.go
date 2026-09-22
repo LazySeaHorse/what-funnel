@@ -1,51 +1,53 @@
 package service
 
 import (
-	"context"
-	"sync"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
-
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 )
 
-// Service is the central business-logic object for the conversation service.
-// Domain operations live in domain-specific files:
-//   - adapter.go     – adapter registry, credential encryption
-//   - channel.go     – channel CRUD, status sync
-//   - conversation.go – conversation queries, RBAC, message pagination
-//   - ingest.go      – inbound / outbound message ingestion
-//   - lead.go        – lead lifecycle, notes, history
-//   - provider_connection.go – provider adapter setup lifecycle
+// Service is the central business-logic façade composing focused domain services:
+//   - ConnectionService   – adapter registry, channel CRUD, provider connection lifecycle
+//   - MediaService        – disk caching, media fetching and downloads
+//   - LeadService         – lead lifecycle, notes, history
+//   - OutboxService       – transactional outbox command dispatch
+//   - AIDraftService      – AI controls and reply draft lifecycle
+//   - ConversationService – conversation queries, RBAC, outbound messaging, edits, deletes
+//   - IngestionService    – inbound and external outbound message ingestion
 type Service struct {
-	pool          *pgxpool.Pool
-	pubsub        *pubsub.Client
-	controls      map[messaging.Provider]AdapterControl
-	controlsMu    sync.RWMutex
-	mediaRoot     string
-	mediaFetchers map[messaging.Provider]ProviderMediaFetcher
-	mediaMu       sync.RWMutex
+	pool   *pgxpool.Pool
+	pubsub *pubsub.Client
+
+	*ConnectionService
+	*MediaService
+	*LeadService
+	*OutboxService
+	*AIDraftService
+	*ConversationService
+	*IngestionService
 }
 
 func New(pool *pgxpool.Pool, pubsub *pubsub.Client) *Service {
+	pipelineResolver := &DBLeadPipelineResolver{}
+	connSvc := NewConnectionService(pool)
+	mediaSvc := NewMediaService(pool)
+	outboxSvc := NewOutboxService(pool, pubsub)
+	leadSvc := NewLeadService(pool, pubsub, pipelineResolver)
+	aiDraftSvc := NewAIDraftService(pool, pubsub)
+	convoSvc := NewConversationService(pool, pubsub, outboxSvc)
+	ingestSvc := NewIngestionService(pool, pubsub, pipelineResolver)
+
 	return &Service{
-		pool:          pool,
-		pubsub:        pubsub,
-		controls:      make(map[messaging.Provider]AdapterControl),
-		mediaFetchers: make(map[messaging.Provider]ProviderMediaFetcher),
+		pool:                pool,
+		pubsub:              pubsub,
+		ConnectionService:   connSvc,
+		MediaService:        mediaSvc,
+		LeadService:         leadSvc,
+		OutboxService:       outboxSvc,
+		AIDraftService:      aiDraftSvc,
+		ConversationService: convoSvc,
+		IngestionService:    ingestSvc,
 	}
-}
-
-type ProviderMedia struct {
-	Data     []byte
-	MIMEType string
-	Filename string
-}
-
-type ProviderMediaFetcher interface {
-	Download(context.Context, string, string) (ProviderMedia, error)
 }
 
 func (s *Service) PubSub() *pubsub.Client {

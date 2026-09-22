@@ -89,11 +89,11 @@ func (p SendMessageParams) toCommand() sendMessageCommand {
 
 // SendMessage sends an outbound message via the registered adapter and records
 // it in the database within a single transaction.
-func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) (*types.Message, error) {
+func (s *ConversationService) SendMessage(ctx context.Context, params SendMessageParams) (*types.Message, error) {
 	return s.sendMessage(ctx, params.toCommand())
 }
 
-func (s *Service) sendMessage(ctx context.Context, cmd sendMessageCommand) (*types.Message, error) {
+func (s *ConversationService) sendMessage(ctx context.Context, cmd sendMessageCommand) (*types.Message, error) {
 	if err := cmd.validate(); err != nil {
 		return nil, err
 	}
@@ -142,7 +142,9 @@ func (s *Service) sendMessage(ctx context.Context, cmd sendMessageCommand) (*typ
 	}
 
 	s.publishOutboundMessageEvents(ctx, cmd, msg, invalidatedDraftID)
-	_ = s.DispatchOutboxOnce(ctx)
+	if s.outbox != nil {
+		_ = s.outbox.DispatchOutboxOnce(ctx)
+	}
 	return msg, nil
 }
 
@@ -411,7 +413,7 @@ func writeMessageSentAudit(ctx context.Context, tx pgx.Tx, cmd sendMessageComman
 	return nil
 }
 
-func (s *Service) publishOutboundMessageEvents(ctx context.Context, cmd sendMessageCommand, msg *types.Message, draftID *uuid.UUID) {
+func (s *ConversationService) publishOutboundMessageEvents(ctx context.Context, cmd sendMessageCommand, msg *types.Message, draftID *uuid.UUID) {
 	if _, err := s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{AccountID: cmd.accountID, ConversationID: cmd.conversationID, MessageID: msg.ID}); err != nil {
 		fmt.Printf("failed to publish conversation.updated for outbound send: %v\n", err)
 	}

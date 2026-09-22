@@ -23,7 +23,7 @@ type providerMessageTarget struct {
 	capabilities    messaging.Capabilities
 }
 
-func (s *Service) EditProviderMessage(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, text string) error {
+func (s *ConversationService) EditProviderMessage(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return errors.New("message text is required")
@@ -31,11 +31,11 @@ func (s *Service) EditProviderMessage(ctx context.Context, accountID, userID, co
 	return s.enqueueProviderMessageCommand(ctx, accountID, userID, conversationID, messageID, messaging.CommandEditMessage, text, "", false)
 }
 
-func (s *Service) DeleteProviderMessage(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID) error {
+func (s *ConversationService) DeleteProviderMessage(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID) error {
 	return s.enqueueProviderMessageCommand(ctx, accountID, userID, conversationID, messageID, messaging.CommandDeleteMessage, "", "", false)
 }
 
-func (s *Service) ChangeProviderReaction(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, emoji string, removed bool) error {
+func (s *ConversationService) ChangeProviderReaction(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, emoji string, removed bool) error {
 	emoji = strings.TrimSpace(emoji)
 	if !removed && emoji == "" {
 		return errors.New("reaction emoji is required")
@@ -43,7 +43,7 @@ func (s *Service) ChangeProviderReaction(ctx context.Context, accountID, userID,
 	return s.enqueueProviderMessageCommand(ctx, accountID, userID, conversationID, messageID, messaging.CommandChangeReaction, "", emoji, removed)
 }
 
-func (s *Service) enqueueProviderMessageCommand(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, kind messaging.CommandKind, text, emoji string, removed bool) error {
+func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context, accountID, userID, conversationID, messageID uuid.UUID, kind messaging.CommandKind, text, emoji string, removed bool) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin provider message command: %w", err)
@@ -95,7 +95,9 @@ func (s *Service) enqueueProviderMessageCommand(ctx context.Context, accountID, 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit provider message command: %w", err)
 	}
-	_ = s.DispatchOutboxOnce(ctx)
+	if s.outbox != nil {
+		_ = s.outbox.DispatchOutboxOnce(ctx)
+	}
 	return nil
 }
 

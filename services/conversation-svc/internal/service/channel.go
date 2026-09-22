@@ -16,7 +16,7 @@ var ErrUnsupportedSimulatorProvider = errors.New("unsupported simulator provider
 // EnsureSimulatorChannel returns a synthetic channel used only by the local
 // simulation UI. It deliberately has no provider_connections row, so it can
 // never be mistaken for a paired provider account or reach a live adapter.
-func (s *Service) EnsureSimulatorChannel(ctx context.Context, accountID uuid.UUID, provider string) (*types.Channel, error) {
+func (s *ConnectionService) EnsureSimulatorChannel(ctx context.Context, accountID uuid.UUID, provider string) (*types.Channel, error) {
 	if provider != "whatsapp" && provider != "telegram" {
 		return nil, ErrUnsupportedSimulatorProvider
 	}
@@ -46,7 +46,7 @@ func (s *Service) EnsureSimulatorChannel(ctx context.Context, accountID uuid.UUI
 
 // ListChannels is a read-only compatibility view used by the workspace and
 // inbox. Channel lifecycle belongs exclusively to provider connections.
-func (s *Service) ListChannels(ctx context.Context, accountID uuid.UUID) ([]*types.Channel, error) {
+func (s *ConnectionService) ListChannels(ctx context.Context, accountID uuid.UUID) ([]*types.Channel, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, account_id, type, status, status_detail, label, provider,
 		       remote_account_id, capabilities, created_at, updated_at
@@ -77,7 +77,7 @@ func (s *Service) ListChannels(ctx context.Context, accountID uuid.UUID) ([]*typ
 	return channels, nil
 }
 
-func (s *Service) GetChannel(ctx context.Context, accountID, channelID uuid.UUID) (*types.Channel, error) {
+func (s *ConnectionService) GetChannel(ctx context.Context, accountID, channelID uuid.UUID) (*types.Channel, error) {
 	channel := &types.Channel{}
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, account_id, type, status, status_detail, label, provider,

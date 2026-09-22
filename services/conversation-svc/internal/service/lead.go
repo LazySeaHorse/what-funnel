@@ -8,9 +8,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+type LeadService struct {
+	pool             *pgxpool.Pool
+	pubsub           *pubsub.Client
+	pipelineResolver PipelineResolver
+}
+
+func NewLeadService(pool *pgxpool.Pool, pubsub *pubsub.Client, resolver PipelineResolver) *LeadService {
+	if resolver == nil {
+		resolver = &DBLeadPipelineResolver{}
+	}
+	return &LeadService{
+		pool:             pool,
+		pubsub:           pubsub,
+		pipelineResolver: resolver,
+	}
+}
 
 // leadStateChangedEvent is published to the lead.state_changed stream.
 type leadStateChangedEvent struct {
@@ -25,7 +44,7 @@ type leadStateChangedEvent struct {
 // verifies the requesting user can see the associated conversation. Returns
 // "lead not found" for both missing leads and invisible ones to avoid leaking
 // existence.
-func (s *Service) getLeadAndCheckVisibility(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) (*types.Lead, error) {
+func (s *LeadService) getLeadAndCheckVisibility(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) (*types.Lead, error) {
 	var lead types.Lead
 	var leadCreatedBy *uuid.UUID
 	err := s.pool.QueryRow(ctx, `
@@ -43,7 +62,7 @@ func (s *Service) getLeadAndCheckVisibility(ctx context.Context, accountID, user
 	}
 	lead.CreatedBy = leadCreatedBy
 
-	if err := s.canSeeConversation(ctx, accountID, userID, lead.ConversationID, userRole); err != nil {
+	if err := canSeeConversation(ctx, s.pool, accountID, userID, lead.ConversationID, userRole); err != nil {
 		return nil, fmt.Errorf("lead not found")
 	}
 	return &lead, nil
@@ -52,8 +71,8 @@ func (s *Service) getLeadAndCheckVisibility(ctx context.Context, accountID, user
 // CreateLead creates a lead for the given conversation, placing it in the first
 // state of the account's default pipeline. If a lead already exists for the
 // conversation it is returned as-is (idempotent).
-func (s *Service) CreateLead(ctx context.Context, accountID, userID, convoID uuid.UUID, userRole string) (*types.Lead, error) {
-	if err := s.canSeeConversation(ctx, accountID, userID, convoID, userRole); err != nil {
+func (s *LeadService) CreateLead(ctx context.Context, accountID, userID, convoID uuid.UUID, userRole string) (*types.Lead, error) {
+	if err := canSeeConversation(ctx, s.pool, accountID, userID, convoID, userRole); err != nil {
 		return nil, err
 	}
 
@@ -89,23 +108,19 @@ func (s *Service) CreateLead(ctx context.Context, accountID, userID, convoID uui
 		return nil, fmt.Errorf("check existing lead: %w", err)
 	}
 
-	// Fetch the first pipeline state.
-	var pipelineID uuid.UUID
-	var statesJSON []byte
-	if err := tx.QueryRow(ctx,
-		`SELECT id, states FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`,
-		accountID).Scan(&pipelineID, &statesJSON); err != nil {
+	// Resolve the initial pipeline state.
+	if s.pipelineResolver == nil {
+		s.pipelineResolver = &DBLeadPipelineResolver{}
+	}
+	initialPipeline, err := s.pipelineResolver.ResolveInitialPipeline(ctx, tx, accountID)
+	if err != nil {
 		return nil, fmt.Errorf("get lead pipeline: %w", err)
 	}
-
-	var states []types.PipelineState
-	if err := json.Unmarshal(statesJSON, &states); err != nil {
-		return nil, fmt.Errorf("unmarshal pipeline states: %w", err)
-	}
-	if len(states) == 0 {
+	if initialPipeline == nil {
 		return nil, fmt.Errorf("pipeline has no states configured")
 	}
-	firstStateKey := states[0].Key
+	pipelineID := initialPipeline.ID
+	firstStateKey := initialPipeline.FirstStateKey
 
 	// Insert lead.
 	var leadID uuid.UUID
@@ -165,7 +180,7 @@ func (s *Service) CreateLead(ctx context.Context, accountID, userID, convoID uui
 }
 
 // UpdateLeadState transitions a lead to a new pipeline state.
-func (s *Service) UpdateLeadState(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, targetStateKey string) (*types.Lead, error) {
+func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, targetStateKey string) (*types.Lead, error) {
 	lead, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
 	if err != nil {
 		return nil, err
@@ -252,7 +267,7 @@ func (s *Service) UpdateLeadState(ctx context.Context, accountID, userID uuid.UU
 }
 
 // UpdateLeadTags replaces the tag set on a lead.
-func (s *Service) UpdateLeadTags(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, tags []string) (*types.Lead, error) {
+func (s *LeadService) UpdateLeadTags(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, tags []string) (*types.Lead, error) {
 	lead, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole)
 	if err != nil {
 		return nil, err
@@ -298,7 +313,7 @@ func (s *Service) UpdateLeadTags(ctx context.Context, accountID, userID uuid.UUI
 }
 
 // CreateLeadNote adds a note to a lead.
-func (s *Service) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, body string) (*types.LeadNote, error) {
+func (s *LeadService) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string, body string) (*types.LeadNote, error) {
 	if _, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole); err != nil {
 		return nil, err
 	}
@@ -355,7 +370,7 @@ func (s *Service) CreateLeadNote(ctx context.Context, accountID, userID uuid.UUI
 }
 
 // ListLeadNotes returns all notes for a lead, ordered chronologically.
-func (s *Service) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) ([]*types.LeadNote, error) {
+func (s *LeadService) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) ([]*types.LeadNote, error) {
 	if _, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole); err != nil {
 		return nil, err
 	}
@@ -386,7 +401,7 @@ func (s *Service) ListLeadNotes(ctx context.Context, accountID, userID uuid.UUID
 }
 
 // ListLeadHistory returns the state-change history for a lead.
-func (s *Service) ListLeadHistory(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) ([]*types.LeadStateHistory, error) {
+func (s *LeadService) ListLeadHistory(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) ([]*types.LeadStateHistory, error) {
 	if _, err := s.getLeadAndCheckVisibility(ctx, accountID, userID, leadID, userRole); err != nil {
 		return nil, err
 	}

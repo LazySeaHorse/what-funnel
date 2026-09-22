@@ -7,13 +7,27 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
+type AIDraftService struct {
+	pool   *pgxpool.Pool
+	pubsub *pubsub.Client
+}
+
+func NewAIDraftService(pool *pgxpool.Pool, pubsub *pubsub.Client) *AIDraftService {
+	return &AIDraftService{
+		pool:   pool,
+		pubsub: pubsub,
+	}
+}
+
 // GetPendingReplyDraft returns the one active suggestion for a conversation.
 // Conversation visibility is checked before draft data is queried.
-func (s *Service) GetPendingReplyDraft(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) (*types.AIReplyDraft, error) {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+func (s *AIDraftService) GetPendingReplyDraft(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) (*types.AIReplyDraft, error) {
+	if err := canSeeConversation(ctx, s.pool, accountID, userID, conversationID, role); err != nil {
 		return nil, err
 	}
 
@@ -40,8 +54,8 @@ func (s *Service) GetPendingReplyDraft(ctx context.Context, accountID, userID, c
 
 // DismissReplyDraft marks a pending draft as dismissed and broadcasts the
 // lifecycle change so all agents viewing the conversation stay in sync.
-func (s *Service) DismissReplyDraft(ctx context.Context, accountID, userID, conversationID, draftID uuid.UUID, role string) error {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+func (s *AIDraftService) DismissReplyDraft(ctx context.Context, accountID, userID, conversationID, draftID uuid.UUID, role string) error {
+	if err := canSeeConversation(ctx, s.pool, accountID, userID, conversationID, role); err != nil {
 		return err
 	}
 

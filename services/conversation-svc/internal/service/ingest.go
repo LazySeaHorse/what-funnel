@@ -9,15 +9,34 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+type IngestionService struct {
+	pool             *pgxpool.Pool
+	pubsub           *pubsub.Client
+	pipelineResolver PipelineResolver
+}
+
+func NewIngestionService(pool *pgxpool.Pool, pubsub *pubsub.Client, resolver PipelineResolver) *IngestionService {
+	if resolver == nil {
+		resolver = &DBLeadPipelineResolver{}
+	}
+	return &IngestionService{
+		pool:             pool,
+		pubsub:           pubsub,
+		pipelineResolver: resolver,
+	}
+}
 
 // IngestInbound processes an incoming message event from a channel.
 // Steps: resolve account, idempotency check, upsert contact, upsert
 // conversation, auto-create lead (if enabled), insert message, commit,
 // then publish to conversation.updated.
-func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) error {
+func (s *IngestionService) IngestInbound(ctx context.Context, event types.InboundEvent) error {
 	channelID, err := uuid.Parse(event.ChannelID)
 	if err != nil {
 		return fmt.Errorf("invalid channel ID: %w", err)
@@ -101,7 +120,7 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 
 	// 4.1 Auto-create Lead on new conversations when lead tracking is enabled.
 	if isNew {
-		if _, err = createInitialLeadIfEnabled(ctx, tx, accountID, conversationID); err != nil {
+		if _, err = createInitialLeadIfEnabled(ctx, tx, s.pipelineResolver, accountID, conversationID); err != nil {
 			return err
 		}
 	}
@@ -148,7 +167,7 @@ func (s *Service) IngestInbound(ctx context.Context, event types.InboundEvent) e
 
 // IngestExternalOutbound handles persisting an outbound message sent externally
 // (e.g. from the phone directly via the bridge) without going through SendMessage.
-func (s *Service) IngestExternalOutbound(ctx context.Context, event types.ExternalOutboundEvent) error {
+func (s *IngestionService) IngestExternalOutbound(ctx context.Context, event types.ExternalOutboundEvent) error {
 	channelID, err := uuid.Parse(event.ChannelID)
 	if err != nil {
 		return fmt.Errorf("invalid channel ID: %w", err)
@@ -258,7 +277,7 @@ func (s *Service) IngestExternalOutbound(ctx context.Context, event types.Extern
 // SimulateInbound publishes a provider-neutral adapter event. It exercises the
 // same validation and ingestion boundary as a real adapter without contacting
 // the provider.
-func (s *Service) SimulateInbound(
+func (s *IngestionService) SimulateInbound(
 	ctx context.Context,
 	accountID uuid.UUID,
 	channelID string,

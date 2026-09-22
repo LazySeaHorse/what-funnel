@@ -13,7 +13,7 @@ func TestMediaCacheWritesPrivateFile(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(t.TempDir(), "nested", "media")
-	service := &Service{}
+	service := NewMediaService(nil)
 	if err := service.ConfigureMediaCache(root); err != nil {
 		t.Fatalf("ConfigureMediaCache() error = %v", err)
 	}

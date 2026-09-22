@@ -176,8 +176,8 @@ func pauseAIAfterHumanMessage(
 // UpdateConversationAIControl atomically changes AI ownership and/or the
 // per-chat reply policy. A state change invalidates every in-flight generation
 // by advancing generation_epoch; workers must check that epoch before sending.
-func (s *Service) UpdateConversationAIControl(ctx context.Context, accountID, userID, conversationID uuid.UUID, role, action, replyOverride string) (*types.ConversationAIState, error) {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+func (s *AIDraftService) UpdateConversationAIControl(ctx context.Context, accountID, userID, conversationID uuid.UUID, role, action, replyOverride string) (*types.ConversationAIState, error) {
+	if err := canSeeConversation(ctx, s.pool, accountID, userID, conversationID, role); err != nil {
 		return nil, err
 	}
 	cmd, err := parseAIControlCommand(action, replyOverride)
