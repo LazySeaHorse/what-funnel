@@ -5,6 +5,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -13,6 +14,31 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
+
+// InternalServiceSecret retrieves the configured secret for internal service-to-service communication.
+func InternalServiceSecret() string {
+	secret := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	if secret == "" {
+		secret = os.Getenv("SESSION_SECRET")
+	}
+	if secret == "" {
+		secret = "change-me-in-production-at-least-32-chars"
+	}
+	return secret
+}
+
+// IsAuthorizedInternalCall checks whether the provided internal token matches the expected service secret
+// in constant time, and prevents using insecure defaults in production.
+func IsAuthorizedInternalCall(token string) bool {
+	if token == "" {
+		return false
+	}
+	secret := InternalServiceSecret()
+	if os.Getenv("APP_ENV") == "production" && secret == "change-me-in-production-at-least-32-chars" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(secret)) == 1
+}
 
 // Queryer is a minimal interface matching pgxpool.Pool QueryRow.
 type Queryer interface {
@@ -52,13 +78,8 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 		var role string
 		var authenticated bool
 
-		secret := os.Getenv("SESSION_SECRET")
-		if secret == "" {
-			secret = "change-me-in-production-at-least-32-chars"
-		}
-
 		internalToken := r.Header.Get("X-Internal-Token")
-		if internalToken != "" && internalToken == secret {
+		if IsAuthorizedInternalCall(internalToken) {
 			if acctIDStr := r.Header.Get("X-Account-ID"); acctIDStr != "" {
 				if aid, err := uuid.Parse(acctIDStr); err == nil {
 					accountID = aid

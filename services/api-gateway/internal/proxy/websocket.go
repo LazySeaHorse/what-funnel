@@ -54,7 +54,7 @@ func WebSocket(upstreamURL *url.URL, logger *slog.Logger) http.Handler {
 		reqStr := fmt.Sprintf("%s %s HTTP/1.1\r\n", r.Method, path)
 		reqStr += fmt.Sprintf("Host: %s\r\n", upstreamURL.Host)
 		for k, vals := range r.Header {
-			if strings.EqualFold(k, "Host") {
+			if strings.EqualFold(k, "Host") || IsInternalHeader(k) {
 				continue
 			}
 			for _, v := range vals {

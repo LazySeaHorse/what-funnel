@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 )
 
@@ -28,11 +27,7 @@ func CSRFProtection() func(http.Handler) http.Handler {
 			}
 
 			// 2. Allow internal service-to-service calls using secret
-			secret := os.Getenv("SESSION_SECRET")
-			if secret == "" {
-				secret = "change-me-in-production-at-least-32-chars"
-			}
-			if internalToken := r.Header.Get("X-Internal-Token"); internalToken != "" && internalToken == secret {
+			if internalToken := r.Header.Get("X-Internal-Token"); IsAuthorizedInternalCall(internalToken) {
 				next.ServeHTTP(w, r)
 				return
 			}

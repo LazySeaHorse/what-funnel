@@ -9,8 +9,20 @@ import (
 	"time"
 )
 
+// IsInternalHeader reports whether the given header key is an internal service-to-service header
+// that must never be forwarded from untrusted client requests.
+func IsInternalHeader(key string) bool {
+	lower := strings.ToLower(key)
+	return lower == "x-internal-token" ||
+		lower == "x-account-id" ||
+		lower == "x-user-id" ||
+		lower == "x-user-role" ||
+		strings.HasPrefix(lower, "x-internal-")
+}
+
 // HTTP returns an http.Handler that forwards requests to the given upstream base URL.
 // Headers (including Cookie for session) are forwarded; Host is rewritten to the upstream.
+// Untrusted client-supplied internal headers are stripped to prevent privilege escalation.
 func HTTP(upstream *url.URL, logger *slog.Logger) http.Handler {
 	client := &http.Client{
 		Timeout: 25 * time.Second,
@@ -27,8 +39,11 @@ func HTTP(upstream *url.URL, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		// Forward all headers (including Cookie for session authentication)
+		// Forward headers (excluding internal identity/token headers)
 		for key, vals := range r.Header {
+			if IsInternalHeader(key) {
+				continue
+			}
 			for _, v := range vals {
 				req.Header.Add(key, v)
 			}

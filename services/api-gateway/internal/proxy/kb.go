@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -80,16 +81,27 @@ func KB(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		// Forward headers
+		// Forward headers (excluding untrusted client internal headers)
 		for key, vals := range r.Header {
+			if IsInternalHeader(key) {
+				continue
+			}
 			for _, v := range vals {
 				req.Header.Add(key, v)
 			}
 		}
 
-		// Inject trusted tenant and user headers
+		// Inject trusted tenant, user, and internal service auth headers
 		req.Header.Set("X-Account-ID", authMe.AccountID)
 		req.Header.Set("X-User-ID", authMe.UserID)
+		internalSecret := os.Getenv("INTERNAL_SERVICE_TOKEN")
+		if internalSecret == "" {
+			internalSecret = os.Getenv("SESSION_SECRET")
+		}
+		if internalSecret == "" {
+			internalSecret = "change-me-in-production-at-least-32-chars"
+		}
+		req.Header.Set("X-Internal-Token", internalSecret)
 
 		resp, err := client.Do(req)
 		if err != nil {

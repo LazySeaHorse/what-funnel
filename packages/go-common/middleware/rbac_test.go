@@ -220,3 +220,69 @@ func TestRequireProductMode_Denied(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
+func TestRequireAuthenticated_InternalToken_Valid(t *testing.T) {
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "super-secret-service-token-12345678")
+	store := &fakeStore{loggedIn: false}
+	m := middleware.NewSessionMiddleware(store)
+
+	targetAccountID := uuid.New()
+	targetUserID := uuid.New()
+
+	var gotAccountID uuid.UUID
+	var gotUserID uuid.UUID
+	var gotRole string
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccountID, _ = middleware.AccountIDFromContext(r)
+		gotUserID, _ = middleware.UserIDFromContext(r)
+		gotRole, _ = middleware.RoleFromContext(r)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/internal/data", nil)
+	req.Header.Set("X-Internal-Token", "super-secret-service-token-12345678")
+	req.Header.Set("X-Account-ID", targetAccountID.String())
+	req.Header.Set("X-User-ID", targetUserID.String())
+	req.Header.Set("X-User-Role", "manager")
+
+	m.RequireAuthenticated(testHandler).ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, targetAccountID, gotAccountID)
+	assert.Equal(t, targetUserID, gotUserID)
+	assert.Equal(t, "manager", gotRole)
+}
+
+func TestRequireAuthenticated_InternalToken_Invalid(t *testing.T) {
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "super-secret-service-token-12345678")
+	store := &fakeStore{loggedIn: false}
+	m := middleware.NewSessionMiddleware(store)
+
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/internal/data", nil)
+	req.Header.Set("X-Internal-Token", "wrong-token")
+	req.Header.Set("X-Account-ID", uuid.New().String())
+
+	m.RequireAuthenticated(okHandler).ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestRequireAuthenticated_InternalToken_InsecureProductionDefaultBlocked(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "")
+	t.Setenv("SESSION_SECRET", "")
+	store := &fakeStore{loggedIn: false}
+	m := middleware.NewSessionMiddleware(store)
+
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/internal/data", nil)
+	req.Header.Set("X-Internal-Token", "change-me-in-production-at-least-32-chars")
+	req.Header.Set("X-Account-ID", uuid.New().String())
+
+	m.RequireAuthenticated(okHandler).ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
