@@ -55,8 +55,12 @@ func canSeeConversation(ctx context.Context, pool *pgxpool.Pool, accountID, user
 	return nil
 }
 
-func (s *ConversationService) canSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
+func (s *ConversationService) CanSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
 	return canSeeConversation(ctx, s.pool, accountID, userID, convoID, role)
+}
+
+func (s *ConversationService) canSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
+	return s.CanSeeConversation(ctx, accountID, userID, convoID, role)
 }
 
 // ---------------------------------------------------------------------------

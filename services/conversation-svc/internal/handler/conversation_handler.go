@@ -27,6 +27,15 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	callerUserID, _ := middleware.UserIDFromContext(r)
+	callerRole, _ := middleware.RoleFromContext(r)
+
+	// Verify conversation visibility and access permissions (SEC-04)
+	if err := h.svc.CanSeeConversation(r.Context(), accountID, callerUserID, convoID, callerRole); err != nil {
+		writeError(w, http.StatusNotFound, "conversation not found")
+		return
+	}
+
 	var body struct {
 		ContentType      string `json:"content_type"`
 		Text             string `json:"text"`
@@ -49,14 +58,35 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		body.ContentType = "text"
 	}
 
+	senderType := types.MessageSender(body.SenderType)
+	if senderType == "" {
+		senderType = types.MessageSenderHuman
+	}
+
 	var senderUserID *uuid.UUID
-	if body.SenderUserID != "" {
-		uid, err := uuid.Parse(body.SenderUserID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid sender_user_id")
+	if senderType == types.MessageSenderHuman {
+		if body.SenderUserID != "" {
+			uid, err := uuid.Parse(body.SenderUserID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid sender_user_id")
+				return
+			}
+			if callerUserID != uuid.Nil && uid != callerUserID {
+				writeError(w, http.StatusBadRequest, "cannot send message as another user")
+				return
+			}
+		}
+		if callerUserID != uuid.Nil {
+			senderUserID = &callerUserID
+		}
+	} else if senderType == types.MessageSenderAI {
+		if callerRole != types.RoleAdmin && callerRole != types.RoleManager {
+			writeError(w, http.StatusForbidden, "forbidden: cannot dispatch messages as AI")
 			return
 		}
-		senderUserID = &uid
+	} else if senderType == types.MessageSenderContact {
+		writeError(w, http.StatusBadRequest, "invalid sender_type for outbound message")
+		return
 	}
 
 	var aiReplyDraftID *uuid.UUID
@@ -81,7 +111,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	msg, err := h.svc.SendMessage(r.Context(), service.SendMessageParams{
 		AccountID:        accountID,
 		ConversationID:   convoID,
-		Sender:           types.MessageSender(body.SenderType),
+		Sender:           senderType,
 		SenderUserID:     senderUserID,
 		ContentType:      body.ContentType,
 		Text:             body.Text,
