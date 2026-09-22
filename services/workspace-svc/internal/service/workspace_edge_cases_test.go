@@ -175,3 +175,40 @@ func TestUpdateUserReplyMode_SettingsEdgeCases(t *testing.T) {
 	err = svc.UpdateUserReplyMode(ctx, accountID, adminID, &mode)
 	require.NoError(t, err)
 }
+
+func TestUpdateProductMode_PreservesSiblingSettings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "ProductModeTenant", "pm@example.com")
+
+	// Set rich settings
+	initialSettings := `{"timezone": "UTC", "custom_pref": 42, "unrelated_flag": true}`
+	_, err := pool.Exec(ctx, `UPDATE accounts SET settings = $1::jsonb WHERE id = $2`, initialSettings, accountID)
+	require.NoError(t, err)
+
+	// Update product mode to chatbot_only
+	err = svc.UpdateProductMode(ctx, accountID, adminID, "chatbot_only")
+	require.NoError(t, err)
+
+	var productMode string
+	var settingsRaw []byte
+	err = pool.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&productMode, &settingsRaw)
+	require.NoError(t, err)
+
+	assert.Equal(t, "chatbot_only", productMode)
+
+	var settings map[string]any
+	err = json.Unmarshal(settingsRaw, &settings)
+	require.NoError(t, err)
+
+	// lead_tracking_enabled must be false
+	assert.Equal(t, false, settings["lead_tracking_enabled"])
+	// Sibling settings must be fully preserved
+	assert.Equal(t, "UTC", settings["timezone"])
+	assert.Equal(t, float64(42), settings["custom_pref"])
+	assert.Equal(t, true, settings["unrelated_flag"])
+}

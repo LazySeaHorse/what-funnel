@@ -166,26 +166,22 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	var oldMode string
-	var settingsBytes []byte
-	err = tx.QueryRow(ctx, `SELECT product_mode, settings FROM accounts WHERE id = $1`, accountID).Scan(&oldMode, &settingsBytes)
+	err = tx.QueryRow(ctx, `SELECT product_mode FROM accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&oldMode)
 	if err != nil {
 		return fmt.Errorf("query account details: %w", err)
 	}
 
-	settings := parseSettings(settingsBytes)
-
-	if newMode == "chatbot_only" {
-		settings["lead_tracking_enabled"] = false
-	} else if newMode == "full_workspace" {
-		settings["lead_tracking_enabled"] = true
+	leadTrackingJSON := "false"
+	if newMode == "full_workspace" {
+		leadTrackingJSON = "true"
 	}
 
-	rawSettings, err := json.Marshal(settings)
-	if err != nil {
-		return fmt.Errorf("marshal settings: %w", err)
-	}
-
-	_, err = tx.Exec(ctx, `UPDATE accounts SET product_mode = $1, settings = $2 WHERE id = $3`, newMode, rawSettings, accountID)
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts
+		SET product_mode = $1,
+		    settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{lead_tracking_enabled}', $2::jsonb)
+		WHERE id = $3
+	`, newMode, leadTrackingJSON, accountID)
 	if err != nil {
 		return fmt.Errorf("update product mode: %w", err)
 	}
