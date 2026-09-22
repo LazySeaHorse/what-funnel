@@ -600,3 +600,81 @@ func TestConcurrentIngestInbound_NoUniqueViolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, convoCount)
 }
+
+func TestConcurrentUpdateLeadState_SequentialHistory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+
+	accountID, adminID := setupTestTenant(t, pool, "concurrent-lead-state")
+
+	var channelID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO channels (account_id, type, status)
+		VALUES ($1, 'whatsapp', 'connected') RETURNING id
+	`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	var contactID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO contacts (account_id, channel_id, external_identity, display_name)
+		VALUES ($1, $2, 'concurrent-lead-user', 'Lead User') RETURNING id
+	`, accountID, channelID).Scan(&contactID)
+	require.NoError(t, err)
+
+	var convoID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO conversations (account_id, contact_id, channel_id, status)
+		VALUES ($1, $2, $3, 'open') RETURNING id
+	`, accountID, contactID, channelID).Scan(&convoID)
+	require.NoError(t, err)
+
+	lead, err := svc.CreateLead(ctx, accountID, adminID, convoID, "manager")
+	require.NoError(t, err)
+
+	// Run two concurrent transitions: one to "won", one to "lost"
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = svc.UpdateLeadState(ctx, accountID, adminID, lead.ID, "manager", "won")
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = svc.UpdateLeadState(ctx, accountID, adminID, lead.ID, "manager", "lost")
+	}()
+	wg.Wait()
+
+	// Check history: should have 3 history rows (initial NULL->new, then state1, then state2).
+	rows, err := pool.Query(ctx, `
+		SELECT from_state, to_state
+		FROM lead_state_history
+		WHERE lead_id = $1
+		ORDER BY changed_at ASC, id ASC
+	`, lead.ID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	type transition struct {
+		from *string
+		to   string
+	}
+	var history []transition
+	for rows.Next() {
+		var tr transition
+		err := rows.Scan(&tr.from, &tr.to)
+		require.NoError(t, err)
+		history = append(history, tr)
+	}
+
+	require.Equal(t, 3, len(history), "Expected 3 state history entries (initial + 2 updates)")
+	// Second entry must be from "new" to (won or lost)
+	require.NotNil(t, history[1].from)
+	assert.Equal(t, "new", *history[1].from)
+	// Third entry must be from history[1].to to history[2].to, NOT from "new"!
+	require.NotNil(t, history[2].from)
+	assert.Equal(t, history[1].to, *history[2].from, "Third history entry's from_state must match second entry's to_state")
+}

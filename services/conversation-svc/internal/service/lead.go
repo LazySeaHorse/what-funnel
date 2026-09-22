@@ -202,11 +202,24 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 	}
 	defer tx.Rollback(ctx)
 
+	// Lock the lead row to prevent concurrent transitions and get authoritative state.
+	var currentStateKey string
+	var pipelineID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT current_state_key, pipeline_id
+		FROM leads
+		WHERE id = $1 AND account_id = $2
+		FOR UPDATE
+	`, leadID, accountID).Scan(&currentStateKey, &pipelineID)
+	if err != nil {
+		return nil, fmt.Errorf("lock lead state: %w", err)
+	}
+
 	// Validate targetStateKey exists in the pipeline.
 	var statesJSON []byte
 	if err = tx.QueryRow(ctx,
 		`SELECT states FROM lead_pipelines WHERE id = $1 AND account_id = $2`,
-		lead.PipelineID, accountID,
+		pipelineID, accountID,
 	).Scan(&statesJSON); err != nil {
 		return nil, fmt.Errorf("get pipeline: %w", err)
 	}
@@ -226,7 +239,7 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 		return nil, fmt.Errorf("invalid state key: %q", targetStateKey)
 	}
 
-	fromState := lead.CurrentStateKey
+	fromState := currentStateKey
 	var updatedAt time.Time
 	if err = tx.QueryRow(ctx, `
 		UPDATE leads
@@ -237,6 +250,7 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 		return nil, fmt.Errorf("update lead state: %w", err)
 	}
 	lead.CurrentStateKey = targetStateKey
+	lead.PipelineID = pipelineID
 	lead.UpdatedAt = updatedAt
 
 	_, err = tx.Exec(ctx, `
