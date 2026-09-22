@@ -48,7 +48,7 @@ type botSession struct {
 	snapshot Snapshot
 	cancel   context.CancelFunc
 	done     chan struct{}
-	sendMu   sync.Mutex
+	sendMu   sync.RWMutex
 }
 
 func (s *botSession) copySnapshot() Snapshot {

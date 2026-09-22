@@ -385,3 +385,64 @@ func TestPrivateChatID(t *testing.T) {
 		})
 	}
 }
+
+func TestManagerConcurrentSends(t *testing.T) {
+	fake := newFakeTelegram(t)
+	const token = "501:concurrent"
+	fake.addBot(token, 501, "concurrent_bot")
+	publisher := &recordingPublisher{}
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, publisher)
+
+	if _, err := manager.Create(t.Context(), "channel-concurrent", token); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, func() bool {
+		snapshot, _ := manager.Snapshot("channel-concurrent")
+		return snapshot.State == messaging.ConnectionConnected
+	})
+
+	const count = 10
+	var wg sync.WaitGroup
+	errCh := make(chan error, count)
+	now := time.Now().UTC()
+
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		msgID := fmt.Sprintf("msg-%d", i)
+		cmd := messaging.Command{
+			SchemaVersion: 1,
+			ID:            "cmd-" + msgID,
+			Kind:          messaging.CommandSendMessage,
+			Provider:      messaging.ProviderTelegram,
+			ChannelID:     "channel-concurrent",
+			CreatedAt:     now,
+			MessageID:     msgID,
+			Message: &messaging.Message{
+				ExternalThreadID:  "42",
+				Direction:         messaging.DirectionOutbound,
+				Sender:            messaging.Sender{ExternalID: "business"},
+				ContentType:       messaging.ContentText,
+				Text:              "Concurrent hello " + msgID,
+				ProviderTimestamp: now,
+			},
+		}
+		go func(c messaging.Command) {
+			defer wg.Done()
+			errCh <- manager.Send(t.Context(), c)
+		}(cmd)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Errorf("Send failed: %v", err)
+		}
+	}
+
+	waitFor(t, func() bool {
+		return publisher.count(messaging.EventMessageCreated) == count
+	})
+}
