@@ -26,7 +26,14 @@ type Config struct {
 	WhatsAppAdapterURL  string
 	TelegramAdapterURL  string
 	AdapterSharedSecret string
+	MediaStorageBackend string
 	MediaCachePath      string
+	MediaS3Endpoint     string
+	MediaS3Bucket       string
+	MediaS3AccessKey    string
+	MediaS3SecretKey    string
+	MediaS3UseSSL       bool
+	MediaS3Region       string
 }
 
 // IsProduction returns true if running in a production environment.
@@ -87,7 +94,14 @@ func Load() (*Config, error) {
 		WhatsAppAdapterURL:  os.Getenv("WHATSAPP_ADAPTER_URL"),
 		TelegramAdapterURL:  os.Getenv("TELEGRAM_ADAPTER_URL"),
 		AdapterSharedSecret: os.Getenv("ADAPTER_SHARED_SECRET"),
+		MediaStorageBackend: strings.ToLower(strings.TrimSpace(os.Getenv("MEDIA_STORAGE_BACKEND"))),
 		MediaCachePath:      os.Getenv("MEDIA_CACHE_PATH"),
+		MediaS3Endpoint:     os.Getenv("MEDIA_S3_ENDPOINT"),
+		MediaS3Bucket:       os.Getenv("MEDIA_S3_BUCKET"),
+		MediaS3AccessKey:    os.Getenv("MEDIA_S3_ACCESS_KEY"),
+		MediaS3SecretKey:    os.Getenv("MEDIA_S3_SECRET_KEY"),
+		MediaS3UseSSL:       strings.EqualFold(os.Getenv("MEDIA_S3_USE_SSL"), "true") || os.Getenv("MEDIA_S3_USE_SSL") == "1",
+		MediaS3Region:       os.Getenv("MEDIA_S3_REGION"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -108,8 +122,36 @@ func Load() (*Config, error) {
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"
 	}
+	if cfg.MediaStorageBackend == "" {
+		cfg.MediaStorageBackend = "disk"
+	}
 	if cfg.MediaCachePath == "" {
 		cfg.MediaCachePath = "/data/media"
+	}
+	if cfg.MediaStorageBackend == "s3" || cfg.MediaStorageBackend == "minio" {
+		if cfg.MediaS3Endpoint == "" {
+			cfg.MediaS3Endpoint = "minio:9000"
+		}
+		if cfg.MediaS3Bucket == "" {
+			cfg.MediaS3Bucket = "whatfunnel-media"
+		}
+		if cfg.MediaS3AccessKey == "" {
+			if rootUser := os.Getenv("MINIO_ROOT_USER"); rootUser != "" {
+				cfg.MediaS3AccessKey = rootUser
+			} else {
+				cfg.MediaS3AccessKey = "minioadmin"
+			}
+		}
+		if cfg.MediaS3SecretKey == "" {
+			if rootPassword := os.Getenv("MINIO_ROOT_PASSWORD"); rootPassword != "" {
+				cfg.MediaS3SecretKey = rootPassword
+			} else {
+				cfg.MediaS3SecretKey = "minioadmin"
+			}
+		}
+		if cfg.MediaS3Region == "" {
+			cfg.MediaS3Region = "us-east-1"
+		}
 	}
 	if cfg.WhatsAppAdapterURL == "" {
 		cfg.WhatsAppAdapterURL = "http://whatsapp-adapter:8086"
