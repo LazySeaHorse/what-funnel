@@ -163,7 +163,13 @@ services:
       WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
       TELEGRAM_ADAPTER_URL: http://telegram-adapter:8087
       ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
+      MEDIA_STORAGE_BACKEND: ${MEDIA_STORAGE_BACKEND:-disk}
       MEDIA_CACHE_PATH: /data/media
+      MEDIA_S3_ENDPOINT: minio:9000
+      MEDIA_S3_BUCKET: whatfunnel-media
+      MEDIA_S3_ACCESS_KEY: minioadmin
+      MEDIA_S3_SECRET_KEY: minioadmin
+      MEDIA_S3_USE_SSL: "false"
     volumes:
       - conversation_media_data:/data/media
     ports:
@@ -321,8 +327,31 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # MinIO (S3-compatible Object Storage for Scalable Media)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: whatfunnel-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   whatsapp_adapter_data:
   telegram_adapter_data:
   conversation_media_data:
+  minio_data:

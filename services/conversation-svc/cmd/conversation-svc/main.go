@@ -19,6 +19,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/adapterclient"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/handler"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/session"
 	"golang.org/x/sync/errgroup"
@@ -74,8 +75,29 @@ func run(logger *slog.Logger) error {
 	}
 	svc.RegisterAdapterControl(messaging.ProviderTelegram, telegramControl)
 	svc.RegisterProviderMediaFetcher(messaging.ProviderTelegram, telegramControl)
-	if err := svc.ConfigureMediaCache(cfg.MediaCachePath); err != nil {
-		return fmt.Errorf("configure media cache: %w", err)
+
+	switch cfg.MediaStorageBackend {
+	case "s3", "minio":
+		s3Store, err := mediastore.NewS3Store(ctx, mediastore.S3Config{
+			Endpoint:  cfg.MediaS3Endpoint,
+			Bucket:    cfg.MediaS3Bucket,
+			AccessKey: cfg.MediaS3AccessKey,
+			SecretKey: cfg.MediaS3SecretKey,
+			UseSSL:    cfg.MediaS3UseSSL,
+			Region:    cfg.MediaS3Region,
+		})
+		if err != nil {
+			return fmt.Errorf("configure s3 media store: %w", err)
+		}
+		svc.ConfigureMediaStore(s3Store)
+		logger.Info("configured s3 media store", "endpoint", cfg.MediaS3Endpoint, "bucket", cfg.MediaS3Bucket)
+	default:
+		diskStore, err := mediastore.NewDiskStore(cfg.MediaCachePath)
+		if err != nil {
+			return fmt.Errorf("configure disk media store: %w", err)
+		}
+		svc.ConfigureMediaStore(diskStore)
+		logger.Info("configured disk media store", "path", cfg.MediaCachePath)
 	}
 
 	// 6. Initialize HTTP API Routes
