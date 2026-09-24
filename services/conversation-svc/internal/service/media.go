@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 )
 
 type ProviderMedia struct {
@@ -31,6 +31,7 @@ type ProviderMediaFetcher interface {
 
 type MediaService struct {
 	pool          *pgxpool.Pool
+	store         mediastore.Store
 	mediaRoot     string
 	mediaFetchers map[messaging.Provider]ProviderMediaFetcher
 	mediaMu       sync.RWMutex
@@ -56,18 +57,25 @@ type MediaContent struct {
 	Reader io.ReadCloser
 }
 
+// ConfigureMediaStore sets the backing media store (disk, S3/MinIO, etc.).
+func (s *MediaService) ConfigureMediaStore(store mediastore.Store) {
+	s.mediaMu.Lock()
+	defer s.mediaMu.Unlock()
+	s.store = store
+}
+
+// ConfigureMediaCache configures a local disk-backed media store.
 func (s *MediaService) ConfigureMediaCache(root string) error {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return errors.New("media cache path is required")
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return fmt.Errorf("create media cache: %w", err)
-	}
-	if err := os.Chmod(root, 0o700); err != nil {
-		return fmt.Errorf("secure media cache: %w", err)
+	store, err := mediastore.NewDiskStore(root)
+	if err != nil {
+		return err
 	}
 	s.mediaMu.Lock()
+	s.store = store
 	s.mediaRoot = root
 	s.mediaMu.Unlock()
 	return nil
@@ -137,7 +145,12 @@ func (s *MediaService) SaveOutboundMedia(
 	`, media.ID, accountID, channelID, media.Filename, media.MIMEType,
 		media.SizeBytes, storageKey, media.ExpiresAt)
 	if err != nil {
-		_ = os.Remove(s.mediaPath(storageKey))
+		s.mediaMu.RLock()
+		store := s.store
+		s.mediaMu.RUnlock()
+		if store != nil {
+			_ = store.Delete(ctx, storageKey)
+		}
 		return MediaObject{}, fmt.Errorf("save media upload: %w", err)
 	}
 	return media, nil
@@ -174,12 +187,19 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 		return MediaContent{}, fmt.Errorf("load media: %w", err)
 	}
 
+	s.mediaMu.RLock()
+	store := s.store
+	s.mediaMu.RUnlock()
+	if store == nil {
+		return MediaContent{}, errors.New("media store is not configured")
+	}
+
 	if storageKey != nil && media.ExpiresAt.After(time.Now()) {
-		file, err := os.Open(s.mediaPath(*storageKey))
+		reader, err := store.Get(ctx, *storageKey)
 		if err == nil {
-			return MediaContent{MediaObject: media, Reader: file}, nil
+			return MediaContent{MediaObject: media, Reader: reader}, nil
 		}
-		if !errors.Is(err, os.ErrNotExist) {
+		if !errors.Is(err, mediastore.ErrNotFound) {
 			return MediaContent{}, fmt.Errorf("open cached media: %w", err)
 		}
 	}
@@ -223,7 +243,7 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 		WHERE id = $6
 	`, key, media.Filename, media.MIMEType, media.SizeBytes, media.ExpiresAt, media.ID)
 	if err != nil {
-		_ = os.Remove(s.mediaPath(key))
+		_ = store.Delete(ctx, key)
 		return MediaContent{}, fmt.Errorf("cache provider media: %w", err)
 	}
 	return MediaContent{MediaObject: media, Reader: io.NopCloser(bytes.NewReader(downloaded.Data))}, nil
@@ -245,6 +265,13 @@ func (s *MediaService) RunMediaCleanup(ctx context.Context) error {
 }
 
 func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
+	s.mediaMu.RLock()
+	store := s.store
+	s.mediaMu.RUnlock()
+	if store == nil {
+		return errors.New("media store is not configured")
+	}
+
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, storage_key
 		FROM media_objects
@@ -273,7 +300,7 @@ func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
 	}
 	rows.Close()
 	for _, object := range expired {
-		if err := os.Remove(s.mediaPath(object.key)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := store.Delete(ctx, object.key); err != nil {
 			return fmt.Errorf("remove expired media: %w", err)
 		}
 		if _, err := s.pool.Exec(ctx, `
@@ -288,31 +315,14 @@ func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
 
 func (s *MediaService) writeMediaFile(id uuid.UUID, data []byte) (string, error) {
 	s.mediaMu.RLock()
-	root := s.mediaRoot
+	store := s.store
 	s.mediaMu.RUnlock()
-	if root == "" {
+	if store == nil {
 		return "", errors.New("media cache is not configured")
 	}
 	key := id.String()
-	temporary, err := os.CreateTemp(root, ".media-*")
-	if err != nil {
-		return "", fmt.Errorf("create media cache file: %w", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return "", fmt.Errorf("secure media cache file: %w", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return "", fmt.Errorf("write media cache file: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return "", fmt.Errorf("close media cache file: %w", err)
-	}
-	if err := os.Rename(temporaryName, s.mediaPath(key)); err != nil {
-		return "", fmt.Errorf("publish media cache file: %w", err)
+	if err := store.Put(context.Background(), key, bytes.NewReader(data), int64(len(data)), "application/octet-stream"); err != nil {
+		return "", fmt.Errorf("write media: %w", err)
 	}
 	return key, nil
 }
