@@ -6,6 +6,8 @@ class Config:
         "postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable"
     )
     REDIS_URL: str = os.getenv("REDIS_URL", "localhost:6379")
+    REDIS_CONSUMER_NAME: str = os.getenv("REDIS_CONSUMER_NAME", "")
+    REDIS_AUTOCLAIM_MIN_IDLE_MS: int = int(os.getenv("REDIS_AUTOCLAIM_MIN_IDLE_MS", "30000"))
     APP_ENCRYPTION_KEY: str = os.getenv("APP_ENCRYPTION_KEY", "")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "1000"))

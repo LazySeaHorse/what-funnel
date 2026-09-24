@@ -2,9 +2,11 @@ import asyncio
 import json
 import logging
 import os
+import signal
+import socket
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 import httpx
 import redis
 from redis.asyncio import Redis
@@ -36,6 +38,19 @@ from rapidfuzz import fuzz
 # Set up logging
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger("ai-answer-svc")
+
+
+def get_consumer_name() -> str:
+    """Generate or retrieve a unique consumer name per instance/replica."""
+    if config.REDIS_CONSUMER_NAME:
+        return config.REDIS_CONSUMER_NAME
+    hostname = os.getenv("HOSTNAME")
+    if not hostname:
+        try:
+            hostname = socket.gethostname()
+        except Exception:
+            hostname = "local"
+    return f"ai-answer-svc-{hostname}"
 
 async def send_ai_message(
     account_id: uuid.UUID,
@@ -781,21 +796,33 @@ async def review_due_cooldown(db_pool, redis_client) -> bool:
     return True
 
 
-async def cooldown_scheduler(db_pool, redis_client):
-    while True:
+async def cooldown_scheduler(db_pool, redis_client, stop_event: Optional[asyncio.Event] = None):
+    while stop_event is None or not stop_event.is_set():
         try:
             if not await review_due_cooldown(db_pool, redis_client):
-                await asyncio.sleep(1)
+                try:
+                    if stop_event is not None:
+                        await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+                    else:
+                        await asyncio.sleep(1)
+                except asyncio.TimeoutError:
+                    pass
         except Exception as error:
             logger.exception("Cooldown scheduler failed: %s", error)
             await asyncio.sleep(1)
 
-async def debounce_scheduler(db_pool, redis_client):
-    while True:
+async def debounce_scheduler(db_pool, redis_client, stop_event: Optional[asyncio.Event] = None):
+    while stop_event is None or not stop_event.is_set():
         try:
             due_conversations = await pop_due_conversations(redis_client)
             if not due_conversations:
-                await asyncio.sleep(0.5)
+                try:
+                    if stop_event is not None:
+                        await asyncio.wait_for(stop_event.wait(), timeout=0.5)
+                    else:
+                        await asyncio.sleep(0.5)
+                except asyncio.TimeoutError:
+                    pass
                 continue
             for item in due_conversations:
                 try:
@@ -962,7 +989,33 @@ async def process_conversation_closed(data: dict, db_pool, redis_client):
     except Exception as e:
         logger.error(f"Failed to generate summary for conversation {convo_uuid}: {e}")
 
-async def consume_stream(redis_client, db_pool, stream_name: str, group_name: str, consumer_name: str, handler):
+async def _process_stream_message(msg_id, payload, stream_name: str, group_name: str, handler, db_pool, redis_client):
+    try:
+        raw_payload = payload.get(b"payload") if b"payload" in payload else payload.get("payload")
+        if raw_payload is None:
+            logger.warning(f"Message {msg_id} in stream {stream_name} has no payload field, acking.")
+            await redis_client.xack(stream_name, group_name, msg_id)
+            return
+        data = json.loads(raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else raw_payload)
+        await handler(data, db_pool, redis_client)
+        await redis_client.xack(stream_name, group_name, msg_id)
+    except Exception as e:
+        logger.exception(f"Error processing message {msg_id} in stream {stream_name}: {e}")
+
+
+async def consume_stream(
+    redis_client,
+    db_pool,
+    stream_name: str,
+    group_name: str,
+    consumer_name: str,
+    handler,
+    stop_event: Optional[asyncio.Event] = None,
+    min_idle_time: Optional[int] = None,
+):
+    if min_idle_time is None:
+        min_idle_time = config.REDIS_AUTOCLAIM_MIN_IDLE_MS
+
     # Ensure group exists
     try:
         await redis_client.xgroup_create(stream_name, group_name, id="0", mkstream=True)
@@ -973,35 +1026,65 @@ async def consume_stream(redis_client, db_pool, stream_name: str, group_name: st
             raise e
         logger.info(f"Consumer group {group_name} already exists on stream {stream_name}")
 
-    while True:
-        try:
-            streams = await redis_client.xreadgroup(
-                groupname=group_name,
-                consumername=consumer_name,
-                streams={stream_name: ">"},
-                count=1,
-                block=1000
-            )
-            for _, messages in streams:
-                for msg_id, payload in messages:
+    try:
+        while stop_event is None or not stop_event.is_set():
+            # 1. Reclaim pending entries from crashed/dead consumers (XAUTOCLAIM)
+            try:
+                autoclaim_res = await redis_client.xautoclaim(
+                    name=stream_name,
+                    groupname=group_name,
+                    consumername=consumer_name,
+                    min_idle_time=min_idle_time,
+                    start_id="0-0",
+                    count=1,
+                )
+                if autoclaim_res and len(autoclaim_res) >= 2 and autoclaim_res[1]:
+                    for msg_id, payload in autoclaim_res[1]:
+                        await _process_stream_message(msg_id, payload, stream_name, group_name, handler, db_pool, redis_client)
+                    continue
+            except ResponseError as e:
+                if "NOGROUP" in str(e):
+                    logger.warning(f"Consumer group missing for stream {stream_name} during autoclaim. Re-creating...")
                     try:
-                        raw_payload = payload[b"payload"]
-                        data = json.loads(raw_payload.decode("utf-8"))
-                        await handler(data, db_pool, redis_client)
-                        await redis_client.xack(stream_name, group_name, msg_id)
-                    except Exception as e:
-                        logger.exception(f"Error processing message {msg_id} in stream {stream_name}: {e}")
-        except ResponseError as e:
-            if "NOGROUP" in str(e):
-                logger.warning(f"Consumer group missing for stream {stream_name}. Re-creating...")
-                try:
-                    await redis_client.xgroup_create(stream_name, group_name, id="0", mkstream=True)
-                except Exception:
-                    pass
-            await asyncio.sleep(1)
+                        await redis_client.xgroup_create(stream_name, group_name, id="0", mkstream=True)
+                    except Exception:
+                        pass
+                else:
+                    logger.debug(f"xautoclaim ResponseError on {stream_name}: {e}")
+            except Exception as e:
+                logger.debug(f"xautoclaim error on {stream_name}: {e}")
+
+            # 2. Read new messages
+            try:
+                streams = await redis_client.xreadgroup(
+                    groupname=group_name,
+                    consumername=consumer_name,
+                    streams={stream_name: ">"},
+                    count=1,
+                    block=1000
+                )
+                for _, messages in streams:
+                    for msg_id, payload in messages:
+                        await _process_stream_message(msg_id, payload, stream_name, group_name, handler, db_pool, redis_client)
+            except ResponseError as e:
+                if "NOGROUP" in str(e):
+                    logger.warning(f"Consumer group missing for stream {stream_name}. Re-creating...")
+                    try:
+                        await redis_client.xgroup_create(stream_name, group_name, id="0", mkstream=True)
+                    except Exception:
+                        pass
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Error in consumer loop for stream {stream_name}: {e}")
+                await asyncio.sleep(1)
+    finally:
+        # Clean up consumer registration to avoid phantom consumers in Redis
+        try:
+            await redis_client.xgroup_delconsumer(stream_name, group_name, consumer_name)
+            logger.info(f"Deregistered consumer {consumer_name} from group {group_name} on {stream_name}")
         except Exception as e:
-            logger.error(f"Error in consumer loop for stream {stream_name}: {e}")
-            await asyncio.sleep(1)
+            logger.debug(f"Could not deregister consumer {consumer_name} from {stream_name}: {e}")
+
 
 async def main():
     logger.info("Initializing database connection pool...")
@@ -1011,28 +1094,58 @@ async def main():
     logger.info(f"Connecting to Redis at {redis_url}...")
     redis_client = Redis.from_url(redis_url)
 
-    logger.info("Starting stream consumers...")
-    # Run both consumers concurrently
-    await asyncio.gather(
-        consume_stream(
-            redis_client,
-            db_pool,
-            "conversation.updated",
-            "ai-answer-svc-group",
-            "ai-answer-svc-consumer",
-            process_conversation_updated
+    consumer_name = get_consumer_name()
+    logger.info(f"Starting stream consumers with consumer name {consumer_name}...")
+
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    tasks = [
+        asyncio.create_task(
+            consume_stream(
+                redis_client,
+                db_pool,
+                "conversation.updated",
+                "ai-answer-svc-group",
+                consumer_name,
+                process_conversation_updated,
+                stop_event=stop_event,
+            )
         ),
-        consume_stream(
-            redis_client,
-            db_pool,
-            "conversation.closed",
-            "ai-answer-svc-group",
-            "ai-answer-svc-consumer",
-            process_conversation_closed
+        asyncio.create_task(
+            consume_stream(
+                redis_client,
+                db_pool,
+                "conversation.closed",
+                "ai-answer-svc-group",
+                consumer_name,
+                process_conversation_closed,
+                stop_event=stop_event,
+            )
         ),
-        cooldown_scheduler(db_pool, redis_client),
-        debounce_scheduler(db_pool, redis_client),
-    )
+        asyncio.create_task(cooldown_scheduler(db_pool, redis_client, stop_event=stop_event)),
+        asyncio.create_task(debounce_scheduler(db_pool, redis_client, stop_event=stop_event)),
+    ]
+
+    try:
+        await stop_event.wait()
+        logger.info("Shutdown signal received, shutting down gracefully...")
+    except asyncio.CancelledError:
+        pass
+    finally:
+        stop_event.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            await redis_client.aclose()
+        except AttributeError:
+            await redis_client.close()
+        await db_pool.close()
+        logger.info("Shutdown complete.")
 
 if __name__ == "__main__":
     asyncio.run(main())
