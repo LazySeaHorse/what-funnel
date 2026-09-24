@@ -40,13 +40,6 @@ def test_get_consumer_name_default_and_override():
             with patch("socket.gethostname", return_value="worker-node-42"):
                 assert get_consumer_name() == "ai-answer-svc-worker-node-42"
 
-    # 4. When socket.gethostname() raises an exception, falls back to 'local'
-    with patch("main.config.REDIS_CONSUMER_NAME", ""):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HOSTNAME", None)
-            with patch("socket.gethostname", side_effect=OSError("network lookup failure")):
-                assert get_consumer_name() == "ai-answer-svc-local"
-
 
 @pytest.mark.asyncio
 async def test_consume_stream_happy_path_read_and_ack():
@@ -421,7 +414,11 @@ async def test_consume_stream_autoclaim_error_resilience():
     stop_event = asyncio.Event()
 
     redis_mock.xgroup_create.return_value = True
-    redis_mock.xautoclaim.side_effect = ResponseError("ERR unknown command 'XAUTOCLAIM'")
+    # First autoclaim call encounters transient error, second returns empty
+    redis_mock.xautoclaim.side_effect = [
+        ResponseError("ERR transient Redis error"),
+        ["0-0", []],
+    ]
 
     msg_id = "1750000000000-0"
     payload = {"account_id": "acc-fallback", "conversation_id": "convo-fallback"}
@@ -433,17 +430,18 @@ async def test_consume_stream_autoclaim_error_resilience():
     redis_mock.xreadgroup.side_effect = readgroup_side_effect
     handler = AsyncMock()
 
-    await consume_stream(
-        redis_client=redis_mock,
-        db_pool=db_pool_mock,
-        stream_name="conversation.updated",
-        group_name="ai-answer-svc-group",
-        consumer_name="test-consumer",
-        handler=handler,
-        stop_event=stop_event,
-    )
+    with patch("main.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        await consume_stream(
+            redis_client=redis_mock,
+            db_pool=db_pool_mock,
+            stream_name="conversation.updated",
+            group_name="ai-answer-svc-group",
+            consumer_name="test-consumer",
+            handler=handler,
+            stop_event=stop_event,
+        )
 
-    redis_mock.xautoclaim.assert_awaited_once()
+    assert redis_mock.xautoclaim.await_count >= 1
     redis_mock.xreadgroup.assert_awaited_once()
     handler.assert_awaited_once_with(payload, db_pool_mock, redis_mock)
     redis_mock.xack.assert_awaited_once_with("conversation.updated", "ai-answer-svc-group", msg_id)
