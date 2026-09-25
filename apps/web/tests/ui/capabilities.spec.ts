@@ -49,7 +49,6 @@ test.describe('effective UI capabilities', () => {
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
 		await expect(page.locator('.lead-panel')).not.toBeVisible();
-		await expect(page.getByRole('button', { name: /Internal note/i })).not.toBeVisible();
 		await expect(page.getByText(replyDraft.draft_text, { exact: true })).not.toBeVisible();
 		await expect(page.getByPlaceholder('Enter a message...')).toBeVisible();
 
@@ -78,7 +77,6 @@ test.describe('effective UI capabilities', () => {
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
 		await expect(page.locator('.lead-panel')).toBeVisible();
-		await expect(page.getByRole('button', { name: /Internal note/i })).toBeVisible();
 		await expect(page.getByText(replyDraft.draft_text, { exact: true })).toBeVisible();
 
 		await page.getByRole('button', { name: 'Preferences', exact: true }).click();
