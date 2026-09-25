@@ -2,33 +2,35 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
 // ListUsers returns all users for the given account, ordered by created_at.
 func (svc *Service) ListUsers(ctx context.Context, accountID uuid.UUID) ([]*types.User, error) {
-	rows, err := svc.pool.Query(ctx,
-		`SELECT id, account_id, COALESCE(email, ''), COALESCE(username, ''), role, created_at
-		   FROM users WHERE account_id = $1 ORDER BY created_at ASC`, accountID)
+	rows, err := dbgen.New(svc.pool).ListUsersByAccount(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
-	defer rows.Close()
 
 	var users []*types.User
-	for rows.Next() {
-		u := &types.User{}
-		if err := rows.Scan(&u.ID, &u.AccountID, &u.Email, &u.Username, &u.Role, &u.CreatedAt); err != nil {
-			return nil, err
-		}
-		users = append(users, u)
+	for _, r := range rows {
+		users = append(users, &types.User{
+			ID:        r.ID,
+			AccountID: r.AccountID,
+			Email:     r.Email,
+			Username:  r.Username,
+			Role:      r.Role,
+			CreatedAt: r.CreatedAt,
+		})
 	}
-	return users, rows.Err()
+	return users, nil
 }
 
 // CreateUserRequest carries creation parameters.
@@ -59,9 +61,10 @@ func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUs
 	}
 
 	// 1. Workspace domain cleanup: unassign from conversations
-	_, err := svc.pool.Exec(ctx,
-		`UPDATE conversations SET assigned_user_ids = array_remove(assigned_user_ids, $1) WHERE account_id = $2 AND $1 = ANY(assigned_user_ids)`,
-		targetUserID, accountID)
+	err := dbgen.New(svc.pool).UnassignUserFromConversations(ctx, dbgen.UnassignUserFromConversationsParams{
+		UserID:    targetUserID,
+		AccountID: accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("unassign conversations: %w", err)
 	}
@@ -82,25 +85,33 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 
 // VerifyUserBelongsToAccount is a convenience helper used in tests.
 func (svc *Service) VerifyUserBelongsToAccount(ctx context.Context, accountID, userID uuid.UUID) (bool, error) {
-	var count int
-	err := svc.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM users WHERE id = $1 AND account_id = $2`, userID, accountID).Scan(&count)
+	count, err := dbgen.New(svc.pool).CountUserInAccount(ctx, dbgen.CountUserInAccountParams{
+		ID:        userID,
+		AccountID: accountID,
+	})
 	return count > 0, err
 }
 
 // GetUserByID retrieves a user by ID, scoped to an account.
 func (svc *Service) GetUserByID(ctx context.Context, accountID, userID uuid.UUID) (*types.User, error) {
-	u := &types.User{}
-	err := svc.pool.QueryRow(ctx,
-		`SELECT id, account_id, email, role, created_at
-		   FROM users WHERE id = $1 AND account_id = $2`,
-		userID, accountID).
-		Scan(&u.ID, &u.AccountID, &u.Email, &u.Role, &u.CreatedAt)
+	row, err := dbgen.New(svc.pool).GetUserByID(ctx, dbgen.GetUserByIDParams{
+		ID:        userID,
+		AccountID: accountID,
+	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
 		return nil, err
+	}
+
+	u := &types.User{
+		ID:        row.ID,
+		AccountID: row.AccountID,
+		Email:     row.Email,
+		Username:  row.Username,
+		Role:      row.Role,
+		CreatedAt: row.CreatedAt,
 	}
 
 	// Verify timestamp is set

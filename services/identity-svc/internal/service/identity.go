@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/session"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/store"
@@ -93,6 +94,7 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	qtx := dbgen.New(tx)
 	aw := audit.NewWriterFromTx(tx)
 
 	var accountID uuid.UUID
@@ -124,31 +126,36 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		return nil, fmt.Errorf("service: marshal default settings: %w", err)
 	}
 
-	err = tx.QueryRow(ctx,
-		`INSERT INTO accounts (name, plan, settings, product_mode) VALUES ($1, $2, $3, $4) RETURNING id`,
-		req.AccountName, types.PlanSelfHosted, defaultSettings, req.ProductMode).Scan(&accountID)
+	accountID, err = qtx.CreateAccount(ctx, dbgen.CreateAccountParams{
+		Name:        req.AccountName,
+		Plan:        types.PlanSelfHosted,
+		Settings:    defaultSettings,
+		ProductMode: req.ProductMode,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("service: create account: %w", err)
 	}
 
 	// 2. Check global email uniqueness across all accounts if email provided
 	if req.Email != "" {
-		var count int
-		_ = tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM users WHERE email = $1`,
-			req.Email).Scan(&count)
+		count, _ := qtx.CountUsersByEmail(ctx, req.Email)
 		if count > 0 {
 			return nil, fmt.Errorf("service: email already registered")
 		}
 	}
 
 	// 3. Create manager user
-	err = tx.QueryRow(ctx,
-		`INSERT INTO users (account_id, email, username, password_hash, role) VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5) RETURNING id`,
-		accountID, req.Email, req.Username, hash, userRole).Scan(&userID)
+	createdUser, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
+		AccountID:    accountID,
+		Email:        req.Email,
+		Username:     req.Username,
+		PasswordHash: hash,
+		Role:         userRole,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("service: create user: %w", err)
 	}
+	userID = createdUser.ID
 
 	// 4. Provision workspace / CRM domain entities via WorkspaceProvisioner
 	if svc.workspaceProvisioner != nil {
@@ -324,21 +331,26 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	qtx := dbgen.New(tx)
+
 	if req.Email != "" {
-		var count int
-		_ = tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE email = $1`, req.Email).Scan(&count)
+		count, _ := qtx.CountUsersByEmail(ctx, req.Email)
 		if count > 0 {
 			return nil, fmt.Errorf("service: email already registered")
 		}
 	}
 
-	var userID uuid.UUID
-	err = tx.QueryRow(ctx,
-		`INSERT INTO users (account_id, email, username, password_hash, role) VALUES ($1, NULLIF($2, ''), $3, $4, $5) RETURNING id`,
-		accountID, req.Email, req.Username, hash, req.Role).Scan(&userID)
+	createdUser, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
+		AccountID:    accountID,
+		Email:        req.Email,
+		Username:     req.Username,
+		PasswordHash: hash,
+		Role:         req.Role,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
+	userID := createdUser.ID
 
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
@@ -382,22 +394,27 @@ func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, t
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	var exists bool
-	err = tx.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
-		Scan(&exists)
+	qtx := dbgen.New(tx)
+
+	exists, err := qtx.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
+		ID:        targetUserID,
+		AccountID: accountID,
+	})
 	if err != nil || !exists {
 		return fmt.Errorf("user not found in account")
 	}
 
-	_, err = tx.Exec(ctx,
-		`UPDATE users SET password_hash = $1 WHERE id = $2 AND account_id = $3`, hash, targetUserID, accountID)
+	err = qtx.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{
+		PasswordHash: hash,
+		ID:           targetUserID,
+		AccountID:    accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update password: %w", err)
 	}
 
 	// Revoke all existing sessions for targetUserID
-	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	err = qtx.DeleteSessionsByUserID(ctx, targetUserID.String())
 	if err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
 	}
@@ -429,21 +446,26 @@ func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUs
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	var exists bool
-	err = tx.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
-		Scan(&exists)
+	qtx := dbgen.New(tx)
+
+	exists, err := qtx.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
+		ID:        targetUserID,
+		AccountID: accountID,
+	})
 	if err != nil || !exists {
 		return fmt.Errorf("user not found in account")
 	}
 
-	_, err = tx.Exec(ctx, `DELETE FROM users WHERE id = $1 AND account_id = $2`, targetUserID, accountID)
+	err = qtx.DeleteUserFromAccount(ctx, dbgen.DeleteUserFromAccountParams{
+		ID:        targetUserID,
+		AccountID: accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
 
 	// Revoke all existing sessions for targetUserID
-	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	err = qtx.DeleteSessionsByUserID(ctx, targetUserID.String())
 	if err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
 	}
@@ -475,21 +497,26 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	var exists bool
-	err = tx.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND account_id = $2)`, targetUserID, accountID).
-		Scan(&exists)
+	qtx := dbgen.New(tx)
+
+	exists, err := qtx.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
+		ID:        targetUserID,
+		AccountID: accountID,
+	})
 	if err != nil || !exists {
 		return fmt.Errorf("user not found in account")
 	}
 
-	_, err = tx.Exec(ctx,
-		`UPDATE users SET role = $1 WHERE id = $2 AND account_id = $3`, newRole, targetUserID, accountID)
+	err = qtx.UpdateUserRole(ctx, dbgen.UpdateUserRoleParams{
+		Role:      newRole,
+		ID:        targetUserID,
+		AccountID: accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update role: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`, targetUserID.String())
+	err = qtx.DeleteSessionsByUserID(ctx, targetUserID.String())
 	if err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
 	}

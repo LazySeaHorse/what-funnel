@@ -18,6 +18,8 @@ Use these commands:
 source scripts/codex-env.sh && make test-short
 source scripts/codex-env.sh && make test
 source scripts/codex-env.sh && make pw
+source scripts/codex-env.sh && make sqlc-compile
+source scripts/codex-env.sh && make sqlc-gen
 ```
 
 The Go build cache lives under the ignored workspace directory `.cache/`

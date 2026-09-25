@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 )
 
 // UserReplyModePreferences represents user and workspace reply mode configuration.
@@ -17,30 +18,27 @@ type UserReplyModePreferences struct {
 
 // GetUserReplyMode retrieves the user's explicit reply mode and computes the effective setting.
 func (svc *Service) GetUserReplyMode(ctx context.Context, accountID, userID uuid.UUID) (*UserReplyModePreferences, error) {
-	var replyMode *string
-	var settingsBytes []byte
-	if err := svc.pool.QueryRow(ctx, `
-		SELECT u.reply_mode_override, a.settings
-		FROM users u
-		JOIN accounts a ON a.id = u.account_id
-		WHERE u.id = $1 AND u.account_id = $2
-	`, userID, accountID).Scan(&replyMode, &settingsBytes); err != nil {
+	row, err := dbgen.New(svc.pool).GetUserReplyMode(ctx, dbgen.GetUserReplyModeParams{
+		ID:        userID,
+		AccountID: accountID,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("lookup user reply mode: %w", err)
 	}
 
-	settings := parseSettings(settingsBytes)
+	settings := parseSettings(row.Settings)
 	workspaceDefault, _ := settings["ai_reply_mode_default"].(string)
 	if workspaceDefault != "auto_send" && workspaceDefault != "draft_only" {
 		workspaceDefault = "draft_only"
 	}
 	overrideAllowed := boolSetting(settings, "allow_member_reply_mode_override", true)
 	effective := workspaceDefault
-	if overrideAllowed && replyMode != nil && (*replyMode == "auto_send" || *replyMode == "draft_only") {
-		effective = *replyMode
+	if overrideAllowed && row.ReplyModeOverride != nil && (*row.ReplyModeOverride == "auto_send" || *row.ReplyModeOverride == "draft_only") {
+		effective = *row.ReplyModeOverride
 	}
 
 	return &UserReplyModePreferences{
-		ReplyMode:          replyMode,
+		ReplyMode:          row.ReplyModeOverride,
 		WorkspaceDefault:   workspaceDefault,
 		EffectiveReplyMode: effective,
 		OverrideAllowed:    overrideAllowed,
@@ -50,8 +48,7 @@ func (svc *Service) GetUserReplyMode(ctx context.Context, accountID, userID uuid
 // UpdateUserReplyMode modifies the user's reply mode preference if overrides are allowed by the workspace.
 func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID uuid.UUID, replyMode *string) error {
 	// 1. Fetch account settings to check if override is allowed
-	var settingsBytes []byte
-	err := svc.pool.QueryRow(ctx, "SELECT settings FROM accounts WHERE id = $1", accountID).Scan(&settingsBytes)
+	settingsBytes, err := dbgen.New(svc.pool).GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("lookup account settings: %w", err)
 	}
@@ -62,9 +59,11 @@ func (svc *Service) UpdateUserReplyMode(ctx context.Context, accountID, userID u
 	}
 
 	// 2. Update user override in DB
-	_, err = svc.pool.Exec(ctx,
-		"UPDATE users SET reply_mode_override = $1 WHERE id = $2 AND account_id = $3",
-		replyMode, userID, accountID)
+	err = dbgen.New(svc.pool).UpdateUserReplyMode(ctx, dbgen.UpdateUserReplyModeParams{
+		ReplyModeOverride: replyMode,
+		ID:                userID,
+		AccountID:         accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update user reply mode: %w", err)
 	}

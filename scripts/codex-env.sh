@@ -14,6 +14,10 @@ if ! command -v go >/dev/null 2>&1; then
 	fi
 fi
 
+if [[ -d "${HOME}/go/bin" ]] && [[ ":${PATH}:" != *":${HOME}/go/bin:"* ]]; then
+	export PATH="${HOME}/go/bin:${PATH}"
+fi
+
 export GOCACHE="${GOCACHE:-${codex_repo_root}/.cache/go-build}"
 export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/usr/local/bin/chromium}"

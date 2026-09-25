@@ -3,30 +3,34 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
 // GetAccount returns the account for the given ID.
 func (svc *Service) GetAccount(ctx context.Context, accountID uuid.UUID) (*types.Account, error) {
-	a := &types.Account{}
-	var settingsRaw []byte
-	err := svc.pool.QueryRow(ctx,
-		`SELECT id, name, plan, product_mode, settings, created_at FROM accounts WHERE id = $1`,
-		accountID).Scan(&a.ID, &a.Name, &a.Plan, &a.ProductMode, &settingsRaw, &a.CreatedAt)
+	row, err := dbgen.New(svc.pool).GetAccountByID(ctx, accountID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("account not found")
 		}
 		return nil, fmt.Errorf("get account: %w", err)
 	}
-	a.Settings = settingsRaw
-	return a, nil
+	return &types.Account{
+		ID:          row.ID,
+		Name:        row.Name,
+		Plan:        row.Plan,
+		ProductMode: row.ProductMode,
+		Settings:    row.Settings,
+		CreatedAt:   row.CreatedAt,
+	}, nil
 }
 
 // DeleteAccount removes an account root. All tenant-owned data is removed by
@@ -38,7 +42,8 @@ func (svc *Service) DeleteAccount(ctx context.Context, accountID uuid.UUID) erro
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	command, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+	q := dbgen.New(tx)
+	command, err := q.DeleteAccountByID(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}
@@ -46,7 +51,7 @@ func (svc *Service) DeleteAccount(ctx context.Context, accountID uuid.UUID) erro
 		return fmt.Errorf("account not found")
 	}
 
-	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1`, accountID.String())
+	err = q.DeleteSessionsByAccountID(ctx, accountID.String())
 	if err != nil {
 		return fmt.Errorf("revoke account sessions: %w", err)
 	}
@@ -62,7 +67,10 @@ func (svc *Service) UpdateAccountName(ctx context.Context, accountID, actorID uu
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	_, err = tx.Exec(ctx, `UPDATE accounts SET name = $1 WHERE id = $2`, name, accountID)
+	err = dbgen.New(tx).UpdateAccountName(ctx, dbgen.UpdateAccountNameParams{
+		Name: name,
+		ID:   accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update account name: %w", err)
 	}
@@ -95,7 +103,10 @@ func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorI
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	_, err = tx.Exec(ctx, `UPDATE accounts SET settings = $1 WHERE id = $2`, raw, accountID)
+	err = dbgen.New(tx).UpdateAccountSettings(ctx, dbgen.UpdateAccountSettingsParams{
+		Settings: raw,
+		ID:       accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update settings: %w", err)
 	}
@@ -130,7 +141,10 @@ func (svc *Service) MergeAccountSettings(ctx context.Context, accountID, actorID
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	result, err := tx.Exec(ctx, `UPDATE accounts SET settings = settings || $1::jsonb WHERE id = $2`, patchRaw, accountID)
+	result, err := dbgen.New(tx).MergeAccountSettings(ctx, dbgen.MergeAccountSettingsParams{
+		Settings: patchRaw,
+		ID:       accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("merge settings: %w", err)
 	}
@@ -165,8 +179,8 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	var oldMode string
-	err = tx.QueryRow(ctx, `SELECT product_mode FROM accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&oldMode)
+	q := dbgen.New(tx)
+	oldMode, err := q.GetAccountProductModeForUpdate(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("query account details: %w", err)
 	}
@@ -176,12 +190,11 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 		leadTrackingJSON = "true"
 	}
 
-	_, err = tx.Exec(ctx, `
-		UPDATE accounts
-		SET product_mode = $1,
-		    settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{lead_tracking_enabled}', $2::jsonb)
-		WHERE id = $3
-	`, newMode, leadTrackingJSON, accountID)
+	err = q.UpdateAccountProductMode(ctx, dbgen.UpdateAccountProductModeParams{
+		ProductMode:         newMode,
+		LeadTrackingEnabled: json.RawMessage(leadTrackingJSON),
+		ID:                  accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update product mode: %w", err)
 	}
@@ -219,7 +232,10 @@ func (svc *Service) SetAccountSlug(ctx context.Context, accountID, actorID uuid.
 		}
 	}
 
-	_, err := svc.pool.Exec(ctx, `UPDATE accounts SET slug = $1 WHERE id = $2`, slug, accountID)
+	err := dbgen.New(svc.pool).SetAccountSlug(ctx, dbgen.SetAccountSlugParams{
+		Slug: &slug,
+		ID:   accountID,
+	})
 	if err != nil {
 		return fmt.Errorf("update slug: %w", err)
 	}
@@ -228,8 +244,7 @@ func (svc *Service) SetAccountSlug(ctx context.Context, accountID, actorID uuid.
 
 // GetAccountSlug retrieves the workspace slug for an account.
 func (svc *Service) GetAccountSlug(ctx context.Context, accountID uuid.UUID) (string, error) {
-	var slug *string
-	err := svc.pool.QueryRow(ctx, `SELECT slug FROM accounts WHERE id = $1`, accountID).Scan(&slug)
+	slug, err := dbgen.New(svc.pool).GetAccountSlug(ctx, accountID)
 	if err != nil {
 		return "", fmt.Errorf("get slug: %w", err)
 	}

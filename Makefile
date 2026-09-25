@@ -117,6 +117,14 @@ lint: ## Run golangci-lint
 
 tools: ## Install required Go tools
 	go install github.com/pressly/goose/v3/cmd/goose@latest
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
+
+sqlc-gen: ## Generate Go code from SQL queries with sqlc
+	sqlc generate
+
+sqlc-compile: ## Compile and type-check SQL queries and schema with sqlc
+	sqlc compile
+
 
 pw: ## Run the Playwright E2E test suite (requires `make up` and `cd apps/web && npm install` first)
 	cd apps/web && npx playwright test --reporter=list

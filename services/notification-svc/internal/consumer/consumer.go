@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
 	"golang.org/x/sync/errgroup"
@@ -20,18 +21,22 @@ type streamConsumer interface {
 }
 
 type Consumer struct {
-	pool   *pgxpool.Pool
-	ps     streamConsumer
-	hub    *server.Hub
-	logger *slog.Logger
+	queries *dbgen.Queries
+	ps      streamConsumer
+	hub     *server.Hub
+	logger  *slog.Logger
 }
 
 func NewConsumer(pool *pgxpool.Pool, ps streamConsumer, hub *server.Hub, logger *slog.Logger) *Consumer {
+	var q *dbgen.Queries
+	if pool != nil {
+		q = dbgen.New(pool)
+	}
 	return &Consumer{
-		pool:   pool,
-		ps:     ps,
-		hub:    hub,
-		logger: logger,
+		queries: q,
+		ps:      ps,
+		hub:     hub,
+		logger:  logger,
 	}
 }
 
@@ -82,15 +87,18 @@ func (c *Consumer) handleAIControlUpdated(ctx context.Context, id string, payloa
 		return nil
 	}
 
-	var assignedUserIDs []uuid.UUID
-	if err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs); err != nil {
-		if err == pgx.ErrNoRows {
+	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
+		ID:        ev.ConversationID,
+		AccountID: ev.AccountID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return err
 	}
-	var settingsBytes []byte
-	if err := c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes); err != nil {
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
+	if err != nil {
 		return err
 	}
 	c.hub.BroadcastToAccount(ev.AccountID, map[string]any{
@@ -122,10 +130,12 @@ func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, pay
 	}
 
 	// 1. Fetch conversation details (specifically assigned_user_ids)
-	var assignedUserIDs []uuid.UUID
-	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
+		ID:        ev.ConversationID,
+		AccountID: ev.AccountID,
+	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Warn("conversation not found for update event", "convo_id", ev.ConversationID)
 			return nil
 		}
@@ -133,36 +143,36 @@ func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, pay
 	}
 
 	// 2. Fetch account settings
-	var settingsBytes []byte
-	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
 	if err != nil {
 		return err
 	}
 	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
 
 	// 3. Fetch full message details
-	msg := &types.Message{}
-	err = c.pool.QueryRow(ctx, `
-		SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
-		FROM messages WHERE id = $1 AND account_id = $2
-	`, ev.MessageID, ev.AccountID).Scan(
-		&msg.ID,
-		&msg.AccountID,
-		&msg.ConversationID,
-		&msg.Direction,
-		&msg.SenderType,
-		&msg.SenderUserID,
-		&msg.ContentType,
-		&msg.Content,
-		&msg.ExternalMessageID,
-		&msg.CreatedAt,
-	)
+	rawMsg, err := c.queries.GetMessageForNotification(ctx, dbgen.GetMessageForNotificationParams{
+		ID:        ev.MessageID,
+		AccountID: ev.AccountID,
+	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Warn("message not found for update event", "msg_id", ev.MessageID)
 			return nil
 		}
 		return err
+	}
+
+	msg := &types.Message{
+		ID:                rawMsg.ID,
+		AccountID:         rawMsg.AccountID,
+		ConversationID:    rawMsg.ConversationID,
+		Direction:         rawMsg.Direction,
+		SenderType:        types.MessageSender(rawMsg.SenderType),
+		SenderUserID:      rawMsg.SenderUserID,
+		ContentType:       rawMsg.ContentType,
+		Content:           rawMsg.Content,
+		ExternalMessageID: rawMsg.ExternalMessageID,
+		CreatedAt:         rawMsg.CreatedAt,
 	}
 
 	// Determine payload type
@@ -197,8 +207,7 @@ func (c *Consumer) handleConversationAssigned(ctx context.Context, id string, pa
 	}
 
 	// Fetch account settings
-	var settingsBytes []byte
-	err := c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
 	if err != nil {
 		return err
 	}
@@ -262,20 +271,19 @@ func (c *Consumer) handleLeadStateChanged(ctx context.Context, id string, payloa
 	}
 
 	// 1. Resolve account_id and assigned_user_ids from the conversation
-	var accountID uuid.UUID
-	var assignedUserIDs []uuid.UUID
-	err := c.pool.QueryRow(ctx, `SELECT account_id, assigned_user_ids FROM conversations WHERE id = $1`, ev.ConversationID).Scan(&accountID, &assignedUserIDs)
+	row, err := c.queries.GetConversationAccountAndAssignedUsers(ctx, ev.ConversationID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Warn("conversation not found for lead state change event", "convo_id", ev.ConversationID)
 			return nil
 		}
 		return err
 	}
+	accountID := row.AccountID
+	assignedUserIDs := row.AssignedUserIds
 
 	// 2. Fetch account settings
-	var settingsBytes []byte
-	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes)
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -314,17 +322,18 @@ func (c *Consumer) handleAIReplyReady(ctx context.Context, id string, payload []
 		return nil
 	}
 
-	var assignedUserIDs []uuid.UUID
-	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
+		ID:        ev.ConversationID,
+		AccountID: ev.AccountID,
+	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return err
 	}
 
-	var settingsBytes []byte
-	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
 	if err != nil {
 		return err
 	}
@@ -360,16 +369,18 @@ func (c *Consumer) handleAIReplyDraftUpdated(ctx context.Context, id string, pay
 		return nil
 	}
 
-	var assignedUserIDs []uuid.UUID
-	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
+		ID:        ev.ConversationID,
+		AccountID: ev.AccountID,
+	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return err
 	}
-	var settingsBytes []byte
-	if err := c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes); err != nil {
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
+	if err != nil {
 		return err
 	}
 
@@ -420,17 +431,18 @@ func (c *Consumer) handleConversationSummaryUpdated(ctx context.Context, id stri
 		return nil
 	}
 
-	var assignedUserIDs []uuid.UUID
-	err := c.pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1 AND account_id = $2`, ev.ConversationID, ev.AccountID).Scan(&assignedUserIDs)
+	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
+		ID:        ev.ConversationID,
+		AccountID: ev.AccountID,
+	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return err
 	}
 
-	var settingsBytes []byte
-	err = c.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, ev.AccountID).Scan(&settingsBytes)
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
 	if err != nil {
 		return err
 	}
