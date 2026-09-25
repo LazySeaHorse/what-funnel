@@ -60,7 +60,7 @@ async def send_ai_message(
     headers = {
         "X-Internal-Token": secret,
         "X-Account-ID": str(account_id),
-        "X-User-Role": "admin",
+        "X-User-Role": "manager",
         "Content-Type": "application/json",
     }
     body = {

@@ -8,6 +8,7 @@ from main import (
     process_conversation_updated,
     process_conversation_closed,
     review_due_cooldown,
+    send_ai_message,
 )
 from control import HUMAN_REVIEW_REPLY
 from db import ScopedDB
@@ -527,3 +528,42 @@ async def test_summary_debounce():
             assert "INSERT INTO conversation_summaries" in summary_call_args[0]
             assert summary_call_args[3] == json.dumps(mock_summary)
             assert summary_call_args[4] == 10 # current count
+
+
+@pytest.mark.asyncio
+async def test_send_ai_message_canonical_manager_role():
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": str(uuid.uuid4())}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        res = await send_ai_message(
+            account_id=account_id,
+            conversation_id=convo_id,
+            text="Hello from AI",
+            generation_epoch=3,
+            purpose="reply",
+            idempotency_key="ai-reply:123",
+        )
+
+        assert mock_post.called
+        call_args, call_kwargs = mock_post.call_args
+        assert call_args[0] == f"http://conversation-svc:8083/internal/conversations/{convo_id}/send"
+        
+        headers = call_kwargs["headers"]
+        assert headers["X-User-Role"] == "manager"
+        assert headers["X-Account-ID"] == str(account_id)
+        assert "X-Internal-Token" in headers
+
+        body = call_kwargs["json"]
+        assert body["sender_type"] == "ai"
+        assert body["text"] == "Hello from AI"
+        assert body["generation_epoch"] == 3
+        assert body["message_purpose"] == "reply"
+        assert body["idempotency_key"] == "ai-reply:123"
+
