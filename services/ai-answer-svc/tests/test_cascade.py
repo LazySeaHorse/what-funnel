@@ -567,3 +567,242 @@ async def test_send_ai_message_canonical_manager_role():
         assert body["message_purpose"] == "reply"
         assert body["idempotency_key"] == "ai-reply:123"
 
+
+@pytest.mark.asyncio
+async def test_cascade_tier1_match_skips_embedding_completely():
+    """Verifies that when Tier 1 trigger phrase matches, embedding API and get_ai_config are never called."""
+    db_pool = MagicMock()
+    redis_client = AsyncMock()
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+
+    mock_msg = MockRecord({
+        "direction": "inbound",
+        "content_type": "text",
+        "content": json.dumps({"text": "What are your business hours?"}),
+    })
+    mock_convo = MockRecord({
+        "assigned_user_ids": [], "state": "active", "state_reason": None,
+        "reply_override": "inherit", "run_state": "idle", "generation_epoch": 0,
+        "cooldown_level": 0, "unanswered_count": 0, "unanswered_window_started_at": None,
+    })
+    mock_account = MockRecord({
+        "settings": json.dumps({"ai_enabled": True, "ai_reply_mode_default": "draft_only"}),
+    })
+    mock_pattern = MockRecord({
+        "trigger_phrases": ["business hours"],
+        "answer_text": "We are open 9am to 5pm daily.",
+    })
+
+    async def mock_fetchrow(query, *args):
+        if "UPDATE conversation_ai_state" in query:
+            return MockRecord({"generation_epoch": 1})
+        if "messages" in query:
+            return mock_msg
+        if "conversations" in query:
+            return mock_convo
+        if "accounts" in query:
+            return mock_account
+        return None
+
+    async def mock_fetch(query, *args):
+        if "FROM patterns" in query:
+            return [mock_pattern]
+        return []
+
+    client = MagicMock()
+    client.embed = AsyncMock()
+    mock_get_config = AsyncMock(return_value=ai_config())
+
+    with patch("main.ScopedDB") as MockScopedDB, \
+         patch("main.get_ai_config", mock_get_config), \
+         patch("main.provider_client", return_value=client):
+        db = MockScopedDB.return_value
+        db.account_id = account_id
+        db.fetchrow = mock_fetchrow
+        db.fetch = mock_fetch
+        db.fetchval = AsyncMock(return_value=uuid.uuid4())
+        db.execute = AsyncMock()
+
+        await process_conversation_updated({
+            "account_id": str(account_id),
+            "conversation_id": str(convo_id),
+            "message_id": str(message_id),
+        }, db_pool, redis_client)
+
+    # Embedding and AI config must NEVER be called on Tier 1 match
+    mock_get_config.assert_not_called()
+    client.embed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cascade_reuses_embedding_across_pattern_and_rag_stages():
+    """Verifies that when Stage 2 (pattern embedding) misses and falls through to Stage 3 (RAG),
+    the embedding API and get_ai_config are called exactly ONCE, and both queries use ORDER BY embedding <=> $1::vector.
+    """
+    db_pool = MagicMock()
+    redis_client = AsyncMock()
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+
+    mock_msg = MockRecord({
+        "direction": "inbound",
+        "content_type": "text",
+        "content": json.dumps({"text": "Do you offer international shipping options?"}),
+    })
+    mock_convo = MockRecord({
+        "assigned_user_ids": [], "state": "active", "state_reason": None,
+        "reply_override": "inherit", "run_state": "idle", "generation_epoch": 0,
+        "cooldown_level": 0, "unanswered_count": 0, "unanswered_window_started_at": None,
+    })
+    mock_account = MockRecord({
+        "settings": json.dumps({"ai_enabled": True, "ai_reply_mode_default": "draft_only"}),
+    })
+
+    recorded_queries = []
+
+    async def mock_fetchrow(query, *args):
+        recorded_queries.append(query)
+        if "UPDATE conversation_ai_state" in query:
+            return MockRecord({"generation_epoch": 1})
+        if "SELECT direction, content_type" in query or "SELECT content FROM messages" in query:
+            return mock_msg
+        if "SELECT c.assigned_user_ids" in query:
+            return mock_convo
+        if "SELECT settings FROM accounts" in query:
+            return mock_account
+        if "FROM patterns" in query and "embedding" in query:
+            # Low similarity below 0.85 threshold -> falls through to RAG
+            return MockRecord({"answer_text": "Local shipping only", "similarity": 0.45})
+        return None
+
+    async def mock_fetch(query, *args):
+        recorded_queries.append(query)
+        if "SELECT trigger_phrases" in query:
+            # Trigger phrase doesn't match inbound text
+            return [MockRecord({"trigger_phrases": ["unrelated trigger"], "answer_text": "foo"})]
+        if "FROM kb_concepts" in query:
+            return [MockRecord({"title": "Shipping", "body_text": "We ship internationally via DHL."})]
+        if "FROM messages" in query:
+            return [MockRecord({"direction": "inbound", "sender_type": "contact", "content": json.dumps({"text": "Do you offer international shipping?"})})]
+        return []
+
+    client = MagicMock()
+    fake_vector = [0.05] * 1536
+    client.embed = AsyncMock(return_value=fake_vector)
+    client.complete = AsyncMock(return_value={
+        "answer_text": "We offer international shipping via DHL.",
+        "confidence": 0.92,
+        "needs_human": False,
+    })
+    mock_get_config = AsyncMock(return_value=ai_config())
+
+    with patch("main.ScopedDB") as MockScopedDB, \
+         patch("main.get_ai_config", mock_get_config), \
+         patch("main.provider_client", return_value=client):
+        db = MockScopedDB.return_value
+        db.account_id = account_id
+        db.fetchrow = mock_fetchrow
+        db.fetch = mock_fetch
+        db.fetchval = AsyncMock(return_value=uuid.uuid4())
+        db.execute = AsyncMock()
+
+        await process_conversation_updated({
+            "account_id": str(account_id),
+            "conversation_id": str(convo_id),
+            "message_id": str(message_id),
+        }, db_pool, redis_client)
+
+    # Embedding and config fetched EXACTLY ONCE
+    assert mock_get_config.await_count == 1
+    assert client.embed.await_count == 1
+    assert client.complete.await_count == 1
+
+    # Verify both vector queries used index-friendly ORDER BY embedding <=> $1::vector
+    pattern_vector_queries = [q for q in recorded_queries if "FROM patterns" in q and "embedding <=>" in q]
+    concept_vector_queries = [q for q in recorded_queries if "FROM kb_concepts" in q and "embedding <=>" in q]
+
+    assert len(pattern_vector_queries) == 1, "Expected 1 pattern vector query"
+    assert "ORDER BY embedding <=> $1::vector" in pattern_vector_queries[0]
+
+    assert len(concept_vector_queries) == 1, "Expected 1 concept vector query"
+    assert "ORDER BY embedding <=> $1::vector" in concept_vector_queries[0]
+
+
+@pytest.mark.asyncio
+async def test_cascade_pattern_embedding_match_skips_rag_stage():
+    """Verifies that when Stage 2 (pattern embedding) matches (>= 0.85), Stage 3 RAG is skipped."""
+    db_pool = MagicMock()
+    redis_client = AsyncMock()
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+
+    mock_msg = MockRecord({
+        "direction": "inbound",
+        "content_type": "text",
+        "content": json.dumps({"text": "Where is the parking lot?"}),
+    })
+    mock_convo = MockRecord({
+        "assigned_user_ids": [], "state": "active", "state_reason": None,
+        "reply_override": "inherit", "run_state": "idle", "generation_epoch": 0,
+        "cooldown_level": 0, "unanswered_count": 0, "unanswered_window_started_at": None,
+    })
+    mock_account = MockRecord({
+        "settings": json.dumps({"ai_enabled": True, "ai_reply_mode_default": "draft_only"}),
+    })
+
+    recorded_queries = []
+
+    async def mock_fetchrow(query, *args):
+        recorded_queries.append(query)
+        if "UPDATE conversation_ai_state" in query:
+            return MockRecord({"generation_epoch": 1})
+        if "messages" in query:
+            return mock_msg
+        if "conversations" in query:
+            return mock_convo
+        if "accounts" in query:
+            return mock_account
+        if "FROM patterns" in query and "embedding" in query:
+            # High similarity matching Stage 2
+            return MockRecord({"answer_text": "Free parking behind the building.", "similarity": 0.91})
+        return None
+
+    async def mock_fetch(query, *args):
+        recorded_queries.append(query)
+        if "SELECT trigger_phrases" in query:
+            return [MockRecord({"trigger_phrases": ["other trigger"], "answer_text": "bar"})]
+        return []
+
+    client = MagicMock()
+    client.embed = AsyncMock(return_value=[0.1] * 1536)
+    client.complete = AsyncMock()
+    mock_get_config = AsyncMock(return_value=ai_config())
+
+    with patch("main.ScopedDB") as MockScopedDB, \
+         patch("main.get_ai_config", mock_get_config), \
+         patch("main.provider_client", return_value=client):
+        db = MockScopedDB.return_value
+        db.account_id = account_id
+        db.fetchrow = mock_fetchrow
+        db.fetch = mock_fetch
+        draft_id = uuid.uuid4()
+        db.fetchval = AsyncMock(return_value=draft_id)
+        db.execute = AsyncMock()
+
+        await process_conversation_updated({
+            "account_id": str(account_id),
+            "conversation_id": str(convo_id),
+            "message_id": str(message_id),
+        }, db_pool, redis_client)
+
+    # Embedding was run once for pattern embedding
+    assert client.embed.await_count == 1
+    # LLM completion for RAG was NOT called
+    client.complete.assert_not_called()
+    # Concept query was never executed
+    assert not any("FROM kb_concepts" in q for q in recorded_queries)
+

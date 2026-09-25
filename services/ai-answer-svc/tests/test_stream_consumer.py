@@ -265,6 +265,7 @@ async def test_consume_stream_nogroup_recreates_group():
     redis_mock.xautoclaim.side_effect = [
         ResponseError("NOGROUP No such key 'test_stream' or consumer group 'test_group' in XAUTOCLAIM with GROUP option"),
         ["0-0", []],
+        ["0-0", []],
     ]
 
     # 2. xreadgroup encounters NOGROUP on 1st call, then stops loop on 2nd call
