@@ -284,3 +284,107 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 	require.NoError(t, pool.QueryRow(context.Background(), `SELECT status FROM ai_reply_drafts WHERE id = $1`, draftID).Scan(&draftStatus))
 	assert.Equal(t, "dismissed", draftStatus)
 }
+
+func TestHandler_SendMessage_InternalAIDispatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	internalToken := "test-secret-internal-token-32-chars-long"
+	t.Setenv("INTERNAL_SERVICE_TOKEN", internalToken)
+
+	pool := testPool(t)
+	accountID, _ := setupTestTenant(t, pool, "internal-send")
+
+	var channelID uuid.UUID
+	err := pool.QueryRow(context.Background(), `
+		INSERT INTO channels (account_id, type, provider, status)
+		VALUES ($1, 'telegram', 'telegram', 'connected') RETURNING id
+	`, accountID).Scan(&channelID)
+	require.NoError(t, err)
+
+	var contactID uuid.UUID
+	err = pool.QueryRow(context.Background(), `
+		INSERT INTO contacts (account_id, channel_id, external_identity, display_name)
+		VALUES ($1, $2, 'bob-id', 'Bob') RETURNING id
+	`, accountID, channelID).Scan(&contactID)
+	require.NoError(t, err)
+
+	var convoID uuid.UUID
+	err = pool.QueryRow(context.Background(), `
+		INSERT INTO conversations (account_id, contact_id, channel_id, status)
+		VALUES ($1, $2, $3, 'open') RETURNING id
+	`, accountID, contactID, channelID).Scan(&convoID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(context.Background(), `
+		UPDATE conversation_ai_state
+		SET state = 'active', generation_epoch = 1
+		WHERE conversation_id = $1
+	`, convoID)
+	require.NoError(t, err)
+
+	ps, err := pubsub.NewClient("localhost:6379")
+	require.NoError(t, err)
+	defer ps.Close()
+
+	svc := service.New(pool, ps)
+	h := handler.New(svc, &mockSessionStore{})
+	r := mux.NewRouter()
+	h.RegisterRoutes(r)
+
+	// 1. With X-User-Role: manager -> 200 OK
+	{
+		body := `{"content_type":"text","text":"auto reply","sender_type":"ai","generation_epoch":1,"message_purpose":"reply","idempotency_key":"k1"}`
+		req, _ := http.NewRequest(http.MethodPost, "/internal/conversations/"+convoID.String()+"/send", bytes.NewBufferString(body))
+		req.Header.Set("X-Internal-Token", internalToken)
+		req.Header.Set("X-Account-ID", accountID.String())
+		req.Header.Set("X-User-Role", "manager")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	// 2. With omitted X-User-Role (defaults to RoleManager) -> 200 OK
+	{
+		body := `{"content_type":"text","text":"auto reply 2","sender_type":"ai","generation_epoch":1,"message_purpose":"reply","idempotency_key":"k2"}`
+		req, _ := http.NewRequest(http.MethodPost, "/internal/conversations/"+convoID.String()+"/send", bytes.NewBufferString(body))
+		req.Header.Set("X-Internal-Token", internalToken)
+		req.Header.Set("X-Account-ID", accountID.String())
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	// 3. With X-User-Role: agent -> 403 Forbidden
+	{
+		body := `{"content_type":"text","text":"auto reply 3","sender_type":"ai","generation_epoch":1,"message_purpose":"reply","idempotency_key":"k3"}`
+		req, _ := http.NewRequest(http.MethodPost, "/internal/conversations/"+convoID.String()+"/send", bytes.NewBufferString(body))
+		req.Header.Set("X-Internal-Token", internalToken)
+		req.Header.Set("X-Account-ID", accountID.String())
+		req.Header.Set("X-User-Role", "agent")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+	}
+
+	// 4. With legacy X-User-Role: admin -> 403 Forbidden (no longer recognized)
+	{
+		body := `{"content_type":"text","text":"auto reply 4","sender_type":"ai","generation_epoch":1,"message_purpose":"reply","idempotency_key":"k4"}`
+		req, _ := http.NewRequest(http.MethodPost, "/internal/conversations/"+convoID.String()+"/send", bytes.NewBufferString(body))
+		req.Header.Set("X-Internal-Token", internalToken)
+		req.Header.Set("X-Account-ID", accountID.String())
+		req.Header.Set("X-User-Role", "admin")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+	}
+}
