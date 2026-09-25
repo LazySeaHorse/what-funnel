@@ -63,9 +63,9 @@ func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context,
 	}
 
 	// 2. Enforce message ownership policy for mutations (SEC-06)
-	// Managers and Admins can edit or delete any message.
+	// Managers can edit or delete any message.
 	// Regular agents can only edit or delete messages they personally authored.
-	if role != types.RoleAdmin && role != types.RoleManager {
+	if role != types.RoleManager {
 		if kind == messaging.CommandEditMessage || kind == messaging.CommandDeleteMessage {
 			if target.senderUserID == nil || *target.senderUserID != userID {
 				return errors.New("forbidden: cannot modify messages sent by other users")

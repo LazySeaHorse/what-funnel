@@ -93,7 +93,7 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 			}
 			role = r.Header.Get("X-User-Role")
 			if role == "" {
-				role = types.RoleAdmin
+				role = types.RoleManager
 			}
 		}
 

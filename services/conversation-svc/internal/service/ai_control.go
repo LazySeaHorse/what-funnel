@@ -195,7 +195,7 @@ func (s *AIDraftService) UpdateConversationAIControl(ctx context.Context, accoun
 	if err != nil {
 		return nil, err
 	}
-	canUnblockSpam := role == types.RoleAdmin || role == types.RoleManager
+	canUnblockSpam := role == types.RoleManager
 	transition, err := planAIControlTransition(previous, cmd, canUnblockSpam)
 	if err != nil {
 		return nil, err

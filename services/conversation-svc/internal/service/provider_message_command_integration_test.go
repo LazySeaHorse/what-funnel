@@ -32,9 +32,9 @@ func TestProviderMessageMutationsShareTheTransactionalOutbox(t *testing.T) {
 	var messageID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO messages (account_id, conversation_id, direction, sender_type, content_type, content, provider_message_id, delivery_status) VALUES ($1, $2, 'outbound', 'human', 'text', '{"text":"before"}', '71', 'sent') RETURNING id`, accountID, conversationID).Scan(&messageID))
 
-	require.NoError(t, svc.EditProviderMessage(ctx, accountID, userID, types.RoleAdmin, conversationID, messageID, "after"))
-	require.NoError(t, svc.DeleteProviderMessage(ctx, accountID, userID, types.RoleAdmin, conversationID, messageID))
-	require.NoError(t, svc.ChangeProviderReaction(ctx, accountID, userID, types.RoleAdmin, conversationID, messageID, "👍", false))
+	require.NoError(t, svc.EditProviderMessage(ctx, accountID, userID, types.RoleManager, conversationID, messageID, "after"))
+	require.NoError(t, svc.DeleteProviderMessage(ctx, accountID, userID, types.RoleManager, conversationID, messageID))
+	require.NoError(t, svc.ChangeProviderReaction(ctx, accountID, userID, types.RoleManager, conversationID, messageID, "👍", false))
 	reply, err := svc.SendMessage(ctx, service.SendMessageParams{
 		AccountID:        accountID,
 		ConversationID:   conversationID,

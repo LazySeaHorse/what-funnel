@@ -179,13 +179,13 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 	clientA := &server.Client{
 		UserID:    memberAID,
 		AccountID: accountID,
-		Role:      types.RoleMember,
+		Role:      types.RoleAgent,
 		Send:      make(chan []byte, 10),
 	}
 	clientB := &server.Client{
 		UserID:    memberBID,
 		AccountID: accountID,
-		Role:      types.RoleMember,
+		Role:      types.RoleAgent,
 		Send:      make(chan []byte, 10),
 	}
 

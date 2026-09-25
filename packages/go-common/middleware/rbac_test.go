@@ -60,7 +60,7 @@ func TestRequireAuthenticated_AllowsAuthenticated(t *testing.T) {
 		loggedIn:  true,
 		userID:    uuid.New(),
 		accountID: uuid.New(),
-		role:      types.RoleMember,
+		role:      types.RoleAgent,
 	}
 	m := middleware.NewSessionMiddleware(store)
 
@@ -77,7 +77,7 @@ func TestRequireAuthenticated_InjectsContextValues(t *testing.T) {
 		loggedIn:  true,
 		userID:    uid,
 		accountID: aid,
-		role:      types.RoleAdmin,
+		role:      types.RoleManager,
 	}
 	m := middleware.NewSessionMiddleware(store)
 
@@ -97,7 +97,7 @@ func TestRequireAuthenticated_InjectsContextValues(t *testing.T) {
 
 	assert.Equal(t, uid, gotUserID)
 	assert.Equal(t, aid, gotAccountID)
-	assert.Equal(t, types.RoleAdmin, gotRole)
+	assert.Equal(t, types.RoleManager, gotRole)
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ func TestRequireRole_AdminCanAccessAdminRoute(t *testing.T) {
 		loggedIn:  true,
 		userID:    uuid.New(),
 		accountID: uuid.New(),
-		role:      types.RoleAdmin,
+		role:      types.RoleManager,
 	}
 	m := middleware.NewSessionMiddleware(store)
 
@@ -125,7 +125,7 @@ func TestRequireRole_MemberDeniedOnAdminRoute(t *testing.T) {
 		loggedIn:  true,
 		userID:    uuid.New(),
 		accountID: uuid.New(),
-		role:      types.RoleMember,
+		role:      types.RoleAgent,
 	}
 	m := middleware.NewSessionMiddleware(store)
 
@@ -141,13 +141,13 @@ func TestRequireRole_MemberCanAccessMemberRoute(t *testing.T) {
 		loggedIn:  true,
 		userID:    uuid.New(),
 		accountID: uuid.New(),
-		role:      types.RoleMember,
+		role:      types.RoleAgent,
 	}
 	m := middleware.NewSessionMiddleware(store)
 
 	rr := httptest.NewRecorder()
 	// Route allows both roles
-	handler := m.RequireAuthenticated(middleware.RequireRole(types.RoleAdmin, types.RoleMember)(okHandler))
+	handler := m.RequireAuthenticated(middleware.RequireRole(types.RoleManager, types.RoleAgent)(okHandler))
 	handler.ServeHTTP(rr, newRequest())
 
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -191,7 +191,7 @@ func TestRequireProductMode_Allowed(t *testing.T) {
 		loggedIn:  true,
 		userID:    uuid.New(),
 		accountID: uuid.New(),
-		role:      types.RoleMember,
+		role:      types.RoleAgent,
 	}
 	q := &fakeQueryer{row: &fakeRow{val: "full_workspace"}}
 	m := middleware.NewSessionMiddlewareWithDB(store, q)
@@ -208,7 +208,7 @@ func TestRequireProductMode_Denied(t *testing.T) {
 		loggedIn:  true,
 		userID:    uuid.New(),
 		accountID: uuid.New(),
-		role:      types.RoleMember,
+		role:      types.RoleAgent,
 	}
 	q := &fakeQueryer{row: &fakeRow{val: "chatbot_only"}}
 	m := middleware.NewSessionMiddlewareWithDB(store, q)

@@ -52,11 +52,11 @@ func IsLeadTrackingEnabledForProduct(productMode string, settingsBytes []byte) b
 }
 
 // CanSeeConversation checks if a user is allowed to see a conversation based on the rules in §2:
-// - they are admin, or
+// - they are manager, or
 // - their user_id is in conversations.assigned_user_ids, or
 // - assigned_user_ids is empty and the account setting unassigned_conversations_visible_to_members is true.
 func CanSeeConversation(userRole string, userID uuid.UUID, assignedUserIDs []uuid.UUID, unassignedConversationsVisibleToMembers bool) bool {
-	if userRole == RoleAdmin {
+	if userRole == RoleManager {
 		return true
 	}
 	// Check if user is assigned

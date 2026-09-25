@@ -80,7 +80,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			senderUserID = &callerUserID
 		}
 	} else if senderType == types.MessageSenderAI {
-		if callerRole != types.RoleAdmin && callerRole != types.RoleManager {
+		if callerRole != types.RoleManager {
 			writeError(w, http.StatusForbidden, "forbidden: cannot dispatch messages as AI")
 			return
 		}

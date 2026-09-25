@@ -61,7 +61,7 @@ func KB(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 		}
 
 		// 2. Enforce manager role
-		if authMe.Role != "manager" && authMe.Role != "admin" {
+		if authMe.Role != "manager" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprint(w, `{"error":"forbidden: insufficient role"}`)

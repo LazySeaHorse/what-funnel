@@ -63,17 +63,17 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 	hub := server.NewHub(logger)
 	defer hub.Close()
 
-	// Register Admin and Member clients
+	// Register Manager and Agent clients
 	adminClient := &server.Client{
 		UserID:    adminID,
 		AccountID: accountID,
-		Role:      types.RoleAdmin,
+		Role:      types.RoleManager,
 		Send:      make(chan []byte, 20),
 	}
 	memberClient := &server.Client{
 		UserID:    memberID,
 		AccountID: accountID,
-		Role:      types.RoleMember,
+		Role:      types.RoleAgent,
 		Send:      make(chan []byte, 20),
 	}
 	require.NoError(t, hub.RegisterClient(adminClient))

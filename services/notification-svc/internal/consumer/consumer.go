@@ -414,7 +414,7 @@ func (c *Consumer) handleAutomationSuggestionCreated(ctx context.Context, id str
 	}
 
 	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
-		return role == types.RoleAdmin
+		return role == types.RoleManager
 	})
 
 	return nil

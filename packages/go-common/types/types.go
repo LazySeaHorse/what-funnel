@@ -121,8 +121,6 @@ const (
 const (
 	RoleManager = "manager"
 	RoleAgent   = "agent"
-	RoleAdmin   = RoleManager
-	RoleMember  = RoleAgent
 )
 
 // Plan constants.
