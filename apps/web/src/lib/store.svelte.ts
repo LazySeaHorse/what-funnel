@@ -330,6 +330,29 @@ export class InboxState {
 		const submittedText = composer.text;
 		const submittedReplyTo = composer.replyToMessageID;
 		const pendingDraftID = this.replyDrafts[convoID]?.id;
+
+		// Optimistic update: append message immediately, clear composer for instant feedback
+		const optimisticID = `__optimistic__${Date.now()}`;
+		if (this.activeConvoID === convoID) {
+			this.messages = [...this.messages, {
+				id: optimisticID,
+				conversation_id: convoID,
+				direction: 'outbound',
+				sender_type: 'human',
+				content_type: media?.contentType || 'text',
+				content: media ? {} : { text },
+				delivery_status: 'sending',
+				created_at: new Date().toISOString(),
+				reactions: [],
+				_optimistic: true,
+			}];
+		}
+		if (composer.text === submittedText) {
+			composer.text = '';
+			composer.aiReplyDraftID = null;
+			if (composer.replyToMessageID === submittedReplyTo) composer.replyToMessageID = null;
+		}
+
 		try {
 			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
 			const body: any = {
@@ -349,25 +372,35 @@ export class InboxState {
 				method: 'POST',
 				body
 			});
-			if (this.activeConvoID === convoID && res && res.id) {
-				if (!this.messages.some(m => m.id === res.id)) {
-					this.messages = [...this.messages, res];
+			if (this.activeConvoID === convoID) {
+				if (res && res.id) {
+					if (this.messages.some((m: any) => m.id === res.id)) {
+						this.messages = this.messages.filter((m: any) => m.id !== optimisticID);
+					} else {
+						this.messages = this.messages.map((m: any) =>
+							m.id === optimisticID ? res : m
+						);
+					}
+				} else {
+					this.messages = this.messages.filter((m: any) => m.id !== optimisticID);
+					await this.loadMessages(true);
 				}
-			} else if (this.activeConvoID === convoID && !res?.id) {
-				await this.loadMessages(true);
 			}
 			await this.loadConversations();
 			if (pendingDraftID && this.replyDrafts[convoID]?.id === pendingDraftID) {
 				this.setReplyDraft(convoID, null);
 			}
-			if (composer.text === submittedText) {
-				composer.text = '';
-				composer.aiReplyDraftID = null;
-				if (composer.replyToMessageID === submittedReplyTo) composer.replyToMessageID = null;
-			}
 			return true;
 		} catch (err) {
 			console.error('Failed to send message:', err);
+			// Roll back: remove optimistic message and restore composer text
+			if (this.activeConvoID === convoID) {
+				this.messages = this.messages.filter((m: any) => m.id !== optimisticID);
+			}
+			if (!composer.text) {
+				composer.text = submittedText;
+				if (!composer.replyToMessageID) composer.replyToMessageID = submittedReplyTo;
+			}
 			composer.error = 'Failed to send message. Please try again.';
 			return false;
 		} finally {
@@ -476,10 +509,13 @@ export class InboxState {
 					case 'message.received':
 					case 'message.sent':
 						if (event.conversation_id === this.activeConvoID) {
-							if (!this.messages.some(m => m.id === event.message.id)) {
+							const optIndex = this.messages.findIndex((m: any) => m._optimistic && m.conversation_id === event.conversation_id);
+							if (optIndex !== -1 && event.type === 'message.sent') {
+								this.messages = this.messages.map((m: any, i: number) => i === optIndex ? event.message : m);
+							} else if (!this.messages.some((m: any) => m.id === event.message.id)) {
 								this.messages = [...this.messages, event.message];
-								await apiRequest(`/conversations/${this.activeConvoID}/read`, { method: 'POST' });
 							}
+							await apiRequest(`/conversations/${this.activeConvoID}/read`, { method: 'POST' });
 						}
 						await this.loadConversations();
 						break;
