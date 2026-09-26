@@ -518,3 +518,128 @@ func TestConcurrentScaleMultiAgentMixedAI_E2E(t *testing.T) {
 
 	t.Log("Scale E2E Test completed successfully with 2 Managers, 5 Agents, and 20 Customers!")
 }
+
+// TestConcurrentScale100Users_E2E simulates 100 concurrent users pushing past
+// the standard 25-user limit to verify concurrency handling, database integrity,
+// and zero dropped events under 100-goroutine load.
+func TestConcurrentScale100Users_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 100-user concurrent scale test in short mode")
+	}
+	skipIfServicesDown(t)
+
+	pool := testPool(t)
+	ctx := context.Background()
+
+	adminEmail := uniqueEmail("scale100-admin")
+	adminClient := newClient()
+
+	// 1. Sign up Admin
+	resp, body := post(t, adminClient, gatewayURL+"/auth/signup", map[string]string{
+		"account_name": "E2E Scale 100 Account",
+		"email":        adminEmail,
+		"password":     "AdminPassword123!",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "admin signup: %v", body)
+	accountIDStr := body["account_id"].(string)
+	accountID := uuid.MustParse(accountIDStr)
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM sessions WHERE data::text LIKE '%'||$1||'%'`, accountIDStr)
+		pool.Exec(ctx, `DELETE FROM messages WHERE account_id = $1`, accountID)
+		pool.Exec(ctx, `DELETE FROM conversations WHERE account_id = $1`, accountID)
+		pool.Exec(ctx, `DELETE FROM contacts WHERE account_id = $1`, accountID)
+		pool.Exec(ctx, `DELETE FROM channels WHERE account_id = $1`, accountID)
+		pool.Exec(ctx, `DELETE FROM users WHERE account_id = $1`, accountID)
+		pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+	})
+
+	// Log in Admin
+	loginResp, _ := post(t, adminClient, gatewayURL+"/auth/login", map[string]string{
+		"email":    adminEmail,
+		"password": "AdminPassword123!",
+	})
+	require.Equal(t, http.StatusOK, loginResp.StatusCode)
+
+	// Create channel
+	channelID := createTestProviderChannel(t, pool, accountID, "Scale 100 Channel")
+
+	ps, err := pubsub.NewClient("localhost:6379")
+	require.NoError(t, err)
+	defer ps.Close()
+
+	const totalUsers = 100
+	t.Logf("Scale E2E: Launching %d concurrent user goroutines", totalUsers)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, totalUsers)
+
+	startBarrier := make(chan struct{})
+
+	for i := 0; i < totalUsers; i++ {
+		wg.Add(1)
+		go func(userIdx int) {
+			defer wg.Done()
+			<-startBarrier
+
+			customerPhone := fmt.Sprintf("+1555%07d", userIdx)
+			providerMsgID := fmt.Sprintf("scale100_msg_%s_%d", uuid.NewString()[:8], userIdx)
+			msgText := fmt.Sprintf("Scale load message from user %d", userIdx)
+
+			now := time.Now().UTC()
+			event := messaging.Event{
+				SchemaVersion: messaging.SchemaVersion,
+				ID:            fmt.Sprintf("scale100:ev:%d:%s", userIdx, uuid.NewString()),
+				Kind:          messaging.EventMessageCreated,
+				Provider:      messaging.ProviderWhatsApp,
+				ChannelID:     channelID,
+				OccurredAt:    now,
+				Message: &messaging.Message{
+					ProviderMessageID: providerMsgID,
+					ExternalThreadID:  customerPhone,
+					Direction:         messaging.DirectionInbound,
+					Sender: messaging.Sender{
+						ExternalID:  customerPhone,
+						DisplayName: fmt.Sprintf("Customer %d", userIdx),
+					},
+					ContentType:       messaging.ContentText,
+					Text:              msgText,
+					ProviderTimestamp: now,
+				},
+			}
+
+			if _, err := ps.Publish(ctx, "adapter.events", event); err != nil {
+				errCh <- fmt.Errorf("user %d publish error: %w", userIdx, err)
+			}
+		}(i)
+	}
+
+	// Release all 100 goroutines simultaneously
+	close(startBarrier)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	// Verify all 100 inbound messages are ingested and persisted
+	t.Log("Scale E2E: Verifying all 100 messages are persisted")
+	require.Eventually(t, func() bool {
+		var count int
+		_ = pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM messages
+			WHERE account_id = $1 AND direction = 'inbound'
+		`, accountID).Scan(&count)
+		return count == totalUsers
+	}, 20*time.Second, 200*time.Millisecond, "expected all 100 messages to be processed")
+
+	// Verify 100 distinct conversations were created
+	var convoCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM conversations WHERE account_id = $1`, accountID).Scan(&convoCount)
+	require.NoError(t, err)
+	assert.Equal(t, totalUsers, convoCount, "expected exactly 100 conversations for 100 distinct users")
+
+	t.Logf("Scale E2E: Successfully processed %d concurrent users without data loss or race conditions", totalUsers)
+}
+
