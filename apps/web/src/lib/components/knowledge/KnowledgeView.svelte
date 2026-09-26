@@ -7,18 +7,17 @@
 		CheckIcon,
 		XMarkIcon,
 		BookOpenIcon,
-		ChevronDownIcon,
-		ChatBubbleLeftRightIcon,
-		PencilSquareIcon,
-		PlusIcon
+		ChatBubbleLeftRightIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 	import KnowledgeComposer from '$lib/components/knowledge/KnowledgeComposer.svelte';
 	import ConceptCard from '$lib/components/knowledge/ConceptCard.svelte';
+	import ConceptEditModal from '$lib/components/knowledge/ConceptEditModal.svelte';
 	import PatternCard from '$lib/components/knowledge/PatternCard.svelte';
-	import { Button, Input } from '$lib/components/ui';
+	import PatternEditModal from '$lib/components/knowledge/PatternEditModal.svelte';
+	import SuggestionCard from '$lib/components/knowledge/SuggestionCard.svelte';
+	import { Button } from '$lib/components/ui';
 	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
-	import { typeColor, typeLabel } from '$lib/knowledge/ingestion';
 
 	let {
 		reviewerID = '',
@@ -54,28 +53,9 @@
 	let purgeResult = $state<{ concepts: number; patterns: number } | null>(null);
 	let purgeError = $state('');
 
-	// Inline editing state for concepts
+	// Active editing targets
 	let editingConceptId = $state<string | null>(null);
-	let editConceptDraft = $state<{ title: string; type: string; tags: string[]; body_text: string }>({
-		title: '',
-		type: 'faq',
-		tags: [],
-		body_text: ''
-	});
-	let editConceptTagInput = $state('');
-	let savingConcept = $state(false);
-	let saveConceptError = $state('');
-
-	// Inline editing state for patterns
 	let editingPatternId = $state<string | null>(null);
-	let editPatternDraft = $state<{ canonical_question: string; answer_text: string; trigger_phrases: string[] }>({
-		canonical_question: '',
-		answer_text: '',
-		trigger_phrases: []
-	});
-	let editPatternTriggerInput = $state('');
-	let savingPattern = $state(false);
-	let savePatternError = $state('');
 
 	let filteredConcepts = $derived(
 		!searchQuery.trim()
@@ -144,63 +124,6 @@
 	});
 	onDestroy(() => ingestion.dispose());
 
-	// Concept Actions
-	function startEditingConcept(concept: any) {
-		editingConceptId = concept.id;
-		editConceptDraft = {
-			title: concept.title || '',
-			type: concept.type || 'faq',
-			tags: Array.isArray(concept.tags) ? [...concept.tags] : [],
-			body_text: concept.body_text || ''
-		};
-		editConceptTagInput = '';
-		saveConceptError = '';
-	}
-
-	function cancelEditingConcept() {
-		editingConceptId = null;
-		saveConceptError = '';
-	}
-
-	function addTagToConceptDraft() {
-		const val = editConceptTagInput.trim().replace(/^#/, '');
-		if (!val) return;
-		if (!editConceptDraft.tags.includes(val)) {
-			editConceptDraft.tags = [...editConceptDraft.tags, val];
-		}
-		editConceptTagInput = '';
-	}
-
-	function removeTagFromConceptDraft(tag: string) {
-		editConceptDraft.tags = editConceptDraft.tags.filter((t) => t !== tag);
-	}
-
-	async function saveConcept(id: string) {
-		if (!editConceptDraft.title.trim()) {
-			saveConceptError = 'Title is required';
-			return;
-		}
-		if (!editConceptDraft.body_text.trim()) {
-			saveConceptError = 'Content is required';
-			return;
-		}
-		savingConcept = true;
-		saveConceptError = '';
-		try {
-			const res = await apiRequest(`/api/kb/concepts/${id}`, {
-				method: 'PUT',
-				body: editConceptDraft
-			});
-			const updated = res.concept || { ...editConceptDraft, id };
-			concepts = concepts.map((c) => (c.id === id ? { ...c, ...updated } : c));
-			editingConceptId = null;
-		} catch (err: any) {
-			saveConceptError = err.message || 'Failed to save concept changes';
-		} finally {
-			savingConcept = false;
-		}
-	}
-
 	async function deleteConcept(id: string) {
 		if (!confirm('Delete this knowledge concept?')) return;
 		try {
@@ -209,62 +132,6 @@
 			if (editingConceptId === id) editingConceptId = null;
 		} catch (err) {
 			console.error('Failed to delete concept', err);
-		}
-	}
-
-	// Pattern Actions
-	function startEditingPattern(pattern: any) {
-		editingPatternId = pattern.id;
-		editPatternDraft = {
-			canonical_question: pattern.canonical_question || '',
-			answer_text: pattern.answer_text || '',
-			trigger_phrases: Array.isArray(pattern.trigger_phrases) ? [...pattern.trigger_phrases] : []
-		};
-		editPatternTriggerInput = '';
-		savePatternError = '';
-	}
-
-	function cancelEditingPattern() {
-		editingPatternId = null;
-		savePatternError = '';
-	}
-
-	function addTriggerToPatternDraft() {
-		const val = editPatternTriggerInput.trim();
-		if (!val) return;
-		if (!editPatternDraft.trigger_phrases.includes(val)) {
-			editPatternDraft.trigger_phrases = [...editPatternDraft.trigger_phrases, val];
-		}
-		editPatternTriggerInput = '';
-	}
-
-	function removeTriggerFromPatternDraft(phrase: string) {
-		editPatternDraft.trigger_phrases = editPatternDraft.trigger_phrases.filter((t) => t !== phrase);
-	}
-
-	async function savePattern(id: string) {
-		if (!editPatternDraft.canonical_question.trim()) {
-			savePatternError = 'Canonical question is required';
-			return;
-		}
-		if (!editPatternDraft.answer_text.trim()) {
-			savePatternError = 'Answer text is required';
-			return;
-		}
-		savingPattern = true;
-		savePatternError = '';
-		try {
-			const res = await apiRequest(`/api/kb/patterns/${id}`, {
-				method: 'PUT',
-				body: editPatternDraft
-			});
-			const updated = res.pattern || { ...editPatternDraft, id };
-			patterns = patterns.map((p) => (p.id === id ? { ...p, ...updated } : p));
-			editingPatternId = null;
-		} catch (err: any) {
-			savePatternError = err.message || 'Failed to save pattern changes';
-		} finally {
-			savingPattern = false;
 		}
 	}
 
@@ -371,8 +238,6 @@
 		if (!iso) return 'Never';
 		return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
-
-
 
 	function toggleConceptExpansion(id: string) {
 		expandedConcepts[id] = !expandedConcepts[id];
@@ -568,92 +433,20 @@
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
 						{#each filteredConcepts as concept (concept.id)}
 							{#if editingConceptId === concept.id}
-								<!-- Inline Concept Editor -->
-								<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
-									<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-										<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Concept</span>
-										{#if saveConceptError}
-											<span class="text-xs text-rose-600 font-medium">{saveConceptError}</span>
-										{/if}
-									</div>
-									<div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-										<div class="sm:col-span-2">
-											<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Title</label>
-											<input
-												id={`edit-concept-title-${concept.id}`}
-												bind:value={editConceptDraft.title}
-												placeholder="Concept title"
-												class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
-											/>
-										</div>
-										<div>
-											<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Category</label>
-											<select
-												id={`edit-concept-type-${concept.id}`}
-												bind:value={editConceptDraft.type}
-												class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 capitalize transition"
-											>
-												<option value="faq">FAQ</option>
-												<option value="pricing">Pricing</option>
-												<option value="policy">Policy</option>
-												<option value="hours">Hours</option>
-												<option value="service">Service</option>
-												<option value="general">General</option>
-											</select>
-										</div>
-									</div>
-									<div>
-										<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Knowledge Content</label>
-										<textarea
-											id={`edit-concept-body-${concept.id}`}
-											bind:value={editConceptDraft.body_text}
-											rows="4"
-											class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
-										></textarea>
-									</div>
-									<div>
-										<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Tags</label>
-										<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
-											{#each editConceptDraft.tags as tag}
-												<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md font-medium">
-													<span>{tag}</span>
-													<button type="button" onclick={() => removeTagFromConceptDraft(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
-												</span>
-											{/each}
-										</div>
-										<div class="flex items-center gap-2">
-											<input
-												id={`edit-concept-tag-input-${concept.id}`}
-												bind:value={editConceptTagInput}
-												onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTagToConceptDraft())}
-												placeholder="Add tag and press Enter"
-												class="flex-1 max-w-xs bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
-											/>
-											<Button variant="secondary" size="xs" onclick={addTagToConceptDraft}>Add</Button>
-										</div>
-									</div>
-									<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-										<Button variant="ghost" size="sm" onclick={cancelEditingConcept}>
-											Cancel
-										</Button>
-										<Button
-											variant="primary"
-											size="sm"
-											onclick={() => saveConcept(concept.id)}
-											disabled={savingConcept}
-											busy={savingConcept}
-										>
-											Save changes
-										</Button>
-									</div>
-								</div>
+								<ConceptEditModal
+									concept={concept}
+									onSave={(updated) => {
+										concepts = concepts.map((c) => (c.id === concept.id ? { ...c, ...updated } : c));
+										editingConceptId = null;
+									}}
+									onCancel={() => (editingConceptId = null)}
+								/>
 							{:else}
-								<!-- Regular Concept Card -->
 								<ConceptCard
 									concept={concept}
 									expanded={expandedConcepts[concept.id]}
 									onToggleExpand={() => toggleConceptExpansion(concept.id)}
-									onEdit={() => startEditingConcept(concept)}
+									onEdit={() => (editingConceptId = concept.id)}
 									onDelete={() => deleteConcept(concept.id)}
 								/>
 							{/if}
@@ -680,73 +473,18 @@
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
 					{#each filteredPatterns as pattern (pattern.id)}
 						{#if editingPatternId === pattern.id}
-							<!-- Inline Pattern Editor -->
-							<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
-								<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-									<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
-									{#if savePatternError}
-										<span class="text-xs text-rose-600 font-medium">{savePatternError}</span>
-									{/if}
-								</div>
-								<div>
-									<label for={`edit-pattern-question-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Canonical Question</label>
-									<input
-										id={`edit-pattern-question-${pattern.id}`}
-										bind:value={editPatternDraft.canonical_question}
-										placeholder="Canonical question"
-										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
-									/>
-								</div>
-								<div>
-									<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Trigger Phrases</label>
-									<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
-										{#each editPatternDraft.trigger_phrases as phrase}
-											<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 rounded-lg">
-												<span>{phrase}</span>
-												<button type="button" onclick={() => removeTriggerFromPatternDraft(phrase)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
-											</span>
-										{/each}
-									</div>
-									<div class="flex items-center gap-2">
-										<input
-											id={`edit-pattern-triggers-input-${pattern.id}`}
-											bind:value={editPatternTriggerInput}
-											onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTriggerToPatternDraft())}
-											placeholder="Add trigger phrase and press Enter"
-											class="flex-1 min-w-0 bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
-										/>
-										<Button variant="secondary" size="xs" onclick={addTriggerToPatternDraft}>Add</Button>
-									</div>
-								</div>
-								<div>
-									<label for={`edit-pattern-answer-${pattern.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Deterministic Answer</label>
-									<textarea
-										id={`edit-pattern-answer-${pattern.id}`}
-										bind:value={editPatternDraft.answer_text}
-										rows="3"
-										class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
-									></textarea>
-								</div>
-								<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-									<Button variant="ghost" size="sm" onclick={cancelEditingPattern}>
-										Cancel
-									</Button>
-									<Button
-										variant="primary"
-										size="sm"
-										onclick={() => savePattern(pattern.id)}
-										disabled={savingPattern}
-										busy={savingPattern}
-									>
-										Save changes
-									</Button>
-								</div>
-							</div>
+							<PatternEditModal
+								pattern={pattern}
+								onSave={(updated) => {
+									patterns = patterns.map((p) => (p.id === pattern.id ? { ...p, ...updated } : p));
+									editingPatternId = null;
+								}}
+								onCancel={() => (editingPatternId = null)}
+							/>
 						{:else}
-							<!-- Regular Pattern Card (Conversational Q&A Flow) -->
 							<PatternCard
 								pattern={pattern}
-								onEdit={() => startEditingPattern(pattern)}
+								onEdit={() => (editingPatternId = pattern.id)}
 								onDelete={() => deletePattern(pattern.id)}
 							/>
 						{/if}
@@ -772,32 +510,11 @@
 			{:else}
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
 					{#each filteredSuggestions as suggestion (suggestion.id)}
-						<div class="p-4 rounded-2xl border border-slate-200/80 bg-white space-y-3 shadow-2xs">
-							<div class="flex items-center justify-between gap-2">
-								<div class="flex items-center gap-2 min-w-0">
-									<span class="px-2 py-0.5 rounded text-[10px] font-medium border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
-										{typeLabel(suggestion._payload?.type ?? suggestion.type)}
-									</span>
-									<h3 class="text-sm font-medium text-slate-900 truncate">
-										{suggestion._payload?.title ?? suggestion._payload?.canonical_question ?? 'Untitled suggestion'}
-									</h3>
-								</div>
-								<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
-									{Math.round((suggestion.confidence ?? 0) * 100)}% match
-								</span>
-							</div>
-							<div class="text-xs text-slate-700 bg-slate-50/80 p-3 rounded-xl leading-relaxed whitespace-pre-wrap border border-slate-200/70">
-								{suggestion._payload?.body_text ?? suggestion._payload?.answer_text ?? ''}
-							</div>
-							<div class="flex items-center justify-end gap-2 pt-1 text-xs">
-								<Button variant="ghost" size="sm" onclick={() => reviewSuggestion(suggestion.id, 'reject')}>
-									Dismiss
-								</Button>
-								<Button variant="primary" size="sm" onclick={() => reviewSuggestion(suggestion.id, 'approve')}>
-									Add to Knowledge Base
-								</Button>
-							</div>
-						</div>
+						<SuggestionCard
+							suggestion={suggestion}
+							onApprove={() => reviewSuggestion(suggestion.id, 'approve')}
+							onReject={() => reviewSuggestion(suggestion.id, 'reject')}
+						/>
 					{/each}
 				</div>
 			{/if}
