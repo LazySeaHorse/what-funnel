@@ -179,3 +179,98 @@ func TestFrontendProductionBuildSetup(t *testing.T) {
 		assert.Contains(t, content, "try_files $uri $uri/ /index.html;", "must include SPA route fallback")
 	})
 }
+
+// TestEnvironmentVariableCompleteness diffs .env.example against all environment
+// variables read by the Go and Python services to catch any undocumented settings.
+func TestEnvironmentVariableCompleteness(t *testing.T) {
+	root := findRepoRoot(t)
+
+	envExamplePath := filepath.Join(root, ".env.example")
+	envData, err := os.ReadFile(envExamplePath)
+	require.NoError(t, err, ".env.example must exist")
+
+	documentedKeys := make(map[string]bool)
+	for _, line := range strings.Split(string(envData), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		if key != "" {
+			documentedKeys[key] = true
+		}
+	}
+
+	goEnvRegex := regexp.MustCompile(`(?:os\.Getenv|os\.LookupEnv)\s*\(\s*["']([A-Za-z0-9_]+)["']\s*\)`)
+	pyEnvRegex := regexp.MustCompile(`os\.environ(?:\.get)?\s*\[?\s*\(?\s*["']([A-Za-z0-9_]+)["']`)
+
+	// Ignore standard system / toolchain / CI variables
+	ignoredVars := map[string]bool{
+		"PATH":              true,
+		"HOME":              true,
+		"CI":                true,
+		"PLAYWRIGHT_PORT":   true,
+		"PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": true,
+	}
+
+	codeKeys := make(map[string][]string) // key -> files
+
+	scanDirs := []string{
+		filepath.Join(root, "services"),
+		filepath.Join(root, "packages"),
+		filepath.Join(root, "adapters"),
+	}
+
+	for _, dir := range scanDirs {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				if info.Name() == "node_modules" || info.Name() == ".cache" || info.Name() == "venv" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			if strings.HasSuffix(path, ".go") {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				matches := goEnvRegex.FindAllStringSubmatch(string(content), -1)
+				for _, m := range matches {
+					k := m[1]
+					if !ignoredVars[k] {
+						codeKeys[k] = append(codeKeys[k], path)
+					}
+				}
+			} else if strings.HasSuffix(path, ".py") {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				matches := pyEnvRegex.FindAllStringSubmatch(string(content), -1)
+				for _, m := range matches {
+					k := m[1]
+					if !ignoredVars[k] {
+						codeKeys[k] = append(codeKeys[k], path)
+					}
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	}
+
+	var missingKeys []string
+	for k := range codeKeys {
+		if !documentedKeys[k] {
+			missingKeys = append(missingKeys, k)
+		}
+	}
+
+	assert.Empty(t, missingKeys, "All environment variables used in code must be documented in .env.example: %v", missingKeys)
+}
+
