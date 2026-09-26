@@ -281,7 +281,10 @@ async def test_consume_stream_nogroup_recreates_group():
 
     redis_mock.xreadgroup.side_effect = mock_readgroup
 
-    with patch("main.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+    async def fast_sleep(*args, **kwargs):
+        pass
+
+    with patch("main.asyncio.sleep", side_effect=fast_sleep) as mock_sleep:
         await consume_stream(
             redis_client=redis_mock,
             db_pool=db_pool_mock,

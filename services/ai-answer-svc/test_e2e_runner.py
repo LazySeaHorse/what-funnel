@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 import uuid
@@ -15,7 +16,7 @@ REDIS_PORT = 6379
 KB_COMPILER_URL = "http://ai-kb-compiler:8085"
 APP_ENCRYPTION_KEY = "change-me-32-byte-hex-key-padded"
 
-GOOGLE_AI_KEY = os.environ["GOOGLE_AI_KEY"]
+GOOGLE_AI_KEY = os.environ.get("GOOGLE_AI_KEY", "")
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 ANALYSIS_MODEL = "gemma-4-26b-a4b-it"
 REPLY_MODEL = "gemini-flash-lite-latest"
