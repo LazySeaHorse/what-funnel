@@ -4,9 +4,10 @@ import logging
 import os
 import signal
 import socket
+import time
 import uuid
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 import httpx
 import redis
 from redis.asyncio import Redis
@@ -219,6 +220,26 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
             f"Debounced conversation {convo_uuid}: scheduled in %.1fs (is_text=%s)",
             delay, is_text
         )
+
+
+_PATTERN_CACHE: dict[uuid.UUID, tuple[float, list]] = {}
+_PATTERN_CACHE_TTL = 60.0
+
+
+async def get_cached_patterns(db, account_uuid: uuid.UUID) -> list:
+    now = time.monotonic()
+    cached = _PATTERN_CACHE.get(account_uuid)
+    if cached is not None:
+        cached_time, patterns = cached
+        if now - cached_time < _PATTERN_CACHE_TTL:
+            return patterns
+
+    patterns = await db.fetch(
+        "SELECT trigger_phrases, answer_text FROM patterns WHERE account_id = $1",
+        account_uuid,
+    )
+    _PATTERN_CACHE[account_uuid] = (now, patterns)
+    return patterns
 
 
 async def execute_conversation_cascade(
@@ -436,10 +457,7 @@ async def execute_conversation_cascade(
             return False
 
     # Step 1: Rapidfuzz trigger match using clause segmentation and filler stripping
-    patterns = await db.fetch(
-        "SELECT trigger_phrases, answer_text FROM patterns WHERE account_id = $1",
-        account_uuid
-    )
+    patterns = await get_cached_patterns(db, account_uuid)
     matched_pattern, match_score = match_tier1_patterns(patterns, bubble_texts)
     if matched_pattern:
         confidence = 1.0
@@ -805,15 +823,20 @@ async def review_due_cooldown(db_pool, redis_client) -> bool:
 
 
 async def cooldown_scheduler(db_pool, redis_client, stop_event: asyncio.Event):
+    delay = 1.0
     while not stop_event.is_set():
         try:
-            if not await review_due_cooldown(db_pool, redis_client):
+            if await review_due_cooldown(db_pool, redis_client):
+                delay = 1.0
+            else:
                 try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+                    await asyncio.wait_for(stop_event.wait(), timeout=delay)
                 except asyncio.TimeoutError:
                     pass
+                delay = min(10.0, delay * 2.0)
         except Exception as error:
             logger.exception("Cooldown scheduler failed: %s", error)
+            delay = 1.0
             await asyncio.sleep(1)
 
 async def debounce_scheduler(db_pool, redis_client, stop_event: asyncio.Event):
@@ -920,8 +943,13 @@ async def process_conversation_closed(data: dict, db_pool, redis_client):
     history = await db.fetch(
         """
         SELECT direction, sender_type, content
-        FROM messages
-        WHERE conversation_id = $1 AND account_id = $2 AND content_type = 'text'
+        FROM (
+            SELECT direction, sender_type, content, created_at
+            FROM messages
+            WHERE conversation_id = $1 AND account_id = $2 AND content_type = 'text'
+            ORDER BY created_at DESC
+            LIMIT 50
+        ) recent
         ORDER BY created_at ASC
         """,
         convo_uuid, account_uuid

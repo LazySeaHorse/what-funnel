@@ -1,3 +1,4 @@
+import os
 import uuid
 from typing import Any, List, Optional
 import asyncpg
@@ -22,9 +23,19 @@ class ScopedDB:
         return await self.pool.execute(query, *args)
 
 async def create_db_pool(dsn: str) -> asyncpg.Pool:
-    return await asyncpg.create_pool(
-        dsn,
-        min_size=2,
-        max_size=10,
-        timeout=30.0
-    )
+    min_size = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
+    max_size = int(os.getenv("DB_POOL_MAX_SIZE", "3"))
+
+    async def init_conn(conn):
+        await conn.execute("SET hnsw.iterative_scan = 'relaxed_order'")
+
+    kwargs = {
+        "min_size": min_size,
+        "max_size": max_size,
+        "timeout": 30.0,
+        "init": init_conn,
+    }
+    if os.getenv("DB_PGBOUNCER", "").lower() == "true" or ":6432" in dsn:
+        kwargs["statement_cache_size"] = 0
+
+    return await asyncpg.create_pool(dsn, **kwargs)

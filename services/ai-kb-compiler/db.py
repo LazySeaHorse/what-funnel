@@ -33,9 +33,15 @@ class ScopedDB:
 async def create_db_pool(dsn: str) -> asyncpg.Pool:
     # Setup custom type conversion for vector type if needed,
     # but casting embedding::float8[] and $1::vector in SQL is safer and driver-agnostic.
-    return await asyncpg.create_pool(
-        dsn,
-        min_size=2,
-        max_size=10,
-        timeout=30.0
-    )
+    min_size = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
+    max_size = int(os.getenv("DB_POOL_MAX_SIZE", "3"))
+
+    kwargs = {
+        "min_size": min_size,
+        "max_size": max_size,
+        "timeout": 30.0,
+    }
+    if os.getenv("DB_PGBOUNCER", "").lower() == "true" or ":6432" in dsn:
+        kwargs["statement_cache_size"] = 0
+
+    return await asyncpg.create_pool(dsn, **kwargs)

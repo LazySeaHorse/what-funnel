@@ -288,6 +288,7 @@ async def run_worker(pool, response_schema: Any) -> None:
     await pool.execute(
         "UPDATE kb_ingestions SET status = 'queued', updated_at = NOW() WHERE status = 'processing'"
     )
+    delay = 1.0
     while True:
         job = await _claim(pool, "publishing")
         action = _publish
@@ -295,8 +296,10 @@ async def run_worker(pool, response_schema: Any) -> None:
             job = await _claim(pool, "queued")
             action = lambda worker_pool, worker_job: _extract(worker_pool, worker_job, response_schema)
         if not job:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(delay)
+            delay = min(10.0, delay * 2.0)
             continue
+        delay = 1.0
         try:
             await action(pool, job)
         except asyncio.CancelledError:
