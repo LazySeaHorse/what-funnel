@@ -42,10 +42,21 @@ type claimedCommand struct {
 // to the provider streams. Database claims expire so another replica can
 // recover work after a crash.
 func (s *OutboxService) DispatchOutbox(ctx context.Context) error {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	const (
+		initialBackoff = 100 * time.Millisecond
+		maxBackoff     = 5 * time.Second
+	)
+	backoff := initialBackoff
+	timer := time.NewTimer(backoff)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		dispatched, err := s.dispatchOutboxOnce(ctx)
 		if err != nil && ctx.Err() == nil {
 			// The row is released with backoff by dispatchOutboxOnce. Keep the
@@ -53,14 +64,27 @@ func (s *OutboxService) DispatchOutbox(ctx context.Context) error {
 			fmt.Printf("failed to dispatch provider command: %v\n", err)
 		}
 		if dispatched {
+			backoff = initialBackoff
 			continue
 		}
+
+		timer.Reset(backoff)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 		}
+
+		backoff = nextBackoff(backoff, maxBackoff)
 	}
+}
+
+func nextBackoff(current, max time.Duration) time.Duration {
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
 }
 
 // DispatchOutboxOnce attempts one ready command. It is also used as a

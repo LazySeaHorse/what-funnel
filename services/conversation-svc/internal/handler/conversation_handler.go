@@ -332,7 +332,25 @@ func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	leadState := r.URL.Query().Get("state")
-	conversations, err := h.svc.ListConversations(r.Context(), accountID, userID, userRole, filter, leadState)
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	conversations, err := h.svc.ListConversations(r.Context(), accountID, userID, userRole, filter, leadState, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

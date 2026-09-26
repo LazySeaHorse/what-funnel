@@ -96,6 +96,25 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, list, 1)
 		assert.Equal(t, convoID, list[0].Conversation.ID)
+
+		// Test pagination with limit and offset query parameters
+		reqPag, _ := http.NewRequest(http.MethodGet, "/conversations?limit=1&offset=0", nil)
+		rrPag := httptest.NewRecorder()
+		r.ServeHTTP(rrPag, reqPag)
+		assert.Equal(t, http.StatusOK, rrPag.Code)
+		var listPag []*types.ConversationListItem
+		err = json.Unmarshal(rrPag.Body.Bytes(), &listPag)
+		require.NoError(t, err)
+		assert.Len(t, listPag, 1)
+
+		reqOffset, _ := http.NewRequest(http.MethodGet, "/conversations?limit=1&offset=1", nil)
+		rrOffset := httptest.NewRecorder()
+		r.ServeHTTP(rrOffset, reqOffset)
+		assert.Equal(t, http.StatusOK, rrOffset.Code)
+		var listOffset []*types.ConversationListItem
+		err = json.Unmarshal(rrOffset.Body.Bytes(), &listOffset)
+		require.NoError(t, err)
+		assert.Len(t, listOffset, 0)
 	}
 
 	// 2. GET /conversations as Member (since convoID is assigned to adminID and setting=true by default,

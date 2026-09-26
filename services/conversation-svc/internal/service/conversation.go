@@ -215,13 +215,26 @@ const sharedConversationSQL = `
 // ---------------------------------------------------------------------------
 
 // ListConversations returns conversations visible to the given user, with
-// optional filter (all/mine/unassigned) and lead state filtering.
-func (s *ConversationService) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string) ([]*types.ConversationListItem, error) {
+// optional filter (all/mine/unassigned), lead state filtering, and pagination.
+// limit defaults to 50 (max 100), offset defaults to 0.
+func (s *ConversationService) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string, pagination ...int) ([]*types.ConversationListItem, error) {
 	var settingsBytes []byte
 	if err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes); err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}
 	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+
+	limit := 50
+	offset := 0
+	if len(pagination) > 0 && pagination[0] > 0 {
+		limit = pagination[0]
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if len(pagination) > 1 && pagination[1] >= 0 {
+		offset = pagination[1]
+	}
 
 	sqlQuery := sharedConversationSQL + `
 		WHERE c.account_id = $2 AND (
@@ -244,6 +257,9 @@ func (s *ConversationService) ListConversations(ctx context.Context, accountID, 
 	}
 
 	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`
+
+	args = append(args, limit, offset)
+	sqlQuery += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
 
 	rows, err := s.pool.Query(ctx, sqlQuery, args...)
 	if err != nil {

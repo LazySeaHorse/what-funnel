@@ -73,6 +73,22 @@ func TestService_InboxVisibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, listAdmin, 3)
 
+	// Test pagination on ListConversations: limit and offset
+	page1, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "all", "", 2, 0)
+	require.NoError(t, err)
+	assert.Len(t, page1, 2)
+
+	page2, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "all", "", 2, 2)
+	require.NoError(t, err)
+	assert.Len(t, page2, 1)
+
+	assert.NotEqual(t, page1[0].Conversation.ID, page2[0].Conversation.ID)
+	assert.NotEqual(t, page1[1].Conversation.ID, page2[0].Conversation.ID)
+
+	pageEmpty, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "all", "", 2, 10)
+	require.NoError(t, err)
+	assert.Len(t, pageEmpty, 0)
+
 	// Test case 3: Member when setting is explicitly false
 	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = '{"unassigned_conversations_visible_to_members": false}' WHERE id = $1`, accountID)
 	require.NoError(t, err)
