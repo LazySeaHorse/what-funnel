@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/consumer"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
@@ -73,6 +74,7 @@ func run(logger *slog.Logger) error {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"status":"ok","service":"notification-svc"}`)
 	}).Methods(http.MethodGet)
+	r.Handle("/metrics", metrics.Handler()).Methods(http.MethodGet)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

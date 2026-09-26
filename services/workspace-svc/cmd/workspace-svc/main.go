@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/session"
@@ -52,6 +53,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"status":"ok"}`)
 	}).Methods(http.MethodGet)
+	r.Handle("/metrics", metrics.Handler()).Methods(http.MethodGet)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

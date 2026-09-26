@@ -16,6 +16,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/adapterclient"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/handler"
@@ -113,6 +114,7 @@ func run(logger *slog.Logger) error {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"status":"ok"}`)
 	}).Methods(http.MethodGet)
+	r.Handle("/metrics", metrics.Handler()).Methods(http.MethodGet)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

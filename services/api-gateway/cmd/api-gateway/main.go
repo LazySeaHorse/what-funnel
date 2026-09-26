@@ -31,6 +31,7 @@ import (
 
 	"github.com/gorilla/mux"
 	commonmw "github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	gwmiddleware "github.com/whatfunnel/whatfunnel/services/api-gateway/internal/middleware"
 	"github.com/whatfunnel/whatfunnel/services/api-gateway/internal/proxy"
 )
@@ -116,6 +117,7 @@ func newRouter(
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"status":"ok","service":"api-gateway"}`)
 	}).Methods(http.MethodGet)
+	r.Handle("/metrics", metrics.Handler()).Methods(http.MethodGet)
 
 	// Proxy /auth/* → identity-svc
 	r.PathPrefix("/auth/").Handler(proxy.HTTP(identityBase, logger))
