@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/botapi"
 	wfcrypto "github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
@@ -259,6 +260,109 @@ func TestManagerRestoresOffsetsAndIsolatesAccounts(t *testing.T) {
 	if secondPublisher.count(messaging.EventMessageCreated) != 0 {
 		t.Fatal("restored manager republished processed updates")
 	}
+}
+
+// TestTelegramOffsetPersistence_MidStreamCrashResume terminates the Telegram adapter
+// mid-stream, restarts it, and verifies it resumes from the saved checkpoint with 0 duplicate messages.
+func TestTelegramOffsetPersistence_MidStreamCrashResume(t *testing.T) {
+	fake := newFakeTelegram(t)
+	token := "301:crash-stream"
+	fake.addBot(token, 301, "stream_bot")
+
+	// 1. Initial batch of 5 messages (UpdateID 1..5)
+	updatesBatch1 := make([]botapi.Update, 0, 5)
+	for i := 1; i <= 5; i++ {
+		updatesBatch1 = append(updatesBatch1, botapi.Update{
+			UpdateID: int64(i),
+			Message: &botapi.Message{
+				MessageID: int64(i),
+				Date:      100 + int64(i),
+				Chat:      botapi.Chat{ID: 100, Type: "private"},
+				From:      &botapi.User{ID: 100, FirstName: "User"},
+				Text:      fmt.Sprintf("Message %d", i),
+			},
+		})
+	}
+	fake.mu.Lock()
+	fake.updates[token] = updatesBatch1
+	fake.mu.Unlock()
+
+	databasePath := filepath.Join(t.TempDir(), "telegram.db")
+	firstPublisher := &recordingPublisher{}
+	manager1 := newTestManager(t, databasePath, fake, firstPublisher)
+
+	if _, err := manager1.Create(t.Context(), "channel-stream", token); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for first 5 messages to be processed
+	waitFor(t, func() bool { return firstPublisher.count(messaging.EventMessageCreated) == 5 })
+
+	// Terminate the adapter mid-stream abruptly
+	if err := manager1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Add next batch of 5 messages (UpdateID 6..10) while adapter is down
+	fake.mu.Lock()
+	for i := 6; i <= 10; i++ {
+		fake.updates[token] = append(fake.updates[token], botapi.Update{
+			UpdateID: int64(i),
+			Message: &botapi.Message{
+				MessageID: int64(i),
+				Date:      100 + int64(i),
+				Chat:      botapi.Chat{ID: 100, Type: "private"},
+				From:      &botapi.User{ID: 100, FirstName: "User"},
+				Text:      fmt.Sprintf("Message %d", i),
+			},
+		})
+	}
+	fake.mu.Unlock()
+
+	// 3. Restart adapter pointing to the same persistent SQLite database
+	secondPublisher := &recordingPublisher{}
+	manager2 := newTestManager(t, databasePath, fake, secondPublisher)
+
+	// Wait for manager2 to resume and process remaining messages
+	waitFor(t, func() bool { return secondPublisher.count(messaging.EventMessageCreated) == 5 })
+
+	snap, err := manager2.Snapshot("channel-stream")
+	assert.NoError(t, err)
+	assert.Equal(t, "channel-stream", snap.ChannelID)
+
+	// Verify manager2 only requested updates starting from offset 6
+	waitFor(t, func() bool {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		return containsOffset(fake.offsets[token], 6) && containsOffset(fake.offsets[token], 11)
+	})
+
+	// Assert exactly 0 duplicates across the stream: first publisher got 1..5, second got 6..10
+	firstPublisher.mu.Lock()
+	ev1 := firstPublisher.events
+	firstPublisher.mu.Unlock()
+
+	secondPublisher.mu.Lock()
+	ev2 := secondPublisher.events
+	secondPublisher.mu.Unlock()
+
+	assert.Equal(t, 5, firstPublisher.count(messaging.EventMessageCreated), "First manager processed exactly 5 messages")
+	assert.Equal(t, 5, secondPublisher.count(messaging.EventMessageCreated), "Second manager processed exactly 5 new messages")
+
+	allSeenIDs := make(map[string]bool)
+	for _, e := range ev1 {
+		if e.Message != nil {
+			assert.False(t, allSeenIDs[e.Message.ProviderMessageID], "duplicate message in batch 1")
+			allSeenIDs[e.Message.ProviderMessageID] = true
+		}
+	}
+	for _, e := range ev2 {
+		if e.Message != nil {
+			assert.False(t, allSeenIDs[e.Message.ProviderMessageID], "duplicate message in batch 2 (replay leak)")
+			allSeenIDs[e.Message.ProviderMessageID] = true
+		}
+	}
+	assert.Equal(t, 10, len(allSeenIDs), "Exactly 10 unique messages processed with zero duplicates")
 }
 
 func TestRetryCanReplaceARevokedBotToken(t *testing.T) {
