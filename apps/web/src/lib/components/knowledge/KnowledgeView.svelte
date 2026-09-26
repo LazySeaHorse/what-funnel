@@ -247,11 +247,16 @@
 <div class="flex-1 flex flex-col overflow-hidden bg-white">
 	<!-- Top Level Header -->
 	<header class="px-6 pt-5 pb-3 border-b border-slate-100 shrink-0 space-y-3.5 bg-white">
-		<!-- Row 1: Title & Primary Actions -->
-		<div class="flex items-center justify-between gap-3">
-			<h1 class="text-2xl font-medium text-slate-900 tracking-tight">Knowledge base</h1>
+		<!-- Row 1: Title, Subtitle & Primary Actions -->
+		<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+			<div>
+				<h1 class="text-2xl font-semibold text-slate-900 tracking-tight">Knowledge base</h1>
+				<p class="text-xs text-slate-500 mt-0.5">
+					Manage business facts, policies, and deterministic answers for your AI assistant.
+				</p>
+			</div>
 
-			<div class="flex flex-wrap items-center gap-2.5">
+			<div class="flex flex-wrap items-center gap-2">
 				<!-- Audit Run Action -->
 				<Button
 					variant="secondary"
@@ -259,7 +264,8 @@
 					onclick={triggerMining}
 					disabled={mining}
 					busy={mining}
-					title={lastRun ? `Last audit: ${formatDate(lastRun.run_at)} (${lastRun.messages_scanned} msgs)` : 'Analyze recent chats for missing knowledge'}
+					class="shadow-2xs"
+					title={lastRun ? `Last audit: ${formatDate(lastRun.run_at)} (${lastRun.messages_scanned} msgs scanned)` : 'Analyze recent customer chats to discover missing knowledge'}
 				>
 					<SparklesIcon class="w-3.5 h-3.5 text-blue-600" />
 					<span>Run audit now</span>
@@ -267,12 +273,12 @@
 
 				<!-- Purge Action (quiet danger button) -->
 				<Button
-					variant="secondary"
+					variant="ghost"
 					size="sm"
 					onclick={purgeKnowledgeBase}
 					disabled={purging || ingestion.phase !== 'idle'}
 					busy={purging}
-					class="hover:border-rose-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50/70"
+					class="text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 border border-transparent hover:border-rose-200 transition-colors"
 					title="Permanently remove all concepts and deterministic patterns"
 				>
 					<TrashIcon class="w-3.5 h-3.5" />
@@ -284,11 +290,12 @@
 		<!-- Row 2: Sub-navigation & Workspace Governance Controls -->
 		<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-0.5">
 			<!-- Segmented Sub-Tabs -->
-			<nav class="inline-flex p-1 bg-slate-100/90 rounded-xl border border-slate-200/60 self-start" aria-label="Knowledge sections">
-				{#each [{ key: 'concepts', label: 'KB Concepts', count: filteredConcepts.length }, { key: 'patterns', label: 'Patterns', count: filteredPatterns.length }, { key: 'suggestions', label: 'AI Suggestions', count: filteredSuggestions.length }] as tab}
+			<nav class="inline-flex p-1 bg-slate-100/90 rounded-xl border border-slate-200/60 self-start shadow-2xs" aria-label="Knowledge sections">
+				{#each [{ key: 'concepts', label: 'KB Concepts', count: filteredConcepts.length, hint: 'Business facts & policies' }, { key: 'patterns', label: 'Patterns', count: filteredPatterns.length, hint: 'Exact Q&A triggers' }, { key: 'suggestions', label: 'AI Suggestions', count: filteredSuggestions.length, hint: 'Mined from chats' }] as tab}
 					<button
 						onclick={() => (activeTab = tab.key as typeof activeTab)}
-						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {activeTab === tab.key ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}"
+						title={tab.hint}
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {activeTab === tab.key ? 'bg-white text-slate-900 shadow-2xs font-semibold' : 'text-slate-500 hover:text-slate-800'}"
 					>
 						<span>{tab.label}</span>
 						<span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium {activeTab === tab.key ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/60 text-slate-500'}">
@@ -322,7 +329,7 @@
 					onclick={onToggleAI}
 					disabled={!canManageAI || togglingAI || (!providerConfigured && !autoReplyEnabled)}
 					class="h-8 flex items-center gap-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition shadow-2xs cursor-pointer disabled:cursor-default disabled:opacity-60 active:scale-[0.98]"
-					title={!providerConfigured ? 'Configure an AI provider in Settings before enabling automatic replies' : 'New chats inherit this setting unless they have a chat override'}
+					title={!providerConfigured ? 'Configure an AI provider in Settings before enabling automatic replies' : 'New customer chats inherit this setting unless overridden in chat'}
 				>
 					<span
 						class="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out {autoReplyEnabled && providerConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"
@@ -332,7 +339,7 @@
 						></span>
 					</span>
 					<span>Global AI auto-reply</span>
-					<span class="text-[10px] font-medium {autoReplyEnabled && providerConfigured ? 'text-emerald-600' : 'text-slate-400'}">
+					<span class="text-[10px] font-semibold {autoReplyEnabled && providerConfigured ? 'text-emerald-600' : 'text-slate-400'}">
 						{autoReplyEnabled && providerConfigured ? 'ON' : 'OFF'}
 					</span>
 				</button>
@@ -341,7 +348,7 @@
 
 		<!-- Feedback Notices -->
 		{#if miningResult}
-			<div class="px-3.5 py-2.5 bg-blue-50/80 border border-blue-200/80 rounded-xl text-xs text-blue-800 flex items-center justify-between gap-2 shadow-2xs">
+			<div class="px-3.5 py-2.5 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-2 shadow-2xs">
 				<div class="flex items-center gap-2">
 					<SparklesIcon class="w-4 h-4 text-blue-600 shrink-0" />
 					<span>Audit complete — {miningResult.messages_scanned} messages scanned, {miningResult.clusters_found} clusters found, {miningResult.suggestions_created} suggestions created.</span>
@@ -352,7 +359,7 @@
 			</div>
 		{/if}
 		{#if purgeResult}
-			<div class="px-3.5 py-2.5 bg-emerald-50/80 border border-emerald-200/80 rounded-xl text-xs text-emerald-800 flex items-center justify-between gap-2 shadow-2xs">
+			<div class="px-3.5 py-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between gap-2 shadow-2xs">
 				<div class="flex items-center gap-2">
 					<CheckIcon class="w-4 h-4 text-emerald-600 shrink-0" />
 					<span>Knowledge base purged — {purgeResult.concepts} concept{purgeResult.concepts !== 1 ? 's' : ''} and {purgeResult.patterns} pattern{purgeResult.patterns !== 1 ? 's' : ''} removed.</span>
@@ -362,7 +369,7 @@
 				</button>
 			</div>
 		{:else if purgeError}
-			<div class="px-3.5 py-2.5 bg-rose-50/80 border border-rose-200/80 rounded-xl text-xs text-rose-800 flex items-center justify-between gap-2 shadow-2xs">
+			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs">
 				<div class="flex items-center gap-2">
 					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
 					<span>{purgeError}</span>
@@ -418,19 +425,19 @@
 			<!-- Concepts List -->
 			<div class="flex-1 overflow-y-auto px-6 py-4">
 				{#if filteredConcepts.length === 0}
-					<div class="flex flex-col items-center justify-center py-16 text-center">
-						<div class="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-							<BookOpenIcon class="w-5 h-5" />
+					<div class="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
+						<div class="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200/60 flex items-center justify-center text-slate-400 mb-3 shadow-2xs">
+							<BookOpenIcon class="w-6 h-6" />
 						</div>
-						<div class="text-sm font-medium text-slate-700">
+						<div class="text-sm font-semibold text-slate-800">
 							{searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
 						</div>
-						<div class="text-xs text-slate-400 mt-1 max-w-sm">
+						<div class="text-xs text-slate-500 mt-1">
 							{searchQuery.trim() ? 'Try adjusting your search terms' : 'Paste business information above and click "Extract with AI"'}
 						</div>
 					</div>
 				{:else}
-					<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
 						{#each filteredConcepts as concept (concept.id)}
 							{#if editingConceptId === concept.id}
 								<ConceptEditModal
@@ -458,19 +465,26 @@
 	{:else if activeTab === 'patterns'}
 		<div class="flex-1 overflow-y-auto px-6 py-4">
 			{#if filteredPatterns.length === 0}
-				<div class="flex flex-col items-center justify-center py-16 text-center">
-					<div class="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 mb-3">
-						<ChatBubbleLeftRightIcon class="w-5 h-5" />
+				<div class="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
+					<div class="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 mb-3 shadow-2xs">
+						<ChatBubbleLeftRightIcon class="w-6 h-6" />
 					</div>
-					<div class="text-sm font-medium text-slate-700">
+					<div class="text-sm font-semibold text-slate-800">
 						{searchQuery.trim() ? 'No matching answer patterns' : 'No deterministic answer patterns yet'}
 					</div>
-					<div class="text-xs text-slate-400 mt-1 max-w-sm">
+					<div class="text-xs text-slate-500 mt-1">
 						{searchQuery.trim() ? 'Try adjusting your search terms' : 'Organize business knowledge or run an AI audit to create common question patterns'}
 					</div>
+					{#if !searchQuery.trim()}
+						<div class="mt-4">
+							<Button variant="secondary" size="xs" onclick={() => (activeTab = 'concepts')} class="shadow-2xs">
+								<span>Add knowledge in KB Concepts</span>
+							</Button>
+						</div>
+					{/if}
 				</div>
 			{:else}
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
 					{#each filteredPatterns as pattern (pattern.id)}
 						{#if editingPatternId === pattern.id}
 							<PatternEditModal
@@ -496,19 +510,27 @@
 		<!-- AI Suggestions Tab -->
 		<div class="flex-1 overflow-y-auto px-6 py-4">
 			{#if filteredSuggestions.length === 0}
-				<div class="flex flex-col items-center justify-center py-16 text-center">
-					<div class="w-10 h-10 rounded-2xl bg-orange-50 flex items-center justify-center text-orange-500 mb-3">
-						<SparklesIcon class="w-5 h-5" />
+				<div class="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
+					<div class="w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-500 mb-3 shadow-2xs">
+						<SparklesIcon class="w-6 h-6" />
 					</div>
-					<div class="text-sm font-medium text-slate-700">
+					<div class="text-sm font-semibold text-slate-800">
 						{searchQuery.trim() ? 'No matching suggestions' : 'No suggestions pending review'}
 					</div>
-					<div class="text-xs text-slate-400 mt-1 max-w-sm">
+					<div class="text-xs text-slate-500 mt-1">
 						{searchQuery.trim() ? 'Try adjusting your search terms' : 'When AI audits find knowledge gaps in conversations, recommendations will appear here'}
 					</div>
+					{#if !searchQuery.trim()}
+						<div class="mt-4">
+							<Button variant="secondary" size="xs" onclick={triggerMining} disabled={mining} busy={mining} class="shadow-2xs">
+								<SparklesIcon class="w-3.5 h-3.5 text-blue-600" />
+								<span>Analyze recent chats</span>
+							</Button>
+						</div>
+					{/if}
 				</div>
 			{:else}
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
 					{#each filteredSuggestions as suggestion (suggestion.id)}
 						<SuggestionCard
 							suggestion={suggestion}
