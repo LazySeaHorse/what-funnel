@@ -13,6 +13,7 @@ import (
 
 	ab "github.com/aarondl/authboss/v3"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
@@ -82,10 +83,20 @@ func New(pool *pgxpool.Pool, sessions *session.Store, opts ...Option) (*Service,
 // Signup creates an account, manager user, and default pipeline in one atomic
 // transaction.
 func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User, error) {
-	// Hash password via authboss (bcrypt)
-	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(req.Password)
+	productMode, err := validateAndNormalizeProductMode(req.ProductMode)
 	if err != nil {
-		return nil, fmt.Errorf("service: hash password: %w", err)
+		return nil, err
+	}
+	req.ProductMode = productMode
+
+	hash, err := svc.hashPassword(req.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	defaultSettings, err := buildDefaultAccountSettings(req.ProductMode)
+	if err != nil {
+		return nil, fmt.Errorf("service: marshal default settings: %w", err)
 	}
 
 	tx, err := svc.pool.Begin(ctx)
@@ -97,74 +108,145 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	qtx := dbgen.New(tx)
 	aw := audit.NewWriterFromTx(tx)
 
-	var accountID uuid.UUID
-	var userID uuid.UUID
+	if err := checkEmailAvailable(ctx, qtx, req.Email); err != nil {
+		return nil, err
+	}
+
+	accountID, err := createSignupAccount(ctx, qtx, req.AccountName, req.ProductMode, defaultSettings)
+	if err != nil {
+		return nil, err
+	}
+
 	userRole := types.RoleManager
-
-	if req.ProductMode == "" {
-		req.ProductMode = "full_workspace"
-	}
-	if req.ProductMode != "full_workspace" && req.ProductMode != "chatbot_only" {
-		return nil, fmt.Errorf("invalid product mode: %s", req.ProductMode)
+	userID, err := createSignupUser(ctx, qtx, accountID, req, hash, userRole)
+	if err != nil {
+		return nil, err
 	}
 
-	// 1. Create account with default settings
-	defaultSettings, err := json.Marshal(map[string]any{
+	if err := svc.provisionWorkspace(ctx, tx, accountID, req.ProductMode); err != nil {
+		return nil, err
+	}
+
+	if err := writeSignupAudit(ctx, aw, accountID, userID, req, userRole); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("service: commit: %w", err)
+	}
+
+	return &types.User{
+		ID:        userID,
+		AccountID: accountID,
+		Email:     req.Email,
+		Username:  req.Username,
+		Role:      userRole,
+		CreatedAt: time.Now(),
+	}, nil
+}
+
+// validateAndNormalizeProductMode validates the product mode and defaults to full_workspace if empty.
+func validateAndNormalizeProductMode(mode string) (string, error) {
+	if mode == "" {
+		return "full_workspace", nil
+	}
+	if mode != "full_workspace" && mode != "chatbot_only" {
+		return "", fmt.Errorf("invalid product mode: %s", mode)
+	}
+	return mode, nil
+}
+
+// buildDefaultAccountSettings constructs the default JSON settings for a newly created account.
+func buildDefaultAccountSettings(productMode string) ([]byte, error) {
+	settings := map[string]any{
 		"ai_enabled":                             true,
 		"ai_reply_mode_default":                  "draft_only",
 		"allow_member_reply_mode_override":       true,
 		"ai_may_auto_answer_mixed_conversations": false,
-		"lead_tracking_enabled":                  req.ProductMode == "full_workspace",
+		"lead_tracking_enabled":                  productMode == "full_workspace",
 		"summary_schema": []map[string]string{
 			{"key": "customer_wants", "label": "Customer Wants", "description": "What the customer is looking for"},
 			{"key": "preferred_timeframe", "label": "Preferred Timeframe", "description": "When the customer wants it"},
 			{"key": "objections", "label": "Objections", "description": "Customer doubts or objections"},
 			{"key": "next_action", "label": "Next Action", "description": "What needs to be done next"},
 		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("service: marshal default settings: %w", err)
 	}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return nil, fmt.Errorf("marshal default settings: %w", err)
+	}
+	return data, nil
+}
 
-	accountID, err = qtx.CreateAccount(ctx, dbgen.CreateAccountParams{
-		Name:        req.AccountName,
+// hashPassword securely hashes a password using the configured authboss hasher.
+func (svc *Service) hashPassword(password string) (string, error) {
+	if svc.ab == nil || svc.ab.Config.Core.Hasher == nil {
+		return "", fmt.Errorf("service: hasher not configured")
+	}
+	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(password)
+	if err != nil {
+		return "", fmt.Errorf("service: hash password: %w", err)
+	}
+	return hash, nil
+}
+
+// checkEmailAvailable checks whether the given email is already in use by any user across accounts.
+func checkEmailAvailable(ctx context.Context, qtx *dbgen.Queries, email string) error {
+	if email == "" {
+		return nil
+	}
+	count, err := qtx.CountUsersByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("service: check email: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("service: email already registered")
+	}
+	return nil
+}
+
+// createSignupAccount inserts the new account record.
+func createSignupAccount(ctx context.Context, qtx *dbgen.Queries, name, productMode string, settings []byte) (uuid.UUID, error) {
+	accountID, err := qtx.CreateAccount(ctx, dbgen.CreateAccountParams{
+		Name:        name,
 		Plan:        types.PlanSelfHosted,
-		Settings:    defaultSettings,
-		ProductMode: req.ProductMode,
+		Settings:    settings,
+		ProductMode: productMode,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("service: create account: %w", err)
+		return uuid.Nil, fmt.Errorf("service: create account: %w", err)
 	}
+	return accountID, nil
+}
 
-	// 2. Check global email uniqueness across all accounts if email provided
-	if req.Email != "" {
-		count, _ := qtx.CountUsersByEmail(ctx, req.Email)
-		if count > 0 {
-			return nil, fmt.Errorf("service: email already registered")
-		}
-	}
-
-	// 3. Create manager user
+// createSignupUser inserts the initial manager user record for the account and returns its ID.
+func createSignupUser(ctx context.Context, qtx *dbgen.Queries, accountID uuid.UUID, req SignupRequest, passwordHash, role string) (uuid.UUID, error) {
 	createdUser, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
 		AccountID:    accountID,
 		Email:        req.Email,
 		Username:     req.Username,
-		PasswordHash: hash,
-		Role:         userRole,
+		PasswordHash: passwordHash,
+		Role:         role,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("service: create user: %w", err)
+		return uuid.Nil, fmt.Errorf("service: create user: %w", err)
 	}
-	userID = createdUser.ID
+	return createdUser.ID, nil
+}
 
-	// 4. Provision workspace / CRM domain entities via WorkspaceProvisioner
-	if svc.workspaceProvisioner != nil {
-		if err := svc.workspaceProvisioner.ProvisionWorkspace(ctx, tx, accountID, req.ProductMode); err != nil {
-			return nil, fmt.Errorf("service: provision workspace: %w", err)
-		}
+// provisionWorkspace provisions initial workspace domain entities if a provisioner is configured.
+func (svc *Service) provisionWorkspace(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, productMode string) error {
+	if svc.workspaceProvisioner == nil {
+		return nil
 	}
+	if err := svc.workspaceProvisioner.ProvisionWorkspace(ctx, tx, accountID, productMode); err != nil {
+		return fmt.Errorf("service: provision workspace: %w", err)
+	}
+	return nil
+}
 
-	// 5. Write account audit log
+// writeSignupAudit writes audit log entries for both account and initial user creation.
+func writeSignupAudit(ctx context.Context, aw *audit.Writer, accountID, userID uuid.UUID, req SignupRequest, userRole string) error {
 	if err := aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
 		ActorUserID: &userID,
@@ -173,10 +255,9 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		TargetID:    &accountID,
 		Metadata:    map[string]any{"account_name": req.AccountName},
 	}); err != nil {
-		return nil, fmt.Errorf("service: audit account: %w", err)
+		return fmt.Errorf("service: audit account: %w", err)
 	}
 
-	// User Creation Audit Log
 	userMeta := map[string]any{"role": userRole}
 	if req.Email != "" {
 		userMeta["email"] = req.Email
@@ -193,21 +274,10 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 		TargetID:    &userID,
 		Metadata:    userMeta,
 	}); err != nil {
-		return nil, fmt.Errorf("service: audit user: %w", err)
+		return fmt.Errorf("service: audit user: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("service: commit: %w", err)
-	}
-
-	return &types.User{
-		ID:        userID,
-		AccountID: accountID,
-		Email:     req.Email,
-		Username:  req.Username,
-		Role:      userRole,
-		CreatedAt: time.Now(),
-	}, nil
+	return nil
 }
 
 // Login verifies credentials and returns the user if valid.
@@ -320,9 +390,9 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 		return nil, fmt.Errorf("password is required")
 	}
 
-	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(req.Password)
+	hash, err := svc.hashPassword(req.Password)
 	if err != nil {
-		return nil, fmt.Errorf("service: hash password: %w", err)
+		return nil, err
 	}
 
 	tx, err := svc.pool.Begin(ctx)
@@ -333,11 +403,8 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 
 	qtx := dbgen.New(tx)
 
-	if req.Email != "" {
-		count, _ := qtx.CountUsersByEmail(ctx, req.Email)
-		if count > 0 {
-			return nil, fmt.Errorf("service: email already registered")
-		}
+	if err := checkEmailAvailable(ctx, qtx, req.Email); err != nil {
+		return nil, err
 	}
 
 	createdUser, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
@@ -383,9 +450,9 @@ func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, t
 		return fmt.Errorf("password cannot be empty")
 	}
 
-	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(newPassword)
+	hash, err := svc.hashPassword(newPassword)
 	if err != nil {
-		return fmt.Errorf("service: hash password: %w", err)
+		return err
 	}
 
 	tx, err := svc.pool.Begin(ctx)

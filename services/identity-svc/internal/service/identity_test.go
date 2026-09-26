@@ -126,6 +126,24 @@ func TestSignup_ProductMode(t *testing.T) {
 	})
 }
 
+func TestSignup_InvalidProductMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, _ := testService(t)
+	ctx := context.Background()
+
+	email := uniqueEmail(t)
+	_, err := svc.Signup(ctx, service.SignupRequest{
+		AccountName: "Invalid Mode Account",
+		Email:       email,
+		Password:    "securepassword123",
+		ProductMode: "invalid_mode",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid product mode: invalid_mode")
+}
+
 func TestSignup_DuplicateEmailGlobal(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
