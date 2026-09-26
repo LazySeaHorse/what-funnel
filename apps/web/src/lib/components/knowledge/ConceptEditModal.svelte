@@ -61,29 +61,32 @@
 	}
 </script>
 
-<div class="border-2 border-blue-500/60 rounded-2xl p-4 bg-white shadow-sm space-y-3 transition">
-	<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-		<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Concept</span>
+<div class="border border-blue-400/80 rounded-2xl p-5 bg-white shadow-md ring-2 ring-blue-500/10 space-y-4 transition-all">
+	<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+		<div class="flex items-center gap-2">
+			<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Concept</span>
+			<span class="text-[10px] text-blue-600 bg-blue-50 border border-blue-200/70 px-2 py-0.5 rounded-md font-medium">Business Context</span>
+		</div>
 		{#if saveError}
-			<span class="text-xs text-rose-600 font-medium">{saveError}</span>
+			<span class="text-xs text-rose-600 font-medium bg-rose-50 px-2.5 py-0.5 rounded-md border border-rose-200">{saveError}</span>
 		{/if}
 	</div>
-	<div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+	<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 		<div class="sm:col-span-2">
-			<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Title</label>
+			<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Title</label>
 			<input
 				id={`edit-concept-title-${concept.id}`}
 				bind:value={draft.title}
 				placeholder="Concept title"
-				class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+				class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition shadow-2xs"
 			/>
 		</div>
 		<div>
-			<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Category</label>
+			<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
 			<select
 				id={`edit-concept-type-${concept.id}`}
 				bind:value={draft.type}
-				class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 capitalize transition"
+				class="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 capitalize transition shadow-2xs"
 			>
 				<option value="faq">FAQ</option>
 				<option value="pricing">Pricing</option>
@@ -95,21 +98,21 @@
 		</div>
 	</div>
 	<div>
-		<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Knowledge Content</label>
+		<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Knowledge Content</label>
 		<textarea
 			id={`edit-concept-body-${concept.id}`}
 			bind:value={draft.body_text}
 			rows="4"
-			class="w-full bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition"
+			class="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition shadow-2xs"
 		></textarea>
 	</div>
 	<div>
-		<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-medium text-slate-500 mb-1">Tags</label>
-		<div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+		<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Tags</label>
+		<div class="flex flex-wrap items-center gap-1.5 mb-2">
 			{#each draft.tags as tag}
-				<span class="inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md font-medium">
-					<span>{tag}</span>
-					<button type="button" onclick={() => removeTag(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer">×</button>
+				<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-700 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg font-medium shadow-2xs">
+					<span>#{tag}</span>
+					<button type="button" onclick={() => removeTag(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer font-bold">×</button>
 				</span>
 			{/each}
 		</div>
@@ -119,13 +122,13 @@
 				bind:value={tagInput}
 				onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
 				placeholder="Add tag and press Enter"
-				class="flex-1 max-w-xs bg-slate-50/50 focus:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs text-slate-700 outline-none focus:border-blue-500 transition"
+				class="flex-1 max-w-xs bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition shadow-2xs"
 			/>
-			<Button variant="secondary" size="xs" onclick={addTag}>Add</Button>
+			<Button variant="secondary" size="xs" onclick={addTag} class="shadow-2xs">Add</Button>
 		</div>
 	</div>
-	<div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-		<Button variant="ghost" size="sm" onclick={onCancel}>
+	<div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+		<Button variant="ghost" size="sm" onclick={onCancel} class="text-slate-600 hover:text-slate-800">
 			Cancel
 		</Button>
 		<Button
@@ -134,6 +137,7 @@
 			onclick={handleSave}
 			disabled={saving}
 			busy={saving}
+			class="shadow-xs"
 		>
 			Save changes
 		</Button>
