@@ -1,11 +1,14 @@
 package integration
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -273,4 +276,54 @@ func TestEnvironmentVariableCompleteness(t *testing.T) {
 
 	assert.Empty(t, missingKeys, "All environment variables used in code must be documented in .env.example: %v", missingKeys)
 }
+
+// TestMissingRequiredConfigExits verifies that starting each backend service
+// without required configuration keys causes it to exit immediately with a non-zero exit code.
+func TestMissingRequiredConfigExits(t *testing.T) {
+	root := findRepoRoot(t)
+
+	services := []struct {
+		name string
+		pkg  string
+	}{
+		{"identity-svc", "./services/identity-svc/cmd/identity-svc"},
+		{"workspace-svc", "./services/workspace-svc/cmd/workspace-svc"},
+		{"conversation-svc", "./services/conversation-svc/cmd/conversation-svc"},
+		{"notification-svc", "./services/notification-svc/cmd/notification-svc"},
+		{"api-gateway", "./services/api-gateway/cmd/api-gateway"},
+	}
+
+	for _, svc := range services {
+		t.Run(svc.name+" exits on missing required config", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			cmd := exec.CommandContext(ctx, "go", "run", svc.pkg)
+			cmd.Dir = root
+			cmd.Env = []string{
+				"PATH=" + os.Getenv("PATH"),
+				"HOME=" + os.Getenv("HOME"),
+				"GOTOOLCHAIN=local",
+				// Omit required DATABASE_URL, SESSION_SECRET, etc.
+			}
+
+			output, err := cmd.CombinedOutput()
+			assert.Error(t, err, "service %s must exit with error when missing required env vars. Output: %s", svc.name, string(output))
+		})
+	}
+}
+
+// TestMultiArchCIConfiguration verifies that CI workflows configure Docker Buildx
+// to build images for both linux/amd64 and linux/arm64 architectures.
+func TestMultiArchCIConfiguration(t *testing.T) {
+	root := findRepoRoot(t)
+	ciPath := filepath.Join(root, ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(ciPath)
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "docker/setup-buildx-action", "CI must configure Docker Buildx")
+	assert.Contains(t, content, "platforms: linux/amd64,linux/arm64", "CI must build both linux/amd64 and linux/arm64")
+}
+
 

@@ -211,3 +211,50 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report/
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Docker: Multi-architecture builds (linux/amd64, linux/arm64)
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Multi-Arch Docker Build
+    runs-on: ubuntu-latest
+    needs: [test-go, test-python, test-web]
+    strategy:
+      matrix:
+        service:
+          - name: api-gateway
+            dockerfile: services/api-gateway/Dockerfile
+            context: .
+          - name: identity-svc
+            dockerfile: services/identity-svc/Dockerfile
+            context: .
+          - name: workspace-svc
+            dockerfile: services/workspace-svc/Dockerfile
+            context: .
+          - name: conversation-svc
+            dockerfile: services/conversation-svc/Dockerfile
+            context: .
+          - name: notification-svc
+            dockerfile: services/notification-svc/Dockerfile
+            context: .
+          - name: web
+            dockerfile: apps/web/Dockerfile
+            context: apps/web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: whatfunnel/${{ matrix.service.name }}:latest
