@@ -35,27 +35,32 @@
 	}
 </script>
 
-<div class="border border-slate-200/80 hover:border-slate-300 rounded-2xl bg-white p-4 transition shadow-2xs space-y-2.5 flex flex-col justify-between">
-	<div class="space-y-2.5">
-		<div class="flex items-start justify-between gap-2">
-			<div class="flex flex-wrap items-center gap-1.5 min-w-0">
-				<span class="px-2 py-0.5 rounded-md text-[10px] font-medium border capitalize {typeColor(concept.type)}">
-					{typeLabel(concept.type)}
-				</span>
-				<h3 class="text-sm font-medium text-slate-900 leading-snug">{concept.title}</h3>
-				{#if concept.source === 'owner_pasted'}
-					<span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">pasted</span>
-				{/if}
+<div class="group relative border border-slate-200/80 hover:border-slate-300 rounded-2xl bg-white p-5 transition-all duration-150 shadow-2xs hover:shadow-xs flex flex-col justify-between space-y-3">
+	<div class="space-y-3">
+		<!-- Header: Type, Title, Source & Actions -->
+		<div class="flex items-start justify-between gap-3">
+			<div class="space-y-1.5 min-w-0 flex-1">
+				<div class="flex flex-wrap items-center gap-1.5">
+					<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide border capitalize {typeColor(concept.type)}">
+						{typeLabel(concept.type)}
+					</span>
+					{#if concept.source === 'owner_pasted'}
+						<span class="inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100/90 border border-slate-200/60 px-1.5 py-0.5 rounded-md font-medium">
+							<span>Pasted note</span>
+						</span>
+					{/if}
+				</div>
+				<h3 class="text-sm font-semibold text-slate-900 leading-snug tracking-tight">{concept.title}</h3>
 			</div>
 
 			{#if showActions && (onEdit || onDelete)}
-				<div class="flex items-center gap-0.5 shrink-0">
+				<div class="flex items-center gap-1 shrink-0 -mr-1 -mt-0.5">
 					{#if onEdit}
 						<Button
 							variant="ghost"
 							size="xs"
 							onclick={onEdit}
-							class="text-slate-500 hover:text-blue-600 hover:bg-blue-50/70"
+							class="text-slate-500 hover:text-blue-600 hover:bg-blue-50/80 transition-colors"
 							title="Edit concept"
 						>
 							<PencilSquareIcon class="w-3.5 h-3.5" />
@@ -67,7 +72,7 @@
 							variant="ghost"
 							size="xs"
 							onclick={onDelete}
-							class="text-slate-400 hover:text-rose-600 hover:bg-rose-50/70"
+							class="text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 transition-colors"
 							title="Delete concept"
 						>
 							<TrashIcon class="w-3.5 h-3.5" />
@@ -78,14 +83,18 @@
 			{/if}
 		</div>
 
+		<!-- Tag Pills -->
 		{#if concept.tags?.length}
-			<div class="flex flex-wrap items-center gap-1">
+			<div class="flex flex-wrap items-center gap-1.5 pt-0.5">
 				{#each concept.tags as tag}
-					<span class="text-[10px] text-slate-500 bg-slate-100/80 px-2 py-0.5 rounded-md font-medium">{tag}</span>
+					<span class="inline-flex items-center text-[10px] text-slate-600 bg-slate-50 border border-slate-200/70 px-2 py-0.5 rounded-md font-medium">
+						<span class="text-slate-400 mr-0.5 text-[9px]">#</span><span>{tag}</span>
+					</span>
 				{/each}
 			</div>
 		{/if}
 
+		<!-- Body text with comfortable line-height -->
 		<div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap {expanded ? '' : 'line-clamp-4'}">
 			{concept.body_text}
 		</div>
@@ -94,15 +103,16 @@
 			<button
 				type="button"
 				onclick={onToggleExpand}
-				class="text-[11px] font-medium text-blue-600 hover:text-blue-700 cursor-pointer pt-0.5 inline-block"
+				class="text-[11px] font-medium text-blue-600 hover:text-blue-700 cursor-pointer pt-0.5 inline-flex items-center gap-1 hover:underline"
 			>
 				{expanded ? 'Show less' : 'Show full content'}
 			</button>
 		{/if}
 	</div>
 
+	<!-- Footer Metadata -->
 	{#if concept.created_at}
-		<div class="pt-2 mt-1 text-[10px] text-slate-400 border-t border-slate-100/80">
+		<div class="pt-2.5 mt-2 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100">
 			<span>Added {formatDate(concept.created_at)}</span>
 		</div>
 	{/if}
