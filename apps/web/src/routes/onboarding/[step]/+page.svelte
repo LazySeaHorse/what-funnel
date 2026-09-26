@@ -1,11 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { aiProviderConfigFingerprint, normalizeAIProviderConfig } from '$lib/ai-provider';
 	import { page } from '$app/stores';
-	import { apiRequest } from '$lib/api';
-	import { decodeWorkspaceSettings } from '$lib/workspace-settings';
-	import { normalizeSavedTimeZone } from '$lib/timezones';
 	import OnboardingChrome from '$lib/components/onboarding/OnboardingChrome.svelte';
 	import OnboardingFooter from '$lib/components/onboarding/OnboardingFooter.svelte';
 	import BusinessInfoStep from '$lib/components/onboarding/BusinessInfoStep.svelte';
@@ -18,473 +14,21 @@
 	import CompleteStep from '$lib/components/onboarding/CompleteStep.svelte';
 	import { ChevronLeftIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import { fade } from 'svelte/transition';
-	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
+	import { OnboardingWizardController } from '$lib/onboarding';
 
-	// Step number from route: 1..8
 	let stepNum = $derived(parseInt(($page.params as any)?.step ?? '1', 10) || 1);
 
-	let loading = $state(true);
-	let submitting = $state(false);
-	let error = $state('');
-	let pipelineID = $state('');
-	let productMode = $state<'full_workspace' | 'chatbot_only'>('full_workspace');
-
-	// Stepper metadata (7 total setup steps)
-	const STEP_ITEMS = [
-		{ num: 1, label: 'Business info' },
-		{ num: 2, label: 'Channels' },
-		{ num: 3, label: 'Lead pipeline' },
-		{ num: 4, label: 'Team members' },
-		{ num: 5, label: 'AI assistant' },
-		{ num: 6, label: 'Knowledge base' },
-		{ num: 7, label: 'Review and finish' }
-	];
-	let visibleStepItems = $derived.by(() => {
-		let items = STEP_ITEMS;
-		if (productMode === 'chatbot_only') {
-			items = items.filter((item) => item.num !== 3 && item.num !== 4);
-		}
-		if (s5AiMode === 'manual') {
-			items = items.filter((item) => item.num !== 6);
-		}
-		return items;
-	});
-	let displayStepNum = $derived(Math.max(1, visibleStepItems.findIndex((item) => item.num === stepNum) + 1));
-
-	// Step 1: Business info
-	let s1BusinessName = $state('');
-	let s1BusinessType = $state('');
-	let s1Timezone = $state('UTC');
-
-	// Step 2: Channels
-	let channels = $state([
-		{ id: 'whatsapp', name: 'WhatsApp', type: 'whatsapp', icon: 'whatsapp', connected: false, color: '#25D366' },
-		{ id: 'instagram', name: 'Instagram', type: 'instagram', icon: 'instagram', connected: false, color: '#E1306C' },
-		{ id: 'messenger', name: 'Facebook Messenger', type: 'messenger', icon: 'messenger', connected: false, color: '#0084FF' },
-		{ id: 'telegram', name: 'Telegram', type: 'telegram', icon: 'telegram', connected: false, color: '#229ED9' }
-	]);
-
-	// Step 3: Lead pipeline
-	let pipelineStages = $state([
-		{ key: 'new_lead', label: 'New Lead', color: '#64748B' },
-		{ key: 'contacted', label: 'Contacted', color: '#0057D0' },
-		{ key: 'follow_up', label: 'Follow-up', color: '#C27AFF' },
-		{ key: 'converted', label: 'Converted', color: '#9AE600' },
-		{ key: 'lost', label: 'Lost', color: '#EF4444' }
-	]);
-
-	// Step 4: Team members & Workspace slug
-	let s4Slug = $state('');
-	let s4Users = $state<Array<{ id: string; username: string; role: string; plaintextPassword?: string }>>([]);
-
-
-	// Step 5: AI Assistant
-	let s5AiMode = $state<'auto_answer' | 'suggest_only' | 'manual'>('auto_answer');
-	let aiProviderConfigured = $state(false);
-	let aiProviderApiKey = $state('');
-	let aiProviderBaseURL = $state('https://generativelanguage.googleapis.com/v1beta/openai/');
-	let aiAnalysisModel = $state('gemma-4-26b-a4b-it');
-	let aiReplyModel = $state('gemini-flash-lite-latest');
-	let aiEmbeddingModel = $state('gemini-embedding-001');
-	let aiVerifiedConfigFingerprint = $state('');
-
-	// Step 6: Knowledge Base
-	let s6RawText = $state('');
-	let s6Error = $state('');
-	const knowledgeIngestion = new KnowledgeIngestionController();
-	let s6Status = $derived<'input' | 'processing' | 'results' | 'publishing'>(
-		knowledgeIngestion.phase === 'idle'
-			? 'input'
-			: knowledgeIngestion.phase === 'review'
-				? 'results'
-				: knowledgeIngestion.phase
-	);
-
-	function slugify(name: string): string {
-		return name
-			.toLowerCase()
-			.trim()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '');
-	}
-
-	// ─────────────────────────────────────────────────────────────
-	// Mount & Load initial data
-	// ─────────────────────────────────────────────────────────────
-	onMount(async () => {
-		try {
-			await apiRequest('/auth/me');
-		} catch {
-			goto('/login');
-			return;
-		}
-
-		try {
-			const account = await apiRequest('/workspace/account');
-			productMode = account?.product_mode === 'chatbot_only' ? 'chatbot_only' : 'full_workspace';
-			const [pipelines, aiStatus] = await Promise.all([
-				productMode === 'full_workspace' ? apiRequest('/workspace/pipelines') : Promise.resolve([]),
-				apiRequest('/workspace/account/ai-config/status')
-			]);
-			aiProviderConfigured = aiStatus?.configured === true;
-			if (aiStatus?.base_url) aiProviderBaseURL = aiStatus.base_url;
-			if (aiStatus?.analysis_model) aiAnalysisModel = aiStatus.analysis_model;
-			if (aiStatus?.reply_model) aiReplyModel = aiStatus.reply_model;
-			if (aiStatus?.embedding_model) aiEmbeddingModel = aiStatus.embedding_model;
-			if (account.name) {
-				s1BusinessName = account.name;
-				if (!s4Slug) s4Slug = slugify(account.name);
-			}
-			const settings = decodeWorkspaceSettings(account.settings);
-			if (settings.business_type) s1BusinessType = settings.business_type;
-			if (settings.timezone) s1Timezone = normalizeSavedTimeZone(settings.timezone);
-			if (settings.ai_enabled === false) s5AiMode = 'manual';
-			else if (settings.ai_reply_mode_default === 'auto_send') s5AiMode = 'auto_answer';
-			else if (settings.ai_reply_mode_default === 'draft_only') s5AiMode = 'suggest_only';
-
-			if (productMode === 'full_workspace') {
-				const pipeline = Array.isArray(pipelines) ? pipelines[0] : null;
-				if (!pipeline?.id) throw new Error('Your default lead pipeline could not be loaded.');
-				pipelineID = pipeline.id;
-				if (Array.isArray(pipeline.states) && pipeline.states.length > 0) pipelineStages = pipeline.states;
-			}
-
-			try {
-				const slugData = await apiRequest('/workspace/account/slug');
-				if (slugData?.slug) s4Slug = slugData.slug;
-			} catch {}
-
-			if (productMode === 'full_workspace') try {
-				const userList = await apiRequest('/workspace/users');
-				if (Array.isArray(userList)) {
-					s4Users = userList
-						.filter((u: any) => u.username)
-						.map((u: any) => ({
-							id: u.id,
-							username: u.username,
-							role: u.role
-						}));
-				}
-			} catch {}
-
-			if (productMode === 'chatbot_only' && (stepNum === 3 || stepNum === 4)) {
-				await skipWorkspaceOnlySteps();
-				goToStep(5);
-				return;
-			}
-
-			const chList = await apiRequest('/channels');
-			if (Array.isArray(chList) && chList.length > 0) {
-				for (const c of chList) {
-					const found = channels.find((item) => item.type === c.type);
-					if (found) found.connected = (c.status === 'connected');
-				}
-			}
-			if (stepNum === 6 && settings.ai_enabled !== false) {
-				void resumeLatestIngestion();
-			}
-		} catch (err: any) {
-			error = err?.message || 'We could not load your saved setup. Refresh and try again.';
-		} finally {
-			loading = false;
-		}
+	const wizard = new OnboardingWizardController({
+		getStepNum: () => stepNum,
+		navigate: goto
 	});
 
-	onDestroy(() => knowledgeIngestion.dispose());
-
-	async function handleKnowledgeIngestionResult(result: Awaited<ReturnType<KnowledgeIngestionController['start']>>) {
-		if (result.status !== 'complete') return;
-		await apiRequest('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'kb_setup', action: 'complete' }
-		});
-		goToStep(7);
-	}
-
-	async function resumeLatestIngestion() {
-		try {
-			const result = await knowledgeIngestion.resumeLatest();
-			if (result) await handleKnowledgeIngestionResult(result);
-		} catch (err: any) {
-			s6Error = err?.message || 'Could not resume knowledge ingestion.';
-		}
-	}
-
-	// ─────────────────────────────────────────────────────────────
-	// Step Handlers
-	// ─────────────────────────────────────────────────────────────
-	function goToStep(num: number) {
-		if (productMode === 'chatbot_only' && (num === 3 || num === 4)) num = 5;
-		goto(`/onboarding/${num}`);
-	}
-
-	async function skipWorkspaceOnlySteps() {
-		await Promise.all([
-			apiRequest('/onboarding/status', { method: 'PATCH', body: { step: 'pipeline_setup', action: 'skip' } }),
-			apiRequest('/onboarding/status', { method: 'PATCH', body: { step: 'team_setup', action: 'skip' } })
-		]);
-	}
-
-	function handleBack() {
-		if (stepNum === 6 && knowledgeIngestion.phase === 'review') {
-			editKnowledgeNotes();
-			return;
-		}
-		if (stepNum === 7 && s5AiMode === 'manual') {
-			goToStep(5);
-			return;
-		}
-		if (productMode === 'chatbot_only' && stepNum === 5) {
-			goToStep(2);
-		} else if (stepNum > 1) {
-			goToStep(stepNum - 1);
-		} else {
-			goto('/login');
-		}
-	}
-
-
-
-	async function addTeamMember(username: string, password: string, role: 'agent' | 'manager') {
-		const res = await apiRequest('/workspace/users', {
-			method: 'POST',
-			body: { username, password, role }
-		});
-		s4Users = [
-			...s4Users,
-			{
-				id: res.id,
-				username: res.username || username,
-				role: res.role || role,
-				plaintextPassword: res.password || password
-			}
-		];
-	}
-
-	async function removeTeamMember(id: string) {
-		await apiRequest(`/workspace/users/${id}`, { method: 'DELETE' });
-		s4Users = s4Users.filter(u => u.id !== id);
-	}
-
-
-	async function startCompilingKB() {
-		if (!s6RawText.trim()) {
-			await apiRequest('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: 'kb_setup', action: 'skip' }
-			});
-			goToStep(7);
-			return;
-		}
-
-		s6Error = '';
-
-		try {
-			await handleKnowledgeIngestionResult(await knowledgeIngestion.start(s6RawText));
-		} catch (err: any) {
-			s6Error = err?.message || 'Failed to process knowledge text. Check your AI provider settings and try again.';
-		}
-	}
-
-	async function publishCompiledKB() {
-		s6Error = '';
-		try {
-			await handleKnowledgeIngestionResult(await knowledgeIngestion.publish());
-		} catch (err: any) {
-			s6Error = err?.message || 'Failed to add the reviewed concepts to your knowledge base.';
-		}
-	}
-
-	function editKnowledgeNotes() {
-		knowledgeIngestion.discard();
-		s6Error = '';
-	}
-
-	function skipWaitingToNextStep() {
-		knowledgeIngestion.discard();
-		goToStep(7);
-	}
-
-	async function handleContinue() {
-		error = '';
-		submitting = true;
-
-		try {
-			if (stepNum === 1) {
-				if (!s1BusinessName.trim()) throw new Error('Business name is required.');
-				await apiRequest('/workspace/account', {
-					method: 'PATCH',
-					body: { name: s1BusinessName.trim() }
-				});
-				await apiRequest('/workspace/account/settings', {
-					method: 'PATCH',
-					body: { business_type: s1BusinessType, timezone: s1Timezone }
-				});
-
-				if (!s4Slug) {
-					s4Slug = slugify(s1BusinessName);
-				}
-
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'business_basics', action: 'complete' }
-				});
-
-				goToStep(2);
-			} else if (stepNum === 2) {
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'channel_connect', action: channels.some((channel) => channel.connected) ? 'complete' : 'skip' }
-				});
-
-				if (productMode === 'chatbot_only') {
-					await skipWorkspaceOnlySteps();
-					goToStep(5);
-				} else {
-					goToStep(3);
-				}
-			} else if (stepNum === 3) {
-				if (!pipelineID) throw new Error('Your default lead pipeline is unavailable. Refresh and try again.');
-				const usedKeys = new Set<string>();
-				const sanitizedStages = pipelineStages.map((s, idx) => {
-					const slug = (s.label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-					const baseKey = slug || s.key || `stage_${idx + 1}`;
-					let key = baseKey;
-					let counter = 1;
-					while (usedKeys.has(key)) {
-						counter++;
-						key = `${baseKey}_${counter}`;
-					}
-					usedKeys.add(key);
-					return {
-						key,
-						label: (s.label || '').trim() || 'Stage',
-						color: s.color || '#3B82F6'
-					};
-				});
-
-				await apiRequest(`/workspace/pipelines/${pipelineID}`, {
-					method: 'PUT',
-					body: {
-						name: 'Default Pipeline',
-						states: sanitizedStages
-					}
-				});
-
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'pipeline_setup', action: 'complete' }
-				});
-
-				goToStep(4);
-			} else if (stepNum === 4) {
-				const effectiveSlug = s4Slug.trim() || slugify(s1BusinessName) || 'workspace';
-				await apiRequest('/workspace/account/slug', {
-					method: 'PUT',
-					body: { slug: effectiveSlug }
-				});
-				s4Slug = effectiveSlug;
-
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'team_setup', action: s4Users.length > 0 ? 'complete' : 'skip' }
-				});
-
-				goToStep(5);
-			} else if (stepNum === 5) {
-				const replyMode = s5AiMode === 'auto_answer' ? 'auto_send' : 'draft_only';
-				if (s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim()) {
-					throw new Error('Add your AI provider API key, or choose Manual only.');
-				}
-				if (s5AiMode !== 'manual') {
-					const providerConfig = normalizeAIProviderConfig({
-						api_key: aiProviderApiKey,
-						base_url: aiProviderBaseURL,
-						analysis_model: aiAnalysisModel,
-						reply_model: aiReplyModel,
-						embedding_model: aiEmbeddingModel
-					});
-					if (aiVerifiedConfigFingerprint !== aiProviderConfigFingerprint(providerConfig)) {
-						await apiRequest('/workspace/account/ai-config/test', {
-							method: 'POST',
-							body: providerConfig
-						});
-					}
-
-					await apiRequest('/workspace/account/ai-config', {
-						method: 'PUT',
-						body: providerConfig
-					});
-					aiProviderConfigured = true;
-					aiProviderApiKey = '';
-				}
-				await apiRequest('/workspace/account/settings', {
-					method: 'PATCH',
-					body: { ai_enabled: s5AiMode !== 'manual', ai_reply_mode_default: replyMode }
-				});
-
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'reply_mode', action: 'complete' }
-				});
-
-				if (s5AiMode === 'manual') {
-					await apiRequest('/onboarding/status', {
-						method: 'PATCH',
-						body: { step: 'kb_setup', action: 'skip' }
-					});
-					goToStep(7);
-				} else {
-					goToStep(6);
-				}
-			} else if (stepNum === 6) {
-				if (s6Status === 'input') {
-					await startCompilingKB();
-				} else if (s6Status === 'results') {
-					await publishCompiledKB();
-				}
-			} else if (stepNum === 7) {
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'review_finish', action: 'complete' }
-				});
-				await apiRequest('/onboarding/status', {
-					method: 'PATCH',
-					body: { step: 'done', action: 'complete' }
-				});
-
-				goToStep(8);
-			}
-		} catch (err: any) {
-			error = err?.message || 'Failed to save step settings. Please try again.';
-		} finally {
-			submitting = false;
-		}
-	}
-
-	function toggleChannel(_ch: any) {
-		goto('/inbox?tab=settings');
-	}
-
-	let connectedChannelsText = $derived(() => {
-		const conn = channels.filter(c => c.connected).map(c => c.name);
-		return conn.length > 0 ? conn.join(', ') : 'WhatsApp, Instagram';
+	onMount(() => {
+		void wizard.init();
 	});
 
-	let aiModeLabel = $derived(() => {
-		if (s5AiMode === 'auto_answer') return 'Auto answer when confident';
-		if (s5AiMode === 'suggest_only') return 'Suggest replies only';
-		return 'Manual only';
-	});
-
-	let kbTopicsSummary = $derived(() => {
-		if (s5AiMode === 'manual') {
-			return 'Skipped (Manual replies)';
-		}
-		if (knowledgeIngestion.concepts.length > 0) {
-			return `${knowledgeIngestion.concepts.length} concepts in knowledge base`;
-		}
-		return 'Business information compiled';
+	onDestroy(() => {
+		wizard.dispose();
 	});
 </script>
 
@@ -492,11 +36,11 @@
 	<title>Onboarding — What Funnel</title>
 </svelte:head>
 
-{#if stepNum >= 1 && stepNum <= 8}
+{#if wizard.stepNum >= 1 && wizard.stepNum <= 8}
 	<!-- FULL-SCREEN ONBOARDING INTERFACE (Pure Tailwind) -->
 	<div class="h-[100dvh] w-full bg-white flex flex-col lg:flex-row overflow-hidden font-sans text-slate-800 antialiased relative">
 		
-		<OnboardingChrome stepNum={stepNum} stepItems={visibleStepItems} onStep={goToStep} />
+		<OnboardingChrome stepNum={wizard.stepNum} stepItems={wizard.visibleStepItems} onStep={(num) => wizard.goToStep(num)} />
 
 		<!-- Right Main Form Content Column: Takes Up Full Remaining Width -->
 		<div class="flex-1 flex flex-col min-h-0 h-full bg-white">
@@ -508,16 +52,16 @@
 						<button
 							type="button"
 							class="p-2 -ml-2 text-slate-500 hover:text-slate-900 rounded-lg active:bg-slate-100 transition cursor-pointer"
-							onclick={handleBack}
+							onclick={() => wizard.handleBack()}
 							aria-label="Go back"
 						>
 							<ChevronLeftIcon class="w-5 h-5" />
 						</button>
 
-						{#if stepNum <= 7}
-							<div class="flex items-center gap-1.5" aria-label={`Step ${displayStepNum} of ${visibleStepItems.length}`}>
-								{#each visibleStepItems as item, idx}
-									<div class="h-1.5 rounded-full transition-all duration-200 {item.num === stepNum ? 'w-5 bg-blue-600' : idx < displayStepNum - 1 ? 'w-2.5 bg-blue-600' : 'w-2 bg-slate-200'}"></div>
+						{#if wizard.stepNum <= 7}
+							<div class="flex items-center gap-1.5" aria-label={`Step ${wizard.displayStepNum} of ${wizard.visibleStepItems.length}`}>
+								{#each wizard.visibleStepItems as item, idx}
+									<div class="h-1.5 rounded-full transition-all duration-200 {item.num === wizard.stepNum ? 'w-5 bg-blue-600' : idx < wizard.displayStepNum - 1 ? 'w-2.5 bg-blue-600' : 'w-2 bg-slate-200'}"></div>
 								{/each}
 							</div>
 						{:else}
@@ -528,67 +72,111 @@
 					</div>
 
 					<!-- Steps own their presentation and form-local behavior; this page coordinates persistence and navigation. -->
-					{#key stepNum}
+					{#key wizard.stepNum}
 						<div in:fade={{ duration: 140 }}>
-							{#if stepNum === 1}
-								<BusinessInfoStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:businessName={s1BusinessName} bind:businessType={s1BusinessType} bind:timezone={s1Timezone} />
-							{:else if stepNum === 2}
-								<ChannelsStep step={displayStepNum} totalSteps={visibleStepItems.length} {channels} onConnect={toggleChannel} />
-							{:else if stepNum === 3}
-								<PipelineStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:stages={pipelineStages} />
+							{#if wizard.stepNum === 1}
+								<BusinessInfoStep
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									bind:businessName={wizard.businessName}
+									bind:businessType={wizard.businessType}
+									bind:timezone={wizard.timezone}
+								/>
+							{:else if wizard.stepNum === 2}
+								<ChannelsStep
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									channels={wizard.channels}
+									onConnect={(ch) => wizard.toggleChannel(ch)}
+								/>
+							{:else if wizard.stepNum === 3}
+								<PipelineStep
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									bind:stages={wizard.pipelineStages}
+								/>
 							<!-- STEP 4: TEAM MEMBERS & WORKSPACE SLUG -->
-							{:else if stepNum === 4}
-								<TeamStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:slug={s4Slug} bind:users={s4Users} onAddUser={addTeamMember} onRemoveUser={removeTeamMember} />
+							{:else if wizard.stepNum === 4}
+								<TeamStep
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									bind:slug={wizard.slug}
+									bind:users={wizard.users}
+									onAddUser={(username, password, role) => wizard.addTeamMember(username, password, role)}
+									onRemoveUser={(id) => wizard.removeTeamMember(id)}
+								/>
 							<!-- STEP 5: AI ASSISTANT -->
-							{:else if stepNum === 5}
-								<AIStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:aiMode={s5AiMode} providerConfigured={aiProviderConfigured} bind:providerApiKey={aiProviderApiKey} bind:providerBaseURL={aiProviderBaseURL} bind:analysisModel={aiAnalysisModel} bind:replyModel={aiReplyModel} bind:embeddingModel={aiEmbeddingModel} bind:verifiedConfigFingerprint={aiVerifiedConfigFingerprint} />
+							{:else if wizard.stepNum === 5}
+								<AIStep
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									bind:aiMode={wizard.aiMode}
+									providerConfigured={wizard.aiProviderConfigured}
+									bind:providerApiKey={wizard.aiProviderApiKey}
+									bind:providerBaseURL={wizard.aiProviderBaseURL}
+									bind:analysisModel={wizard.aiAnalysisModel}
+									bind:replyModel={wizard.aiReplyModel}
+									bind:embeddingModel={wizard.aiEmbeddingModel}
+									bind:verifiedConfigFingerprint={wizard.aiVerifiedConfigFingerprint}
+								/>
 
 							<!-- STEP 6: KNOWLEDGE BASE -->
-							{:else if stepNum === 6}
-								<KnowledgeBaseStep step={displayStepNum} totalSteps={visibleStepItems.length} bind:rawText={s6RawText} status={s6Status} bind:concepts={knowledgeIngestion.concepts} bind:patterns={knowledgeIngestion.patterns} compiling={knowledgeIngestion.busy} errorMessage={s6Error} onSkipWaiting={skipWaitingToNextStep} onEditNotes={editKnowledgeNotes} />
+							{:else if wizard.stepNum === 6}
+								<KnowledgeBaseStep
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									bind:rawText={wizard.rawText}
+									status={wizard.kbStatus}
+									bind:concepts={wizard.knowledgeIngestion.concepts}
+									bind:patterns={wizard.knowledgeIngestion.patterns}
+									compiling={wizard.knowledgeIngestion.busy}
+									errorMessage={wizard.kbError}
+									onSkipWaiting={() => wizard.skipWaitingToNextStep()}
+									onEditNotes={() => wizard.editKnowledgeNotes()}
+								/>
 
 							<!-- STEP 7: REVIEW AND FINISH -->
-							{:else if stepNum === 7}
+							{:else if wizard.stepNum === 7}
 								<ReviewStep
-									step={displayStepNum}
-									totalSteps={visibleStepItems.length}
-									{productMode}
-									businessName={s1BusinessName}
-									channelsText={connectedChannelsText()}
-									pipelineStageCount={pipelineStages.length}
-									teamMemberCount={s4Users.length}
-									slug={s4Slug}
-									aiMode={aiModeLabel()}
-									knowledgeSummary={kbTopicsSummary()}
-									onEdit={goToStep}
+									step={wizard.displayStepNum}
+									totalSteps={wizard.visibleStepItems.length}
+									productMode={wizard.productMode}
+									businessName={wizard.businessName}
+									channelsText={wizard.connectedChannelsText}
+									pipelineStageCount={wizard.pipelineStages.length}
+									teamMemberCount={wizard.users.length}
+									slug={wizard.slug}
+									aiMode={wizard.aiModeLabel}
+									knowledgeSummary={wizard.kbTopicsSummary}
+									onEdit={(num) => wizard.goToStep(num)}
 								/>
 
 							<!-- STEP 8: ALL SET! READY TO GO -->
-							{:else if stepNum === 8}
-								<CompleteStep {productMode} />
+							{:else if wizard.stepNum === 8}
+								<CompleteStep productMode={wizard.productMode} />
 							{/if}
 						</div>
 					{/key}
 				</div>
 			</div>
 
-			{#if error}
+			{#if wizard.error}
 				<div class="px-5 sm:px-10 lg:px-12 pt-3 shrink-0 bg-white">
-					<div role="alert" class="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{error}</div>
+					<div role="alert" class="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium w-full">{wizard.error}</div>
 				</div>
 			{/if}
 
 			<OnboardingFooter
-				stepNum={stepNum}
-				kbStatus={s6Status}
-				rawText={s6RawText}
-				submitting={submitting}
-				compiling={knowledgeIngestion.busy}
-				continueDisabled={loading || (stepNum === 5 && s5AiMode !== 'manual' && !aiProviderConfigured && !aiProviderApiKey.trim())}
-				onBack={handleBack}
-				onContinue={handleContinue}
-				onTour={() => goto('/inbox?tour=true')}
-				onInbox={() => goto('/inbox')}
+				stepNum={wizard.stepNum}
+				kbStatus={wizard.kbStatus}
+				rawText={wizard.rawText}
+				submitting={wizard.submitting}
+				compiling={wizard.knowledgeIngestion.busy}
+				continueDisabled={wizard.continueDisabled}
+				onBack={() => wizard.handleBack()}
+				onContinue={() => wizard.handleContinue()}
+				onTour={() => wizard.goToTour()}
+				onInbox={() => wizard.goToInbox()}
 			/>
 		</div>
 	</div>
