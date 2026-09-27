@@ -1,0 +1,5 @@
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+COPY bin/workspace-svc /bin/workspace-svc
+EXPOSE 8082
+ENTRYPOINT ["/bin/workspace-svc"]

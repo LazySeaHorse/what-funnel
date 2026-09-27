@@ -1,0 +1,9 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
+RUN useradd --system --uid 10001 --create-home whatfunnel
+COPY bin/whatsapp-adapter /bin/whatsapp-adapter
+RUN mkdir -p /data && chown whatfunnel:whatfunnel /data
+USER whatfunnel
+VOLUME ["/data"]
+EXPOSE 8086
+ENTRYPOINT ["/bin/whatsapp-adapter"]

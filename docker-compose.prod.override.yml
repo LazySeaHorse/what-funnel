@@ -1,0 +1,56 @@
+# ===========================================================================
+# WhatFunnel — Production Deployment Build Override
+# Uses host-compiled linux/amd64 binaries and static SPA build for instant,
+# low-overhead container startup on the production VPS.
+# ===========================================================================
+services:
+  web:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.web
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.api-gateway
+
+  identity-svc:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.identity-svc
+
+  workspace-svc:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.workspace-svc
+
+  conversation-svc:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.conversation-svc
+
+  notification-svc:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.notification-svc
+
+  whatsapp-adapter:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.whatsapp-adapter
+
+  telegram-adapter:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.telegram-adapter
+
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/dockerfiles/Dockerfile.migrate
+    command: ["up"]
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    healthcheck:
+      disable: true

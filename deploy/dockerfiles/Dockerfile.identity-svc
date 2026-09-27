@@ -1,0 +1,5 @@
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+COPY bin/identity-svc /bin/identity-svc
+EXPOSE 8081
+ENTRYPOINT ["/bin/identity-svc"]

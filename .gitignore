@@ -60,3 +60,7 @@ skills/
 # Python
 __pycache__/
 *.py[cod]
+
+# Local scripts
+/credits.sh
+/deploy.sh

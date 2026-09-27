@@ -1,0 +1,5 @@
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+COPY bin/notification-svc /bin/notification-svc
+EXPOSE 8084
+ENTRYPOINT ["/bin/notification-svc"]

@@ -1,0 +1,5 @@
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+COPY bin/goose /usr/local/bin/goose
+COPY packages/go-common/migrations /migrations
+ENTRYPOINT ["goose"]
