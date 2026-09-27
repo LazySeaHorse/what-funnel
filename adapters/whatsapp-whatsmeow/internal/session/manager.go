@@ -117,11 +117,11 @@ func NewManager(
 		eventWake:   make(chan struct{}, 1),
 		sessions:    make(map[string]*clientSession),
 	}
-	manager.wg.Go(manager.publishEvents)
 	if err := manager.restore(ctx); err != nil {
 		_ = manager.Close()
 		return nil, err
 	}
+	manager.wg.Go(manager.publishEvents)
 	return manager, nil
 }
 
@@ -407,18 +407,30 @@ func (m *Manager) consumeQR(session *clientSession, qrChannel <-chan whatsmeow.Q
 }
 
 func (m *Manager) restore(ctx context.Context) error {
+	type channelMapping struct {
+		channelID string
+		deviceJID string
+	}
 	rows, err := m.db.QueryContext(ctx, `SELECT channel_id, device_jid FROM adapter_channels ORDER BY channel_id`)
 	if err != nil {
 		return fmt.Errorf("query whatsapp channel mappings: %w", err)
 	}
-	defer rows.Close()
 
+	var mappings []channelMapping
 	for rows.Next() {
-		var channelID, deviceJID string
-		if err := rows.Scan(&channelID, &deviceJID); err != nil {
+		var item channelMapping
+		if err := rows.Scan(&item.channelID, &item.deviceJID); err != nil {
+			_ = rows.Close()
 			return fmt.Errorf("scan whatsapp channel mapping: %w", err)
 		}
-		jid, err := types.ParseJID(deviceJID)
+		mappings = append(mappings, item)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close whatsapp channel mappings cursor: %w", err)
+	}
+
+	for _, item := range mappings {
+		jid, err := types.ParseJID(item.deviceJID)
 		if err != nil {
 			return fmt.Errorf("parse stored whatsapp jid: %w", err)
 		}
@@ -429,15 +441,12 @@ func (m *Manager) restore(ctx context.Context) error {
 		if device == nil {
 			continue
 		}
-		session := m.newSession(channelID, device)
-		m.sessions[channelID] = session
+		session := m.newSession(item.channelID, device)
+		m.sessions[item.channelID] = session
 		if err := session.connect(15 * time.Second); err != nil {
 			m.setStatus(session, messaging.ConnectionError, "Could not restore the WhatsApp connection.", "")
-			m.logger.Warn("restore whatsapp connection", "channel_id", channelID, "error", err)
+			m.logger.Warn("restore whatsapp connection", "channel_id", item.channelID, "error", err)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate whatsapp channel mappings: %w", err)
 	}
 	return nil
 }
