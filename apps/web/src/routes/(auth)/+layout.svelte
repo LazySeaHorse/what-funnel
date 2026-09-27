@@ -28,7 +28,16 @@
 					</div>
 				</div>
 				<div class="relative w-full flex items-center justify-center mt-2 lg:mt-0 pointer-events-none">
-					<img src={heroImage} alt="What Funnel dashboard illustration" class="w-full max-h-[520px] lg:max-h-[580px] object-contain" loading="eager" />
+					<img
+						src={heroImage}
+						alt="What Funnel dashboard illustration"
+						width="2400"
+						height="1792"
+						fetchpriority="high"
+						decoding="async"
+						class="w-full max-h-[520px] lg:max-h-[580px] object-contain"
+						loading="eager"
+					/>
 					<div class="absolute bottom-4 left-2 grid grid-cols-2 gap-1.5 opacity-60" aria-hidden="true">
 						{#each { length: 4 } as _}<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>{/each}
 					</div>
@@ -45,6 +54,14 @@
 	</div>
 
 	<div class="lg:hidden w-[calc(100%+2rem)] -mx-4 mt-auto pointer-events-none select-none flex items-end justify-center overflow-hidden leading-none z-0">
-		<img src={heroImage} alt="What Funnel dashboard illustration" class="w-full h-auto max-h-[260px] sm:max-h-[320px] object-cover object-bottom block" loading="eager" />
+		<img
+			src={heroImage}
+			alt="What Funnel dashboard illustration"
+			width="2400"
+			height="1792"
+			decoding="async"
+			class="w-full h-auto max-h-[260px] sm:max-h-[320px] object-cover object-bottom block"
+			loading="eager"
+		/>
 	</div>
 </div>
