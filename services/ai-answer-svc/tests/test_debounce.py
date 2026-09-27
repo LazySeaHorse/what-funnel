@@ -283,7 +283,7 @@ async def test_execute_conversation_cascade_non_text_routes_to_human_review():
         event_calls = [c for c in db_instance.execute.call_args_list if "INSERT INTO ai_answer_events" in c.args[0]]
         assert len(event_calls) == 1
         params = event_calls[0].args[1:]
-        assert params[3] == "non_text"  # stage_matched
+        assert params[3] == "none"  # stage_matched
         assert params[5] == "flagged_human"  # action
 
 

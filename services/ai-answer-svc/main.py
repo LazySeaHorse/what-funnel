@@ -338,7 +338,7 @@ async def execute_conversation_cascade(
 
     # Non-text media bubbles: multimodal unsupported -> mark for human review & send pre-written handoff
     if has_non_text:
-        stage_matched = "non_text"
+        stage_matched = "none"
         confidence = None
         action = "flagged_human"
         flag_reason = "non_text_unsupported"
