@@ -62,18 +62,8 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	assert.Equal(t, "chatbot_only", accBody["product_mode"])
 
 	// Check settings json: lead_tracking_enabled must be false
-	var leadTrackingEnabled bool
-	if settingsStr, ok := accBody["settings"].(string); ok {
-		decoded, err := atob(settingsStr)
-		require.NoError(t, err)
-		var settings map[string]any
-		err = json.Unmarshal([]byte(decoded), &settings)
-		require.NoError(t, err)
-		if enabled, exists := settings["lead_tracking_enabled"]; exists {
-			leadTrackingEnabled = enabled.(bool)
-		}
-	}
-	assert.False(t, leadTrackingEnabled, "lead tracking must be false in chatbot_only mode")
+	settings := extractSettings(t, accBody["settings"])
+	assert.Equal(t, false, settings["lead_tracking_enabled"], "lead tracking must be false in chatbot_only mode")
 
 	// 3. Verify lead/pipeline endpoints are gated with 403 Forbidden
 	t.Log("E2E Step 4: Verify RBAC gating on lead endpoints")
@@ -92,18 +82,8 @@ func TestChatbotOnlyE2E(t *testing.T) {
 	require.Equal(t, http.StatusOK, accResp2.StatusCode)
 	assert.Equal(t, "full_workspace", accBody2["product_mode"])
 
-	var leadTrackingEnabled2 bool
-	if settingsStr, ok := accBody2["settings"].(string); ok {
-		decoded, err := atob(settingsStr)
-		require.NoError(t, err)
-		var settings map[string]any
-		err = json.Unmarshal([]byte(decoded), &settings)
-		require.NoError(t, err)
-		if enabled, exists := settings["lead_tracking_enabled"]; exists {
-			leadTrackingEnabled2 = enabled.(bool)
-		}
-	}
-	assert.True(t, leadTrackingEnabled2, "lead tracking must be true after switching to full_workspace")
+	settings2 := extractSettings(t, accBody2["settings"])
+	assert.Equal(t, true, settings2["lead_tracking_enabled"], "lead tracking must be true after switching to full_workspace")
 
 	// Switch back to chatbot_only to test external outbound replies and takeover in chatbot_only mode
 	t.Log("E2E Step 6: Switch back to chatbot_only mode")
@@ -187,4 +167,21 @@ func atob(s string) (string, error) {
 		return "", err
 	}
 	return string(decoded), nil
+}
+
+func extractSettings(t *testing.T, raw any) map[string]any {
+	switch v := raw.(type) {
+	case map[string]any:
+		return v
+	case string:
+		decoded, err := atob(v)
+		require.NoError(t, err)
+		var settings map[string]any
+		err = json.Unmarshal([]byte(decoded), &settings)
+		require.NoError(t, err)
+		return settings
+	default:
+		t.Fatalf("unexpected settings type: %T", raw)
+		return nil
+	}
 }
