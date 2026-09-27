@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = process.env.PLAYWRIGHT_PORT ?? "44173";
 const baseURL = `http://localhost:${port}`;
+const includeAllBrowsers = Boolean(process.env.PLAYWRIGHT_ALL_BROWSERS);
 
 export default defineConfig({
   testDir: "./tests",
@@ -53,20 +54,24 @@ export default defineConfig({
         },
       },
     },
-    {
-      name: "firefox",
-      use: {
-        ...devices["Desktop Firefox"],
-        headless: true,
-      },
-    },
-    {
-      name: "webkit",
-      use: {
-        ...devices["Desktop Safari"],
-        headless: true,
-      },
-    },
+    ...(includeAllBrowsers
+      ? [
+          {
+            name: "firefox",
+            use: {
+              ...devices["Desktop Firefox"],
+              headless: true,
+            },
+          },
+          {
+            name: "webkit",
+            use: {
+              ...devices["Desktop Safari"],
+              headless: true,
+            },
+          },
+        ]
+      : []),
   ],
   webServer: {
     command: `npm run dev -- --port ${port}`,
