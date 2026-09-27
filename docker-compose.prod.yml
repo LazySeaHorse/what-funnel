@@ -40,6 +40,7 @@ services:
       NOTIFICATION_SVC_URL: http://notification-svc:8084
       AI_KB_COMPILER_URL: http://ai-kb-compiler:8085
       SESSION_SECRET: ${SESSION_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       PORT: "8080"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: production
@@ -332,6 +333,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       REDIS_URL: redis:6379
       APP_ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
       PORT: "8085"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MINING_INTERVAL_HOURS: ${MINING_INTERVAL_HOURS:-6}
