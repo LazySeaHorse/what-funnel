@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -27,5 +29,57 @@ func TestProviderMessageContent(t *testing.T) {
 	}
 	if content["notice_code"] != "unsupported" {
 		t.Errorf("notice_code = %v, want unsupported", content["notice_code"])
+	}
+}
+
+func TestIsTerminalIngestError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "channel not found error",
+			err:      ErrChannelNotFound,
+			expected: true,
+		},
+		{
+			name:     "wrapped channel not found error",
+			err:      fmt.Errorf("resolve provider channel: %w", ErrChannelNotFound),
+			expected: true,
+		},
+		{
+			name:     "invalid envelope error",
+			err:      messaging.ErrInvalidEnvelope,
+			expected: true,
+		},
+		{
+			name:     "media too large error",
+			err:      messaging.ErrMediaTooLarge,
+			expected: true,
+		},
+		{
+			name:     "arbitrary database error",
+			err:      errors.New("connection reset by peer"),
+			expected: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actual := IsTerminalIngestError(tc.err)
+			if actual != tc.expected {
+				t.Errorf("IsTerminalIngestError(%v) = %v, want %v", tc.err, actual, tc.expected)
+			}
+		})
 	}
 }

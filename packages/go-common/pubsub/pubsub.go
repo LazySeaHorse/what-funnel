@@ -78,6 +78,10 @@ func (c *Client) Consume(ctx context.Context, stream, group, consumer string, ha
 		default:
 		}
 
+// DefaultMaxDeliveries defines the max number of deliveries for an unacknowledged message
+// before it is dead-lettered to prevent infinite poison-pill retry loops.
+const DefaultMaxDeliveries = 5
+
 		// Reclaim a stale pending entry first. This recovers handler failures and
 		// work owned by a consumer that crashed before acknowledging it.
 		claimed, _, claimErr := c.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
@@ -85,6 +89,28 @@ func (c *Client) Consume(ctx context.Context, stream, group, consumer string, ha
 			MinIdle: 30 * time.Second, Start: "0-0", Count: 1,
 		}).Result()
 		if claimErr == nil && len(claimed) > 0 {
+			msg := claimed[0]
+			pendings, pErr := c.rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+				Stream: stream, Group: group, Start: msg.ID, End: msg.ID, Count: 1,
+			}).Result()
+			if pErr == nil && len(pendings) > 0 && pendings[0].RetryCount > DefaultMaxDeliveries {
+				payload, _ := msg.Values["payload"].(string)
+				_, _ = c.rdb.XAdd(ctx, &redis.XAddArgs{
+					Stream: stream + ".dlq",
+					Values: map[string]any{
+						"original_id":      msg.ID,
+						"stream":           stream,
+						"group":            group,
+						"retry_count":      pendings[0].RetryCount,
+						"payload":          payload,
+						"dead_lettered_at": time.Now().UTC().Format(time.RFC3339),
+					},
+				}).Result()
+				_ = c.rdb.XAck(ctx, stream, group, msg.ID).Err()
+				fmt.Printf("pubsub: message %s exceeded max retries (%d), moved to %s.dlq\n",
+					msg.ID, pendings[0].RetryCount, stream)
+				continue
+			}
 			c.handleMessages(ctx, stream, group, claimed, handler)
 			continue
 		}

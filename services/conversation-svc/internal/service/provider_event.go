@@ -19,6 +19,20 @@ type providerEventResult struct {
 	messageID      uuid.UUID
 }
 
+// IsTerminalIngestError determines whether an ingestion failure is permanent
+// (e.g. non-existent channel, invalid schema) and should not be retried.
+func IsTerminalIngestError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrChannelNotFound) ||
+		errors.Is(err, messaging.ErrInvalidEnvelope) ||
+		errors.Is(err, messaging.ErrMediaTooLarge) {
+		return true
+	}
+	return false
+}
+
 // IngestProviderEvent is the single provider-neutral ingress boundary. The
 // event marker and every domain mutation commit atomically, making Redis
 // redelivery safe.
@@ -44,7 +58,7 @@ func (s *IngestionService) IngestProviderEvent(ctx context.Context, event messag
 		WHERE id = $1 AND provider = $2
 	`, channelID, event.Provider).Scan(&accountID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("provider channel not found")
+		return fmt.Errorf("%w: channel_id %s, provider %s", ErrChannelNotFound, channelID, event.Provider)
 	}
 	if err != nil {
 		return fmt.Errorf("resolve provider channel: %w", err)
@@ -324,6 +338,9 @@ func editProviderMessage(ctx context.Context, tx pgx.Tx, accountID, channelID uu
 	`, event.Message.ContentType, content, event.OccurredAt, event.Message.ProviderMessageID, accountID, channelID).
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return providerEventResult{accountID: accountID}, nil
+		}
 		return providerEventResult{}, fmt.Errorf("edit provider message: %w", err)
 	}
 	return result, nil
@@ -344,6 +361,9 @@ func deleteProviderMessage(ctx context.Context, tx pgx.Tx, accountID, channelID 
 	`, content, event.OccurredAt, event.Message.ProviderMessageID, accountID, channelID).
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return providerEventResult{accountID: accountID}, nil
+		}
 		return providerEventResult{}, fmt.Errorf("delete provider message: %w", err)
 	}
 	return result, nil
@@ -360,6 +380,9 @@ func changeProviderReaction(ctx context.Context, tx pgx.Tx, accountID, channelID
 		  AND conversation.channel_id = $3
 	`, event.Reaction.ProviderMessageID, accountID, channelID).Scan(&result.messageID, &result.conversationID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return providerEventResult{accountID: accountID}, nil
+		}
 		return providerEventResult{}, fmt.Errorf("resolve reaction message: %w", err)
 	}
 	if event.Reaction.Removed {

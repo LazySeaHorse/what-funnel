@@ -138,6 +138,16 @@ func run(logger *slog.Logger) error {
 				return nil
 			}
 			if err := svc.IngestProviderEvent(ctx, event); err != nil {
+				if service.IsTerminalIngestError(err) {
+					logger.Warn("discarding provider event due to terminal error",
+						"event_id", event.ID,
+						"channel_id", event.ChannelID,
+						"provider", event.Provider,
+						"kind", event.Kind,
+						"error", err,
+					)
+					return nil
+				}
 				logger.Error("failed to ingest provider event", "event_id", event.ID, "error", err)
 				return err
 			}
