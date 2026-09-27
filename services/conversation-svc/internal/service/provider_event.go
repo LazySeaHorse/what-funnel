@@ -417,6 +417,9 @@ func applyProviderReceipt(ctx context.Context, tx pgx.Tx, accountID, channelID u
 	`, event.Receipt.Status, event.Receipt.Detail, event.Receipt.ProviderMessageID, accountID, channelID, localMessageID).
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return providerEventResult{accountID: accountID}, nil
+		}
 		return providerEventResult{}, fmt.Errorf("apply provider receipt: %w", err)
 	}
 	return result, nil
