@@ -101,7 +101,10 @@
   }
 
   async function unlink(connection: Connection) {
-    if (!confirm(`Unlink ${connection.label}? Its WhatFunnel chats and messages will be permanently deleted.`)) return;
+    const confirmMessage = (connection.state === "error" || connection.state === "pending")
+      ? `Remove ${connection.label}?`
+      : `Unlink ${connection.label}? Its WhatFunnel chats and messages will be permanently deleted.`;
+    if (!confirm(confirmMessage)) return;
     deletingID = connection.channel_id; error = ""; notice = "";
     try {
       await apiRequest(`/channel-connections/${connection.channel_id}`, { method: "DELETE" });
@@ -211,7 +214,7 @@
                 class="text-blue-600 hover:text-blue-700"
                 onclick={() => { selectedProvider = connection.provider; activeConnection = connection; credential = ""; showDialog = true; void refreshActive(); }}
               >
-                Continue
+                {connection.state === "error" ? "Reconnect" : "Continue"}
               </Button>
             {/if}
             <Button
@@ -241,6 +244,12 @@
     description={`Each connection is isolated and can use a different ${selectedProvider === "telegram" ? "bot" : "WhatsApp account"}.`}
     onclose={closeDialog}
   >
+    {#if error}
+      <div role="alert" class="my-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+        {error}
+      </div>
+    {/if}
+
     {#if !activeConnection}
       <div class="my-5">
         <Input
@@ -294,22 +303,31 @@
         <Button variant="primary" onclick={closeDialog}>Done</Button>
       </div>
     {:else if activeConnection.state === "error" || activeConnection.state === "disconnected"}
-      <div class="my-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">{activeConnection.detail || "WhatsApp disconnected this account. Unlink it and pair again."}</div>
+      <div class="my-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">
+        {activeConnection.detail || (activeConnection.provider === "telegram" ? "Could not connect Telegram bot. Check your bot token and try again." : "WhatsApp disconnected this account. Unlink it and pair again.")}
+      </div>
       {#if activeConnection.provider === "telegram"}
         <div class="mb-4">
           <Input
             id="channelReplacementBotToken"
-            label="Replacement bot token (optional)"
+            label="Telegram Bot Token"
             type="password"
             bind:value={credential}
             autocomplete="new-password"
+            placeholder="Token from @BotFather"
+            helper="Enter the bot token provided by @BotFather."
           />
         </div>
       {/if}
       <div class="flex justify-end gap-2">
         <Button variant="ghost" onclick={closeDialog}>Close</Button>
-        <Button variant="primary" onclick={() => retry(activeConnection!)} disabled={busy} busy={busy}>
-          {busy ? "Retrying…" : "Retry"}
+        <Button
+          variant="primary"
+          onclick={() => retry(activeConnection!)}
+          disabled={busy || (activeConnection.provider === "telegram" && !credential.trim())}
+          busy={busy}
+        >
+          {busy ? "Connecting…" : "Reconnect"}
         </Button>
       </div>
     {:else}

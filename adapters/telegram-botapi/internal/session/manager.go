@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,16 +136,9 @@ func (m *Manager) Create(ctx context.Context, channelID, token string) (Snapshot
 	if exists {
 		return Snapshot{}, ErrAlreadyExists
 	}
-	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	bot, err := m.api.GetMe(validateCtx, token)
-	if err != nil || !bot.IsBot {
-		return Snapshot{}, errors.New("telegram session: bot token validation failed")
-	}
-	// Switching from webhooks is required for getUpdates. Dropping queued
-	// updates on first connection prevents accidental history import.
-	if err := m.api.DeleteWebhook(validateCtx, token, true); err != nil {
-		return Snapshot{}, errors.New("telegram session: could not enable long polling")
+	bot, err := validateBotToken(ctx, m.api, token)
+	if err != nil {
+		return Snapshot{}, err
 	}
 	encrypted, err := m.cipher.Encrypt([]byte(token))
 	if err != nil {
@@ -200,14 +194,9 @@ func (m *Manager) Retry(ctx context.Context, channelID, credential string) (Snap
 func (m *Manager) replaceCredential(ctx context.Context, session *botSession, credential string) (Snapshot, error) {
 	session.sendMu.Lock()
 	defer session.sendMu.Unlock()
-	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	bot, err := m.api.GetMe(validateCtx, credential)
-	if err != nil || !bot.IsBot {
-		return session.copySnapshot(), errors.New("telegram session: bot token validation failed")
-	}
-	if err := m.api.DeleteWebhook(validateCtx, credential, true); err != nil {
-		return session.copySnapshot(), errors.New("telegram session: could not enable long polling")
+	bot, err := validateBotToken(ctx, m.api, credential)
+	if err != nil {
+		return session.copySnapshot(), err
 	}
 	encrypted, err := m.cipher.Encrypt([]byte(credential))
 	if err != nil {
@@ -252,6 +241,33 @@ func (m *Manager) Snapshot(channelID string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return session.copySnapshot(), nil
+}
+
+func validateBotToken(ctx context.Context, api *botapi.Client, token string) (botapi.User, error) {
+	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	bot, err := api.GetMe(validateCtx, token)
+	if err != nil {
+		var apiErr *botapi.Error
+		if errors.As(err, &apiErr) {
+			if apiErr.ErrorCode == http.StatusUnauthorized || apiErr.ErrorCode == http.StatusNotFound {
+				return botapi.User{}, errors.New("Invalid Telegram bot token. Please check your token from @BotFather.")
+			}
+			return botapi.User{}, fmt.Errorf("Telegram API error (%d): %s", apiErr.ErrorCode, apiErr.Description)
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(validateCtx.Err(), context.DeadlineExceeded) {
+			return botapi.User{}, errors.New("Could not reach Telegram API: connection timed out. Check server outbound connectivity.")
+		}
+		return botapi.User{}, fmt.Errorf("Could not reach Telegram API: %w", err)
+	}
+	if !bot.IsBot {
+		return botapi.User{}, errors.New("The provided token belongs to a user account, not a bot.")
+	}
+	if err := api.DeleteWebhook(validateCtx, token, true); err != nil {
+		return botapi.User{}, fmt.Errorf("Could not clear Telegram webhook for polling: %w", err)
+	}
+	return bot, nil
 }
 
 func (m *Manager) Logout(ctx context.Context, channelID string) error {
@@ -371,6 +387,11 @@ func (m *Manager) poll(ctx context.Context, session *botSession) {
 		updates, err := m.api.GetUpdates(ctx, session.token, offset)
 		if err != nil {
 			if ctx.Err() != nil {
+				return
+			}
+			var apiErr *botapi.Error
+			if errors.As(err, &apiErr) && (apiErr.ErrorCode == http.StatusUnauthorized || apiErr.ErrorCode == http.StatusNotFound) {
+				m.setStatus(session, messaging.ConnectionError, "Telegram bot token was revoked or is invalid.")
 				return
 			}
 			failures++

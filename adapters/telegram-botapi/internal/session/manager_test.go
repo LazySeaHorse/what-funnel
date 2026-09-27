@@ -550,3 +550,47 @@ func TestManagerConcurrentSends(t *testing.T) {
 		return publisher.count(messaging.EventMessageCreated) == count
 	})
 }
+
+func TestValidateBotToken_ActionableErrors(t *testing.T) {
+	t.Parallel()
+
+	// 1. Invalid token returning 401
+	server401 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"error_code":  401,
+			"description": "Unauthorized",
+		})
+	}))
+	defer server401.Close()
+
+	api401, err := botapi.New(server401.URL, server401.Client())
+	assert.NoError(t, err)
+
+	_, err = validateBotToken(t.Context(), api401, "123:bad-token")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Invalid Telegram bot token")
+
+	// 2. Token for non-bot user
+	serverUser := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"id":         999,
+				"is_bot":     false,
+				"first_name": "Human",
+			},
+		})
+	}))
+	defer serverUser.Close()
+
+	apiUser, err := botapi.New(serverUser.URL, serverUser.Client())
+	assert.NoError(t, err)
+
+	_, err = validateBotToken(t.Context(), apiUser, "123:user-token")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "belongs to a user account, not a bot")
+}

@@ -107,6 +107,16 @@ func (s *ConnectionService) StartProviderConnection(
 	)
 	if err != nil {
 		if isProviderConnectionLabelConflict(err) {
+			var existingID uuid.UUID
+			var existingStatus messaging.ConnectionStatus
+			queryErr := s.pool.QueryRow(ctx, `
+				SELECT id, status FROM channels
+				WHERE account_id = $1 AND provider = $2 AND LOWER(label) = LOWER($3)
+			`, accountID, provider, label).Scan(&existingID, &existingStatus)
+
+			if queryErr == nil && (existingStatus == messaging.ConnectionError || existingStatus == messaging.ConnectionPending) {
+				return s.RetryProviderConnection(ctx, accountID, existingID, credential)
+			}
 			return nil, ErrProviderConnectionLabelExists
 		}
 		return nil, fmt.Errorf("create provider connection: %w", err)
