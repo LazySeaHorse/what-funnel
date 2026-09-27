@@ -106,3 +106,31 @@ async def test_embed_rejects_wrong_dimension():
             await ProviderClient("key", "https://provider.test/v1").embed(
                 "embedding-model", "hello"
             )
+
+
+@pytest.mark.asyncio
+async def test_key_bytes_parsing_edge_cases():
+    from whatfunnel_ai.config import _key_bytes, AIConfigurationError
+
+    # 1. Valid 64-char hex key
+    hex_key = "ab" * 32
+    assert _key_bytes(hex_key) == bytes.fromhex(hex_key)
+
+    # 2. Valid 32-char raw key with non-hex characters
+    raw_key = "change-me-32-byte-hex-key-padded"
+    assert _key_bytes(raw_key) == raw_key.encode("utf-8")
+
+    # 3. Valid 32-char raw key containing only hex digits
+    raw_hex_digits = "0123456789abcdef0123456789abcdef"
+    assert _key_bytes(raw_hex_digits) == raw_hex_digits.encode("utf-8")
+
+    # 4. Invalid 64-char hex key (contains 'zz')
+    invalid_hex = "ab" * 31 + "zz"
+    with pytest.raises(AIConfigurationError, match="invalid 64-character hex encoding"):
+        _key_bytes(invalid_hex)
+
+    # 5. Invalid lengths
+    for bad_len in [0, 16, 31, 33, 63, 65]:
+        with pytest.raises(AIConfigurationError, match="64 hex characters or 32 raw bytes"):
+            _key_bytes("a" * bad_len)
+

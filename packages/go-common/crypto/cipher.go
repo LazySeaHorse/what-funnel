@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // ErrInvalidKey is returned when the provided key is not a valid length.
@@ -27,12 +28,29 @@ type Cipher struct {
 	aead cipher.AEAD
 }
 
-// NewCipherFromHex constructs a Cipher from a 64-hex-character (32-byte) key.
+// ParseKey parses an encryption key that is either a 64-character hex string
+// (representing 32 decoded bytes) or a raw 32-byte string.
+func ParseKey(keyStr string) ([]byte, error) {
+	keyStr = strings.TrimSpace(keyStr)
+	switch len(keyStr) {
+	case 64:
+		raw, err := hex.DecodeString(keyStr)
+		if err != nil {
+			return nil, fmt.Errorf("crypto: invalid 64-character hex key: %w", err)
+		}
+		return raw, nil
+	case 32:
+		return []byte(keyStr), nil
+	default:
+		return nil, fmt.Errorf("%w: key must be 64 hex characters or 32 raw bytes, got %d characters", ErrInvalidKey, len(keyStr))
+	}
+}
+
+// NewCipherFromHex constructs a Cipher from a 64-hex-character or 32-byte raw key string.
 func NewCipherFromHex(hexKey string) (*Cipher, error) {
-	raw, err := hex.DecodeString(hexKey)
+	raw, err := ParseKey(hexKey)
 	if err != nil {
-		// Fall back: try treating the input as a raw 32-byte string
-		raw = []byte(hexKey)
+		return nil, err
 	}
 	return newCipher(raw)
 }

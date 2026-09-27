@@ -5,29 +5,20 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 def get_key_bytes(key_str: str) -> bytes:
     """
     Decodes the encryption key string to 32 bytes.
-    Supports base64, hex, and raw fallback.
+    Accepts 64-character hex strings or 32-byte raw strings.
     """
-    # 1. Try base64
-    try:
-        decoded = base64.b64decode(key_str, validate=True)
-        if len(decoded) == 32:
-            return decoded
-    except Exception:
-        pass
-
-    # 2. Try hex
-    try:
-        decoded = bytes.fromhex(key_str)
-        if len(decoded) == 32:
-            return decoded
-    except Exception:
-        pass
-
-    # 3. Fallback to raw bytes
-    raw = key_str.encode("utf-8")
-    if len(raw) < 32:
-        return raw.ljust(32, b"\0")
-    return raw[:32]
+    key_str = key_str.strip()
+    if len(key_str) == 64:
+        try:
+            return bytes.fromhex(key_str)
+        except ValueError as exc:
+            raise ValueError(f"crypto: invalid 64-character hex key: {exc}") from exc
+    elif len(key_str) == 32:
+        return key_str.encode("utf-8")
+    else:
+        raise ValueError(
+            f"crypto: key must be 64 hex characters or 32 raw bytes, got {len(key_str)} characters"
+        )
 
 def encrypt(key: bytes, plaintext: bytes) -> str:
     """

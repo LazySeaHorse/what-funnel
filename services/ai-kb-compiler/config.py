@@ -5,8 +5,8 @@ class Config:
         "DATABASE_URL",
         "postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable"
     )
-    # The key is base64 encoded in the env var
-    APP_ENCRYPTION_KEY: str = os.getenv("APP_ENCRYPTION_KEY", "")
+    # 32-byte key: 64 hex characters or 32 raw bytes
+    APP_ENCRYPTION_KEY: str = os.getenv("APP_ENCRYPTION_KEY") or os.getenv("ENCRYPTION_KEY", "")
     PORT: int = int(os.getenv("PORT", "8085"))
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     MINING_INTERVAL_HOURS: int = int(os.getenv("MINING_INTERVAL_HOURS", "6"))

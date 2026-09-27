@@ -94,16 +94,62 @@ func TestEncryptEmptyPlaintext(t *testing.T) {
 	assert.Len(t, recovered, 0)
 }
 
-// TestNewCipherFromHex ensures hex-encoded keys work.
+// TestNewCipherFromHex ensures hex-encoded and raw keys work properly without ambiguous fallback heuristics.
 func TestNewCipherFromHex(t *testing.T) {
-	// 32-byte key expressed as 64 hex chars
-	hexKey := strings.Repeat("ab", 32) // "abababab..." x 32 = 64 chars
-	c, err := crypto.NewCipherFromHex(hexKey)
-	require.NoError(t, err)
+	t.Run("valid 64-char hex key", func(t *testing.T) {
+		hexKey := strings.Repeat("ab", 32) // 64 chars
+		c, err := crypto.NewCipherFromHex(hexKey)
+		require.NoError(t, err)
 
-	ct, err := c.Encrypt([]byte("hello"))
-	require.NoError(t, err)
-	plain, err := c.Decrypt(ct)
-	require.NoError(t, err)
-	assert.Equal(t, []byte("hello"), plain)
+		ct, err := c.Encrypt([]byte("hello"))
+		require.NoError(t, err)
+		plain, err := c.Decrypt(ct)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("hello"), plain)
+	})
+
+	t.Run("invalid 64-char hex key reports hex error not length error", func(t *testing.T) {
+		// 64 chars but contains non-hex 'z'
+		invalidHex := strings.Repeat("ab", 31) + "zz"
+		_, err := crypto.NewCipherFromHex(invalidHex)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid 64-character hex key")
+	})
+
+	t.Run("32-char raw key containing only hex digits is not misdecoded as 16 bytes", func(t *testing.T) {
+		// "0123456789abcdef0123456789abcdef" is 32 chars of all hex digits.
+		// Old fallback would hex.DecodeString to 16 bytes and fail.
+		rawHexDigitsKey := "0123456789abcdef0123456789abcdef"
+		c, err := crypto.NewCipherFromHex(rawHexDigitsKey)
+		require.NoError(t, err)
+
+		ct, err := c.Encrypt([]byte("hello"))
+		require.NoError(t, err)
+		plain, err := c.Decrypt(ct)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("hello"), plain)
+	})
+
+	t.Run("32-char raw key with non-hex characters works", func(t *testing.T) {
+		rawKey := "change-me-32-byte-hex-key-padded"
+		c, err := crypto.NewCipherFromHex(rawKey)
+		require.NoError(t, err)
+
+		ct, err := c.Encrypt([]byte("hello"))
+		require.NoError(t, err)
+		plain, err := c.Decrypt(ct)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("hello"), plain)
+	})
+
+	t.Run("invalid lengths return descriptive error", func(t *testing.T) {
+		lengths := []int{0, 16, 31, 33, 63, 65}
+		for _, l := range lengths {
+			key := strings.Repeat("a", l)
+			_, err := crypto.NewCipherFromHex(key)
+			require.ErrorIs(t, err, crypto.ErrInvalidKey)
+			assert.Contains(t, err.Error(), "64 hex characters or 32 raw bytes")
+		}
+	})
 }
+

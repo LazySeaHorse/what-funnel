@@ -18,17 +18,20 @@ class AIConfiguration:
 
 
 def _key_bytes(key: str) -> bytes:
-    try:
-        decoded = bytes.fromhex(key)
-        if len(decoded) == 32:
-            return decoded
-    except ValueError:
-        pass
-
-    raw = key.encode("utf-8")
-    if len(raw) != 32:
-        raise AIConfigurationError("AI provider encryption key must be 32 bytes")
-    return raw
+    key_str = key.strip()
+    if len(key_str) == 64:
+        try:
+            return bytes.fromhex(key_str)
+        except ValueError as exc:
+            raise AIConfigurationError(
+                f"AI provider encryption key has invalid 64-character hex encoding: {exc}"
+            ) from exc
+    elif len(key_str) == 32:
+        return key_str.encode("utf-8")
+    else:
+        raise AIConfigurationError(
+            f"AI provider encryption key must be 64 hex characters or 32 raw bytes, got {len(key_str)} characters"
+        )
 
 
 def _decrypt_api_key(encryption_key: str, ciphertext: str) -> str:
