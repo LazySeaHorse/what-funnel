@@ -30,7 +30,7 @@ async function holdRequest(page: Page, pattern: string) {
 
 test('a delayed send stays in its conversation and preserves the next conversation draft', async ({ page }) => {
 	await mockWorkspaceApi(page, { conversations: conversations() });
-	const send = await holdRequest(page, '**/api-gateway/internal/conversations/*/send');
+	const send = await holdRequest(page, '**/api-gateway/conversations/*/send');
 	await page.goto('/inbox');
 	const composer = page.getByPlaceholder('Enter a message...');
 	await composer.fill('For Alice');
@@ -65,7 +65,7 @@ test('an agent can reply to a specific provider message', async ({ page }) => {
 	const composer = page.getByPlaceholder('Enter a message...');
 	await composer.fill('A specific answer');
 	await composer.press('Enter');
-	await expect.poll(() => api.requests.find((request) => request.path === '/internal/conversations/conversation-1/send')?.body).toMatchObject({
+	await expect.poll(() => api.requests.find((request) => request.path === '/conversations/conversation-1/send')?.body).toMatchObject({
 		text: 'A specific answer', reply_to_message_id: 'message-1'
 	});
 	await expect(page.getByText('Replying to Original question')).toHaveCount(0);
@@ -73,7 +73,7 @@ test('an agent can reply to a specific provider message', async ({ page }) => {
 
 test('a failed send preserves its draft and scopes its error to that conversation', async ({ page }) => {
 	await mockWorkspaceApi(page, { conversations: conversations() });
-	const send = await holdRequest(page, '**/api-gateway/internal/conversations/*/send');
+	const send = await holdRequest(page, '**/api-gateway/conversations/*/send');
 	await page.goto('/inbox');
 	const composer = page.getByPlaceholder('Enter a message...');
 	await composer.fill('Retry Alice');

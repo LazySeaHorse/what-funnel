@@ -368,7 +368,7 @@ export class InboxState {
 			if (aiReplyDraftID) {
 				body.ai_reply_draft_id = aiReplyDraftID;
 			}
-			const res = await apiRequest(`/internal/conversations/${convoID}/send`, {
+			const res = await apiRequest(`/conversations/${convoID}/send`, {
 				method: 'POST',
 				body
 			});

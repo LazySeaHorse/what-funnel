@@ -48,7 +48,7 @@ test('loads an AI reply draft and only sends it after agent review', async ({ pa
 		if (path === `/conversations/${conversation.id}/read`) return json({ status: 'read' });
 		return json({});
 	});
-	await page.route('**/api-gateway/internal/conversations/**/send', async (route) => {
+	await page.route('**/api-gateway/conversations/**/send', async (route) => {
 		sends.push(route.request().postDataJSON());
 		return route.fulfill({
 			contentType: 'application/json',

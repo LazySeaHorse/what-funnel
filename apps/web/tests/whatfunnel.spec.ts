@@ -570,7 +570,7 @@ test.describe("5. Outbound Messaging", () => {
     await page.fill(".compose-input", reply);
     const sendResponse = page.waitForResponse(
       (response) =>
-        response.url().includes("/internal/conversations/") &&
+        response.url().includes("/conversations/") &&
         response.url().endsWith("/send") &&
         response.request().method() === "POST",
     );
