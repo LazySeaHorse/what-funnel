@@ -218,6 +218,7 @@ jobs:
   docker-build:
     name: Multi-Arch Docker Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [test-go, test-python, test-web]
     strategy:
       matrix:
@@ -225,21 +226,27 @@ jobs:
           - name: api-gateway
             dockerfile: services/api-gateway/Dockerfile
             context: .
+            platforms: linux/amd64,linux/arm64
           - name: identity-svc
             dockerfile: services/identity-svc/Dockerfile
             context: .
+            platforms: linux/amd64,linux/arm64
           - name: workspace-svc
             dockerfile: services/workspace-svc/Dockerfile
             context: .
+            platforms: linux/amd64,linux/arm64
           - name: conversation-svc
             dockerfile: services/conversation-svc/Dockerfile
             context: .
+            platforms: linux/amd64,linux/arm64
           - name: notification-svc
             dockerfile: services/notification-svc/Dockerfile
             context: .
+            platforms: linux/amd64,linux/arm64
           - name: web
             dockerfile: apps/web/Dockerfile
             context: apps/web
+            platforms: linux/amd64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -250,11 +257,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build multi-arch image
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.service.platforms }}
           push: false
           tags: whatfunnel/${{ matrix.service.name }}:latest
