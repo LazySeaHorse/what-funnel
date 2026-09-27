@@ -102,6 +102,22 @@
         ></div>
         <span>Loading simulated thread...</span>
       </div>
+    {:else if controller.isSimulationDisabled}
+      <div
+        class="flex flex-col items-center justify-center h-full text-slate-400 text-xs text-center p-6 space-y-2"
+      >
+        <div
+          class="w-9 h-9 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 shadow-2xs"
+        >
+          <ExclamationCircleIcon class="w-5 h-5" />
+        </div>
+        <div class="font-medium text-slate-700 text-sm">
+          Simulator Unavailable in Production
+        </div>
+        <p class="text-[11px] text-slate-500 leading-relaxed max-w-xs">
+          Simulation endpoints are disabled in production to protect live messaging channels. Use connected channels to test inbound messages, or run in development mode.
+        </p>
+      </div>
     {:else if controller.convoMessages.length === 0}
       <div
         class="flex flex-col items-center justify-center h-full text-slate-400 text-xs text-center p-6 space-y-2"
@@ -172,12 +188,15 @@
         type="text"
         bind:value={messageText}
         onkeydown={handleKeydown}
-        placeholder="Send message as customer..."
-        class="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 text-xs text-slate-900 placeholder-slate-400 rounded-xl border border-slate-200/90 focus:outline-none focus:bg-white focus:border-blue-500 transition"
+        disabled={controller.isSimulationDisabled}
+        placeholder={controller.isSimulationDisabled
+          ? "Simulation is disabled in production..."
+          : "Send message as customer..."}
+        class="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 text-xs text-slate-900 placeholder-slate-400 rounded-xl border border-slate-200/90 focus:outline-none focus:bg-white focus:border-blue-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
       />
       <button
         onclick={sendMessage}
-        disabled={controller.isSending || !messageText.trim()}
+        disabled={controller.isSending || controller.isSimulationDisabled || !messageText.trim()}
         class="absolute right-1.5 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition flex items-center justify-center cursor-pointer shadow-2xs active:scale-[0.95]"
         title="Send as customer"
         ><PaperAirplaneIcon class="w-3.5 h-3.5" /></button

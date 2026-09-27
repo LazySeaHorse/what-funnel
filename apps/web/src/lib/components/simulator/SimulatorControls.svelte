@@ -86,7 +86,9 @@
       <span class="text-[10px] text-slate-400 font-mono"
         >{controller.selectedChannelID
           ? `${controller.selectedChannelID.slice(0, 8)}...`
-          : "Connecting..."}</span
+          : controller.isSimulationDisabled
+            ? "Disabled in Prod"
+            : "Connecting..."}</span
       >
     </div>
     <div class="grid grid-cols-2 gap-2">
@@ -135,7 +137,7 @@
             {#each category.prompts as preset}
               <button
                 onclick={() => controller.sendMessage(preset)}
-                disabled={controller.isSending}
+                disabled={controller.isSending || controller.isSimulationDisabled}
                 class="w-full text-left px-3 py-2 bg-slate-50 hover:bg-blue-50/70 hover:text-blue-700 hover:border-blue-200 border border-slate-200/70 rounded-xl text-xs text-slate-700 transition leading-snug disabled:opacity-50 cursor-pointer shadow-2xs active:scale-[0.99]"
                 >{preset}</button
               >

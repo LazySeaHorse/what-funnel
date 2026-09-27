@@ -1,4 +1,4 @@
-import { apiRequest } from "$lib/api";
+import { apiRequest, ApiError } from "$lib/api";
 import {
   DEFAULT_CONTACTS,
   PRESET_CATEGORIES,
@@ -22,6 +22,7 @@ const EMPTY_TELEMETRY: CascadeTelemetry = {
 
 export class SimulatorController {
   isSending = $state(false);
+  isSimulationDisabled = $state(false);
   lastStatus = $state<"idle" | "success" | "error">("idle");
   lastError = $state("");
   channels = $state<any[]>([]);
@@ -134,6 +135,12 @@ export class SimulatorController {
     const channelID = await this.ensureChannelForPlatform(targetPlatform);
     if (!channelID) return false;
 
+    if (this.isSimulationDisabled) {
+      this.lastStatus = "error";
+      this.lastError = "Simulator endpoints are disabled in production mode.";
+      return false;
+    }
+
     this.isSending = true;
     this.lastStatus = "idle";
     this.lastError = "";
@@ -180,8 +187,13 @@ export class SimulatorController {
       return true;
     } catch (error) {
       this.lastStatus = "error";
-      this.lastError =
-        error instanceof Error ? error.message : "Failed to send message";
+      if (error instanceof ApiError && error.status === 404) {
+        this.isSimulationDisabled = true;
+        this.lastError = "Simulator endpoints are disabled in production mode.";
+      } else {
+        this.lastError =
+          error instanceof Error ? error.message : "Failed to send message";
+      }
       return false;
     } finally {
       this.isSending = false;
@@ -275,6 +287,13 @@ export class SimulatorController {
         return created.id;
       }
     } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        this.channels = [];
+        this.isSimulationDisabled = true;
+        this.lastStatus = "error";
+        this.lastError = "Simulator endpoints are disabled in production mode.";
+        return null;
+      }
       this.lastStatus = "error";
       this.lastError =
         error instanceof Error ? error.message : "Failed to ensure channel";
