@@ -15,6 +15,7 @@ type (
 )
 
 type Controller interface {
+	List(ctx context.Context) ([]session.Snapshot, error)
 	Create(ctx context.Context, channelID string) (session.Snapshot, error)
 	Retry(ctx context.Context, channelID string) (session.Snapshot, error)
 	Snapshot(channelID string) (session.Snapshot, error)
@@ -24,6 +25,12 @@ type Controller interface {
 
 type controllerAdapter struct {
 	target Controller
+}
+
+var _ adapterkit.Controller = (*controllerAdapter)(nil)
+
+func (c *controllerAdapter) List(ctx context.Context) ([]adapterkit.Snapshot, error) {
+	return c.target.List(ctx)
 }
 
 func (c *controllerAdapter) Create(ctx context.Context, channelID, _ string) (adapterkit.Snapshot, error) {

@@ -594,3 +594,45 @@ func TestValidateBotToken_ActionableErrors(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "belongs to a user account, not a bot")
 }
+
+func TestManagerList(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.addBot("301:bot_a", 301, "bot_a")
+	fake.addBot("302:bot_b", 302, "bot_b")
+
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, &recordingPublisher{})
+
+	// 1. Empty manager returns empty list
+	list, err := manager.List(t.Context())
+	assert.NoError(t, err)
+	assert.Empty(t, list)
+
+	// 2. Add two sessions
+	_, err = manager.Create(t.Context(), "channel-b", "302:bot_b")
+	assert.NoError(t, err)
+	_, err = manager.Create(t.Context(), "channel-a", "301:bot_a")
+	assert.NoError(t, err)
+
+	list, err = manager.List(t.Context())
+	assert.NoError(t, err)
+	assert.Len(t, list, 2)
+	assert.Equal(t, "channel-a", list[0].ChannelID)
+	assert.Equal(t, "@bot_a", list[0].RemoteAccountID)
+	assert.Equal(t, "channel-b", list[1].ChannelID)
+	assert.Equal(t, "@bot_b", list[1].RemoteAccountID)
+
+	// 3. Logout removes from list
+	err = manager.Logout(t.Context(), "channel-a")
+	assert.NoError(t, err)
+
+	list, err = manager.List(t.Context())
+	assert.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Equal(t, "channel-b", list[0].ChannelID)
+
+	// 4. Cancelled context returns error
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = manager.List(canceledCtx)
+	assert.ErrorIs(t, err, context.Canceled)
+}

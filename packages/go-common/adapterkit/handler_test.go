@@ -2,6 +2,7 @@ package adapterkit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -23,11 +24,21 @@ type fakeController struct {
 	snapshotResult Snapshot
 	snapshotErr    error
 
+	listResult []Snapshot
+	listErr    error
+
 	logoutChannel string
 	logoutErr     error
 
 	downloadFile MediaFile
 	downloadErr  error
+}
+
+func (f *fakeController) List(_ context.Context) ([]Snapshot, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.listResult, nil
 }
 
 func (f *fakeController) Create(_ context.Context, channelID, credential string) (Snapshot, error) {
@@ -111,6 +122,100 @@ func TestHandler_Authentication(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
+
+	// 4. GET /v1/connections requires auth
+	req = httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+	rec = httptest.NewRecorder()
+	handler.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+	req.Header.Set("Authorization", "Bearer top-secret")
+	rec = httptest.NewRecorder()
+	handler.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestHandler_List(t *testing.T) {
+	t.Run("success with snapshots", func(t *testing.T) {
+		ctrl := &fakeController{
+			listResult: []Snapshot{
+				{ChannelID: "ch-1", State: messaging.ConnectionConnected, RemoteAccountID: "@bot1"},
+				{ChannelID: "ch-2", State: messaging.ConnectionAwaitingScan, QRData: "qr-data"},
+			},
+		}
+		handler, err := NewHandler(ctrl, HandlerConfig{ProviderName: "Telegram", SharedSecret: "secret"})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", ct)
+		}
+		var snapshots []Snapshot
+		if err := json.NewDecoder(rec.Body).Decode(&snapshots); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(snapshots) != 2 {
+			t.Fatalf("len(snapshots) = %d, want 2", len(snapshots))
+		}
+		if snapshots[0].ChannelID != "ch-1" || snapshots[1].ChannelID != "ch-2" {
+			t.Errorf("unexpected snapshots: %+v", snapshots)
+		}
+	})
+
+	t.Run("nil snapshots returns empty array JSON", func(t *testing.T) {
+		ctrl := &fakeController{listResult: nil}
+		handler, err := NewHandler(ctrl, HandlerConfig{ProviderName: "Telegram", SharedSecret: "secret"})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		body := strings.TrimSpace(rec.Body.String())
+		if body != "[]" {
+			t.Errorf("body = %q, want []", body)
+		}
+	})
+
+	t.Run("controller error", func(t *testing.T) {
+		ctrl := &fakeController{listErr: errors.New("database locked")}
+		handler, err := NewHandler(ctrl, HandlerConfig{ProviderName: "Telegram", SharedSecret: "secret"})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+		}
+		if !strings.Contains(rec.Body.String(), "Could not list Telegram connections.") {
+			t.Errorf("unexpected error body: %s", rec.Body.String())
+		}
+	})
 }
 
 func TestHandler_CreateSuccess(t *testing.T) {

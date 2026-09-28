@@ -297,3 +297,47 @@ func TestClientSessionConnect(t *testing.T) {
 		}
 	})
 }
+
+func TestManagerList(t *testing.T) {
+	publisher := &recordingPublisher{notify: make(chan struct{}, 1)}
+	manager, err := NewManager(t.Context(), t.TempDir()+"/sessions/store.db", publisher, nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	// 1. Initially empty
+	list, err := manager.List(t.Context())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("len(list) = %d, want 0", len(list))
+	}
+
+	// 2. Add two sessions
+	sessB := &clientSession{snapshot: Snapshot{ChannelID: "channel-b", State: messaging.ConnectionConnecting}}
+	sessA := &clientSession{snapshot: Snapshot{ChannelID: "channel-a", State: messaging.ConnectionConnected}}
+	manager.mu.Lock()
+	manager.sessions["channel-b"] = sessB
+	manager.sessions["channel-a"] = sessA
+	manager.mu.Unlock()
+
+	list, err = manager.List(t.Context())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len(list) = %d, want 2", len(list))
+	}
+	if list[0].ChannelID != "channel-a" || list[1].ChannelID != "channel-b" {
+		t.Errorf("list = %+v, want sorted by channel_id", list)
+	}
+
+	// 3. Cancelled context
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := manager.List(canceledCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("List() error = %v, want context.Canceled", err)
+	}
+}

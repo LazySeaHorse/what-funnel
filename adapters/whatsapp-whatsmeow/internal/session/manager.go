@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -197,6 +199,27 @@ func (m *Manager) Snapshot(channelID string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return session.copySnapshot(), nil
+}
+
+func (m *Manager) List(ctx context.Context) ([]Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	sessions := make([]*clientSession, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		sessions = append(sessions, session)
+	}
+	m.mu.RUnlock()
+
+	snapshots := make([]Snapshot, 0, len(sessions))
+	for _, s := range sessions {
+		snapshots = append(snapshots, s.copySnapshot())
+	}
+	slices.SortFunc(snapshots, func(a, b Snapshot) int {
+		return cmp.Compare(a.ChannelID, b.ChannelID)
+	})
+	return snapshots, nil
 }
 
 func (m *Manager) Logout(ctx context.Context, channelID string) error {

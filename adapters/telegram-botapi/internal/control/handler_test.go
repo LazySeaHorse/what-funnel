@@ -22,6 +22,10 @@ func (c *fakeController) Create(_ context.Context, channelID, credential string)
 	return session.Snapshot{ChannelID: channelID, State: messaging.ConnectionConnected, RemoteAccountID: "@safe_bot"}, c.createErr
 }
 
+func (*fakeController) List(context.Context) ([]session.Snapshot, error) {
+	return []session.Snapshot{{ChannelID: "channel-1", State: messaging.ConnectionConnected, RemoteAccountID: "@safe_bot"}}, nil
+}
+
 func (*fakeController) Retry(context.Context, string, string) (session.Snapshot, error) {
 	return session.Snapshot{}, nil
 }
@@ -69,5 +73,23 @@ func TestCreateFailureRedactsControllerError(t *testing.T) {
 	}
 	if strings.Contains(response.Body.String(), token) {
 		t.Fatal("error response exposed bot token")
+	}
+}
+
+func TestListConnections(t *testing.T) {
+	controller := &fakeController{}
+	handler, err := NewHandler(controller, "internal-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+	request.Header.Set("Authorization", "Bearer internal-secret")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if !strings.Contains(response.Body.String(), "channel-1") {
+		t.Fatalf("response body = %s, want channel-1", response.Body.String())
 	}
 }

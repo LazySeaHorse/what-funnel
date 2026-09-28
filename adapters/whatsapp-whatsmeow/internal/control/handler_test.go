@@ -18,6 +18,16 @@ type fakeController struct {
 	retryCalled bool
 }
 
+func (f *fakeController) List(_ context.Context) ([]session.Snapshot, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.snapshot.ChannelID == "" {
+		return []session.Snapshot{}, nil
+	}
+	return []session.Snapshot{f.snapshot}, nil
+}
+
 func (f *fakeController) Retry(_ context.Context, channelID string) (session.Snapshot, error) {
 	f.retryCalled = true
 	f.snapshot.ChannelID = channelID
@@ -184,5 +194,27 @@ func TestHandlerDeleteFailure(t *testing.T) {
 
 	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadGateway)
+	}
+}
+
+func TestHandlerList(t *testing.T) {
+	t.Parallel()
+
+	controller := &fakeController{snapshot: session.Snapshot{ChannelID: "channel-1", State: messaging.ConnectionConnected}}
+	handler, err := NewHandler(controller, "secret-value")
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/connections", nil)
+	request.Header.Set("Authorization", "Bearer secret-value")
+	recorder := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if !strings.Contains(recorder.Body.String(), `"channel_id":"channel-1"`) {
+		t.Errorf("body = %s, want channel-1", recorder.Body.String())
 	}
 }

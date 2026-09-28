@@ -14,8 +14,14 @@ import (
 
 const maxRequestBytes = 1024 * 1024
 
+// Lister defines the contract for listing connection snapshots.
+type Lister interface {
+	List(ctx context.Context) ([]Snapshot, error)
+}
+
 // Controller defines the contract an adapter session manager must satisfy to be controlled over HTTP.
 type Controller interface {
+	Lister
 	Create(ctx context.Context, channelID, credential string) (Snapshot, error)
 	Retry(ctx context.Context, channelID, credential string) (Snapshot, error)
 	Snapshot(channelID string) (Snapshot, error)
@@ -55,12 +61,25 @@ func NewHandler(controller Controller, cfg HandlerConfig) (*Handler, error) {
 // Routes registers control and media routes and wraps them with authentication middleware.
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/connections", h.list)
 	mux.HandleFunc("POST /v1/connections", h.create)
 	mux.HandleFunc("POST /v1/connections/{channelID}/retry", h.retry)
 	mux.HandleFunc("GET /v1/connections/{channelID}", h.get)
 	mux.HandleFunc("DELETE /v1/connections/{channelID}", h.delete)
 	mux.HandleFunc("GET /v1/media/{channelID}/{providerRef}", h.download)
 	return h.authenticate(mux)
+}
+
+func (h *Handler) list(w http.ResponseWriter, request *http.Request) {
+	snapshots, err := h.controller.List(request.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Could not list %s connections.", h.providerName))
+		return
+	}
+	if snapshots == nil {
+		snapshots = []Snapshot{}
+	}
+	writeJSON(w, http.StatusOK, snapshots)
 }
 
 func (h *Handler) create(w http.ResponseWriter, request *http.Request) {
