@@ -3,34 +3,17 @@
   import { apiRequest } from "$lib/api";
   import type { WorkspaceState } from "$lib/workspace.svelte";
   import ChannelBadge from "$lib/components/ChannelBadge.svelte";
+  import ChannelConnectionModal, { type Connection } from "$lib/components/channels/ChannelConnectionModal.svelte";
   import { ChatBubbleLeftRightIcon } from "@fvilers/heroicons-svelte/24/outline";
-  import { Modal, Button, Input } from "$lib/components/ui";
-
-  interface Capabilities {
-    media: boolean; replies: boolean; reactions: boolean;
-    edits: boolean; deletes: boolean; receipts: boolean;
-  }
-  interface Connection {
-    channel_id: string;
-    provider: "whatsapp" | "telegram";
-    label: string;
-    state: "pending" | "awaiting_scan" | "connecting" | "connected" | "disconnected" | "error";
-    detail?: string;
-    remote_account_id?: string;
-    capabilities: Capabilities;
-  }
+  import { Button } from "$lib/components/ui";
 
   let { workspace }: { workspace?: WorkspaceState } = $props();
   let connections = $state<Connection[]>([]);
   let activeConnection = $state<Connection | null>(null);
   let selectedProvider = $state<Connection["provider"]>("whatsapp");
-  let label = $state("");
-  let credential = $state("");
   let showDialog = $state(false);
   let loading = $state(true);
-  let busy = $state(false);
   let deletingID = $state<string | null>(null);
-  let qrRefreshToken = $state(Date.now());
   let error = $state("");
   let notice = $state("");
 
@@ -44,16 +27,6 @@
   async function refreshConnections() {
     const result = await apiRequest("/channel-connections");
     connections = Array.isArray(result) ? result : [];
-  }
-
-  async function refreshActive() {
-    if (!activeConnection) return;
-    const refreshed = await apiRequest(`/channel-connections/${activeConnection.channel_id}`);
-    activeConnection = refreshed;
-    connections = connections.map((connection) =>
-      connection.channel_id === refreshed.channel_id ? refreshed : connection,
-    );
-    qrRefreshToken = Date.now();
   }
 
   onMount(() => {
@@ -70,34 +43,27 @@
     return () => { cancelled = true; };
   });
 
-  $effect(() => {
-    const connection = activeConnection;
-    if (!showDialog || !connection || ["connected", "error", "disconnected"].includes(connection.state)) return;
-    const timer = window.setInterval(() => void refreshActive().catch(() => {}), 3000);
-    return () => window.clearInterval(timer);
-  });
-
   function openDialog(provider: Connection["provider"]) {
-    selectedProvider = provider; activeConnection = null; label = ""; credential = ""; error = ""; notice = ""; showDialog = true;
-  }
-  function closeDialog() {
-    showDialog = false; activeConnection = null; label = ""; credential = "";
+    selectedProvider = provider;
+    activeConnection = null;
+    error = "";
+    notice = "";
+    showDialog = true;
   }
 
-  async function startConnection() {
-    if (!label.trim() || (selectedProvider === "telegram" && !credential.trim())) return;
-    busy = true; error = "";
-    try {
-      activeConnection = await apiRequest("/channel-connections", {
-        method: "POST", body: { provider: selectedProvider, label: label.trim(), credential: credential.trim() },
-      });
-      credential = "";
-      await refreshConnections();
-      qrRefreshToken = Date.now();
-    } catch (reason: any) {
-      credential = "";
-      error = reason?.message || `Failed to connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}.`;
-    } finally { busy = false; }
+  function closeDialog() {
+    showDialog = false;
+    activeConnection = null;
+    void refreshConnections();
+  }
+
+  function handleConnectionSuccess(_connection: Connection) {
+    void refreshConnections();
+    void workspace?.refreshChannels();
+  }
+
+  function handleConnectionChange(_connection: Connection) {
+    void refreshConnections();
   }
 
   async function unlink(connection: Connection) {
@@ -114,22 +80,6 @@
     } catch (reason: any) {
       error = reason?.message || `Failed to unlink ${connection.provider === "telegram" ? "Telegram" : "WhatsApp"}.`;
     } finally { deletingID = null; }
-  }
-
-  async function retry(connection: Connection) {
-    selectedProvider = connection.provider;
-    activeConnection = connection;
-    busy = true; error = "";
-    try {
-      activeConnection = await apiRequest(`/channel-connections/${connection.channel_id}/retry`, {
-        method: "POST", body: credential.trim() ? { credential: credential.trim() } : {},
-      });
-      credential = "";
-      await refreshConnections();
-    } catch (reason: any) {
-      credential = "";
-      error = reason?.message || "Failed to retry this connection.";
-    } finally { busy = false; }
   }
 
   function statusLabel(state: Connection["state"]) {
@@ -212,7 +162,7 @@
                 variant="ghost"
                 size="xs"
                 class="text-blue-600 hover:text-blue-700"
-                onclick={() => { selectedProvider = connection.provider; activeConnection = connection; credential = ""; showDialog = true; void refreshActive(); }}
+                onclick={() => { selectedProvider = connection.provider; activeConnection = connection; showDialog = true; }}
               >
                 {connection.state === "error" ? "Reconnect" : "Continue"}
               </Button>
@@ -237,104 +187,11 @@
 </div>
 
 {#if showDialog}
-  <Modal
-    ariaLabel={`Connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}`}
-    closeAriaLabel="Close connection dialog"
-    title={`Connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}`}
-    description={`Each connection is isolated and can use a different ${selectedProvider === "telegram" ? "bot" : "WhatsApp account"}.`}
+  <ChannelConnectionModal
+    provider={selectedProvider}
+    initialConnection={activeConnection}
     onclose={closeDialog}
-  >
-    {#if error}
-      <div role="alert" class="my-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
-        {error}
-      </div>
-    {/if}
-
-    {#if !activeConnection}
-      <div class="my-5">
-        <Input
-          id="channelAccountLabel"
-          label="Account label"
-          bind:value={label}
-          maxlength={80}
-          autocomplete="off"
-          placeholder={selectedProvider === "telegram" ? "e.g. Support bot" : "e.g. Sales WhatsApp"}
-          helper="This label only appears inside WhatFunnel."
-        />
-      </div>
-      {#if selectedProvider === "telegram"}
-        <div class="mb-5">
-          <Input
-            id="channelBotToken"
-            label="Bot token"
-            type="password"
-            bind:value={credential}
-            autocomplete="new-password"
-            placeholder="Token from @BotFather"
-            helper="The token is encrypted at rest and is never shown again."
-          />
-        </div>
-      {/if}
-      <div class="flex justify-end gap-2">
-        <Button variant="ghost" onclick={closeDialog}>Cancel</Button>
-        <Button
-          variant="primary"
-          onclick={startConnection}
-          disabled={busy || !label.trim() || (selectedProvider === "telegram" && !credential.trim())}
-          busy={busy}
-        >
-          {busy ? "Starting…" : selectedProvider === "telegram" ? "Connect bot" : "Show QR code"}
-        </Button>
-      </div>
-    {:else if activeConnection.provider === "whatsapp" && activeConnection.state === "awaiting_scan"}
-      <div class="my-5 space-y-4">
-        <div class="mx-auto h-64 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white p-2">
-          <img class="h-full w-full object-contain" src={`/api-gateway/channel-connections/${activeConnection.channel_id}/qr?refresh=${qrRefreshToken}`} alt="WhatsApp pairing QR code" />
-        </div>
-        <p class="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">On your phone, open WhatsApp → Settings → Linked devices → Link a device, then scan this code.</p>
-      </div>
-      <div class="flex justify-end gap-2">
-        <Button variant="secondary" onclick={() => void refreshActive()}>Refresh</Button>
-        <Button variant="primary" onclick={closeDialog}>I scanned it</Button>
-      </div>
-    {:else if activeConnection.state === "connected"}
-      <div class="my-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">{activeConnection.label} is connected. One-to-one messages will appear in the unified inbox.</div>
-      <div class="flex justify-end">
-        <Button variant="primary" onclick={closeDialog}>Done</Button>
-      </div>
-    {:else if activeConnection.state === "error" || activeConnection.state === "disconnected"}
-      <div class="my-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs leading-5 text-rose-800">
-        {activeConnection.detail || (activeConnection.provider === "telegram" ? "Could not connect Telegram bot. Check your bot token and try again." : "WhatsApp disconnected this account. Unlink it and pair again.")}
-      </div>
-      {#if activeConnection.provider === "telegram"}
-        <div class="mb-4">
-          <Input
-            id="channelReplacementBotToken"
-            label="Telegram Bot Token"
-            type="password"
-            bind:value={credential}
-            autocomplete="new-password"
-            placeholder="Token from @BotFather"
-            helper="Enter the bot token provided by @BotFather."
-          />
-        </div>
-      {/if}
-      <div class="flex justify-end gap-2">
-        <Button variant="ghost" onclick={closeDialog}>Close</Button>
-        <Button
-          variant="primary"
-          onclick={() => retry(activeConnection!)}
-          disabled={busy || (activeConnection.provider === "telegram" && !credential.trim())}
-          busy={busy}
-        >
-          {busy ? "Connecting…" : "Reconnect"}
-        </Button>
-      </div>
-    {:else}
-      <div class="my-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">{activeConnection.detail || "Connecting to WhatsApp…"}</div>
-      <div class="flex justify-end">
-        <Button variant="primary" onclick={() => void refreshActive()}>Check status</Button>
-      </div>
-    {/if}
-  </Modal>
+    onsuccess={handleConnectionSuccess}
+    onchange={handleConnectionChange}
+  />
 {/if}
