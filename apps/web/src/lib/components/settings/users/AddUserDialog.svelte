@@ -35,7 +35,7 @@
 	<div class="space-y-3.5 text-xs">
 		<div class="space-y-1">
 			<Input id="newUsernameInput" label="Username" type="text" bind:value={username} placeholder="e.g. john" />
-			<p class="text-[11px] text-slate-400">Login username: <span class="font-mono">{accountSlug || 'prefix'}-{username || '[username]'}</span></p>
+			<p class="text-[11px] text-slate-400">Login username: <span class="font-mono">{accountSlug || 'prefix'}/{username || '[username]'}</span></p>
 		</div>
 		<div class="space-y-1">
 			<Input id="newPasswordInput" label="Initial password" type="text" bind:value={password} placeholder="Password" class="font-mono">

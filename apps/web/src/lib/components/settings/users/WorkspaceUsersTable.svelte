@@ -20,7 +20,7 @@
 				<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-medium flex items-center justify-center text-xs shrink-0">{(user.username || user.name || user.email || 'U').charAt(0).toUpperCase()}</div>
 				<div class="min-w-0">
 					<div class="font-medium text-slate-800 truncate">{user.username || user.name || user.email?.split('@')[0]}</div>
-					<div class="text-[11px] text-slate-400 font-mono truncate">{user.email || (accountSlug ? `${accountSlug}-${user.username}` : user.username)}</div>
+					<div class="text-[11px] text-slate-400 font-mono truncate">{user.email || (accountSlug ? `${accountSlug}/${user.username}` : user.username)}</div>
 				</div>
 			</div>
 			<div class="flex items-center gap-2.5 shrink-0">

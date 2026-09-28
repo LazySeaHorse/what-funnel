@@ -7,7 +7,7 @@
 	let { accountSlug, credentials, onclose }: { accountSlug: string; credentials: UserCredentials; onclose: () => void } = $props();
 	let copied = $state(false);
 	let copyTimer: ReturnType<typeof setTimeout> | null = null;
-	let login = $derived(accountSlug ? `${accountSlug}-${credentials.username}` : credentials.username);
+	let login = $derived(accountSlug ? `${accountSlug}/${credentials.username}` : credentials.username);
 	onDestroy(() => { if (copyTimer) clearTimeout(copyTimer); });
 
 	async function copy() {

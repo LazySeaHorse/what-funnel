@@ -226,6 +226,12 @@ func (svc *Service) SetAccountSlug(ctx context.Context, accountID, actorID uuid.
 	if len(slug) < 2 {
 		return fmt.Errorf("slug must be at least 2 characters")
 	}
+	if strings.HasPrefix(slug, "-") || strings.HasSuffix(slug, "-") {
+		return fmt.Errorf("slug cannot begin or end with a hyphen")
+	}
+	if strings.Contains(slug, "--") {
+		return fmt.Errorf("slug cannot contain consecutive hyphens")
+	}
 	for _, ch := range slug {
 		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
 			return fmt.Errorf("slug may only contain lowercase letters, numbers, and hyphens")

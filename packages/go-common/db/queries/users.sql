@@ -19,8 +19,22 @@ LIMIT 1;
 SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
 FROM users u
 JOIN accounts a ON a.id = u.account_id
-WHERE (a.slug || '-' || u.username) = @identifier::text
+WHERE (a.slug || '/' || u.username) = @identifier::text
 LIMIT 1;
+
+-- name: GetUserBySlugAndUsername :one
+SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
+FROM users u
+JOIN accounts a ON a.id = u.account_id
+WHERE a.slug = @slug::text AND u.username = @username::text
+LIMIT 1;
+
+-- name: ListUsersByLegacySlugIdentifier :many
+SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
+FROM users u
+JOIN accounts a ON a.id = u.account_id
+WHERE (a.slug || '-' || u.username) = @identifier::text;
+
 
 -- name: CountUsersByEmail :one
 SELECT COUNT(*)

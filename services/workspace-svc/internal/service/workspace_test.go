@@ -1074,10 +1074,13 @@ func TestAccountSlug_Workflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "acme-corp", slug)
 
-	// 3. Invalid slug (uppercase, spaces, special chars)
+	// 3. Invalid slug (uppercase, spaces, special chars, boundary hyphens)
 	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "Acme Corp!"))
 	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "a")) // too short (<2)
 	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, ""))  // empty
+	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "-leading"))
+	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "trailing-"))
+	assert.Error(t, svc.SetAccountSlug(ctx, account1, admin1, "double--hyphen"))
 
 	// 4. Duplicate slug on account2 fails (unique constraint)
 	assert.Error(t, svc.SetAccountSlug(ctx, account2, admin2, "acme-corp"))

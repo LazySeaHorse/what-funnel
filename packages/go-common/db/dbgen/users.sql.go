@@ -214,11 +214,49 @@ func (q *Queries) GetUserByID(ctx context.Context, arg GetUserByIDParams) (GetUs
 	return i, err
 }
 
+const getUserBySlugAndUsername = `-- name: GetUserBySlugAndUsername :one
+SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
+FROM users u
+JOIN accounts a ON a.id = u.account_id
+WHERE a.slug = $1::text AND u.username = $2::text
+LIMIT 1
+`
+
+type GetUserBySlugAndUsernameParams struct {
+	Slug     string `json:"slug"`
+	Username string `json:"username"`
+}
+
+type GetUserBySlugAndUsernameRow struct {
+	ID           uuid.UUID `json:"id"`
+	AccountID    uuid.UUID `json:"account_id"`
+	Email        string    `json:"email"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"password_hash"`
+	Role         string    `json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetUserBySlugAndUsername(ctx context.Context, arg GetUserBySlugAndUsernameParams) (GetUserBySlugAndUsernameRow, error) {
+	row := q.db.QueryRow(ctx, getUserBySlugAndUsername, arg.Slug, arg.Username)
+	var i GetUserBySlugAndUsernameRow
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getUserBySlugIdentifier = `-- name: GetUserBySlugIdentifier :one
 SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
 FROM users u
 JOIN accounts a ON a.id = u.account_id
-WHERE (a.slug || '-' || u.username) = $1::text
+WHERE (a.slug || '/' || u.username) = $1::text
 LIMIT 1
 `
 
@@ -301,6 +339,51 @@ func (q *Queries) ListUsersByAccount(ctx context.Context, accountID uuid.UUID) (
 			&i.AccountID,
 			&i.Email,
 			&i.Username,
+			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersByLegacySlugIdentifier = `-- name: ListUsersByLegacySlugIdentifier :many
+SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
+FROM users u
+JOIN accounts a ON a.id = u.account_id
+WHERE (a.slug || '-' || u.username) = $1::text
+`
+
+type ListUsersByLegacySlugIdentifierRow struct {
+	ID           uuid.UUID `json:"id"`
+	AccountID    uuid.UUID `json:"account_id"`
+	Email        string    `json:"email"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"password_hash"`
+	Role         string    `json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (q *Queries) ListUsersByLegacySlugIdentifier(ctx context.Context, identifier string) ([]ListUsersByLegacySlugIdentifierRow, error) {
+	rows, err := q.db.Query(ctx, listUsersByLegacySlugIdentifier, identifier)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersByLegacySlugIdentifierRow{}
+	for rows.Next() {
+		var i ListUsersByLegacySlugIdentifierRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Email,
+			&i.Username,
+			&i.PasswordHash,
 			&i.Role,
 			&i.CreatedAt,
 		); err != nil {

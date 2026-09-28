@@ -63,7 +63,7 @@
 								label="Email or username"
 								type="text"
 								bind:value={identifier}
-								placeholder="you@company.com or acme-username"
+								placeholder="you@company.com or acme/username"
 								required
 								disabled={loading}
 								class="text-sm"

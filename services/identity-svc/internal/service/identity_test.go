@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -233,7 +234,7 @@ func TestLogin_SlugUsername(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE accounts SET slug = 'test-acme' WHERE id = $1`, signup.AccountID)
 	require.NoError(t, err)
 
-	// Login with slug-username identifier
+	// Login with slug-username identifier (legacy hyphenated)
 	user, err := svc.Login(ctx, service.LoginRequest{
 		Identifier: "test-acme-owner",
 		Password:   "mypassword",
@@ -243,12 +244,98 @@ func TestLogin_SlugUsername(t *testing.T) {
 	assert.Equal(t, signup.AccountID, user.AccountID)
 	assert.Equal(t, "manager", user.Role)
 
+	// Login with slug/username identifier (unambiguous slash)
+	userSlash, err := svc.Login(ctx, service.LoginRequest{
+		Identifier: "test-acme/owner",
+		Password:   "mypassword",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "owner", userSlash.Username)
+	assert.Equal(t, signup.AccountID, userSlash.AccountID)
+	assert.Equal(t, "manager", userSlash.Role)
+
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, signup.AccountID)
 		pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE account_id = $1`, signup.AccountID)
 		pool.Exec(context.Background(), `DELETE FROM users WHERE account_id = $1`, signup.AccountID)
 		pool.Exec(context.Background(), `DELETE FROM accounts WHERE id = $1`, signup.AccountID)
 	})
+}
+
+func TestLogin_CrossTenantCollisionPrevention(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	suffix := uuid.New().String()[:6]
+	slug1 := "org-" + suffix + "-dept"
+	user1Name := "lead"
+	// Legacy combined: org-<suffix>-dept-lead
+
+	slug2 := "org-" + suffix
+	user2Name := "dept-lead"
+	// Legacy combined: org-<suffix>-dept-lead
+
+	// Tenant 1
+	signup1, err := svc.Signup(ctx, service.SignupRequest{
+		AccountName: "Tenant 1",
+		Email:       "t1-" + suffix + "@example.com",
+		Username:    user1Name,
+		Password:    "password123!",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE accounts SET slug = $1 WHERE id = $2`, slug1, signup1.AccountID)
+	require.NoError(t, err)
+
+	// Tenant 2
+	signup2, err := svc.Signup(ctx, service.SignupRequest{
+		AccountName: "Tenant 2",
+		Email:       "t2-" + suffix + "@example.com",
+		Username:    user2Name,
+		Password:    "password456!",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE accounts SET slug = $1 WHERE id = $2`, slug2, signup2.AccountID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		for _, aid := range []uuid.UUID{signup1.AccountID, signup2.AccountID} {
+			pool.Exec(context.Background(), `DELETE FROM lead_pipelines WHERE account_id = $1`, aid)
+			pool.Exec(context.Background(), `DELETE FROM audit_logs WHERE account_id = $1`, aid)
+			pool.Exec(context.Background(), `DELETE FROM users WHERE account_id = $1`, aid)
+			pool.Exec(context.Background(), `DELETE FROM accounts WHERE id = $1`, aid)
+		}
+	})
+
+	collidingLegacy := slug1 + "-" + user1Name
+	assert.Equal(t, collidingLegacy, slug2+"-"+user2Name)
+
+	// 1. Ambiguous legacy hyphenated login fails (prevents cross-tenant credential stuffing/takeover)
+	_, err = svc.Login(ctx, service.LoginRequest{
+		Identifier: collidingLegacy,
+		Password:   "password123!",
+	})
+	assert.Error(t, err, "ambiguous multi-tenant legacy identifier must be rejected")
+
+	// 2. Unambiguous slash-delimited login cleanly routes to Tenant 1
+	u1, err := svc.Login(ctx, service.LoginRequest{
+		Identifier: slug1 + "/" + user1Name,
+		Password:   "password123!",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, signup1.AccountID, u1.AccountID)
+	assert.Equal(t, user1Name, u1.Username)
+
+	// 3. Unambiguous slash-delimited login cleanly routes to Tenant 2
+	u2, err := svc.Login(ctx, service.LoginRequest{
+		Identifier: slug2 + "/" + user2Name,
+		Password:   "password456!",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, signup2.AccountID, u2.AccountID)
+	assert.Equal(t, user2Name, u2.Username)
 }
 
 func TestLogin_WrongPassword(t *testing.T) {

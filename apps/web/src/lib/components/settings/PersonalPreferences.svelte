@@ -22,7 +22,7 @@
 
   let username = $derived(inbox.currentUser?.username || "agent");
   let loginIdentifier = $derived(
-    accountSlug ? `${accountSlug}-${username}` : username,
+    accountSlug ? `${accountSlug}/${username}` : username,
   );
 
   onMount(async () => {
