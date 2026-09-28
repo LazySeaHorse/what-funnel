@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"golang.org/x/sync/errgroup"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
@@ -20,17 +22,24 @@ import (
 )
 
 func main() {
-	cfg := config.MustLoad()
-
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
+	if err := run(logger); err != nil {
+		logger.Error("identity-svc stopped with an error", "error", err)
+		os.Exit(1)
+	}
+}
 
-	ctx := context.Background()
+func run(logger *slog.Logger) error {
+	cfg := config.MustLoad()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	pool, err := db.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("failed to connect to database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to database: %w", err)
 	}
 	defer pool.Close()
 	logger.Info("connected to database")
@@ -38,8 +47,7 @@ func main() {
 	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
 	svc, err := service.New(pool, sess)
 	if err != nil {
-		logger.Error("failed to init service", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init service: %w", err)
 	}
 
 	r := mux.NewRouter()
@@ -63,25 +71,45 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	go func() {
+	janitor := session.NewJanitor(sess, cfg.SessionPurgeInterval, logger)
+
+	group, groupCtx := errgroup.WithContext(ctx)
+
+	// Background worker: periodic expired session cleanup
+	group.Go(func() error {
+		logger.Info("starting session cleanup janitor", "interval", cfg.SessionPurgeInterval.String())
+		if err := janitor.Run(groupCtx); err != nil && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("session janitor: %w", err)
+		}
+		return nil
+	})
+
+	// Background worker: HTTP API server
+	group.Go(func() error {
 		logger.Info("identity-svc listening", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("serve HTTP: %w", err)
 		}
-	}()
+		return nil
+	})
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	// Graceful shutdown listener
+	group.Go(func() error {
+		<-groupCtx.Done()
+		logger.Info("shutting down identity-svc...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shut down HTTP server: %w", err)
+		}
+		return nil
+	})
 
-	logger.Info("shutting down...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("shutdown error", "error", err)
+	if err := group.Wait(); err != nil {
+		return err
 	}
 	logger.Info("identity-svc stopped")
+	return nil
 }
 
 func loggingMiddleware(logger *slog.Logger) mux.MiddlewareFunc {
