@@ -2,6 +2,10 @@
 
 @theme {
   --font-sans: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-weight-bold: initial;
+  --font-weight-semibold: initial;
+  --font-weight-extrabold: initial;
+  --font-weight-black: initial;
   
   --color-blue-50: #EEF3FB;
   --color-blue-100: #DCE8F7;
@@ -155,6 +159,11 @@ body {
   font-family: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+b,
+strong {
+  font-weight: 500;
 }
 
 /* Custom Scrollbar styling */
