@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -260,10 +261,82 @@ func (s *Store) GetUsername(r *http.Request) (string, bool) {
 // Housekeeping
 // -------------------------------------------------------------------------
 
-// PurgeExpired deletes expired sessions. Call from a periodic goroutine or cron.
-func (s *Store) PurgeExpired(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE expiry < NOW()`)
-	return err
+// PurgeExpired deletes expired sessions and returns the number of deleted records.
+func (s *Store) PurgeExpired(ctx context.Context) (int64, error) {
+	if s.pool == nil {
+		return 0, fmt.Errorf("session: pool is nil")
+	}
+	tag, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE expiry < NOW()`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// Janitor handles background periodic purging of expired sessions.
+type Janitor struct {
+	store    *Store
+	interval time.Duration
+	logger   *slog.Logger
+}
+
+// NewJanitor creates a Janitor with the given interval and logger.
+// Defaults to 1 hour if interval <= 0, and slog.Default() if logger is nil.
+func NewJanitor(store *Store, interval time.Duration, logger *slog.Logger) *Janitor {
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Janitor{
+		store:    store,
+		interval: interval,
+		logger:   logger,
+	}
+}
+
+// PurgeOnce runs a single pass of expired session purging.
+func (j *Janitor) PurgeOnce(ctx context.Context) (int64, error) {
+	return j.store.PurgeExpired(ctx)
+}
+
+// Run executes the janitor loop, performing an initial purge and then purging periodically
+// at the configured interval until ctx is canceled.
+func (j *Janitor) Run(ctx context.Context) error {
+	// Initial purge on startup
+	if count, err := j.PurgeOnce(ctx); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		j.logger.Error("failed initial purge of expired sessions", "error", err)
+	} else if count > 0 {
+		j.logger.Info("purged expired sessions", "count", count)
+	} else {
+		j.logger.Debug("session purge completed; no expired sessions")
+	}
+
+	ticker := time.NewTicker(j.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			count, err := j.PurgeOnce(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				j.logger.Error("failed to purge expired sessions", "error", err)
+			} else if count > 0 {
+				j.logger.Info("purged expired sessions", "count", count)
+			} else {
+				j.logger.Debug("session purge completed; no expired sessions")
+			}
+		}
+	}
 }
 
 // RevokeUserSessions deletes all active sessions for the given user.
