@@ -133,6 +133,46 @@ func TestAIProviderConfig_RoundTrip(t *testing.T) {
 	assert.Equal(t, "custom-reply", recovered.ReplyModel)
 }
 
+func TestUpdateAIProviderConfig_ActivatesDisabledAI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool := testService(t)
+	ctx := context.Background()
+
+	accountID, userID := setupTestTenant(t, pool, "AI Disabled Tenant", "ai-disabled@example.com")
+
+	// Simulate onboarding skipping AI or setting manual mode (ai_enabled: false)
+	_, err := pool.Exec(ctx, `UPDATE accounts SET settings = settings || '{"ai_enabled": false, "ai_reply_mode_default": "draft_only"}'::jsonb WHERE id = $1`, accountID)
+	require.NoError(t, err)
+
+	// Verify it's false in DB
+	var rawSettings []byte
+	err = pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&rawSettings)
+	require.NoError(t, err)
+	var settingsMap map[string]any
+	require.NoError(t, json.Unmarshal(rawSettings, &settingsMap))
+	assert.Equal(t, false, settingsMap["ai_enabled"])
+
+	// Now configure an AI provider
+	config := service.AIProviderConfig{
+		APIKey:         "sk-test-activated",
+		BaseURL:        "https://generativelanguage.googleapis.com/v1beta/openai",
+		AnalysisModel:  "gemma-4-26b-a4b-it",
+		ReplyModel:     "gemini-flash-lite-latest",
+		EmbeddingModel: "gemini-embedding-001",
+	}
+	err = svc.UpdateAIProviderConfig(ctx, accountID, userID, config)
+	require.NoError(t, err)
+
+	// Check accounts.settings: ai_enabled MUST be transitioned to true
+	err = pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&rawSettings)
+	require.NoError(t, err)
+	var updatedSettings map[string]any
+	require.NoError(t, json.Unmarshal(rawSettings, &updatedSettings))
+	assert.Equal(t, true, updatedSettings["ai_enabled"], "Configuring a valid AI provider must activate ai_enabled if it was false")
+}
+
 func TestDeleteAccount_CascadesTenantData(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

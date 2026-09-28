@@ -156,6 +156,16 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 		return fmt.Errorf("store ai provider config: %w", err)
 	}
 
+	// When a valid AI provider is configured, activate ai_enabled if it was false/missing.
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts
+		SET settings = settings || '{"ai_enabled": true}'::jsonb
+		WHERE id = $1 AND (settings->>'ai_enabled' IS NULL OR (settings->>'ai_enabled')::boolean = false)
+	`, accountID)
+	if err != nil {
+		return fmt.Errorf("activate ai in account settings: %w", err)
+	}
+
 	aw := audit.NewWriterFromTx(tx)
 	if err := aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
