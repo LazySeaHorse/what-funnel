@@ -63,7 +63,7 @@
 <div class="border border-blue-400/80 rounded-2xl p-5 bg-white shadow-md ring-2 ring-blue-500/10 space-y-4 transition-all">
 	<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
 		<div class="flex items-center gap-2">
-			<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
+			<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Answer Pattern</span>
 			<span class="text-[10px] text-sky-700 bg-sky-50 border border-sky-200/70 px-2 py-0.5 rounded-md font-medium">Deterministic Q&A</span>
 		</div>
 		{#if saveError}
@@ -71,7 +71,7 @@
 		{/if}
 	</div>
 	<div>
-		<label for={`edit-pattern-question-${pattern.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Canonical Question</label>
+		<label for={`edit-pattern-question-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Canonical Question</label>
 		<input
 			id={`edit-pattern-question-${pattern.id}`}
 			bind:value={draft.canonical_question}
@@ -80,12 +80,12 @@
 		/>
 	</div>
 	<div>
-		<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Trigger Phrases</label>
+		<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Trigger Phrases</label>
 		<div class="flex flex-wrap items-center gap-1.5 mb-2">
 			{#each draft.trigger_phrases as phrase}
 				<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-700 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg font-medium shadow-2xs">
 					<span>{phrase}</span>
-					<button type="button" onclick={() => removeTrigger(phrase)} class="text-slate-400 hover:text-rose-600 cursor-pointer font-bold">×</button>
+					<button type="button" onclick={() => removeTrigger(phrase)} class="text-slate-400 hover:text-rose-600 cursor-pointer font-medium">×</button>
 				</span>
 			{/each}
 		</div>
@@ -101,7 +101,7 @@
 		</div>
 	</div>
 	<div>
-		<label for={`edit-pattern-answer-${pattern.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Deterministic Answer</label>
+		<label for={`edit-pattern-answer-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Deterministic Answer</label>
 		<textarea
 			id={`edit-pattern-answer-${pattern.id}`}
 			bind:value={draft.answer_text}

@@ -41,7 +41,7 @@
 		<div class="flex items-start justify-between gap-3">
 			<div class="space-y-1.5 min-w-0 flex-1">
 				<div class="flex flex-wrap items-center gap-1.5">
-					<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide border capitalize {typeColor(concept.type)}">
+					<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium tracking-wide border capitalize {typeColor(concept.type)}">
 						{typeLabel(concept.type)}
 					</span>
 					{#if concept.source === 'owner_pasted'}
@@ -50,7 +50,7 @@
 						</span>
 					{/if}
 				</div>
-				<h3 class="text-sm font-semibold text-slate-900 leading-snug tracking-tight">{concept.title}</h3>
+				<h3 class="text-sm font-medium text-slate-900 leading-snug tracking-tight">{concept.title}</h3>
 			</div>
 
 			{#if showActions && (onEdit || onDelete)}

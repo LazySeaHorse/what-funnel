@@ -64,7 +64,7 @@
 <div class="border border-blue-400/80 rounded-2xl p-5 bg-white shadow-md ring-2 ring-blue-500/10 space-y-4 transition-all">
 	<div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
 		<div class="flex items-center gap-2">
-			<span class="text-xs font-semibold text-slate-900 uppercase tracking-wider">Edit Concept</span>
+			<span class="text-xs font-medium text-slate-900 uppercase tracking-wider">Edit Concept</span>
 			<span class="text-[10px] text-blue-600 bg-blue-50 border border-blue-200/70 px-2 py-0.5 rounded-md font-medium">Business Context</span>
 		</div>
 		{#if saveError}
@@ -73,7 +73,7 @@
 	</div>
 	<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 		<div class="sm:col-span-2">
-			<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Title</label>
+			<label for={`edit-concept-title-${concept.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Title</label>
 			<input
 				id={`edit-concept-title-${concept.id}`}
 				bind:value={draft.title}
@@ -82,7 +82,7 @@
 			/>
 		</div>
 		<div>
-			<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+			<label for={`edit-concept-type-${concept.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Category</label>
 			<select
 				id={`edit-concept-type-${concept.id}`}
 				bind:value={draft.type}
@@ -98,7 +98,7 @@
 		</div>
 	</div>
 	<div>
-		<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Knowledge Content</label>
+		<label for={`edit-concept-body-${concept.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Knowledge Content</label>
 		<textarea
 			id={`edit-concept-body-${concept.id}`}
 			bind:value={draft.body_text}
@@ -107,12 +107,12 @@
 		></textarea>
 	</div>
 	<div>
-		<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-semibold text-slate-600 mb-1">Tags</label>
+		<label for={`edit-concept-tag-input-${concept.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Tags</label>
 		<div class="flex flex-wrap items-center gap-1.5 mb-2">
 			{#each draft.tags as tag}
 				<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-700 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg font-medium shadow-2xs">
 					<span>#{tag}</span>
-					<button type="button" onclick={() => removeTag(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer font-bold">×</button>
+					<button type="button" onclick={() => removeTag(tag)} class="text-slate-400 hover:text-rose-600 cursor-pointer font-medium">×</button>
 				</span>
 			{/each}
 		</div>

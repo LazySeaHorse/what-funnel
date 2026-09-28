@@ -29,14 +29,14 @@
 		<div class="flex items-start justify-between gap-3">
 			<div class="space-y-1 min-w-0 flex-1">
 				<div class="flex items-center gap-1.5">
-					<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
+					<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border capitalize {typeColor(suggestion._payload?.type ?? suggestion.type)}">
 						{typeLabel(suggestion._payload?.type ?? suggestion.type)}
 					</span>
-					<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200/70">
+					<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200/70">
 						{Math.round((suggestion.confidence ?? 0) * 100)}% match
 					</span>
 				</div>
-				<h3 class="text-sm font-semibold text-slate-900 leading-snug tracking-tight truncate pt-0.5">
+				<h3 class="text-sm font-medium text-slate-900 leading-snug tracking-tight truncate pt-0.5">
 					{suggestion._payload?.title ?? suggestion._payload?.canonical_question ?? 'Untitled suggestion'}
 				</h3>
 			</div>

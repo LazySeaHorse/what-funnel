@@ -27,10 +27,10 @@
 		<!-- Header: Badge & Actions -->
 		<div class="flex items-start justify-between gap-3">
 			<div class="space-y-1 min-w-0 flex-1">
-				<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200/70 tracking-wide uppercase">
+				<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-sky-50 text-sky-700 border border-sky-200/70 tracking-wide uppercase">
 					<span>Deterministic Q&A</span>
 				</div>
-				<h3 class="text-sm font-semibold text-slate-900 leading-snug tracking-tight pt-0.5">{pattern.canonical_question}</h3>
+				<h3 class="text-sm font-medium text-slate-900 leading-snug tracking-tight pt-0.5">{pattern.canonical_question}</h3>
 			</div>
 
 			{#if showActions && (onEdit || onDelete)}
@@ -66,7 +66,7 @@
 		<!-- Trigger Phrases -->
 		{#if pattern.trigger_phrases?.length}
 			<div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-				<span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
+				<span class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
 				{#each pattern.trigger_phrases as phrase}
 					<span class="inline-flex items-center text-xs text-slate-700 bg-slate-50 border border-slate-200/70 px-2 py-0.5 rounded-lg font-medium">
 						{phrase}
@@ -77,7 +77,7 @@
 
 		<!-- Deterministic Answer Box -->
 		<div class="rounded-xl border border-slate-200/70 bg-slate-50/60 p-3.5 space-y-1.5">
-			<div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+			<div class="text-[10px] font-medium uppercase tracking-wider text-slate-400">
 				Guaranteed response:
 			</div>
 			<div class="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
