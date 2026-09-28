@@ -250,35 +250,21 @@
 		<!-- Row 1: Title, Subtitle & Primary Actions -->
 		<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 			<div>
-				<h1 class="text-2xl font-semibold text-slate-900 tracking-tight">Knowledge base</h1>
+				<h1 class="text-2xl font-medium text-slate-900 tracking-tight">Knowledge base</h1>
 				<p class="text-xs text-slate-500 mt-0.5">
 					Manage business facts, policies, and deterministic answers for your AI assistant.
 				</p>
 			</div>
 
 			<div class="flex flex-wrap items-center gap-2">
-				<!-- Audit Run Action -->
+				<!-- Purge Action -->
 				<Button
-					variant="secondary"
-					size="sm"
-					onclick={triggerMining}
-					disabled={mining}
-					busy={mining}
-					class="shadow-2xs"
-					title={lastRun ? `Last audit: ${formatDate(lastRun.run_at)} (${lastRun.messages_scanned} msgs scanned)` : 'Analyze recent customer chats to discover missing knowledge'}
-				>
-					<SparklesIcon class="w-3.5 h-3.5 text-blue-600" />
-					<span>Run audit now</span>
-				</Button>
-
-				<!-- Purge Action (quiet danger button) -->
-				<Button
-					variant="ghost"
+					variant="danger"
 					size="sm"
 					onclick={purgeKnowledgeBase}
 					disabled={purging || ingestion.phase !== 'idle'}
 					busy={purging}
-					class="text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 border border-transparent hover:border-rose-200 transition-colors"
+					class="shadow-2xs"
 					title="Permanently remove all concepts and deterministic patterns"
 				>
 					<TrashIcon class="w-3.5 h-3.5" />
@@ -295,7 +281,7 @@
 					<button
 						onclick={() => (activeTab = tab.key as typeof activeTab)}
 						title={tab.hint}
-						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {activeTab === tab.key ? 'bg-white text-slate-900 shadow-2xs font-semibold' : 'text-slate-500 hover:text-slate-800'}"
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {activeTab === tab.key ? 'bg-white text-slate-900 shadow-2xs font-medium' : 'text-slate-500 hover:text-slate-800'}"
 					>
 						<span>{tab.label}</span>
 						<span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium {activeTab === tab.key ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/60 text-slate-500'}">
@@ -308,18 +294,8 @@
 				{/each}
 			</nav>
 
-			<!-- Right: Global Auto-reply Switch & Audit Indicator -->
+			<!-- Right: Global Auto-reply Switch -->
 			<div class="flex items-center gap-2.5 self-start sm:self-auto">
-				{#if lastRun}
-					<div
-						class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] text-slate-500"
-						title={`${lastRun.messages_scanned} messages scanned · ${lastRun.clusters_found} clusters found · ${lastRun.suggestions_created} suggestions created`}
-					>
-						<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-						<span>Audited {formatDate(lastRun.run_at)}</span>
-					</div>
-				{/if}
-
 				<!-- Toggle Switch Component -->
 				<button
 					type="button"
@@ -339,9 +315,6 @@
 						></span>
 					</span>
 					<span>Global AI auto-reply</span>
-					<span class="text-[10px] font-semibold {autoReplyEnabled && providerConfigured ? 'text-emerald-600' : 'text-slate-400'}">
-						{autoReplyEnabled && providerConfigured ? 'ON' : 'OFF'}
-					</span>
 				</button>
 			</div>
 		</div>
@@ -429,7 +402,7 @@
 						<div class="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200/60 flex items-center justify-center text-slate-400 mb-3 shadow-2xs">
 							<BookOpenIcon class="w-6 h-6" />
 						</div>
-						<div class="text-sm font-semibold text-slate-800">
+						<div class="text-sm font-medium text-slate-800">
 							{searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
 						</div>
 						<div class="text-xs text-slate-500 mt-1">
@@ -469,7 +442,7 @@
 					<div class="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 mb-3 shadow-2xs">
 						<ChatBubbleLeftRightIcon class="w-6 h-6" />
 					</div>
-					<div class="text-sm font-semibold text-slate-800">
+					<div class="text-sm font-medium text-slate-800">
 						{searchQuery.trim() ? 'No matching answer patterns' : 'No deterministic answer patterns yet'}
 					</div>
 					<div class="text-xs text-slate-500 mt-1">
@@ -514,7 +487,7 @@
 					<div class="w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-500 mb-3 shadow-2xs">
 						<SparklesIcon class="w-6 h-6" />
 					</div>
-					<div class="text-sm font-semibold text-slate-800">
+					<div class="text-sm font-medium text-slate-800">
 						{searchQuery.trim() ? 'No matching suggestions' : 'No suggestions pending review'}
 					</div>
 					<div class="text-xs text-slate-500 mt-1">
