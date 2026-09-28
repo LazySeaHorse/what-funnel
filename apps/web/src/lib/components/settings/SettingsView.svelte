@@ -293,7 +293,9 @@
             {saving}
             onSave={() => void saveSettings()}
           />
-        {:else if activeSection === "ai_provider"}<AIProviderSettings />
+        {:else if activeSection === "ai_provider"}<AIProviderSettings
+            {workspace}
+          />
         {:else if activeSection === "users_permissions"}<UsersPermissionsSection
             {inbox}
             {workspace}

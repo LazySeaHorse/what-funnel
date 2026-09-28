@@ -5,6 +5,7 @@
   import { InboxState } from "$lib/store.svelte";
   import { WorkspaceState } from "$lib/workspace.svelte";
   import { decodeWorkspaceSettings } from "$lib/workspace-settings";
+  import { computeGlobalAutoReplyPatch, isGlobalAutoReplyActive } from "$lib/global-ai-toggle";
   import DashboardHeader from "$lib/components/dashboard/DashboardHeader.svelte";
   import DashboardSidebar from "$lib/components/dashboard/DashboardSidebar.svelte";
   import MobileDashboardNav from "$lib/components/dashboard/MobileDashboardNav.svelte";
@@ -34,7 +35,7 @@
   let capabilities = $derived(workspace.capabilities);
   let pipelineStates = $derived(workspace.pipeline?.states || []);
   let aiAutoReplyEnabled = $derived(
-    aiEnabled && aiReplyModeDefault === "auto_send",
+    isGlobalAutoReplyActive({ aiEnabled, aiReplyModeDefault }),
   );
   let unassignedCount = $derived(
     inbox.conversations.filter(
@@ -148,12 +149,15 @@
       return;
     togglingGlobalAI = true;
     try {
-      const mode = aiAutoReplyEnabled ? "draft_only" : "auto_send";
+      const patch = computeGlobalAutoReplyPatch({
+        currentlyEnabled: aiAutoReplyEnabled,
+      });
       await apiRequest("/workspace/account/settings", {
         method: "PATCH",
-        body: { ai_reply_mode_default: mode },
+        body: patch,
       });
-      aiReplyModeDefault = mode;
+      aiReplyModeDefault = patch.ai_reply_mode_default;
+      if (patch.ai_enabled !== undefined) aiEnabled = patch.ai_enabled;
       await workspace.refreshAccount();
     } catch {
       // Keep optimistic UI in sync with backend truth

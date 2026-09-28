@@ -9,6 +9,9 @@
     normalizeAIProviderConfig,
     type AIProviderTestCheck,
   } from "$lib/ai-provider";
+  import type { WorkspaceState } from "$lib/workspace.svelte";
+
+  let { workspace }: { workspace?: WorkspaceState } = $props();
 
   let configured = $state(false);
   let apiKey = $state("");
@@ -132,6 +135,7 @@
       apiKey = "";
       showKey = false;
       configured = true;
+      await workspace?.refreshAccount();
       message = { kind: "success", text: "AI provider configuration saved." };
     } catch (error: any) {
       message = {
