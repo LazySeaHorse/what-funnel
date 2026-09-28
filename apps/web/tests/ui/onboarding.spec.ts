@@ -326,4 +326,56 @@ test.describe('onboarding persistence', () => {
 		await page.getByRole('button', { name: /Hours/ }).click();
 		await expect(textarea).toHaveValue(/Business Hours:/);
 	});
+
+	test('connects a Telegram bot in-place during step 2 without booting to settings', async ({ page }) => {
+		const api = await mockOnboardingApi(page);
+		await page.goto('/onboarding/2');
+
+		await expect(page.getByRole('heading', { name: 'Connect messaging channels' })).toBeVisible();
+
+		// Clicking connect opens in-place dialog rather than navigating away
+		await page.getByRole('button', { name: 'Connect Telegram' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Connect Telegram' });
+		await expect(dialog).toBeVisible();
+
+		await dialog.getByLabel('Account label').fill('Support Bot');
+		await dialog.getByLabel('Bot token').fill('123456:TEST_BOT_TOKEN');
+		await dialog.getByRole('button', { name: 'Connect bot' }).click();
+
+		await expect(dialog.getByText(/Support Bot is connected\./)).toBeVisible();
+		await dialog.getByRole('button', { name: 'Done' }).click();
+		await expect(dialog).toBeHidden();
+
+		// Verify we are still on /onboarding/2, NOT booted to /inbox?tab=settings
+		await expect(page).toHaveURL(/\/onboarding\/2$/);
+		await expect(page.getByRole('button', { name: 'Telegram connected' })).toBeVisible();
+
+		// Continuing saves channel step as complete
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await expect(page).toHaveURL(/\/onboarding\/3$/);
+		expect(api.requests).toContainEqual(expect.objectContaining({
+			path: '/onboarding/status',
+			method: 'PATCH',
+			body: { step: 'channel_connect', action: 'complete' }
+		}));
+	});
+
+	test('connects WhatsApp in-place during step 2 and stays in onboarding', async ({ page }) => {
+		await mockOnboardingApi(page);
+		await page.goto('/onboarding/2');
+
+		await page.getByRole('button', { name: 'Connect WhatsApp' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Connect WhatsApp' });
+		await expect(dialog).toBeVisible();
+
+		await dialog.getByLabel('Account label').fill('Sales WhatsApp');
+		await dialog.getByRole('button', { name: 'Show QR code' }).click();
+
+		await expect(dialog.getByAltText('WhatsApp pairing QR code')).toBeVisible();
+		await dialog.getByRole('button', { name: 'I scanned it' }).click();
+		await expect(dialog).toBeHidden();
+
+		// Verify we are still in onboarding
+		await expect(page).toHaveURL(/\/onboarding\/2$/);
+	});
 });

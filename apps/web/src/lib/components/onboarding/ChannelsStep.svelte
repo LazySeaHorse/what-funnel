@@ -1,8 +1,40 @@
 <script lang="ts">
 	import ChannelBadge from '$lib/components/ChannelBadge.svelte';
+	import ChannelConnectionModal, { type Connection } from '$lib/components/channels/ChannelConnectionModal.svelte';
 	import { CheckIcon, ChatBubbleLeftRightIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import { Button } from '$lib/components/ui';
-	let { step, totalSteps, channels, onConnect }: { step: number; totalSteps: number; channels: any[]; onConnect: (channel: any) => void } = $props();
+
+	let {
+		step,
+		totalSteps,
+		channels,
+		onConnect
+	}: {
+		step: number;
+		totalSteps: number;
+		channels: any[];
+		onConnect?: (channel: any) => void;
+	} = $props();
+
+	let connectingProvider = $state<'whatsapp' | 'telegram' | null>(null);
+
+	function openConnect(ch: any) {
+		if (ch.id === 'whatsapp' || ch.id === 'telegram') {
+			connectingProvider = ch.id;
+		}
+	}
+
+	function closeConnect() {
+		connectingProvider = null;
+	}
+
+	function handleSuccess(connection: Connection) {
+		const target = channels.find((item) => item.type === connection.provider || item.id === connection.provider);
+		if (target) {
+			target.connected = true;
+		}
+		onConnect?.(connection);
+	}
 </script>
 
 <div class="text-center lg:text-left mb-6">
@@ -24,8 +56,9 @@
 					<Button
 						variant="secondary"
 						size="xs"
+						aria-label={`${ch.name} connected`}
 						class="bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
-						onclick={() => onConnect(ch)}
+						onclick={() => openConnect(ch)}
 					>
 						<CheckIcon class="w-3.5 h-3.5 text-emerald-600" />
 						<span>Connected</span>
@@ -34,7 +67,8 @@
 					<Button
 						variant="secondary"
 						size="xs"
-						onclick={() => onConnect(ch)}
+						aria-label={`Connect ${ch.name}`}
+						onclick={() => openConnect(ch)}
 					>
 						Connect
 					</Button>
@@ -58,3 +92,11 @@
 
 	<p class="text-xs text-slate-400 text-center lg:text-left pt-2">You can connect more channels in Settings later.</p>
 </div>
+
+{#if connectingProvider}
+	<ChannelConnectionModal
+		provider={connectingProvider}
+		onclose={closeConnect}
+		onsuccess={handleSuccess}
+	/>
+{/if}

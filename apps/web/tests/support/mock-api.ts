@@ -362,6 +362,8 @@ export async function mockOnboardingApi(
 		states: [{ key: 'new', label: 'New lead', color: '#3B82F6' }]
 	};
 	let ingestion: any = null;
+	let channels: Array<{ id: string; type: string; status: string }> = [];
+	let providerConnections: Array<{ channel_id: string; provider: string; label: string; state: string; detail: string; remote_account_id?: string; capabilities: Record<string, boolean> }> = [];
 	const requests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
 
 	await page.route('**/api-gateway/**', async (route) => {
@@ -414,7 +416,36 @@ export async function mockOnboardingApi(
 			pipeline = { ...pipeline, name: String(body?.name || pipeline.name), states: Array.isArray(body?.states) ? body.states as typeof pipeline.states : pipeline.states };
 			return json({ status: 'updated' });
 		}
-		if (path === '/channels') return json([]);
+		if (path === '/channels') return json(channels);
+		if (path === '/channel-connections') {
+			if (method === 'POST') {
+				const provider = String(body?.provider || 'whatsapp');
+				const state = provider === 'telegram' ? 'connected' : 'awaiting_scan';
+				const channel = { id: `channel-${channels.length + 1}`, type: provider, status: state };
+				const connection = { channel_id: channel.id, provider, label: String(body?.label || (provider === 'telegram' ? 'Telegram bot' : 'WhatsApp')), state, detail: provider === 'telegram' ? 'Telegram bot connected.' : 'Scan the QR code to finish connecting.', remote_account_id: provider === 'telegram' ? '@test_bot' : undefined, capabilities: { media: true, replies: true, reactions: true, edits: true, deletes: true, receipts: provider !== 'telegram' } };
+				channels = [...channels, channel];
+				providerConnections = [...providerConnections, connection];
+				return json(connection);
+			}
+			return json(providerConnections);
+		}
+		if (/^\/channel-connections\/[^/]+\/retry$/.test(path) && method === 'POST') {
+			const channelID = path.split('/')[2];
+			providerConnections = providerConnections.map((connection) => connection.channel_id === channelID ? { ...connection, state: connection.provider === 'telegram' ? 'connected' : 'awaiting_scan' } : connection);
+			return json(providerConnections.find((connection) => connection.channel_id === channelID) ?? {});
+		}
+		if (/^\/channel-connections\/[^/]+$/.test(path)) {
+			const channelID = path.split('/')[2];
+			if (method === 'DELETE') {
+				channels = channels.filter((channel) => channel.id !== channelID);
+				providerConnections = providerConnections.filter((connection) => connection.channel_id !== channelID);
+				return route.fulfill({ status: 204, body: '' });
+			}
+			return json(providerConnections.find((connection) => connection.channel_id === channelID) ?? {});
+		}
+		if (/^\/channel-connections\/[^/]+\/qr$/.test(path)) {
+			return route.fulfill({ contentType: 'image/png', body: '' });
+		}
 		if (path === '/api/kb/ingestions/latest') return json({ ingestion });
 		if (path === '/api/kb/ingestions' && method === 'POST') {
 			ingestion = {

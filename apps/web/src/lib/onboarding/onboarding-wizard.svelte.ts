@@ -244,13 +244,7 @@ export class OnboardingWizardController {
 				return;
 			}
 
-			const chList = await this.request('/channels');
-			if (Array.isArray(chList) && chList.length > 0) {
-				for (const c of chList) {
-					const found = this.channels.find((item) => item.type === c.type);
-					if (found) found.connected = c.status === 'connected';
-				}
-			}
+			await this.refreshChannels();
 			if (this.stepNum === 6 && settings.ai_enabled !== false) {
 				void this.resumeLatestIngestion();
 			}
@@ -302,8 +296,25 @@ export class OnboardingWizardController {
 		await this.navigateFn('/inbox');
 	}
 
-	async toggleChannel(_channel?: any): Promise<void> {
-		await this.navigateFn('/inbox?tab=settings');
+	async refreshChannels(): Promise<void> {
+		try {
+			const chList = await this.request('/channels');
+			if (Array.isArray(chList) && chList.length > 0) {
+				for (const c of chList) {
+					const found = this.channels.find((item) => item.type === c.type);
+					if (found) found.connected = c.status === 'connected';
+				}
+			}
+		} catch {}
+	}
+
+	async toggleChannel(channel?: any): Promise<void> {
+		if (channel?.provider || channel?.type) {
+			const type = channel.provider || channel.type;
+			const found = this.channels.find((item) => item.type === type || item.id === type);
+			if (found) found.connected = true;
+		}
+		await this.refreshChannels();
 	}
 
 	async addTeamMember(username: string, password: string, role: 'agent' | 'manager'): Promise<void> {
