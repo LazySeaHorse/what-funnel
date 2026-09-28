@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 )
 
 // KB validates the session cookie with identity-svc, checks if the role is admin/manager,
@@ -94,14 +95,9 @@ func KB(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 		// Inject trusted tenant, user, and internal service auth headers
 		req.Header.Set("X-Account-ID", authMe.AccountID)
 		req.Header.Set("X-User-ID", authMe.UserID)
-		internalSecret := os.Getenv("INTERNAL_SERVICE_TOKEN")
-		if internalSecret == "" {
-			internalSecret = os.Getenv("SESSION_SECRET")
+		if internalSecret := middleware.InternalServiceSecret(); internalSecret != "" {
+			req.Header.Set("X-Internal-Token", internalSecret)
 		}
-		if internalSecret == "" {
-			internalSecret = "change-me-in-production-at-least-32-chars"
-		}
-		req.Header.Set("X-Internal-Token", internalSecret)
 
 		resp, err := client.Do(req)
 		if err != nil {

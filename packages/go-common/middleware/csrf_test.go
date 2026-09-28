@@ -130,6 +130,25 @@ func TestCSRFProtection_CrossOriginOriginRejected(t *testing.T) {
 }
 
 func TestCSRFProtection_InternalTokenAllowed(t *testing.T) {
+	const validToken = "valid-internal-token-for-csrf-32chars"
+	t.Setenv("INTERNAL_SERVICE_TOKEN", validToken)
+	mw := CSRFProtection()
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/workspace/account", nil)
+	req.AddCookie(&http.Cookie{Name: "whatfunnel_session", Value: "valid-session"})
+	req.Header.Set("X-Internal-Token", validToken)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestCSRFProtection_InternalTokenDefaultBlocked(t *testing.T) {
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "")
+	t.Setenv("SESSION_SECRET", "")
 	mw := CSRFProtection()
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -141,7 +160,7 @@ func TestCSRFProtection_InternalTokenAllowed(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
 func TestCSRFProtection_SpoofedForwardedHostRejected(t *testing.T) {

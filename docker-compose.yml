@@ -26,7 +26,7 @@ services:
       POSTGRES_PASSWORD: whatfunnel
       POSTGRES_DB: whatfunnel
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -43,7 +43,7 @@ services:
     image: redis:7-alpine
     container_name: whatfunnel-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -82,11 +82,13 @@ services:
     environment:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       SESSION_SECRET: change-me-in-production-at-least-32-chars
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       PORT: "8081"
       LOG_LEVEL: info
+      APP_ENV: ${APP_ENV:-development}
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,12 +107,14 @@ services:
     environment:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       SESSION_SECRET: change-me-in-production-at-least-32-chars
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       AI_PROVIDER_TEST_TIMEOUT_SECONDS: "60"
       PORT: "8082"
       LOG_LEVEL: info
+      APP_ENV: ${APP_ENV:-development}
     ports:
-      - "8082:8082"
+      - "127.0.0.1:8082:8082"
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,10 +137,12 @@ services:
       NOTIFICATION_SVC_URL: http://notification-svc:8084
       AI_KB_COMPILER_URL: http://ai-kb-compiler:8085
       SESSION_SECRET: change-me-in-production-at-least-32-chars
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       PORT: "8080"
       LOG_LEVEL: info
+      APP_ENV: ${APP_ENV:-development}
     ports:
-      - "18080:8080"
+      - "127.0.0.1:18080:8080"
     depends_on:
       - identity-svc
       - workspace-svc
@@ -157,9 +163,11 @@ services:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       REDIS_URL: redis:6379
       SESSION_SECRET: change-me-in-production-at-least-32-chars
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       PORT: "8083"
       LOG_LEVEL: info
+      APP_ENV: ${APP_ENV:-development}
       WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
       TELEGRAM_ADAPTER_URL: http://telegram-adapter:8087
       ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
@@ -173,7 +181,7 @@ services:
     volumes:
       - conversation_media_data:/data/media
     ports:
-      - "8083:8083"
+      - "127.0.0.1:8083:8083"
     depends_on:
       postgres:
         condition: service_healthy
@@ -259,11 +267,13 @@ services:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       REDIS_URL: redis:6379
       SESSION_SECRET: change-me-in-production-at-least-32-chars
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       PORT: "8084"
       LOG_LEVEL: info
+      APP_ENV: ${APP_ENV:-development}
     ports:
-      - "8084:8084"
+      - "127.0.0.1:8084:8084"
     depends_on:
       postgres:
         condition: service_healthy
@@ -286,8 +296,10 @@ services:
       REDIS_URL: redis:6379
       APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       SESSION_SECRET: change-me-in-production-at-least-32-chars
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       LOG_LEVEL: info
       AI_REQUEST_TIMEOUT_SECONDS: "1000"
+      APP_ENV: ${APP_ENV:-development}
     depends_on:
       postgres:
         condition: service_healthy
@@ -311,11 +323,12 @@ services:
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       REDIS_URL: redis:6379
       APP_ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
-      INTERNAL_SERVICE_TOKEN: "change-me-in-production-at-least-32-chars"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       PORT: "8085"
       LOG_LEVEL: info
       MINING_INTERVAL_HOURS: "6"
       AI_REQUEST_TIMEOUT_SECONDS: "1000"
+      APP_ENV: ${APP_ENV:-development}
     expose:
       - "8085"
     volumes:
@@ -340,8 +353,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s

@@ -9,6 +9,8 @@ class Config:
     REDIS_CONSUMER_NAME: str = os.getenv("REDIS_CONSUMER_NAME", "")
     REDIS_AUTOCLAIM_MIN_IDLE_MS: int = int(os.getenv("REDIS_AUTOCLAIM_MIN_IDLE_MS", "30000"))
     APP_ENCRYPTION_KEY: str = os.getenv("APP_ENCRYPTION_KEY") or os.getenv("ENCRYPTION_KEY", "")
+    INTERNAL_SERVICE_TOKEN: str = os.getenv("INTERNAL_SERVICE_TOKEN") or os.getenv("SESSION_SECRET", "")
+    SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "1000"))
     AI_DEBOUNCE_ENABLED: bool = os.getenv("AI_DEBOUNCE_ENABLED", "true").lower() in ("true", "1", "yes")

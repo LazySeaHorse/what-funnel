@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -27,10 +28,10 @@ type IdentityProvisioner interface {
 
 // NewIdentityProvisioner returns an HTTPIdentityProvisioner if identityURL is non-empty,
 // or falls back to DirectIdentityProvisioner for tests and single-binary environments.
-func NewIdentityProvisioner(pool *pgxpool.Pool, identityURL string) IdentityProvisioner {
+func NewIdentityProvisioner(pool *pgxpool.Pool, identityURL string, secret ...string) IdentityProvisioner {
 	trimmed := strings.TrimRight(strings.TrimSpace(identityURL), "/")
 	if trimmed != "" {
-		return NewHTTPIdentityProvisioner(trimmed)
+		return NewHTTPIdentityProvisioner(trimmed, secret...)
 	}
 	return NewDirectIdentityProvisioner(pool)
 }
@@ -250,14 +251,38 @@ func (d *DirectIdentityProvisioner) ChangeUserRole(ctx context.Context, accountI
 type HTTPIdentityProvisioner struct {
 	baseURL string
 	client  *http.Client
+	secret  string
 }
 
 // NewHTTPIdentityProvisioner creates an HTTPIdentityProvisioner for the given identity-svc base URL.
-func NewHTTPIdentityProvisioner(baseURL string) *HTTPIdentityProvisioner {
+// Optional secret can be provided; if omitted or empty, it falls back to middleware.InternalServiceSecret().
+func NewHTTPIdentityProvisioner(baseURL string, secret ...string) *HTTPIdentityProvisioner {
+	sec := ""
+	if len(secret) > 0 {
+		sec = strings.TrimSpace(secret[0])
+	}
 	return &HTTPIdentityProvisioner{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client:  &http.Client{Timeout: 10 * time.Second},
+		secret:  sec,
 	}
+}
+
+func (h *HTTPIdentityProvisioner) getSecret() string {
+	if h.secret != "" {
+		return h.secret
+	}
+	return middleware.InternalServiceSecret()
+}
+
+func (h *HTTPIdentityProvisioner) setAuthHeaders(httpReq *http.Request, accountID, actorID uuid.UUID) {
+	if sec := h.getSecret(); sec != "" {
+		httpReq.Header.Set("X-Internal-Token", sec)
+	}
+	httpReq.Header.Set("X-Account-ID", accountID.String())
+	httpReq.Header.Set("X-User-ID", actorID.String())
+	httpReq.Header.Set("X-Actor-ID", actorID.String())
+	httpReq.Header.Set("X-User-Role", types.RoleManager)
 }
 
 func (h *HTTPIdentityProvisioner) CreateUser(ctx context.Context, accountID, actorID uuid.UUID, req CreateUserRequest) (*CreateUserResult, error) {
@@ -271,8 +296,7 @@ func (h *HTTPIdentityProvisioner) CreateUser(ctx context.Context, accountID, act
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-Account-ID", accountID.String())
-	httpReq.Header.Set("X-Actor-ID", actorID.String())
+	h.setAuthHeaders(httpReq, accountID, actorID)
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
@@ -309,8 +333,7 @@ func (h *HTTPIdentityProvisioner) ResetUserPassword(ctx context.Context, account
 		return fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-Account-ID", accountID.String())
-	httpReq.Header.Set("X-Actor-ID", actorID.String())
+	h.setAuthHeaders(httpReq, accountID, actorID)
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
@@ -336,8 +359,7 @@ func (h *HTTPIdentityProvisioner) DeleteUser(ctx context.Context, accountID, act
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	httpReq.Header.Set("X-Account-ID", accountID.String())
-	httpReq.Header.Set("X-Actor-ID", actorID.String())
+	h.setAuthHeaders(httpReq, accountID, actorID)
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
@@ -369,8 +391,7 @@ func (h *HTTPIdentityProvisioner) ChangeUserRole(ctx context.Context, accountID,
 		return fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-Account-ID", accountID.String())
-	httpReq.Header.Set("X-Actor-ID", actorID.String())
+	h.setAuthHeaders(httpReq, accountID, actorID)
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {

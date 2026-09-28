@@ -9,32 +9,34 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
+// DefaultInternalServiceToken is the placeholder secret that must never be accepted.
+const DefaultInternalServiceToken = "change-me-in-production-at-least-32-chars"
+
 // InternalServiceSecret retrieves the configured secret for internal service-to-service communication.
 func InternalServiceSecret() string {
-	secret := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	secret := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
 	if secret == "" {
-		secret = os.Getenv("SESSION_SECRET")
-	}
-	if secret == "" {
-		secret = "change-me-in-production-at-least-32-chars"
+		secret = strings.TrimSpace(os.Getenv("SESSION_SECRET"))
 	}
 	return secret
 }
 
 // IsAuthorizedInternalCall checks whether the provided internal token matches the expected service secret
-// in constant time, and prevents using insecure defaults in production.
+// in constant time, and fails closed if token is empty or if expected secret is empty or the insecure default.
 func IsAuthorizedInternalCall(token string) bool {
+	token = strings.TrimSpace(token)
 	if token == "" {
 		return false
 	}
 	secret := InternalServiceSecret()
-	if os.Getenv("APP_ENV") == "production" && secret == "change-me-in-production-at-least-32-chars" {
+	if secret == "" || secret == DefaultInternalServiceToken {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(token), []byte(secret)) == 1

@@ -57,7 +57,7 @@ async def send_ai_message(
     idempotency_key: str,
 ):
     send_url = f"http://conversation-svc:8083/internal/conversations/{conversation_id}/send"
-    secret = os.getenv("SESSION_SECRET", "change-me-in-production-at-least-32-chars")
+    secret = os.getenv("INTERNAL_SERVICE_TOKEN") or os.getenv("SESSION_SECRET") or config.INTERNAL_SERVICE_TOKEN
     headers = {
         "X-Internal-Token": secret,
         "X-Account-ID": str(account_id),

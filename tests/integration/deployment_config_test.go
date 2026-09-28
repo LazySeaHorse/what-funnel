@@ -135,6 +135,48 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 	})
 }
 
+func TestDevDockerComposeSecurityInvariants(t *testing.T) {
+	root := findRepoRoot(t)
+	devComposePath := filepath.Join(root, "docker-compose.yml")
+
+	data, err := os.ReadFile(devComposePath)
+	require.NoError(t, err, "docker-compose.yml must exist")
+
+	var cfg ComposeConfig
+	err = yaml.Unmarshal(data, &cfg)
+	require.NoError(t, err, "docker-compose.yml must be valid YAML")
+
+	t.Run("All exposed ports bind strictly to localhost (127.0.0.1)", func(t *testing.T) {
+		for svcName, svc := range cfg.Services {
+			for _, port := range svc.Ports {
+				assert.True(t, strings.HasPrefix(port, "127.0.0.1:"),
+					"service %s port mapping %q must bind to 127.0.0.1 to avoid exposing to 0.0.0.0", svcName, port)
+			}
+		}
+	})
+
+	t.Run("Application microservices configure APP_ENV and INTERNAL_SERVICE_TOKEN", func(t *testing.T) {
+		appServices := []string{
+			"identity-svc",
+			"workspace-svc",
+			"api-gateway",
+			"conversation-svc",
+			"notification-svc",
+			"ai-answer-svc",
+			"ai-kb-compiler",
+		}
+
+		for _, svcName := range appServices {
+			svc, ok := cfg.Services[svcName]
+			if assert.True(t, ok, "service %s should exist in dev compose", svcName) {
+				assert.NotEmpty(t, svc.Environment["APP_ENV"], "service %s must define APP_ENV in docker-compose.yml", svcName)
+				assert.NotEmpty(t, svc.Environment["INTERNAL_SERVICE_TOKEN"], "service %s must define INTERNAL_SERVICE_TOKEN in docker-compose.yml", svcName)
+			}
+		}
+	})
+}
+
+
 func TestFrontendProductionBuildSetup(t *testing.T) {
 	root := findRepoRoot(t)
 

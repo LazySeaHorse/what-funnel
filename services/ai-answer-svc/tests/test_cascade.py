@@ -1,3 +1,4 @@
+import os
 import pytest
 import uuid
 import json
@@ -566,6 +567,64 @@ async def test_send_ai_message_canonical_manager_role():
         assert body["generation_epoch"] == 3
         assert body["message_purpose"] == "reply"
         assert body["idempotency_key"] == "ai-reply:123"
+
+
+@pytest.mark.asyncio
+async def test_send_ai_message_prefers_internal_service_token():
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+
+    with patch.dict(os.environ, {
+        "INTERNAL_SERVICE_TOKEN": "primary-internal-token-32-chars",
+        "SESSION_SECRET": "fallback-session-secret-32-chars",
+    }):
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"id": str(uuid.uuid4())}
+            mock_post.return_value = mock_response
+
+            await send_ai_message(
+                account_id=account_id,
+                conversation_id=convo_id,
+                text="Hello from AI",
+                generation_epoch=1,
+                purpose="reply",
+                idempotency_key="ai-reply:1",
+            )
+
+            headers = mock_post.call_args[1]["headers"]
+            assert headers["X-Internal-Token"] == "primary-internal-token-32-chars"
+
+
+@pytest.mark.asyncio
+async def test_send_ai_message_fallback_to_session_secret():
+    account_id = uuid.uuid4()
+    convo_id = uuid.uuid4()
+
+    env = dict(os.environ)
+    env.pop("INTERNAL_SERVICE_TOKEN", None)
+    env["SESSION_SECRET"] = "fallback-session-secret-32-chars"
+
+    with patch.dict(os.environ, env, clear=True):
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"id": str(uuid.uuid4())}
+            mock_post.return_value = mock_response
+
+            await send_ai_message(
+                account_id=account_id,
+                conversation_id=convo_id,
+                text="Hello from AI",
+                generation_epoch=1,
+                purpose="reply",
+                idempotency_key="ai-reply:2",
+            )
+
+            headers = mock_post.call_args[1]["headers"]
+            assert headers["X-Internal-Token"] == "fallback-session-secret-32-chars"
+
 
 
 @pytest.mark.asyncio

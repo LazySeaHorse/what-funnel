@@ -286,3 +286,108 @@ func TestRequireAuthenticated_InternalToken_InsecureProductionDefaultBlocked(t *
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
+func TestRequireAuthenticated_InternalToken_FailsClosedWhenDefaultSecretInDevelopment(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "")
+	t.Setenv("SESSION_SECRET", "")
+	store := &fakeStore{loggedIn: false}
+	m := middleware.NewSessionMiddleware(store)
+
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/internal/data", nil)
+	req.Header.Set("X-Internal-Token", "change-me-in-production-at-least-32-chars")
+	req.Header.Set("X-Account-ID", uuid.New().String())
+
+	m.RequireAuthenticated(okHandler).ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestIsAuthorizedInternalCall_Matrix(t *testing.T) {
+	const defaultSecret = "change-me-in-production-at-least-32-chars"
+	const validSecret = "secure-random-internal-token-32-chars"
+
+	tests := []struct {
+		name          string
+		appEnv        string
+		internalToken string
+		sessionSecret string
+		providedToken string
+		want          bool
+	}{
+		{
+			name:          "empty token returns false",
+			internalToken: validSecret,
+			providedToken: "",
+			want:          false,
+		},
+		{
+			name:          "empty secrets returns false",
+			internalToken: "",
+			sessionSecret: "",
+			providedToken: validSecret,
+			want:          false,
+		},
+		{
+			name:          "default secret blocked in production",
+			appEnv:        "production",
+			internalToken: "",
+			sessionSecret: defaultSecret,
+			providedToken: defaultSecret,
+			want:          false,
+		},
+		{
+			name:          "default secret blocked in development",
+			appEnv:        "development",
+			internalToken: "",
+			sessionSecret: defaultSecret,
+			providedToken: defaultSecret,
+			want:          false,
+		},
+		{
+			name:          "default secret blocked when explicitly set in INTERNAL_SERVICE_TOKEN",
+			appEnv:        "development",
+			internalToken: defaultSecret,
+			providedToken: defaultSecret,
+			want:          false,
+		},
+		{
+			name:          "valid internal service token matches",
+			internalToken: validSecret,
+			providedToken: validSecret,
+			want:          true,
+		},
+		{
+			name:          "valid fallback to session secret matches",
+			internalToken: "",
+			sessionSecret: validSecret,
+			providedToken: validSecret,
+			want:          true,
+		},
+		{
+			name:          "internal service token takes precedence over session secret",
+			internalToken: validSecret,
+			sessionSecret: "different-secret-for-session-32ch",
+			providedToken: validSecret,
+			want:          true,
+		},
+		{
+			name:          "token mismatch returns false",
+			internalToken: validSecret,
+			providedToken: "wrong-secret-token-32-characters!",
+			want:          false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APP_ENV", tc.appEnv)
+			t.Setenv("INTERNAL_SERVICE_TOKEN", tc.internalToken)
+			t.Setenv("SESSION_SECRET", tc.sessionSecret)
+			got := middleware.IsAuthorizedInternalCall(tc.providedToken)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+
