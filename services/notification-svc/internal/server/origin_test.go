@@ -61,3 +61,60 @@ func TestServer_CheckOrigin(t *testing.T) {
 		assert.False(t, s.CheckOrigin(req))
 	})
 }
+
+func TestCheckOrigin_SpoofedForwardedHost(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	t.Run("Rejects spoofed X-Forwarded-Host in production", func(t *testing.T) {
+		s := NewServer(nil, nil, logger, []string{"https://app.whatfunnel.com"}, true)
+
+		req := httptest.NewRequest(http.MethodGet, "https://api.whatfunnel.com/ws", nil)
+		req.Host = "api.whatfunnel.com"
+		req.Header.Set("X-Forwarded-Host", "evil-attacker.com")
+		req.Header.Set("Origin", "http://evil-attacker.com")
+
+		assert.False(t, s.CheckOrigin(req), "spoofed X-Forwarded-Host must be rejected")
+	})
+
+	t.Run("Rejects spoofed X-Forwarded-Host even in non-production", func(t *testing.T) {
+		s := NewServer(nil, nil, logger, nil, false)
+
+		req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/ws", nil)
+		req.Host = "localhost:8080"
+		req.Header.Set("X-Forwarded-Host", "evil-attacker.com")
+		req.Header.Set("Origin", "http://evil-attacker.com")
+
+		assert.False(t, s.CheckOrigin(req), "spoofed X-Forwarded-Host in non-prod must be rejected")
+	})
+
+	t.Run("Strict port handling blocks mismatched ports", func(t *testing.T) {
+		s := NewServer(nil, nil, logger, []string{"https://app.whatfunnel.com"}, true)
+
+		req := httptest.NewRequest(http.MethodGet, "https://api.whatfunnel.com:8080/ws", nil)
+		req.Host = "api.whatfunnel.com:8080"
+		req.Header.Set("Origin", "https://api.whatfunnel.com:9999")
+
+		assert.False(t, s.CheckOrigin(req), "mismatched port must be rejected")
+	})
+
+	t.Run("Strict subdomain handling blocks domain suffix tricks", func(t *testing.T) {
+		s := NewServer(nil, nil, logger, []string{"https://app.whatfunnel.com"}, true)
+
+		req := httptest.NewRequest(http.MethodGet, "https://api.whatfunnel.com/ws", nil)
+		req.Host = "api.whatfunnel.com"
+		req.Header.Set("Origin", "https://api.whatfunnel.com.evil.com")
+
+		assert.False(t, s.CheckOrigin(req), "subdomain spoofing must be rejected")
+	})
+
+	t.Run("Allows trusted proxy X-Forwarded-Host matching allowed origin", func(t *testing.T) {
+		s := NewServer(nil, nil, logger, []string{"https://app.whatfunnel.com"}, true)
+
+		req := httptest.NewRequest(http.MethodGet, "http://notification-svc:8084/ws", nil)
+		req.Host = "notification-svc:8084"
+		req.Header.Set("X-Forwarded-Host", "app.whatfunnel.com")
+		req.Header.Set("Origin", "https://app.whatfunnel.com")
+
+		assert.True(t, s.CheckOrigin(req), "trusted forwarded host in allowed origins must be accepted")
+	})
+}

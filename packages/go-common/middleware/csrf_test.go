@@ -143,3 +143,53 @@ func TestCSRFProtection_InternalTokenAllowed(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
+
+func TestCSRFProtection_SpoofedForwardedHostRejected(t *testing.T) {
+	mw := CSRFProtection()
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("Rejects mutating request with spoofed X-Forwarded-Host matching Origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://api.whatfunnel.com/workspace/account", nil)
+		req.Host = "api.whatfunnel.com"
+		req.AddCookie(&http.Cookie{Name: "whatfunnel_session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "token-abc"})
+		req.Header.Set("X-CSRF-Token", "token-abc")
+		req.Header.Set("Origin", "http://evil-attacker.com")
+		req.Header.Set("X-Forwarded-Host", "evil-attacker.com")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code, "spoofed X-Forwarded-Host must not bypass origin check")
+		assert.Contains(t, rr.Body.String(), "cross-origin request rejected")
+	})
+
+	t.Run("Rejects mutating request with spoofed Referer and X-Forwarded-Host", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "https://api.whatfunnel.com/workspace/account", nil)
+		req.Host = "api.whatfunnel.com"
+		req.AddCookie(&http.Cookie{Name: "whatfunnel_session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "token-abc"})
+		req.Header.Set("X-CSRF-Token", "token-abc")
+		req.Header.Set("Referer", "http://evil-attacker.com/exploit")
+		req.Header.Set("X-Forwarded-Host", "evil-attacker.com")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code, "spoofed Referer with X-Forwarded-Host must be rejected")
+		assert.Contains(t, rr.Body.String(), "cross-origin request rejected")
+	})
+
+	t.Run("Strict port check rejects mismatched origin port", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "http://api.whatfunnel.com:8080/workspace/account", nil)
+		req.Host = "api.whatfunnel.com:8080"
+		req.AddCookie(&http.Cookie{Name: "whatfunnel_session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "token-abc"})
+		req.Header.Set("X-CSRF-Token", "token-abc")
+		req.Header.Set("Origin", "http://api.whatfunnel.com:9999")
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code, "port mismatch must be rejected")
+	})
+}

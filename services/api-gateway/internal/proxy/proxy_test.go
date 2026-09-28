@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/whatfunnel/whatfunnel/services/api-gateway/internal/proxy"
 )
@@ -66,6 +69,7 @@ func TestHTTPProxy_StripsInternalHeaders(t *testing.T) {
 	req.Header.Set("X-User-ID", "00000000-0000-0000-0000-000000000002")
 	req.Header.Set("X-User-Role", "admin")
 	req.Header.Set("X-Internal-Custom", "injected")
+	req.Header.Set("X-Forwarded-Host", "spoofed-attacker.com")
 	req.Header.Set("X-Legit-Header", "allowed")
 	handler.ServeHTTP(rec, req)
 
@@ -87,6 +91,9 @@ func TestHTTPProxy_StripsInternalHeaders(t *testing.T) {
 	if capturedHeader.Get("X-Internal-Custom") != "" {
 		t.Errorf("expected X-Internal-Custom to be stripped, got %q", capturedHeader.Get("X-Internal-Custom"))
 	}
+	if capturedHeader.Get("X-Forwarded-Host") == "spoofed-attacker.com" {
+		t.Errorf("expected client X-Forwarded-Host to be stripped, got %q", capturedHeader.Get("X-Forwarded-Host"))
+	}
 	if capturedHeader.Get("X-Legit-Header") != "allowed" {
 		t.Errorf("expected X-Legit-Header to be preserved, got %q", capturedHeader.Get("X-Legit-Header"))
 	}
@@ -103,5 +110,61 @@ func TestWebSocketProxy_NonUpgrade(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for non-upgrade request, got %d", rec.Code)
+	}
+}
+
+func TestWebSocketProxy_StripsForwardedHost(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen error: %v", err)
+	}
+	defer ln.Close()
+
+	headerChan := make(chan string, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 2048)
+		n, _ := conn.Read(buf)
+		headerChan <- string(buf[:n])
+		_, _ = conn.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"))
+	}()
+
+	u, _ := url.Parse("http://" + ln.Addr().String())
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := proxy.WebSocket(u, logger)
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial error: %v", err)
+	}
+	defer conn.Close()
+
+	reqStr := "GET /ws HTTP/1.1\r\n" +
+		"Host: client-requested.com\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n" +
+		"X-Forwarded-Host: evil-attacker.com\r\n" +
+		"\r\n"
+	_, _ = conn.Write([]byte(reqStr))
+
+	select {
+	case received := <-headerChan:
+		if strings.Contains(received, "evil-attacker.com") {
+			t.Fatalf("expected evil-attacker.com to be stripped, got:\n%s", received)
+		}
+		if !strings.Contains(received, "X-Forwarded-Host: client-requested.com") {
+			t.Fatalf("expected X-Forwarded-Host: client-requested.com, got:\n%s", received)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream request")
 	}
 }

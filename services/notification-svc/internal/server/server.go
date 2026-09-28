@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -112,10 +113,11 @@ type Server struct {
 	logger         *slog.Logger
 	upgrader       websocket.Upgrader
 	allowedOrigins []string
+	serverHost     string
 	isProd         bool
 }
 
-func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins []string, isProd bool) *Server {
+func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins []string, isProd bool, serverHost ...string) *Server {
 	s := &Server{
 		hub:            hub,
 		sess:           sess,
@@ -123,12 +125,74 @@ func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins 
 		allowedOrigins: allowedOrigins,
 		isProd:         isProd,
 	}
+	if len(serverHost) > 0 && strings.TrimSpace(serverHost[0]) != "" {
+		s.serverHost = strings.TrimSpace(serverHost[0])
+	}
 	s.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin:     s.CheckOrigin,
 	}
 	return s
+}
+
+func (s *Server) SetServerHost(host string) {
+	s.serverHost = strings.TrimSpace(host)
+}
+
+func splitHostPortStrict(rawHost string) (host string, port string) {
+	rawHost = strings.TrimSpace(rawHost)
+	if rawHost == "" {
+		return "", ""
+	}
+	h, p, err := net.SplitHostPort(rawHost)
+	if err != nil {
+		return strings.ToLower(rawHost), ""
+	}
+	return strings.ToLower(h), p
+}
+
+func normalizeHost(rawHost string, scheme string) string {
+	h, p := splitHostPortStrict(rawHost)
+	if h == "" {
+		return ""
+	}
+	scheme = strings.ToLower(scheme)
+	if (p == "443" && (scheme == "https" || scheme == "wss")) ||
+		(p == "80" && (scheme == "http" || scheme == "ws")) {
+		p = ""
+	}
+	if p != "" {
+		return net.JoinHostPort(h, p)
+	}
+	return h
+}
+
+func isHostMatching(originHost, originScheme, candidateHost string) bool {
+	normOrigin := normalizeHost(originHost, originScheme)
+	normCandidate := normalizeHost(candidateHost, originScheme)
+	return normOrigin != "" && normOrigin == normCandidate
+}
+
+func (s *Server) isAllowedHost(host string) bool {
+	norm := normalizeHost(host, "")
+	if norm == "" {
+		return false
+	}
+	for _, allowed := range s.allowedOrigins {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" || allowed == "*" {
+			continue
+		}
+		if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
+			if isHostMatching(host, "", parsedAllowed.Host) {
+				return true
+			}
+		} else if isHostMatching(host, "", allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 // CheckOrigin validates the incoming WebSocket upgrade request against the origin whitelist.
@@ -139,20 +203,11 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 		return true
 	}
 	u, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || u.Host == "" {
 		return false
 	}
 
-	// 1. Same-host check (origin matches Host or X-Forwarded-Host)
-	reqHost := r.Host
-	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-		reqHost = fwdHost
-	}
-	if strings.EqualFold(u.Host, reqHost) || strings.EqualFold(strings.Split(u.Host, ":")[0], strings.Split(reqHost, ":")[0]) {
-		return true
-	}
-
-	// 2. Explicit whitelist check
+	// 1. Explicit whitelist check
 	for _, allowed := range s.allowedOrigins {
 		allowed = strings.TrimSpace(allowed)
 		if allowed == "" {
@@ -165,18 +220,53 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 			return true
 		}
 		if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
-			if strings.EqualFold(parsedAllowed.Host, u.Host) {
+			if parsedAllowed.Scheme != "" && !strings.EqualFold(parsedAllowed.Scheme, u.Scheme) {
+				continue
+			}
+			if isHostMatching(u.Host, u.Scheme, parsedAllowed.Host) {
 				return true
 			}
+		} else if isHostMatching(u.Host, u.Scheme, allowed) {
+			return true
 		}
 	}
 
-	// 3. In non-production (dev/testing), allow localhost and 127.0.0.1 origins
+	// 2. In non-production (dev/testing), allow localhost and 127.0.0.1 origins
 	if !s.isProd {
 		hostOnly := strings.Split(u.Host, ":")[0]
 		if hostOnly == "localhost" || hostOnly == "127.0.0.1" || hostOnly == "0.0.0.0" || strings.HasSuffix(hostOnly, ".local") {
 			return true
 		}
+	}
+
+	// 3. Same-host check (origin matches Host or trusted X-Forwarded-Host)
+	// Never blindly trust client-supplied X-Forwarded-Host: only trust it if it matches
+	// the configured server host or explicit allowed origins.
+	var trustedHost string
+	if s.serverHost != "" {
+		if isHostMatching(r.Host, "", s.serverHost) || s.isAllowedHost(r.Host) {
+			trustedHost = s.serverHost
+		}
+		if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+			if isHostMatching(fwdHost, "", s.serverHost) {
+				trustedHost = s.serverHost
+			} else if s.isAllowedHost(fwdHost) {
+				trustedHost = fwdHost
+			}
+		}
+	} else {
+		trustedHost = r.Host
+		if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+			if isHostMatching(fwdHost, "", r.Host) {
+				trustedHost = fwdHost
+			} else if s.isAllowedHost(fwdHost) {
+				trustedHost = fwdHost
+			}
+		}
+	}
+
+	if trustedHost != "" && isHostMatching(u.Host, u.Scheme, trustedHost) {
+		return true
 	}
 
 	return false

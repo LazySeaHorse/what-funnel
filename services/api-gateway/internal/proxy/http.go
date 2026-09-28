@@ -17,6 +17,7 @@ func IsInternalHeader(key string) bool {
 		lower == "x-account-id" ||
 		lower == "x-user-id" ||
 		lower == "x-user-role" ||
+		lower == "x-forwarded-host" ||
 		strings.HasPrefix(lower, "x-internal-")
 }
 
@@ -39,7 +40,7 @@ func HTTP(upstream *url.URL, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		// Forward headers (excluding internal identity/token headers)
+		// Forward headers (excluding internal identity/token headers and client-spoofed proxy headers)
 		for key, vals := range r.Header {
 			if IsInternalHeader(key) {
 				continue
@@ -47,6 +48,9 @@ func HTTP(upstream *url.URL, logger *slog.Logger) http.Handler {
 			for _, v := range vals {
 				req.Header.Add(key, v)
 			}
+		}
+		if r.Host != "" {
+			req.Header.Set("X-Forwarded-Host", r.Host)
 		}
 		req.Header.Set("X-Forwarded-For", r.RemoteAddr)
 		req.Header.Set("X-Real-IP", r.RemoteAddr)

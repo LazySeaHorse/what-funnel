@@ -61,6 +61,10 @@ func WebSocket(upstreamURL *url.URL, logger *slog.Logger) http.Handler {
 				reqStr += fmt.Sprintf("%s: %s\r\n", k, v)
 			}
 		}
+		if r.Host != "" {
+			reqStr += fmt.Sprintf("X-Forwarded-Host: %s\r\n", r.Host)
+		}
+		reqStr += fmt.Sprintf("X-Forwarded-For: %s\r\n", r.RemoteAddr)
 		reqStr += "\r\n"
 
 		_, err = upstreamConn.Write([]byte(reqStr))
