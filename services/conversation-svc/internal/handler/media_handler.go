@@ -76,12 +76,15 @@ func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, accou
 		return
 	}
 	defer content.Reader.Close()
-	w.Header().Set("Content-Type", content.MIMEType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, max-age=300")
-	if content.Filename != "" {
-		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": content.Filename}))
+	mimeType := strings.TrimSpace(content.MIMEType)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
 	}
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Content-Disposition", service.MediaContentDisposition(mimeType, content.Filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, content.Reader)
 }
@@ -105,10 +108,17 @@ func NewInternalMediaHandler(svc *service.Service, secret string) http.Handler {
 			return
 		}
 		defer content.Reader.Close()
-		w.Header().Set("Content-Type", content.MIMEType)
+		mimeType := strings.TrimSpace(content.MIMEType)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", mimeType)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 		if content.Filename != "" {
 			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": content.Filename}))
+		} else {
+			w.Header().Set("Content-Disposition", "attachment")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.Copy(w, content.Reader)

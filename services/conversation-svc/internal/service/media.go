@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,52 @@ type MediaObject struct {
 type MediaContent struct {
 	MediaObject
 	Reader io.ReadCloser
+}
+
+// SafeInlineMIMETypes contains MIME types that can safely be rendered inline in browsers
+// without risk of script execution (Stored XSS). Active or dangerous content types such as
+// image/svg+xml, text/html, text/xml, application/pdf, etc. are excluded.
+var SafeInlineMIMETypes = map[string]struct{}{
+	"image/jpeg":  {},
+	"image/png":   {},
+	"image/webp":  {},
+	"image/gif":   {},
+	"audio/ogg":   {},
+	"audio/mpeg":  {},
+	"audio/mp4":   {},
+	"audio/wav":   {},
+	"audio/webm":  {},
+	"audio/aac":   {},
+	"audio/flac":  {},
+	"audio/x-m4a": {},
+	"video/mp4":   {},
+	"video/webm":  {},
+	"video/ogg":   {},
+}
+
+// IsSafeInlineMIMEType reports whether rawMIME is safe to serve with Content-Disposition: inline.
+func IsSafeInlineMIMEType(rawMIME string) bool {
+	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(rawMIME))
+	if err != nil {
+		return false
+	}
+	_, ok := SafeInlineMIMETypes[strings.ToLower(mediaType)]
+	return ok
+}
+
+// MediaContentDisposition returns the appropriate Content-Disposition header value
+// for a given media MIME type and filename. Dangerous or unknown types always receive
+// "attachment", while safe raster images and audio/video receive "inline".
+func MediaContentDisposition(rawMIME, filename string) string {
+	disposition := "attachment"
+	if IsSafeInlineMIMEType(rawMIME) {
+		disposition = "inline"
+	}
+	filename = filepath.Base(strings.TrimSpace(filename))
+	if filename != "" && filename != "." {
+		return mime.FormatMediaType(disposition, map[string]string{"filename": filename})
+	}
+	return disposition
 }
 
 // ConfigureMediaStore sets the backing media store (disk, S3/MinIO, etc.).
@@ -122,6 +169,9 @@ func (s *MediaService) SaveOutboundMedia(
 	}
 	if strings.TrimSpace(mimeType) == "" || mimeType == "application/octet-stream" {
 		mimeType = http.DetectContentType(data)
+	}
+	if parsed, _, err := mime.ParseMediaType(mimeType); err == nil {
+		mimeType = parsed
 	}
 	filename = filepath.Base(strings.TrimSpace(filename))
 	if filename == "." {
@@ -222,6 +272,12 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 	}
 	if downloaded.MIMEType != "" {
 		media.MIMEType = downloaded.MIMEType
+	}
+	if strings.TrimSpace(media.MIMEType) == "" || media.MIMEType == "application/octet-stream" {
+		media.MIMEType = http.DetectContentType(downloaded.Data)
+	}
+	if parsed, _, err := mime.ParseMediaType(media.MIMEType); err == nil {
+		media.MIMEType = parsed
 	}
 	if downloaded.Filename != "" {
 		media.Filename = filepath.Base(downloaded.Filename)

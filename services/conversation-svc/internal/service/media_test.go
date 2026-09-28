@@ -132,3 +132,139 @@ func TestMediaServiceWithCustomMediaStore(t *testing.T) {
 		t.Fatalf("got data %q, want %q", readData, content)
 	}
 }
+
+func TestIsSafeInlineMIMEType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mimeType string
+		wantSafe bool
+	}{
+		// Safe raster images
+		{"image/jpeg", true},
+		{"image/png", true},
+		{"image/webp", true},
+		{"image/gif", true},
+		// Safe audio
+		{"audio/ogg", true},
+		{"audio/mpeg", true},
+		{"audio/mp4", true},
+		{"audio/wav", true},
+		{"audio/webm", true},
+		{"audio/aac", true},
+		{"audio/flac", true},
+		{"audio/x-m4a", true},
+		// Safe video
+		{"video/mp4", true},
+		{"video/webm", true},
+		{"video/ogg", true},
+		// Case insensitivity & media parameters
+		{"IMAGE/PNG", true},
+		{"image/jpeg; charset=utf-8", true},
+		{"video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"", true},
+
+		// Dangerous active / executable / scriptable types (Stored XSS risks)
+		{"image/svg+xml", false},
+		{"image/svg+xml; charset=utf-8", false},
+		{"image/svg", false},
+		{"text/html", false},
+		{"text/html; charset=utf-8", false},
+		{"application/xhtml+xml", false},
+		{"text/xml", false},
+		{"application/xml", false},
+		{"application/pdf", false},
+		{"application/javascript", false},
+		{"text/javascript", false},
+		{"text/plain", false},
+		{"application/octet-stream", false},
+		{"application/x-shockwave-flash", false},
+
+		// Empty, malformed, or unknown
+		{"", false},
+		{"   ", false},
+		{"unknown/type", false},
+		{"invalid;;;type", false},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.mimeType, func(t *testing.T) {
+			t.Parallel()
+			got := IsSafeInlineMIMEType(tc.mimeType)
+			if got != tc.wantSafe {
+				t.Errorf("IsSafeInlineMIMEType(%q) = %v, want %v", tc.mimeType, got, tc.wantSafe)
+			}
+		})
+	}
+}
+
+func TestMediaContentDisposition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		mimeType        string
+		filename        string
+		wantDisposition string
+	}{
+		{
+			name:            "safe raster image with filename",
+			mimeType:        "image/png",
+			filename:        "photo.png",
+			wantDisposition: "inline; filename=photo.png",
+		},
+		{
+			name:            "safe raster image without filename",
+			mimeType:        "image/jpeg",
+			filename:        "",
+			wantDisposition: "inline",
+		},
+		{
+			name:            "dangerous SVG with filename must be attachment",
+			mimeType:        "image/svg+xml",
+			filename:        "exploit.svg",
+			wantDisposition: "attachment; filename=exploit.svg",
+		},
+		{
+			name:            "dangerous SVG without filename must be attachment",
+			mimeType:        "image/svg+xml",
+			filename:        "",
+			wantDisposition: "attachment",
+		},
+		{
+			name:            "dangerous HTML with filename must be attachment",
+			mimeType:        "text/html",
+			filename:        "index.html",
+			wantDisposition: "attachment; filename=index.html",
+		},
+		{
+			name:            "dangerous PDF with filename must be attachment",
+			mimeType:        "application/pdf",
+			filename:        "report.pdf",
+			wantDisposition: "attachment; filename=report.pdf",
+		},
+		{
+			name:            "unknown binary with filename must be attachment",
+			mimeType:        "application/octet-stream",
+			filename:        "data.bin",
+			wantDisposition: "attachment; filename=data.bin",
+		},
+		{
+			name:            "path traversal in filename is sanitized to base name",
+			mimeType:        "image/svg+xml",
+			filename:        "../../../../malicious.svg",
+			wantDisposition: "attachment; filename=malicious.svg",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := MediaContentDisposition(tc.mimeType, tc.filename)
+			if got != tc.wantDisposition {
+				t.Errorf("MediaContentDisposition(%q, %q) = %q, want %q", tc.mimeType, tc.filename, got, tc.wantDisposition)
+			}
+		})
+	}
+}
