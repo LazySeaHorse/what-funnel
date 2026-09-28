@@ -139,6 +139,13 @@ func run(logger *slog.Logger) error {
 			}
 			if err := svc.IngestProviderEvent(ctx, event); err != nil {
 				if service.IsTerminalIngestError(err) {
+					if errors.Is(err, service.ErrChannelNotFound) {
+						if evictErr := svc.EvictOrphanedChannel(groupCtx, event.Provider, event.ChannelID); evictErr != nil {
+							logger.Warn("failed to evict orphaned adapter channel", "channel_id", event.ChannelID, "error", evictErr)
+						} else {
+							logger.Info("evicted orphaned adapter channel", "channel_id", event.ChannelID)
+						}
+					}
 					logger.Warn("discarding provider event due to terminal error",
 						"event_id", event.ID,
 						"channel_id", event.ChannelID,
@@ -154,6 +161,37 @@ func run(logger *slog.Logger) error {
 			return nil
 		})
 		return consumerResult(groupCtx, "adapter.events", err)
+	})
+	group.Go(func() error {
+		logger.Info("starting adapter reconciliation routine")
+		providers := []messaging.Provider{messaging.ProviderWhatsApp, messaging.ProviderTelegram}
+		reconcile := func() {
+			for _, provider := range providers {
+				evicted, err := svc.ReconcileAdapterConnections(groupCtx, provider)
+				if err != nil {
+					if groupCtx.Err() != nil {
+						return
+					}
+					logger.Warn("failed to reconcile adapter connections", "provider", provider, "error", err)
+				} else if evicted > 0 {
+					logger.Info("reconciled adapter connections", "provider", provider, "evicted", evicted)
+				}
+			}
+		}
+
+		reconcile()
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-groupCtx.Done():
+				return nil
+			case <-ticker.C:
+				reconcile()
+			}
+		}
 	})
 	group.Go(func() error {
 		logger.Info("starting provider command outbox")

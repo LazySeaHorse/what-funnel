@@ -101,3 +101,94 @@ func TestNew(t *testing.T) {
 		})
 	}
 }
+
+func TestClientList(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success with snapshots", func(t *testing.T) {
+		t.Parallel()
+		client, err := New("http://whatsapp-adapter:8085", "shared-secret")
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		client.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if request.Header.Get("Authorization") != "Bearer shared-secret" {
+				t.Errorf("authorization = %q, want Bearer shared-secret", request.Header.Get("Authorization"))
+			}
+			if request.Method != http.MethodGet {
+				t.Errorf("method = %q, want GET", request.Method)
+			}
+			if request.URL.Path != "/v1/connections" {
+				t.Errorf("path = %q, want /v1/connections", request.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(
+					`[{"channel_id":"ch-1","state":"connected","remote_account_id":"acc-1"},{"channel_id":"ch-2","state":"awaiting_scan"}]`,
+				)),
+			}, nil
+		})
+
+		snapshots, err := client.List(context.Background())
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		if len(snapshots) != 2 {
+			t.Fatalf("len(snapshots) = %d, want 2", len(snapshots))
+		}
+		if snapshots[0].ChannelID != "ch-1" || snapshots[0].State != messaging.ConnectionConnected || snapshots[0].RemoteAccountID != "acc-1" {
+			t.Errorf("snapshots[0] = %+v", snapshots[0])
+		}
+		if snapshots[1].ChannelID != "ch-2" || snapshots[1].State != messaging.ConnectionAwaitingScan {
+			t.Errorf("snapshots[1] = %+v", snapshots[1])
+		}
+	})
+
+	t.Run("success with empty array or null", func(t *testing.T) {
+		t.Parallel()
+		client, err := New("http://whatsapp-adapter:8085", "shared-secret")
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		client.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`null`)),
+			}, nil
+		})
+
+		snapshots, err := client.List(context.Background())
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		if snapshots == nil {
+			t.Fatal("List() returned nil, want non-nil empty slice")
+		}
+		if len(snapshots) != 0 {
+			t.Errorf("len(snapshots) = %d, want 0", len(snapshots))
+		}
+	})
+
+	t.Run("non-200 error", func(t *testing.T) {
+		t.Parallel()
+		client, err := New("http://whatsapp-adapter:8085", "shared-secret")
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		client.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"error":"internal adapter error"}`)),
+			}, nil
+		})
+
+		_, err = client.List(context.Background())
+		if err == nil {
+			t.Fatal("List() error = nil, want error on status 500")
+		}
+	})
+}
+

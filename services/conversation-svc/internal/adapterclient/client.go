@@ -19,6 +19,8 @@ import (
 
 const maxResponseBytes = 1024 * 1024
 
+var _ service.AdapterControl = (*Client)(nil)
+
 type Client struct {
 	baseURL string
 	secret  string
@@ -90,6 +92,17 @@ func (c *Client) Logout(ctx context.Context, channelID string) error {
 		return service.ErrAdapterConnectionNotFound
 	}
 	return err
+}
+
+func (c *Client) List(ctx context.Context) ([]service.AdapterSnapshot, error) {
+	var snapshots []service.AdapterSnapshot
+	if err := c.request(ctx, http.MethodGet, "/v1/connections", nil, &snapshots); err != nil {
+		return nil, err
+	}
+	if snapshots == nil {
+		return []service.AdapterSnapshot{}, nil
+	}
+	return snapshots, nil
 }
 
 var errAdapterNotFound = errors.New("adapter resource not found")

@@ -35,6 +35,7 @@ type AdapterControl interface {
 	Retry(context.Context, string, string) (AdapterSnapshot, error)
 	Snapshot(context.Context, string) (AdapterSnapshot, error)
 	Logout(context.Context, string) error
+	List(context.Context) ([]AdapterSnapshot, error)
 }
 
 type ConnectionService struct {
@@ -124,6 +125,10 @@ func (s *ConnectionService) StartProviderConnection(
 
 	snapshot, err := control.Create(ctx, connection.ChannelID.String(), credential)
 	if err != nil {
+		_, _ = s.ReconcileAdapterConnections(ctx, provider)
+		snapshot, err = control.Create(ctx, connection.ChannelID.String(), credential)
+	}
+	if err != nil {
 		detail := "Could not connect this provider account. Check the credentials and try again."
 		_ = s.updateProviderConnection(ctx, connection.ChannelID, messaging.ConnectionError, detail, "")
 		connection.State = messaging.ConnectionError
@@ -135,6 +140,15 @@ func (s *ConnectionService) StartProviderConnection(
 		return nil, err
 	}
 	return connection, nil
+}
+
+func (s *ConnectionService) CreateChannelConnection(
+	ctx context.Context,
+	accountID uuid.UUID,
+	provider messaging.Provider,
+	label, credential string,
+) (*types.ProviderConnection, error) {
+	return s.StartProviderConnection(ctx, accountID, provider, label, credential)
 }
 
 func (s *ConnectionService) RetryProviderConnection(
@@ -267,6 +281,44 @@ func (s *ConnectionService) DeleteProviderConnection(
 		return fmt.Errorf("commit provider connection deletion: %w", err)
 	}
 	return nil
+}
+
+func (s *ConnectionService) EvictOrphanedChannel(ctx context.Context, provider messaging.Provider, channelID string) error {
+	control, err := s.adapterControl(provider)
+	if err != nil {
+		return err
+	}
+	return control.Logout(ctx, channelID)
+}
+
+func (s *ConnectionService) ReconcileAdapterConnections(ctx context.Context, provider messaging.Provider) (int, error) {
+	control, err := s.adapterControl(provider)
+	if err != nil {
+		return 0, err
+	}
+	connections, err := control.List(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list adapter connections: %w", err)
+	}
+	evictedCount := 0
+	for _, conn := range connections {
+		channelUUID, err := uuid.Parse(conn.ChannelID)
+		if err != nil {
+			_ = control.Logout(ctx, conn.ChannelID)
+			evictedCount++
+			continue
+		}
+		var exists bool
+		err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1 AND provider = $2)`, channelUUID, provider).Scan(&exists)
+		if err != nil {
+			return evictedCount, fmt.Errorf("query channel existence: %w", err)
+		}
+		if !exists {
+			_ = control.Logout(ctx, conn.ChannelID)
+			evictedCount++
+		}
+	}
+	return evictedCount, nil
 }
 
 func isProviderConnectionLabelConflict(err error) bool {
