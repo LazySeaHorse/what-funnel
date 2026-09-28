@@ -47,7 +47,6 @@
 		<KnowledgeComposer
 			bind:value={rawText}
 			title="Add business knowledge"
-			badge="AI-powered extraction"
 			placeholder="Paste raw business info, services, pricing, business hours, cancellation rules, FAQ answers, or message templates..."
 			showTemplates={true}
 			showSubmitButton={false}

@@ -18,8 +18,8 @@
 	let {
 		value = $bindable(''),
 		title = 'Add business knowledge',
-		badge = 'AI-powered extraction',
-		placeholder = 'Paste business information, pricing, business hours, and policies. The system extracts concepts and answer patterns.',
+		badge = '',
+		placeholder = 'Paste raw website copy, FAQs, or service policies. AI structures it into searchable concepts and instant replies.',
 		busy = false,
 		phase = 'idle',
 		result = null,
@@ -53,19 +53,10 @@
 </script>
 
 <div class="bg-gradient-to-b from-slate-50/80 to-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs transition-all w-full space-y-3">
-	<!-- Header with Title, Badge, and Guidance -->
+	<!-- Header with Title -->
 	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
 		<div>
-			<div class="flex items-center gap-2">
-				<h2 class="text-xs font-semibold text-slate-800 uppercase tracking-wider">{title}</h2>
-				<div class="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200/60 px-2 py-0.5 rounded-full">
-					<SparklesIcon class="w-3 h-3 text-blue-600" />
-					<span>{badge}</span>
-				</div>
-			</div>
-			<p class="text-xs text-slate-500 mt-0.5">
-				Paste raw website copy, FAQs, or service policies. AI structures it into searchable concepts and instant replies.
-			</p>
+			<h2 class="text-sm font-medium text-slate-800">{title}</h2>
 		</div>
 	</div>
 
