@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,6 +97,32 @@ func TestConfig_EnvAndCookieSecure(t *testing.T) {
 		assert.Equal(t, "custom-secret", cfg.MediaS3SecretKey)
 		assert.True(t, cfg.MediaS3UseSSL)
 		assert.Equal(t, "eu-central-1", cfg.MediaS3Region)
+	})
+
+	t.Run("Default SessionPurgeInterval is 1 hour", func(t *testing.T) {
+		os.Unsetenv("SESSION_PURGE_INTERVAL")
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, time.Hour, cfg.SessionPurgeInterval)
+	})
+
+	t.Run("Custom SessionPurgeInterval parses correctly", func(t *testing.T) {
+		t.Setenv("SESSION_PURGE_INTERVAL", "30m")
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, 30*time.Minute, cfg.SessionPurgeInterval)
+	})
+
+	t.Run("Invalid SessionPurgeInterval falls back to 1 hour", func(t *testing.T) {
+		t.Setenv("SESSION_PURGE_INTERVAL", "invalid-duration")
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, time.Hour, cfg.SessionPurgeInterval)
+
+		t.Setenv("SESSION_PURGE_INTERVAL", "-10m")
+		cfg2, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, time.Hour, cfg2.SessionPurgeInterval)
 	})
 }
 

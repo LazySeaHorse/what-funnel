@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Config holds all environment-sourced configuration.
 type Config struct {
-	DatabaseURL   string
-	SessionSecret string
+	DatabaseURL          string
+	SessionSecret        string
+	SessionPurgeInterval time.Duration
 	// EncryptionKey is a 32-byte hex-encoded AES-256 key for sensitive fields.
 	// In production, source this from a secrets manager.
 	EncryptionKey string
@@ -81,15 +83,23 @@ func Load() (*Config, error) {
 		}
 	}
 
+	sessionPurgeInterval := time.Hour
+	if purgeStr := os.Getenv("SESSION_PURGE_INTERVAL"); purgeStr != "" {
+		if d, err := time.ParseDuration(purgeStr); err == nil && d > 0 {
+			sessionPurgeInterval = d
+		}
+	}
+
 	cfg := &Config{
-		DatabaseURL:         os.Getenv("DATABASE_URL"),
-		SessionSecret:       os.Getenv("SESSION_SECRET"),
-		EncryptionKey:       os.Getenv("ENCRYPTION_KEY"),
-		RedisURL:            os.Getenv("REDIS_URL"),
-		Port:                os.Getenv("PORT"),
-		LogLevel:            os.Getenv("LOG_LEVEL"),
-		Env:                 env,
-		CookieSecure:        cookieSecure,
+		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		SessionSecret:        os.Getenv("SESSION_SECRET"),
+		SessionPurgeInterval: sessionPurgeInterval,
+		EncryptionKey:        os.Getenv("ENCRYPTION_KEY"),
+		RedisURL:             os.Getenv("REDIS_URL"),
+		Port:                 os.Getenv("PORT"),
+		LogLevel:             os.Getenv("LOG_LEVEL"),
+		Env:                  env,
+		CookieSecure:         cookieSecure,
 		AllowedOrigins:      allowedOrigins,
 		WhatsAppAdapterURL:  os.Getenv("WHATSAPP_ADAPTER_URL"),
 		TelegramAdapterURL:  os.Getenv("TELEGRAM_ADAPTER_URL"),
