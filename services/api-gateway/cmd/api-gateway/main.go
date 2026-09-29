@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	commonmw "github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	gwmiddleware "github.com/whatfunnel/whatfunnel/services/api-gateway/internal/middleware"
@@ -167,7 +168,7 @@ func newRouter(
 	// Internal inter-service endpoints and simulation test harnesses are not mounted
 	// on the public gateway by default to prevent unauthorized external access.
 	// They are mounted only when ENABLE_SIMULATION_ROUTES=true is explicitly set.
-	if os.Getenv("ENABLE_SIMULATION_ROUTES") == "true" {
+	if config.SimulationRoutesEnabled() {
 		r.PathPrefix("/internal/conversations").Handler(proxy.HTTP(conversationBase, logger))
 		r.PathPrefix("/simulate").Handler(proxy.HTTP(conversationBase, logger))
 		r.Handle("/simulate-inbound", proxy.HTTP(conversationBase, logger))
