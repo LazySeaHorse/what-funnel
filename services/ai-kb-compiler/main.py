@@ -4,15 +4,14 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 
 import kb_service
-from audit import write_audit_log
-from auth import get_db, verify_internal_auth
+from auth import get_actor_user_id, get_db
 from config import config
 from db import ScopedDB, create_db_pool
 from ingestions import run_worker, stop_worker
-from llm import get_ai_config, provider_client
+from llm import provider_client
 from mining import run_mining
 from scheduler import start_scheduler
 from schemas import (
@@ -26,7 +25,6 @@ from schemas import (
     UpdateConceptRequest,
     UpdatePatternRequest,
 )
-from slug import get_unique_slug, slugify
 
 # Set up logging
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
@@ -92,9 +90,9 @@ async def healthz():
 async def create_ingestion(
     req: CreateIngestionRequest,
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
-    return await kb_service.create_ingestion(db, req.raw_text, x_user_id)
+    return await kb_service.create_ingestion(db, req.raw_text, actor_user_id)
 
 
 @app.get("/internal/kb/ingestions/latest")
@@ -125,15 +123,8 @@ async def publish_ingestion(
 async def compile_paste(
     req: CompilePasteRequest,
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
-    actor_user_id = None
-    if x_user_id:
-        try:
-            actor_user_id = uuid.UUID(x_user_id)
-        except ValueError:
-            pass
-
     return await kb_service.compile_paste(
         db=db,
         raw_text=req.raw_text,
@@ -155,15 +146,8 @@ async def list_concepts(db: ScopedDB = Depends(get_db)):
 @app.delete("/internal/kb/purge")
 async def purge_knowledge_base(
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
-    actor_user_id = None
-    if x_user_id:
-        try:
-            actor_user_id = uuid.UUID(x_user_id)
-        except ValueError:
-            pass
-
     return await kb_service.purge_knowledge_base(db, actor_user_id)
 
 
@@ -171,19 +155,12 @@ async def purge_knowledge_base(
 async def delete_concept(
     concept_id: str,
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
     try:
         concept_uuid = uuid.UUID(concept_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid concept ID format")
-
-    actor_user_id = None
-    if x_user_id:
-        try:
-            actor_user_id = uuid.UUID(x_user_id)
-        except ValueError:
-            pass
 
     await kb_service.delete_concept(db, concept_uuid, actor_user_id)
     return {"success": True}
@@ -194,19 +171,12 @@ async def update_concept(
     concept_id: str,
     req: UpdateConceptRequest,
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
     try:
         concept_uuid = uuid.UUID(concept_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid concept ID format")
-
-    actor_user_id = None
-    if x_user_id:
-        try:
-            actor_user_id = uuid.UUID(x_user_id)
-        except ValueError:
-            pass
 
     updated = await kb_service.update_concept(
         db=db,
@@ -298,19 +268,12 @@ async def list_patterns(db: ScopedDB = Depends(get_db)):
 async def delete_pattern(
     pattern_id: str,
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
     try:
         pattern_uuid = uuid.UUID(pattern_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid pattern ID format")
-
-    actor_user_id = None
-    if x_user_id:
-        try:
-            actor_user_id = uuid.UUID(x_user_id)
-        except ValueError:
-            pass
 
     await kb_service.delete_pattern(db, pattern_uuid, actor_user_id)
     return {"success": True}
@@ -321,19 +284,12 @@ async def update_pattern(
     pattern_id: str,
     req: UpdatePatternRequest,
     db: ScopedDB = Depends(get_db),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    actor_user_id: Optional[uuid.UUID] = Depends(get_actor_user_id),
 ):
     try:
         pattern_uuid = uuid.UUID(pattern_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid pattern ID format")
-
-    actor_user_id = None
-    if x_user_id:
-        try:
-            actor_user_id = uuid.UUID(x_user_id)
-        except ValueError:
-            pass
 
     updated = await kb_service.update_pattern(
         db=db,

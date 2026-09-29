@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import uuid
@@ -5,21 +6,26 @@ from datetime import datetime
 from typing import Any, Callable, List, Optional
 
 from fastapi import HTTPException
+from pydantic import BaseModel, ValidationError
 
 from audit import write_audit_log
 from db import ScopedDB
 from ingestions import compilation_prompt
 from llm import get_ai_config, provider_client
+from phrases import normalize_trigger_phrases
 from redis_client import publish_suggestion_created
 from schemas import (
     CompilePasteResponse,
     CompilePasteSchema,
     PublishIngestionItem,
     PublishIngestionPattern,
+    SuggestionConceptPayload,
+    SuggestionEditedAnswerPayload,
+    SuggestionPatternPayload,
     UpdateConceptRequest,
     UpdatePatternRequest,
 )
-from slug import get_unique_slug, slugify
+from slug import concept_base_slug, get_unique_slug, lock_concept_slugs
 
 logger = logging.getLogger("ai-kb-compiler")
 
@@ -45,24 +51,19 @@ def ingestion_payload(row, concepts=(), patterns=()) -> dict[str, Any]:
 async def create_ingestion(
     db: ScopedDB,
     raw_text: str,
-    x_user_id: Optional[str] = None
+    actor_user_id: Optional[uuid.UUID] = None,
 ) -> dict[str, Any]:
     cleaned_text = raw_text.strip()
     if not cleaned_text:
         raise HTTPException(status_code=422, detail="raw_text must not be blank")
 
     requested_by = None
-    if x_user_id:
-        try:
-            candidate = uuid.UUID(x_user_id)
-            if await db.fetchval(
-                "SELECT 1 FROM users WHERE id = $1 AND account_id = $2",
-                candidate,
-                db.account_id,
-            ):
-                requested_by = candidate
-        except ValueError:
-            pass
+    if actor_user_id and await db.fetchval(
+        "SELECT 1 FROM users WHERE id = $1 AND account_id = $2",
+        actor_user_id,
+        db.account_id,
+    ):
+        requested_by = actor_user_id
 
     row = await db.fetchrow(
         """
@@ -218,14 +219,7 @@ async def publish_ingestion(
                     ingestion_id,
                 )
             for pattern in patterns:
-                triggers = list(dict.fromkeys(
-                    phrase.lower().strip()
-                    for phrase in pattern.trigger_phrases
-                    if phrase.strip()
-                ))
-                canonical_trigger = pattern.canonical_question.lower().strip()
-                if canonical_trigger not in triggers:
-                    triggers.append(canonical_trigger)
+                triggers = normalize_trigger_phrases(pattern.trigger_phrases, pattern.canonical_question)
                 await conn.execute(
                     """
                     UPDATE kb_ingestion_patterns
@@ -278,128 +272,107 @@ async def compile_paste(
         return CompilePasteResponse(added_concepts=[], added_patterns=[])
 
     if len(concepts) + len(patterns) <= 3:
+        # Provider calls happen before the transaction so no locks are held over the network.
+        concept_vectors = await asyncio.gather(*[
+            client.embed(config.embedding_model, f"{c['title']}\n{c['body_text']}") for c in concepts
+        ])
+        pattern_vectors = await asyncio.gather(*[
+            client.embed(config.embedding_model, p["canonical_question"].strip()) for p in patterns
+        ])
+
         added_concepts = []
         added_patterns = []
-        for c in concepts:
-            base_slug = slugify(c["title"]) or "concept"
-            unique_slug = await get_unique_slug(db, base_slug)
+        async with db.transaction() as tx:
+            await lock_concept_slugs(tx)
+            for c, vector in zip(concepts, concept_vectors):
+                unique_slug = await get_unique_slug(tx, concept_base_slug(c["title"]))
+                row = await tx.fetchrow(
+                    """
+                    INSERT INTO kb_concepts (account_id, slug, type, title, tags, body_text, embedding, source)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::vector, 'owner_pasted')
+                    RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
+                    """,
+                    tx.account_id,
+                    unique_slug,
+                    c["type"],
+                    c["title"],
+                    c["tags"],
+                    c["body_text"],
+                    str(vector),
+                )
+                record = dict(row)
+                added_concepts.append(record)
+                await write_audit_log(
+                    db=tx,
+                    actor_user_id=actor_user_id,
+                    action="kb_concept.created",
+                    target_type="kb_concept",
+                    target_id=record["id"],
+                    metadata={"title": c["title"], "slug": unique_slug, "source": "owner_pasted"},
+                )
 
-            text_to_embed = f"{c['title']}\n{c['body_text']}"
-            vector = await client.embed(config.embedding_model, text_to_embed)
-
-            row = await db.fetchrow(
-                """
-                INSERT INTO kb_concepts (account_id, slug, type, title, tags, body_text, embedding, source)
-                VALUES ($1, $2, $3, $4, $5, $6, $7::vector, 'owner_pasted')
-                RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
-                """,
-                db.account_id,
-                unique_slug,
-                c["type"],
-                c["title"],
-                c["tags"],
-                c["body_text"],
-                str(vector),
-            )
-
-            record = dict(row)
-            added_concepts.append(record)
-
-            await write_audit_log(
-                db=db,
-                actor_user_id=actor_user_id,
-                action="kb_concept.created",
-                target_type="kb_concept",
-                target_id=record["id"],
-                metadata={"title": c["title"], "slug": unique_slug, "source": "owner_pasted"},
-            )
-
-        for p in patterns:
-            canonical_question = p["canonical_question"].strip()
-            answer_text = p["answer_text"].strip()
-            trigger_phrases = list(dict.fromkeys(
-                phrase.lower().strip()
-                for phrase in p.get("trigger_phrases", [])
-                if phrase.strip()
-            ))
-            canonical_trigger = canonical_question.lower()
-            if canonical_trigger not in trigger_phrases:
-                trigger_phrases.append(canonical_trigger)
-            vector = await client.embed(config.embedding_model, canonical_question)
-            row = await db.fetchrow(
-                """
-                INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
-                VALUES ($1, $2, $3, $4, $5::vector)
-                RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
-                """,
-                db.account_id,
-                canonical_question,
-                answer_text,
-                trigger_phrases,
-                str(vector),
-            )
-            record = dict(row)
-            added_patterns.append(record)
-            await write_audit_log(
-                db=db,
-                actor_user_id=actor_user_id,
-                action="pattern.created",
-                target_type="pattern",
-                target_id=record["id"],
-                metadata={"canonical_question": canonical_question, "source": "owner_pasted"},
-            )
+            for p, vector in zip(patterns, pattern_vectors):
+                canonical_question = p["canonical_question"].strip()
+                answer_text = p["answer_text"].strip()
+                trigger_phrases = normalize_trigger_phrases(p.get("trigger_phrases", []), canonical_question)
+                row = await tx.fetchrow(
+                    """
+                    INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
+                    VALUES ($1, $2, $3, $4, $5::vector)
+                    RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
+                    """,
+                    tx.account_id,
+                    canonical_question,
+                    answer_text,
+                    trigger_phrases,
+                    str(vector),
+                )
+                record = dict(row)
+                added_patterns.append(record)
+                await write_audit_log(
+                    db=tx,
+                    actor_user_id=actor_user_id,
+                    action="pattern.created",
+                    target_type="pattern",
+                    target_id=record["id"],
+                    metadata={"canonical_question": canonical_question, "source": "owner_pasted"},
+                )
 
         return CompilePasteResponse(added_concepts=added_concepts, added_patterns=added_patterns)
 
-    else:
-        # More than 3 concepts/patterns -> suggestion queue
-        suggestion_ids = []
-        for c in concepts:
+    # More than 3 concepts/patterns -> suggestion queue (all-or-nothing)
+    proposals = [("new_kb_concept", c, {"title": c["title"]}) for c in concepts] + [
+        ("new_pattern", p, {"canonical_question": p["canonical_question"]}) for p in patterns
+    ]
+    created: list[tuple[uuid.UUID, str, dict]] = []
+    async with db.transaction() as tx:
+        for sugg_type, payload, audit_extra in proposals:
             sugg_id = uuid.uuid4()
-            await db.execute(
+            await tx.execute(
                 """
                 INSERT INTO automation_suggestions (id, account_id, type, proposed_payload, confidence, status)
-                VALUES ($1, $2, 'new_kb_concept', $3, 1.0, 'pending')
+                VALUES ($1, $2, $3, $4, 1.0, 'pending')
                 """,
                 sugg_id,
-                db.account_id,
-                json.dumps(c),
+                tx.account_id,
+                sugg_type,
+                json.dumps(payload),
             )
-            suggestion_ids.append(str(sugg_id))
-            await publish_suggestion_created(db.account_id, sugg_id, "new_kb_concept", c)
-
             await write_audit_log(
-                db=db,
+                db=tx,
                 actor_user_id=actor_user_id,
                 action="automation_suggestion.created",
                 target_type="automation_suggestion",
                 target_id=sugg_id,
-                metadata={"type": "new_kb_concept", "title": c["title"]},
+                metadata={"type": sugg_type, **audit_extra},
             )
+            created.append((sugg_id, sugg_type, payload))
 
-        for p in patterns:
-            sugg_id = uuid.uuid4()
-            await db.execute(
-                """
-                INSERT INTO automation_suggestions (id, account_id, type, proposed_payload, confidence, status)
-                VALUES ($1, $2, 'new_pattern', $3, 1.0, 'pending')
-                """,
-                sugg_id,
-                db.account_id,
-                json.dumps(p),
-            )
-            suggestion_ids.append(str(sugg_id))
-            await publish_suggestion_created(db.account_id, sugg_id, "new_pattern", p)
-            await write_audit_log(
-                db=db,
-                actor_user_id=actor_user_id,
-                action="automation_suggestion.created",
-                target_type="automation_suggestion",
-                target_id=sugg_id,
-                metadata={"type": "new_pattern", "canonical_question": p["canonical_question"]},
-            )
+    # Notify only after the suggestions are committed.
+    for sugg_id, sugg_type, payload in created:
+        await publish_suggestion_created(db.account_id, sugg_id, sugg_type, payload)
 
-        return CompilePasteResponse(suggestion_ids=suggestion_ids)
+    return CompilePasteResponse(suggestion_ids=[str(sugg_id) for sugg_id, _, _ in created])
 
 
 # ===========================================================================
@@ -516,6 +489,23 @@ async def delete_concept(
     )
 
 
+async def _embed_or_fail(
+    db: ScopedDB, client_factory: Callable, text: str, what: str, entity_id: uuid.UUID
+) -> str:
+    """Embed `text` for a stored row. A failed embedding fails the request: silently keeping the
+    old vector would leave retrieval answering from stale content while reporting success."""
+    cfg = await get_ai_config(db)  # raises HTTPException(409/500) when no provider is configured
+    try:
+        vector = await client_factory(cfg).embed(cfg.embedding_model, text)
+    except Exception as e:
+        logger.error(f"Could not regenerate embedding for {what} {entity_id}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not regenerate the {what} embedding; nothing was changed. Try again.",
+        ) from e
+    return str(vector)
+
+
 async def update_concept(
     db: ScopedDB,
     concept_uuid: uuid.UUID,
@@ -535,18 +525,10 @@ async def update_concept(
     new_body = req.body_text if req.body_text is not None else row["body_text"]
     new_tags = req.tags if req.tags is not None else row["tags"]
 
-    vector_str = None
-    try:
-        cfg = await get_ai_config(db)
-        if cfg and cfg.embedding_model:
-            cli = client_factory(cfg)
-            text_to_embed = f"{new_title}\n{new_body}"
-            vector = await cli.embed(cfg.embedding_model, text_to_embed)
-            vector_str = str(vector)
-    except Exception as e:
-        logger.warning(f"Could not regenerate embedding for concept {concept_uuid}: {e}")
-
-    if vector_str:
+    if new_title != row["title"] or new_body != row["body_text"]:
+        vector_str = await _embed_or_fail(
+            db, client_factory, f"{new_title}\n{new_body}", "concept", concept_uuid
+        )
         updated = await db.fetchrow(
             """
             UPDATE kb_concepts
@@ -566,6 +548,8 @@ async def update_concept(
             """,
             new_title, new_type, new_body, new_tags, concept_uuid, db.account_id
         )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Concept not found")
 
     await write_audit_log(
         db=db,
@@ -639,20 +623,16 @@ async def update_pattern(
 
     new_question = req.canonical_question if req.canonical_question is not None else row["canonical_question"]
     new_answer = req.answer_text if req.answer_text is not None else row["answer_text"]
-    new_triggers = req.trigger_phrases if req.trigger_phrases is not None else row["trigger_phrases"]
+    new_triggers = (
+        normalize_trigger_phrases(req.trigger_phrases)
+        if req.trigger_phrases is not None
+        else row["trigger_phrases"]
+    )
 
-    vector_str = None
-    try:
-        cfg = await get_ai_config(db)
-        if cfg and cfg.embedding_model:
-            cli = client_factory(cfg)
-            text_to_embed = f"{new_question}\n{new_answer}"
-            vector = await cli.embed(cfg.embedding_model, text_to_embed)
-            vector_str = str(vector)
-    except Exception as e:
-        logger.warning(f"Could not regenerate embedding for pattern {pattern_uuid}: {e}")
-
-    if vector_str:
+    if new_question != row["canonical_question"] or new_answer != row["answer_text"]:
+        vector_str = await _embed_or_fail(
+            db, client_factory, f"{new_question}\n{new_answer}", "pattern", pattern_uuid
+        )
         updated = await db.fetchrow(
             """
             UPDATE patterns
@@ -672,6 +652,8 @@ async def update_pattern(
             """,
             new_question, new_answer, new_triggers, pattern_uuid, db.account_id
         )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Pattern not found")
 
     await write_audit_log(
         db=db,
@@ -703,6 +685,25 @@ async def list_suggestions(db: ScopedDB, status_filter: str = "pending") -> List
     return [dict(r) for r in rows]
 
 
+_SUGGESTION_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
+    "new_kb_concept": SuggestionConceptPayload,
+    "new_pattern": SuggestionPatternPayload,
+    "edited_answer": SuggestionEditedAnswerPayload,
+}
+
+
+def _validated_suggestion_payload(sugg_type: str, raw: Any) -> BaseModel:
+    model = _SUGGESTION_PAYLOAD_MODELS.get(sugg_type)
+    if model is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported suggestion type: {sugg_type}")
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=422, detail="Suggestion payload must be a JSON object")
+    try:
+        return model.model_validate(raw)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=json.loads(e.json(include_url=False, include_input=False)))
+
+
 async def approve_suggestion(
     db: ScopedDB,
     sugg_uuid: uuid.UUID,
@@ -711,7 +712,10 @@ async def approve_suggestion(
     client_factory: Callable = provider_client,
 ) -> None:
     row = await db.fetchrow(
-        "SELECT type, proposed_payload, status FROM automation_suggestions WHERE id = $1 AND account_id = $2",
+        """
+        SELECT type, proposed_payload, status, source_message_ids
+        FROM automation_suggestions WHERE id = $1 AND account_id = $2
+        """,
         sugg_uuid, db.account_id
     )
     if not row:
@@ -720,153 +724,142 @@ async def approve_suggestion(
         raise HTTPException(status_code=400, detail=f"Suggestion is already {row['status']}")
 
     proposed = row["proposed_payload"]
-    payload = edited_payload if edited_payload is not None else (
-        json.loads(proposed) if isinstance(proposed, str) else proposed
-    )
+    if edited_payload is not None:
+        raw_payload = edited_payload
+    else:
+        try:
+            raw_payload = json.loads(proposed) if isinstance(proposed, (str, bytes)) else proposed
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Stored suggestion payload is not valid JSON")
     sugg_type = row["type"]
+    payload = _validated_suggestion_payload(sugg_type, raw_payload)
+    # Suggestions mined from conversations reference their messages; pasted ones do not.
+    concept_source = "ai_compiled" if row["source_message_ids"] else "owner_pasted"
 
     config = await get_ai_config(db)
     client = client_factory(config)
 
+    # Everything that needs the network happens before the transaction.
+    vector = None
     if sugg_type == "new_kb_concept":
-        title = payload.get("title")
-        body_text = payload.get("body_text")
-        c_type = payload.get("type", "faq")
-        tags = payload.get("tags", [])
-
-        if not title or not body_text:
-            raise HTTPException(status_code=400, detail="Concept title and body_text are required")
-
-        base_slug = slugify(title) or "concept"
-        unique_slug = await get_unique_slug(db, base_slug)
-
-        text_to_embed = f"{title}\n{body_text}"
-        vector = await client.embed(config.embedding_model, text_to_embed)
-
-        concept_id = uuid.uuid4()
-        await db.execute(
-            """
-            INSERT INTO kb_concepts (id, account_id, slug, type, title, tags, body_text, embedding, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, 'owner_pasted')
-            """,
-            concept_id,
-            db.account_id,
-            unique_slug,
-            c_type,
-            title,
-            tags,
-            body_text,
-            str(vector),
-        )
-
-        await write_audit_log(
-            db=db,
-            actor_user_id=reviewed_by_uuid,
-            action="kb_concept.created",
-            target_type="kb_concept",
-            target_id=concept_id,
-            metadata={"title": title, "slug": unique_slug, "source": "ai_compiled"},
-        )
-
+        vector = await client.embed(config.embedding_model, f"{payload.title}\n{payload.body_text}")
     elif sugg_type == "new_pattern":
-        canonical_question = payload.get("canonical_question")
-        answer_text = payload.get("answer_text")
-        trigger_phrases = payload.get("trigger_phrases", [])
-
-        if not canonical_question or not answer_text:
-            raise HTTPException(status_code=400, detail="Pattern canonical_question and answer_text are required")
-
-        text_to_embed = f"{canonical_question}\n{answer_text}"
-        vector = await client.embed(config.embedding_model, text_to_embed)
-
-        pattern_id = uuid.uuid4()
-        await db.execute(
-            """
-            INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_text, embedding)
-            VALUES ($1, $2, $3, $4, $5, $6::vector)
-            """,
-            pattern_id,
-            db.account_id,
-            trigger_phrases,
-            canonical_question,
-            answer_text,
-            str(vector),
-        )
-
-        await write_audit_log(
-            db=db,
-            actor_user_id=reviewed_by_uuid,
-            action="pattern.created",
-            target_type="pattern",
-            target_id=pattern_id,
-            metadata={"canonical_question": canonical_question},
-        )
-
-    elif sugg_type == "edited_answer":
-        pattern_id_str = payload.get("pattern_id")
-        answer_text = payload.get("answer_text")
-
-        if not pattern_id_str or not answer_text:
-            raise HTTPException(status_code=400, detail="pattern_id and answer_text are required")
-
-        try:
-            pattern_uuid = uuid.UUID(pattern_id_str)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid pattern_id format")
-
+        vector = await client.embed(config.embedding_model, f"{payload.canonical_question}\n{payload.answer_text}")
+    else:
         pattern_row = await db.fetchrow(
             "SELECT canonical_question FROM patterns WHERE id = $1 AND account_id = $2",
-            pattern_uuid, db.account_id
+            payload.pattern_id, db.account_id
         )
         if not pattern_row:
             raise HTTPException(status_code=404, detail="Pattern to edit not found")
+        vector = await client.embed(
+            config.embedding_model, f"{pattern_row['canonical_question']}\n{payload.answer_text}"
+        )
 
-        text_to_embed = f"{pattern_row['canonical_question']}\n{answer_text}"
-        vector = await client.embed(config.embedding_model, text_to_embed)
+    async with db.transaction() as tx:
+        # Claim the suggestion: a concurrent approval waits here, then sees it is no longer pending.
+        locked = await tx.fetchrow(
+            "SELECT status FROM automation_suggestions WHERE id = $1 AND account_id = $2 FOR UPDATE",
+            sugg_uuid, tx.account_id
+        )
+        if not locked:
+            raise HTTPException(status_code=404, detail="Suggestion not found")
+        if locked["status"] != "pending":
+            raise HTTPException(status_code=400, detail=f"Suggestion is already {locked['status']}")
 
-        await db.execute(
+        if sugg_type == "new_kb_concept":
+            await lock_concept_slugs(tx)
+            unique_slug = await get_unique_slug(tx, concept_base_slug(payload.title))
+            concept_id = uuid.uuid4()
+            await tx.execute(
+                """
+                INSERT INTO kb_concepts (id, account_id, slug, type, title, tags, body_text, embedding, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9)
+                """,
+                concept_id,
+                tx.account_id,
+                unique_slug,
+                payload.type,
+                payload.title,
+                payload.tags,
+                payload.body_text,
+                str(vector),
+                concept_source,
+            )
+            await write_audit_log(
+                db=tx,
+                actor_user_id=reviewed_by_uuid,
+                action="kb_concept.created",
+                target_type="kb_concept",
+                target_id=concept_id,
+                metadata={"title": payload.title, "slug": unique_slug, "source": concept_source},
+            )
+
+        elif sugg_type == "new_pattern":
+            pattern_id = uuid.uuid4()
+            await tx.execute(
+                """
+                INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_text, embedding)
+                VALUES ($1, $2, $3, $4, $5, $6::vector)
+                """,
+                pattern_id,
+                tx.account_id,
+                normalize_trigger_phrases(payload.trigger_phrases, payload.canonical_question),
+                payload.canonical_question,
+                payload.answer_text,
+                str(vector),
+            )
+            await write_audit_log(
+                db=tx,
+                actor_user_id=reviewed_by_uuid,
+                action="pattern.created",
+                target_type="pattern",
+                target_id=pattern_id,
+                metadata={"canonical_question": payload.canonical_question},
+            )
+
+        else:  # edited_answer
+            updated_pattern = await tx.fetchrow(
+                """
+                UPDATE patterns
+                SET answer_text = $1, embedding = $2::vector, updated_at = NOW()
+                WHERE id = $3 AND account_id = $4
+                RETURNING canonical_question
+                """,
+                payload.answer_text,
+                str(vector),
+                payload.pattern_id,
+                tx.account_id,
+            )
+            if not updated_pattern:
+                raise HTTPException(status_code=404, detail="Pattern to edit not found")
+            await write_audit_log(
+                db=tx,
+                actor_user_id=reviewed_by_uuid,
+                action="pattern.updated",
+                target_type="pattern",
+                target_id=payload.pattern_id,
+                metadata={"canonical_question": updated_pattern["canonical_question"]},
+            )
+
+        await tx.execute(
             """
-            UPDATE patterns
-            SET answer_text = $1, embedding = $2::vector, updated_at = NOW()
-            WHERE id = $3 AND account_id = $4
+            UPDATE automation_suggestions
+            SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
+            WHERE id = $2 AND account_id = $3
             """,
-            answer_text,
-            str(vector),
-            pattern_uuid,
-            db.account_id,
+            reviewed_by_uuid,
+            sugg_uuid,
+            tx.account_id,
         )
-
         await write_audit_log(
-            db=db,
+            db=tx,
             actor_user_id=reviewed_by_uuid,
-            action="pattern.updated",
-            target_type="pattern",
-            target_id=pattern_uuid,
-            metadata={"canonical_question": pattern_row["canonical_question"]},
+            action="automation_suggestion.approved",
+            target_type="automation_suggestion",
+            target_id=sugg_uuid,
+            metadata={"type": sugg_type},
         )
-
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported suggestion type: {sugg_type}")
-
-    await db.execute(
-        """
-        UPDATE automation_suggestions
-        SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
-        WHERE id = $2 AND account_id = $3
-        """,
-        reviewed_by_uuid,
-        sugg_uuid,
-        db.account_id,
-    )
-
-    await write_audit_log(
-        db=db,
-        actor_user_id=reviewed_by_uuid,
-        action="automation_suggestion.approved",
-        target_type="automation_suggestion",
-        target_id=sugg_uuid,
-        metadata={"type": sugg_type},
-    )
 
 
 async def reject_suggestion(
@@ -874,34 +867,34 @@ async def reject_suggestion(
     sugg_uuid: uuid.UUID,
     reviewed_by_uuid: uuid.UUID
 ) -> None:
-    row = await db.fetchrow(
-        "SELECT type, status FROM automation_suggestions WHERE id = $1 AND account_id = $2",
-        sugg_uuid, db.account_id
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="Suggestion not found")
-    if row["status"] != "pending":
-        raise HTTPException(status_code=400, detail=f"Suggestion is already {row['status']}")
+    async with db.transaction() as tx:
+        row = await tx.fetchrow(
+            "SELECT type, status FROM automation_suggestions WHERE id = $1 AND account_id = $2 FOR UPDATE",
+            sugg_uuid, tx.account_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Suggestion not found")
+        if row["status"] != "pending":
+            raise HTTPException(status_code=400, detail=f"Suggestion is already {row['status']}")
 
-    await db.execute(
-        """
-        UPDATE automation_suggestions
-        SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW()
-        WHERE id = $2 AND account_id = $3
-        """,
-        reviewed_by_uuid,
-        sugg_uuid,
-        db.account_id,
-    )
-
-    await write_audit_log(
-        db=db,
-        actor_user_id=reviewed_by_uuid,
-        action="automation_suggestion.rejected",
-        target_type="automation_suggestion",
-        target_id=sugg_uuid,
-        metadata={"type": row["type"]},
-    )
+        await tx.execute(
+            """
+            UPDATE automation_suggestions
+            SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW()
+            WHERE id = $2 AND account_id = $3
+            """,
+            reviewed_by_uuid,
+            sugg_uuid,
+            tx.account_id,
+        )
+        await write_audit_log(
+            db=tx,
+            actor_user_id=reviewed_by_uuid,
+            action="automation_suggestion.rejected",
+            target_type="automation_suggestion",
+            target_id=sugg_uuid,
+            metadata={"type": row["type"]},
+        )
 
 
 # ===========================================================================

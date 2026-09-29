@@ -37,6 +37,18 @@ async def verify_internal_auth(
         )
 
 
+async def get_actor_user_id(
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+) -> Optional[uuid.UUID]:
+    """Acting user from the X-User-ID header; a missing or malformed value means "no actor"."""
+    if not x_user_id:
+        return None
+    try:
+        return uuid.UUID(x_user_id)
+    except ValueError:
+        return None
+
+
 # Dependency to retrieve a tenant-scoped database client.
 async def get_db(
     request: Request,
