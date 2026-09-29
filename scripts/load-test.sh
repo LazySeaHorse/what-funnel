@@ -70,17 +70,18 @@ trap 'rm -f "$TEMP_OUTPUT"' EXIT
 "$HEY_BIN" -c "$CONCURRENCY" -z "$DURATION" "$TARGET_URL" | tee "$TEMP_OUTPUT"
 
 # Extract 95% latency in seconds
-P95_VAL=$(grep "95%% in" "$TEMP_OUTPUT" | head -n1 | awk '{print $3}')
+# hey prints "  95% in 0.0123 secs" in its latency distribution.
+P95_VAL=$(sed -nE 's/^[[:space:]]*95%[[:space:]]+in[[:space:]]+([0-9.]+)[[:space:]]+secs.*/\1/p' "$TEMP_OUTPUT" | head -n1)
 if [[ -z "$P95_VAL" ]]; then
   echo "Error: Could not extract 95% latency from hey output"
   exit 1
 fi
 
 # Extract 200 response count and total response count
-SUCCESS_COUNT=$(grep -E '^\s*\[200\]' "$TEMP_OUTPUT" | awk '{print $2}' || echo "0")
+SUCCESS_COUNT=$(grep -E '^[[:space:]]*\[200\]' "$TEMP_OUTPUT" | awk '{print $2}' | head -n1 || true)
 if [[ -z "$SUCCESS_COUNT" ]]; then SUCCESS_COUNT=0; fi
 
-TOTAL_REQS=$(grep -E '^\s*\[[0-9]{3}\]' "$TEMP_OUTPUT" | awk '{sum += $2} END {print sum+0}')
+TOTAL_REQS=$(grep -E '^[[:space:]]*\[[0-9]{3}\]' "$TEMP_OUTPUT" | awk '{sum += $2} END {print sum+0}')
 if [[ "$TOTAL_REQS" -eq 0 ]]; then
   echo "Error: Zero HTTP responses received during load test"
   exit 1
