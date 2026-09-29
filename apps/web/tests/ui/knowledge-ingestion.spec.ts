@@ -120,5 +120,5 @@ test('clicking away from popup while knowledge is being ingested does not stop p
 	await expect(page.getByRole('dialog', { name: 'Add knowledge' })).not.toBeVisible();
 
 	// When ingestion finishes in background, verify review can be resumed
-	await expect(page.getByRole('button', { name: /Add knowledge|Adding knowledge/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Add knowledge|Adding knowledge|Review ready/ })).toBeVisible();
 });
