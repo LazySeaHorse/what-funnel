@@ -1,5 +1,7 @@
 import json
+import os
 import pytest
+import pytest_asyncio
 import uuid
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -24,168 +26,168 @@ def test_calculate_debounce_delay():
     assert calculate_debounce_delay(4) == 10.0
 
 
+@pytest_asyncio.fixture
+async def redis_client(monkeypatch):
+    """Real Redis with private key names so shared instances are never touched."""
+    from redis.asyncio import Redis
+
+    suffix = uuid.uuid4().hex[:8]
+    queue = f"test:ai_debounce:{suffix}:queue"
+    meta = f"test:ai_debounce:{suffix}:meta:"
+    seen = f"test:ai_debounce:{suffix}:seen:"
+    monkeypatch.setattr("debounce.DEBOUNCE_QUEUE_KEY", queue)
+    monkeypatch.setattr("debounce.DEBOUNCE_META_PREFIX", meta)
+    monkeypatch.setattr("debounce.DEBOUNCE_SEEN_PREFIX", seen)
+    client = Redis.from_url(f"redis://{os.getenv('REDIS_URL', 'localhost:6379')}")
+    try:
+        await client.ping()
+    except Exception:
+        await client.aclose()
+        pytest.skip("Redis is not reachable")
+    try:
+        yield client
+    finally:
+        keys = await client.keys(f"test:ai_debounce:{suffix}:*")
+        if keys:
+            await client.delete(*keys)
+        await client.aclose()
+
+
 @pytest.mark.asyncio
-async def test_record_inbound_message_first_bubble():
-    redis_mock = AsyncMock()
-    # First message: sadd returns 1 (new message)
-    redis_mock.sadd.return_value = 1
-    redis_mock.hincrby.return_value = 1
+async def test_record_inbound_message_first_bubble(redis_client):
+    import debounce
 
-    account_id = uuid.uuid4()
-    convo_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
-
-    scheduled, delay = await record_inbound_message(
-        redis_mock, account_id, convo_id, msg_id, is_text=True
-    )
+    convo_id, msg_id, account_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    before = time.time()
+    scheduled, delay = await record_inbound_message(redis_client, account_id, convo_id, msg_id, is_text=True)
 
     assert scheduled is True
     assert delay == 10.0
-
-    redis_mock.sadd.assert_awaited_once_with(f"{DEBOUNCE_SEEN_PREFIX}{convo_id}", str(msg_id))
-    redis_mock.hincrby.assert_awaited_once_with(f"{DEBOUNCE_META_PREFIX}{convo_id}", "bubble_count", 1)
-    redis_mock.hset.assert_awaited_once_with(
-        f"{DEBOUNCE_META_PREFIX}{convo_id}",
-        mapping={"account_id": str(account_id), "latest_message_id": str(msg_id)},
-    )
-    redis_mock.zadd.assert_awaited_once()
-    zadd_call = redis_mock.zadd.call_args
-    assert zadd_call.args[0] == DEBOUNCE_QUEUE_KEY
-    assert str(convo_id) in zadd_call.args[1]
+    meta = await redis_client.hgetall(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
+    assert meta[b"account_id"] == str(account_id).encode()
+    assert meta[b"latest_message_id"] == str(msg_id).encode()
+    assert meta[b"bubble_count"] == b"1"
+    assert b"has_non_text" not in meta
+    deadline = await redis_client.zscore(debounce.DEBOUNCE_QUEUE_KEY, str(convo_id))
+    assert before + 10.0 <= deadline <= time.time() + 10.0
 
 
 @pytest.mark.asyncio
-async def test_record_inbound_message_subsequent_bubble():
-    redis_mock = AsyncMock()
-    redis_mock.sadd.return_value = 1
-    # 2nd bubble
-    redis_mock.hincrby.return_value = 2
-
-    account_id = uuid.uuid4()
-    convo_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
-
-    scheduled, delay = await record_inbound_message(
-        redis_mock, account_id, convo_id, msg_id, is_text=True
-    )
-
-    assert scheduled is True
-    assert delay == 5.0
+async def test_record_inbound_message_bubble_delays(redis_client):
+    account_id, convo_id = uuid.uuid4(), uuid.uuid4()
+    delays = []
+    for _ in range(4):
+        scheduled, delay = await record_inbound_message(redis_client, account_id, convo_id, uuid.uuid4())
+        assert scheduled is True
+        delays.append(delay)
+    assert delays == [10.0, 5.0, 10.0, 10.0]
 
 
 @pytest.mark.asyncio
-async def test_record_inbound_message_burst_bubble():
-    redis_mock = AsyncMock()
-    redis_mock.sadd.return_value = 1
-    # 3rd bubble jumps back up to 10s
-    redis_mock.hincrby.return_value = 3
+async def test_record_inbound_message_duplicate_webhook_ignored(redis_client):
+    import debounce
 
-    account_id = uuid.uuid4()
-    convo_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
-
-    scheduled, delay = await record_inbound_message(
-        redis_mock, account_id, convo_id, msg_id, is_text=True
-    )
-
-    assert scheduled is True
-    assert delay == 10.0
+    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    assert await record_inbound_message(redis_client, account_id, convo_id, msg_id) == (True, 10.0)
+    assert await record_inbound_message(redis_client, account_id, convo_id, msg_id) == (False, 0.0)
+    meta = await redis_client.hgetall(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
+    assert meta[b"bubble_count"] == b"1"
 
 
 @pytest.mark.asyncio
-async def test_record_inbound_message_duplicate_webhook_ignored():
-    redis_mock = AsyncMock()
-    # Duplicate delivery: sadd returns 0
-    redis_mock.sadd.return_value = 0
+async def test_record_inbound_message_non_text(redis_client):
+    import debounce
 
-    account_id = uuid.uuid4()
     convo_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
-
-    scheduled, delay = await record_inbound_message(
-        redis_mock, account_id, convo_id, msg_id, is_text=True
-    )
-
-    assert scheduled is False
-    assert delay == 0.0
-    redis_mock.hincrby.assert_not_awaited()
-    redis_mock.zadd.assert_not_awaited()
+    await record_inbound_message(redis_client, uuid.uuid4(), convo_id, uuid.uuid4(), is_text=False)
+    meta = await redis_client.hgetall(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
+    assert meta[b"has_non_text"] == b"1"
 
 
 @pytest.mark.asyncio
-async def test_record_inbound_message_non_text():
-    redis_mock = AsyncMock()
-    redis_mock.sadd.return_value = 1
-    redis_mock.hincrby.return_value = 1
+async def test_cancel_debounce(redis_client):
+    import debounce
 
-    account_id = uuid.uuid4()
     convo_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
-
-    scheduled, delay = await record_inbound_message(
-        redis_mock, account_id, convo_id, msg_id, is_text=False
-    )
-
-    assert scheduled is True
-    redis_mock.hset.assert_awaited_once_with(
-        f"{DEBOUNCE_META_PREFIX}{convo_id}",
-        mapping={
-            "account_id": str(account_id),
-            "latest_message_id": str(msg_id),
-            "has_non_text": "1",
-        },
-    )
+    await record_inbound_message(redis_client, uuid.uuid4(), convo_id, uuid.uuid4())
+    await cancel_debounce(redis_client, convo_id)
+    assert await redis_client.zscore(debounce.DEBOUNCE_QUEUE_KEY, str(convo_id)) is None
+    assert not await redis_client.exists(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
 
 
 @pytest.mark.asyncio
-async def test_cancel_debounce():
-    redis_mock = AsyncMock()
-    convo_id = uuid.uuid4()
+async def test_pop_due_conversations_returns_meta_atomically(redis_client, monkeypatch):
+    import debounce
 
-    await cancel_debounce(redis_mock, convo_id)
+    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await record_inbound_message(redis_client, account_id, convo_id, uuid.uuid4())
+    await record_inbound_message(redis_client, account_id, convo_id, msg_id, is_text=False)
 
-    redis_mock.zrem.assert_awaited_once_with(DEBOUNCE_QUEUE_KEY, str(convo_id))
-    redis_mock.delete.assert_awaited_once_with(f"{DEBOUNCE_META_PREFIX}{convo_id}")
+    # Not due yet.
+    assert await pop_due_conversations(redis_client) == []
 
-
-@pytest.mark.asyncio
-async def test_pop_due_conversations():
-    redis_mock = AsyncMock()
-    convo_id = uuid.uuid4()
-    account_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
-
-    redis_mock.eval.return_value = [str(convo_id).encode("utf-8")]
-    redis_mock.hgetall.return_value = {
-        b"account_id": str(account_id).encode("utf-8"),
-        b"latest_message_id": str(msg_id).encode("utf-8"),
-        b"bubble_count": b"2",
-        b"has_non_text": b"1",
-    }
-
-    due = await pop_due_conversations(redis_mock)
-
+    real_time = time.time
+    monkeypatch.setattr("debounce.time.time", lambda: real_time() + 60)
+    due = await pop_due_conversations(redis_client)
     assert len(due) == 1
     assert due[0]["conversation_id"] == convo_id
     assert due[0]["account_id"] == account_id
     assert due[0]["latest_message_id"] == msg_id
     assert due[0]["has_non_text"] is True
     assert due[0]["bubble_count"] == 2
+    assert due[0]["attempts"] == 0
+
+    # Popped exactly once; metadata is gone with it.
+    assert await pop_due_conversations(redis_client) == []
+    assert not await redis_client.exists(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
 
 
 @pytest.mark.asyncio
-async def test_requeue_in_flight():
-    redis_mock = AsyncMock()
-    convo_id = uuid.uuid4()
-    account_id = uuid.uuid4()
-    msg_id = uuid.uuid4()
+async def test_message_recorded_after_pop_starts_a_fresh_cycle(redis_client, monkeypatch):
+    account_id, convo_id = uuid.uuid4(), uuid.uuid4()
+    await record_inbound_message(redis_client, account_id, convo_id, uuid.uuid4())
+    real_time = time.time
+    monkeypatch.setattr("debounce.time.time", lambda: real_time() + 60)
+    assert len(await pop_due_conversations(redis_client)) == 1
+    monkeypatch.undo()
 
-    await requeue_in_flight(redis_mock, convo_id, account_id, msg_id, has_non_text=False, delay=2.5)
+    newer = uuid.uuid4()
+    assert await record_inbound_message(redis_client, account_id, convo_id, newer) == (True, 10.0)
+    monkeypatch.setattr("debounce.time.time", lambda: real_time() + 60)
+    due = await pop_due_conversations(redis_client)
+    assert [d["latest_message_id"] for d in due] == [newer]
+    assert due[0]["bubble_count"] == 1
 
-    redis_mock.hset.assert_awaited_once()
-    redis_mock.zadd.assert_awaited_once()
-    zadd_call = redis_mock.zadd.call_args
-    assert str(convo_id) in zadd_call.args[1]
+
+@pytest.mark.asyncio
+async def test_requeue_in_flight_keeps_newer_message_and_later_deadline(redis_client):
+    import debounce
+
+    account_id, convo_id = uuid.uuid4(), uuid.uuid4()
+    newer, older = uuid.uuid4(), uuid.uuid4()
+    await record_inbound_message(redis_client, account_id, convo_id, newer)
+    deadline_before = await redis_client.zscore(debounce.DEBOUNCE_QUEUE_KEY, str(convo_id))
+
+    await requeue_in_flight(redis_client, convo_id, account_id, older, delay=2.5, attempts=1)
+
+    meta = await redis_client.hgetall(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
+    assert meta[b"latest_message_id"] == str(newer).encode()
+    assert meta[b"attempts"] == b"1"
+    assert await redis_client.zscore(debounce.DEBOUNCE_QUEUE_KEY, str(convo_id)) == deadline_before
+
+
+@pytest.mark.asyncio
+async def test_requeue_in_flight_restores_popped_conversation(redis_client, monkeypatch):
+    import debounce
+
+    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await requeue_in_flight(redis_client, convo_id, account_id, msg_id, has_non_text=True, delay=2.5)
+    assert await redis_client.zscore(debounce.DEBOUNCE_QUEUE_KEY, str(convo_id)) is not None
+    real_time = time.time
+    monkeypatch.setattr("debounce.time.time", lambda: real_time() + 60)
+    due = await pop_due_conversations(redis_client)
+    assert due[0]["latest_message_id"] == msg_id
+    assert due[0]["has_non_text"] is True
 
 
 # A mock Record class to simulate asyncpg row returns
@@ -334,12 +336,12 @@ async def test_execute_conversation_cascade_combines_bubbles_and_matches_pattern
             return [mock_pattern]
         return []
 
-    with patch("main.ScopedDB") as MockScopedDB:
+    draft_id = uuid.uuid4()
+    with patch("main.ScopedDB") as MockScopedDB, \
+         patch("main.insert_pending_draft", AsyncMock(return_value=draft_id)) as insert_draft:
         db_instance = MockScopedDB.return_value
         db_instance.fetchrow = mock_fetchrow
         db_instance.fetch = mock_fetch
-        draft_id = uuid.uuid4()
-        db_instance.fetchval = AsyncMock(return_value=draft_id)
         db_instance.execute = AsyncMock()
         db_instance.account_id = account_id
 
@@ -348,12 +350,11 @@ async def test_execute_conversation_cascade_combines_bubbles_and_matches_pattern
         )
 
         # Verify pattern matched even with multi-bubble greeting!
-        db_instance.fetchval.assert_awaited_once()
-        args = db_instance.fetchval.call_args[0]
-        params = args[1:]
-        assert params[3] == "Yes, we offer house calls."
-        assert params[4] == "pattern"
-        assert params[5] == 1.0
+        insert_draft.assert_awaited_once()
+        args = insert_draft.call_args[0]
+        assert args[3] == "Yes, we offer house calls."
+        assert args[4] == "pattern"
+        assert args[5] == 1.0
 
 
 @pytest.mark.asyncio

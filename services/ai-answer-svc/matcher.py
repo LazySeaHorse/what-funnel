@@ -3,7 +3,7 @@ Modular matching helper for AI Cascade Tier 1 matching engine.
 Provides clause segmentation, conversational filler stripping,
 punctuation normalization, content token extraction, word root matching,
 token sort ratio, coverage-guarded rapidfuzz pattern matching,
-and safety & escalation guard filtering.
+and a safety & escalation guard.
 """
 
 from __future__ import annotations
@@ -52,9 +52,11 @@ STOPWORDS: set[str] = {
 # Escalation & Safety Guard Patterns
 # ==============================================================================
 
-# Compiled regex patterns covering acute medical emergencies, severe service failures,
-# financial/contractual disputes, legal threats, and out-of-scope domain requests
-# that must bypass Tier 1 pattern auto-reply and gracefully fall through to Tier 2/3/human.
+# Compiled regex patterns for a deliberately small set of genuinely safety-,
+# complaint-, dispute- and legal-oriented signals. Any hit bypasses every automatic
+# answer stage (pattern, embedding, RAG) and flags the conversation for a human.
+# Merely out-of-scope topics (hiring, niche products, dietary questions, ...) are
+# intentionally NOT listed here: they fall through on low match confidence instead.
 ESCALATION_PATTERNS: list[re.Pattern] = [
     # 1. Acute medical emergencies, severe distress, and trauma
     re.compile(r"\bbleed(ing)?\b", re.IGNORECASE),
@@ -63,7 +65,6 @@ ESCALATION_PATTERNS: list[re.Pattern] = [
     re.compile(r"\bswelling\b", re.IGNORECASE),
     re.compile(r"\b(tooth|teeth|bone|arm|leg|jaw)\s+(broke|broken|fractured)\b", re.IGNORECASE),
     re.compile(r"\b(broke|broken|fractured)\s+(my|a|the)\s+(tooth|teeth|bone|arm|leg|jaw)\b", re.IGNORECASE),
-    re.compile(r"\b(my\s+tooth\s+broke|broke\s+my\s+tooth)\b", re.IGNORECASE),
     re.compile(r"\binjur(y|ed|ies)\b", re.IGNORECASE),
     re.compile(r"\banaphylaxis\b", re.IGNORECASE),
     re.compile(r"\bpoison(ing|ed)?\b", re.IGNORECASE),
@@ -75,7 +76,7 @@ ESCALATION_PATTERNS: list[re.Pattern] = [
     re.compile(r"\bemergency\b(?!\s+(?:dental\s+)?(?:appointments?|services?|care|policy|hours?|dentist))\b", re.IGNORECASE),
     re.compile(r"\burgent\b(?!\s+(?:care\s+hours?|appointments?))\b", re.IGNORECASE),
 
-    # 2. Severe service failures & no-shows
+    # 2. Severe service failures, no-shows, and complaints
     re.compile(r"\bwaited\b.*\b\d+\s*hours?\b", re.IGNORECASE),
     re.compile(r"\bwaiting\s+(?:for\s+)?\b.*\b\d+\s*hours?\b", re.IGNORECASE),
     re.compile(r"\b(never\s+showed(\s+up)?|no[\s-]show(s)?|(nobody|no\s+one)\s+showed(\s+up)?)\b", re.IGNORECASE),
@@ -84,10 +85,6 @@ ESCALATION_PATTERNS: list[re.Pattern] = [
     re.compile(r"\bhorrible\b", re.IGNORECASE),
     re.compile(r"\bunacceptable\b", re.IGNORECASE),
     re.compile(r"\bcatastrophic\b", re.IGNORECASE),
-    re.compile(r"\b(brakes?|steering|engine)\s+(completely\s+)?fail(ed|ure)?\b", re.IGNORECASE),
-    re.compile(r"\bfail(ed|ure)\s+(after|during)\b", re.IGNORECASE),
-    re.compile(r"\b(completely\s+)?failed\b", re.IGNORECASE),
-    re.compile(r"\bscratched\b", re.IGNORECASE),
     re.compile(r"\bcomplain(t|s|ing)?\b", re.IGNORECASE),
 
     # 3. Financial / contractual disputes & refund demands
@@ -96,6 +93,7 @@ ESCALATION_PATTERNS: list[re.Pattern] = [
     re.compile(r"\brefund\s+(me|my|immediately|now)\b", re.IGNORECASE),
     re.compile(r"\bunauthorized\b", re.IGNORECASE),
     re.compile(r"\bdisput(e|es|ed|ing)\b", re.IGNORECASE),
+    re.compile(r"\bchargeback\b", re.IGNORECASE),
     re.compile(r"\bfraud(ulent)?\b", re.IGNORECASE),
     re.compile(r"\bovercharg(ed|ing|es)?\b", re.IGNORECASE),
     re.compile(r"\b(cancel|cancelling)\s+(my|the|our)\s+(order|wedding|cake|appointment|booking|reservation|subscription|contract)\b", re.IGNORECASE),
@@ -111,22 +109,6 @@ ESCALATION_PATTERNS: list[re.Pattern] = [
     re.compile(r"\battorney(s)?\b", re.IGNORECASE),
     re.compile(r"\btake\s+you\s+to\s+court\b", re.IGNORECASE),
     re.compile(r"\bsee\s+you\s+in\s+court\b", re.IGNORECASE),
-
-    # 5. Out-of-scope domain requests
-    re.compile(r"\bhiring\b", re.IGNORECASE),
-    re.compile(r"\bresume(s)?\b", re.IGNORECASE),
-    re.compile(r"\b(job\s+(?:opening|openings|application|applications|posting|postings|opportunity|opportunities|inquiry|search)|looking\s+for\s+a\s+job|apply(ing)?\s+for\s+a\s+job|apply\s+to\s+work|work\s+for\s+you)\b", re.IGNORECASE),
-    re.compile(r"\b(submit|send)\s+(my\s+)?resume\b", re.IGNORECASE),
-    re.compile(r"\bcardiac\b", re.IGNORECASE),
-    re.compile(r"\b(general\s+)?anesthesia\b", re.IGNORECASE),
-    re.compile(r"\bvintage\b", re.IGNORECASE),
-    re.compile(r"\b(french\s+)?threading\b", re.IGNORECASE),
-    re.compile(r"\baftermarket\b", re.IGNORECASE),
-    re.compile(r"\bconvert\b", re.IGNORECASE),
-    re.compile(r"\bmold\b", re.IGNORECASE),
-    re.compile(r"\bketo\b", re.IGNORECASE),
-    re.compile(r"\bdiabetic[- ]safe\b", re.IGNORECASE),
-    re.compile(r"\bdiabetic\b", re.IGNORECASE),
 ]
 
 
@@ -215,23 +197,58 @@ def count_token_overlap(set1: set[str], set2: set[str]) -> int:
     return cnt
 
 
+QUESTION_START_REGEX = re.compile(
+    r"^(what|whats|when|where|who|whom|whose|which|why|how|do|does|did|can|could|will|would|"
+    r"should|is|are|was|were|have|has|may|might|shall|am)\b"
+)
+# Fillers that introduce a question and are stripped by clean_segment().
+QUESTION_FILLER_REGEX = re.compile(
+    r"^(can\s+you\s+tell\s+me|could\s+you\s+tell\s+me|do\s+you\s+know|i\s+was\s+wondering|"
+    r"just\s+wondering|i\s+wanted\s+to\s+ask|i(?:\x27|)d\s+like\s+to\s+(ask|know)|"
+    r"i\s+would\s+like\s+to\s+(ask|know)|i\s+have\s+a\s+question|quick\s+question)\b"
+)
+_SPLIT_WITH_DELIMS = re.compile(r"([\n.?!;]+)")
+
+
+def _is_question(raw_part: str, delimiter: str, cleaned: str) -> bool:
+    if "?" in delimiter:
+        return True
+    raw = raw_part.strip().lower()
+    return bool(
+        QUESTION_START_REGEX.match(cleaned)
+        or QUESTION_START_REGEX.match(raw)
+        or QUESTION_FILLER_REGEX.match(raw)
+    )
+
+
+def segment_inbound_detailed(bubbles: list[str]) -> list[tuple[str, bool]]:
+    """
+    Like segment_inbound() but also reports whether each cleaned clause is a question
+    (ends with '?', starts with an interrogative/auxiliary word, or was introduced by a
+    question filler such as "can you tell me").
+    """
+    if not bubbles:
+        return []
+    segments: list[tuple[str, bool]] = []
+    for b in bubbles:
+        if not b or not isinstance(b, str):
+            continue
+        pieces = _SPLIT_WITH_DELIMS.split(b)
+        for i in range(0, len(pieces), 2):
+            part = pieces[i]
+            delimiter = pieces[i + 1] if i + 1 < len(pieces) else ""
+            cleaned = clean_segment(part)
+            if cleaned:
+                segments.append((cleaned, _is_question(part, delimiter, cleaned)))
+    return segments
+
+
 def segment_inbound(bubbles: list[str]) -> list[str]:
     """
     Splits bubbles by punctuation boundaries [.?!;\n]+, cleans each segment,
     and returns non-empty candidate clauses.
     """
-    if not bubbles:
-        return []
-    segments: list[str] = []
-    for b in bubbles:
-        if not b or not isinstance(b, str):
-            continue
-        parts = PUNCTUATION_SPLIT_REGEX.split(b)
-        for p in parts:
-            cleaned = clean_segment(p)
-            if cleaned:
-                segments.append(cleaned)
-    return segments
+    return [seg for seg, _ in segment_inbound_detailed(bubbles)]
 
 
 def is_escalation(text_or_bubbles: str | list[str]) -> bool:
@@ -239,8 +256,8 @@ def is_escalation(text_or_bubbles: str | list[str]) -> bool:
     Checks whether any escalation pattern is detected in the inbound message.
     Accepts either a single string or a list of bubble strings.
 
-    Returns True if an acute emergency, severe service failure, refund/contractual dispute,
-    legal threat, or out-of-scope domain request is detected; False otherwise.
+    Returns True if an acute emergency, severe service failure/complaint, refund or
+    contractual dispute, or legal threat is detected; False otherwise.
     """
     if not text_or_bubbles:
         return False
@@ -257,6 +274,47 @@ def is_escalation(text_or_bubbles: str | list[str]) -> bool:
     return False
 
 
+def _score_pair(c_trig: str, raw_trig: str, t_tokens: set[str], seg: str) -> float:
+    """Best matching score (0.0 when no strategy qualifies) of one trigger phrase against one segment."""
+    c_seg = normalize_text(seg)
+    raw_seg = seg.lower().strip()
+    best = 0.0
+
+    # 1. Exact or near-exact Levenshtein ratio (typos, minor variance)
+    r_score = max(float(fuzz.ratio(c_trig, c_seg)), float(fuzz.ratio(raw_trig, raw_seg)))
+    if r_score >= 88.0:
+        best = max(best, r_score)
+        if best == 100.0:
+            return best
+
+    # 2. Token Sort Ratio (word reordering) with length safeguard
+    tsr_score = float(fuzz.token_sort_ratio(c_trig, c_seg))
+    max_len = max(len(c_trig), len(c_seg))
+    len_ratio = min(len(c_trig), len(c_seg)) / max_len if max_len > 0 else 0.0
+    if tsr_score >= 85.0 and len_ratio >= 0.40:
+        best = max(best, tsr_score)
+
+    # 3. Content Token Matching with Length & Coverage Safeguards
+    s_tokens = set(extract_content_tokens(c_seg))
+    if not t_tokens or not s_tokens:
+        return best
+
+    overlap_cnt = count_token_overlap(t_tokens, s_tokens)
+    t_cov = overlap_cnt / len(t_tokens)
+    s_cov = overlap_cnt / len(s_tokens)
+
+    # Terse input match: 1-2 content words completely matched in trigger tokens
+    # (e.g. "hours" -> "clinic hours", "parking" -> "parking options")
+    if len(s_tokens) <= 2 and overlap_cnt == len(s_tokens) and all(len(w) > 2 for w in s_tokens):
+        best = max(best, 92.0)
+
+    # Conversational coverage match:
+    # Trigger concepts are substantially contained in query clause
+    if (t_cov >= 0.50 and s_cov >= 0.35) or (t_cov == 1.0 and s_cov >= 0.25):
+        best = max(best, max(88.0, float(fuzz.token_set_ratio(c_trig, c_seg))))
+    return best
+
+
 def match_tier1_patterns(
     patterns: list[dict] | list[Any],
     bubbles: list[str],
@@ -264,15 +322,23 @@ def match_tier1_patterns(
 ) -> tuple[dict | Any | None, float]:
     """
     Evaluates trigger phrases against cleaned segments using a combination of:
-    1. Safety / Escalation Guard: Immediate rejection if acute emergency, complaint, dispute,
-       legal threat, or out-of-scope domain request is detected.
+    1. Safety / Escalation Guard: Immediate rejection if acute emergency, complaint, dispute
+       or legal threat is detected (callers should also check is_escalation() themselves
+       before any other automatic answer stage).
     2. Levenshtein ratio (fuzz.ratio >= 88.0)
     3. Token sort ratio with length safeguard (fuzz.token_sort_ratio >= 85.0 with len_ratio >= 0.40)
     4. Terse keyword matching (1-2 content words completely matched in trigger tokens)
     5. Conversational coverage matching (trigger concepts substantially covered in query clause,
        e.g. t_cov >= 0.50 and s_cov >= 0.35 or t_cov == 1.0 and s_cov >= 0.25, scored with fuzz.token_set_ratio)
 
-    Returns (matched_pattern, score) if score >= threshold (default 85.0), or (None, 0.0) if no match or escalated.
+    A pattern is only returned when it covers EVERY question segment of the inbound text
+    (score >= threshold each). If another question in the message is not answered by that
+    same pattern (e.g. "What are your hours? Also can you fix my broken widget?"), the
+    message must not be auto-answered and falls through (None, 0.0).
+    Non-question statements ("my name is Sam") do not need to be covered.
+
+    Returns (matched_pattern, score) where score is the pattern's best segment score, or
+    (None, 0.0) if no match, an unanswered question remains, or the text is escalated.
     """
     if not patterns or not bubbles:
         return None, 0.0
@@ -280,14 +346,12 @@ def match_tier1_patterns(
     if is_escalation(bubbles):
         return None, 0.0
 
-    segments = segment_inbound(bubbles)
+    segments = segment_inbound_detailed(bubbles)
     if not segments:
         return None, 0.0
 
-    best_pattern = None
-    best_score = 0.0
-
-    for pat in patterns:
+    candidates: list[tuple[float, int, Any]] = []
+    for idx, pat in enumerate(patterns):
         triggers = (
             pat.get("trigger_phrases")
             if hasattr(pat, "get")
@@ -295,62 +359,27 @@ def match_tier1_patterns(
         )
         if not triggers:
             continue
+        seg_best = [0.0] * len(segments)
         for trig in triggers:
             if not trig or not isinstance(trig, str):
                 continue
             c_trig = normalize_text(trig)
             raw_trig = trig.lower().strip()
             t_tokens = set(extract_content_tokens(c_trig))
+            for i, (seg, _) in enumerate(segments):
+                score = _score_pair(c_trig, raw_trig, t_tokens, seg)
+                if score > seg_best[i]:
+                    seg_best[i] = score
+        best = max(seg_best)
+        if best < threshold:
+            continue
+        # Every question clause must be answered by this same pattern.
+        if any(is_q and seg_best[i] < threshold for i, (_, is_q) in enumerate(segments)):
+            continue
+        candidates.append((best, idx, pat))
 
-            for seg in segments:
-                c_seg = normalize_text(seg)
-                raw_seg = seg.lower().strip()
-                s_tokens = set(extract_content_tokens(c_seg))
-
-                # 1. Exact or near-exact Levenshtein ratio (typos, minor variance)
-                r_norm = float(fuzz.ratio(c_trig, c_seg))
-                r_raw = float(fuzz.ratio(raw_trig, raw_seg))
-                r_score = max(r_norm, r_raw)
-                if r_score >= 88.0 and r_score > best_score:
-                    best_score = r_score
-                    best_pattern = pat
-                    if best_score == 100.0:
-                        return best_pattern, 100.0
-                    continue
-
-                # 2. Token Sort Ratio (word reordering) with length safeguard
-                tsr_score = float(fuzz.token_sort_ratio(c_trig, c_seg))
-                max_len = max(len(c_trig), len(c_seg))
-                len_ratio = min(len(c_trig), len(c_seg)) / max_len if max_len > 0 else 0.0
-                if tsr_score >= 85.0 and len_ratio >= 0.40 and tsr_score > best_score:
-                    best_score = tsr_score
-                    best_pattern = pat
-                    continue
-
-                # 3. Content Token Matching with Length & Coverage Safeguards
-                if not t_tokens or not s_tokens:
-                    continue
-
-                overlap_cnt = count_token_overlap(t_tokens, s_tokens)
-                t_cov = overlap_cnt / len(t_tokens)
-                s_cov = overlap_cnt / len(s_tokens)
-
-                # Terse input match: 1-2 content words completely matched in trigger tokens
-                # (e.g. "hours" -> "clinic hours", "parking" -> "parking options")
-                if len(s_tokens) <= 2 and overlap_cnt == len(s_tokens):
-                    if all(len(w) > 2 for w in s_tokens) and 92.0 > best_score:
-                        best_score = 92.0
-                        best_pattern = pat
-                        continue
-
-                # Conversational coverage match:
-                # Trigger concepts are substantially contained in query clause
-                if (t_cov >= 0.50 and s_cov >= 0.35) or (t_cov == 1.0 and s_cov >= 0.25):
-                    score = max(88.0, float(fuzz.token_set_ratio(c_trig, c_seg)))
-                    if score > best_score:
-                        best_score = score
-                        best_pattern = pat
-
-    if best_score >= threshold:
-        return best_pattern, best_score
-    return None, 0.0
+    if not candidates:
+        return None, 0.0
+    # Highest score wins; earlier pattern wins ties.
+    best_score, _, best_pattern = min(candidates, key=lambda c: (-c[0], c[1]))
+    return best_pattern, best_score
