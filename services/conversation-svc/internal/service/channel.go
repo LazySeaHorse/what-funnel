@@ -10,7 +10,8 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
-var ErrChannelNotFound = errors.New("channel not found")
+// ErrChannelNotFound is also an ErrNotFound.
+var ErrChannelNotFound error = &categorizedError{kind: ErrNotFound, msg: "channel not found"}
 var ErrUnsupportedSimulatorProvider = errors.New("unsupported simulator provider")
 
 // EnsureSimulatorChannel returns a synthetic channel used only by the local
