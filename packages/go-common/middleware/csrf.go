@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"log/slog"
 	"strings"
+
+	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 )
 
 const (
@@ -30,6 +33,20 @@ func CSRFProtection(allowedOrigins ...string) func(http.Handler) http.Handler {
 		}
 	}
 
+	// A wildcard origin disables origin validation entirely: never accept it in production.
+	filtered := explicitOrigins[:0:0]
+	for _, o := range explicitOrigins {
+		if strings.TrimSpace(o) == "*" {
+			if config.IsProduction() {
+				slog.Error("csrf: ignoring wildcard \"*\" in allowed origins in production")
+				continue
+			}
+			slog.Warn("csrf: wildcard \"*\" in allowed origins disables origin validation (development only)")
+		}
+		filtered = append(filtered, o)
+	}
+	explicitOrigins = filtered
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 1. Safe HTTP methods do not alter state
@@ -51,7 +68,7 @@ func CSRFProtection(allowedOrigins ...string) func(http.Handler) http.Handler {
 				p == "/auth/login" || p == "/api-gateway/auth/login" ||
 				p == "/auth/signup" || p == "/api-gateway/auth/signup" ||
 				strings.HasPrefix(p, "/webhooks") || strings.HasPrefix(p, "/api-gateway/webhooks") ||
-				((p == "/simulate-inbound" || p == "/api-gateway/simulate-inbound") && os.Getenv("APP_ENV") != "production") {
+				((p == "/simulate-inbound" || p == "/api-gateway/simulate-inbound") && config.SimulationRoutesEnabled()) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -114,7 +131,8 @@ func CSRFProtection(allowedOrigins ...string) func(http.Handler) http.Handler {
 	}
 }
 
-func splitHostPortStrict(rawHost string) (host string, port string) {
+// SplitHostPortStrict splits host[:port], lowercasing the host.
+func SplitHostPortStrict(rawHost string) (host string, port string) {
 	rawHost = strings.TrimSpace(rawHost)
 	if rawHost == "" {
 		return "", ""
@@ -126,8 +144,9 @@ func splitHostPortStrict(rawHost string) (host string, port string) {
 	return strings.ToLower(h), p
 }
 
-func normalizeHost(rawHost string, scheme string) string {
-	h, p := splitHostPortStrict(rawHost)
+// NormalizeHost lowercases the host and drops the default port for the scheme.
+func NormalizeHost(rawHost string, scheme string) string {
+	h, p := SplitHostPortStrict(rawHost)
 	if h == "" {
 		return ""
 	}
@@ -142,9 +161,10 @@ func normalizeHost(rawHost string, scheme string) string {
 	return h
 }
 
-func isHostMatching(originHost, originScheme, candidateHost string) bool {
-	normOrigin := normalizeHost(originHost, originScheme)
-	normCandidate := normalizeHost(candidateHost, originScheme)
+// IsHostMatching compares two hosts after normalization for the given scheme.
+func IsHostMatching(originHost, originScheme, candidateHost string) bool {
+	normOrigin := NormalizeHost(originHost, originScheme)
+	normCandidate := NormalizeHost(candidateHost, originScheme)
 	return normOrigin != "" && normOrigin == normCandidate
 }
 
@@ -156,6 +176,9 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 			continue
 		}
 		if allowed == "*" {
+			if config.IsProduction() {
+				continue
+			}
 			return true
 		}
 		if strings.EqualFold(allowed, parsedOrigin.String()) {
@@ -165,19 +188,16 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 			if parsedAllowed.Scheme != "" && !strings.EqualFold(parsedAllowed.Scheme, parsedOrigin.Scheme) {
 				continue
 			}
-			if isHostMatching(parsedOrigin.Host, parsedOrigin.Scheme, parsedAllowed.Host) {
+			if IsHostMatching(parsedOrigin.Host, parsedOrigin.Scheme, parsedAllowed.Host) {
 				return true
 			}
-		} else if isHostMatching(parsedOrigin.Host, parsedOrigin.Scheme, allowed) {
+		} else if IsHostMatching(parsedOrigin.Host, parsedOrigin.Scheme, allowed) {
 			return true
 		}
 	}
 
 	// 2. In non-production, allow local dev origins
-	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
-	env := strings.ToLower(os.Getenv("ENV"))
-	isProd := appEnv == "production" || appEnv == "prod" || env == "production" || env == "prod"
-	if !isProd {
+	if !config.IsProduction() {
 		hostOnly := strings.Split(parsedOrigin.Host, ":")[0]
 		if hostOnly == "localhost" || hostOnly == "127.0.0.1" || hostOnly == "0.0.0.0" || strings.HasSuffix(hostOnly, ".local") {
 			return true
@@ -190,16 +210,16 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 	// Only trust X-Forwarded-Host if it matches r.Host or explicit allowed origins.
 	trustedHost := r.Host
 	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-		if isHostMatching(fwdHost, "", r.Host) {
+		if IsHostMatching(fwdHost, "", r.Host) {
 			trustedHost = fwdHost
 		} else {
 			for _, allowed := range explicitOrigins {
 				if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
-					if isHostMatching(fwdHost, "", parsedAllowed.Host) {
+					if IsHostMatching(fwdHost, "", parsedAllowed.Host) {
 						trustedHost = fwdHost
 						break
 					}
-				} else if isHostMatching(fwdHost, "", allowed) {
+				} else if IsHostMatching(fwdHost, "", allowed) {
 					trustedHost = fwdHost
 					break
 				}
@@ -207,5 +227,5 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 		}
 	}
 
-	return trustedHost != "" && isHostMatching(parsedOrigin.Host, parsedOrigin.Scheme, trustedHost)
+	return trustedHost != "" && IsHostMatching(parsedOrigin.Host, parsedOrigin.Scheme, trustedHost)
 }

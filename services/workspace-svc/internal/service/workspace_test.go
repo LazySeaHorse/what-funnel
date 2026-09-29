@@ -28,6 +28,9 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	defer cancel()
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("database unavailable in CI: %v", err)
+		}
 		t.Skipf("skipping integration test: %v", err)
 	}
 	t.Cleanup(pool.Close)
@@ -37,7 +40,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 func testService(t *testing.T) (*service.Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testPool(t)
-	svc, err := service.New(pool, testEncryptionKey)
+	svc, err := service.New(pool, testEncryptionKey, service.WithIdentityProvisioner(newDirectIdentityProvisioner(pool)))
 	require.NoError(t, err)
 	return svc, pool
 }

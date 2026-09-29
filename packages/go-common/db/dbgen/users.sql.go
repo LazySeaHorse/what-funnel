@@ -105,34 +105,6 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 	return i, err
 }
 
-const createUserWithExplicitID = `-- name: CreateUserWithExplicitID :exec
-INSERT INTO users (id, account_id, email, username, password_hash, role, created_at)
-VALUES ($1, $2, NULLIF($3::text, ''), NULLIF($4::text, ''), $5, $6, $7)
-`
-
-type CreateUserWithExplicitIDParams struct {
-	ID           uuid.UUID `json:"id"`
-	AccountID    uuid.UUID `json:"account_id"`
-	Email        string    `json:"email"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"password_hash"`
-	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-func (q *Queries) CreateUserWithExplicitID(ctx context.Context, arg CreateUserWithExplicitIDParams) error {
-	_, err := q.db.Exec(ctx, createUserWithExplicitID,
-		arg.ID,
-		arg.AccountID,
-		arg.Email,
-		arg.Username,
-		arg.PasswordHash,
-		arg.Role,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const deleteUserFromAccount = `-- name: DeleteUserFromAccount :exec
 DELETE FROM users
 WHERE id = $1 AND account_id = $2
@@ -240,39 +212,6 @@ type GetUserBySlugAndUsernameRow struct {
 func (q *Queries) GetUserBySlugAndUsername(ctx context.Context, arg GetUserBySlugAndUsernameParams) (GetUserBySlugAndUsernameRow, error) {
 	row := q.db.QueryRow(ctx, getUserBySlugAndUsername, arg.Slug, arg.Username)
 	var i GetUserBySlugAndUsernameRow
-	err := row.Scan(
-		&i.ID,
-		&i.AccountID,
-		&i.Email,
-		&i.Username,
-		&i.PasswordHash,
-		&i.Role,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getUserBySlugIdentifier = `-- name: GetUserBySlugIdentifier :one
-SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
-FROM users u
-JOIN accounts a ON a.id = u.account_id
-WHERE (a.slug || '/' || u.username) = $1::text
-LIMIT 1
-`
-
-type GetUserBySlugIdentifierRow struct {
-	ID           uuid.UUID `json:"id"`
-	AccountID    uuid.UUID `json:"account_id"`
-	Email        string    `json:"email"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"password_hash"`
-	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-func (q *Queries) GetUserBySlugIdentifier(ctx context.Context, identifier string) (GetUserBySlugIdentifierRow, error) {
-	row := q.db.QueryRow(ctx, getUserBySlugIdentifier, identifier)
-	var i GetUserBySlugIdentifierRow
 	err := row.Scan(
 		&i.ID,
 		&i.AccountID,

@@ -8,6 +8,8 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -58,8 +60,16 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.svc.Signup(r.Context(), req)
 	if err != nil {
-		// TODO: differentiate duplicate email from other errors
-		writeError(w, http.StatusConflict, err.Error())
+		var verr *service.ValidationError
+		switch {
+		case errors.Is(err, service.ErrEmailTaken):
+			writeError(w, http.StatusConflict, "email already registered")
+		case errors.As(err, &verr):
+			writeError(w, http.StatusBadRequest, verr.Message)
+		default:
+			slog.Error("signup failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "signup failed")
+		}
 		return
 	}
 

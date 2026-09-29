@@ -38,6 +38,26 @@ type Config struct {
 	MediaS3Region       string
 }
 
+// IsProduction reports whether the process runs in production, i.e. APP_ENV is
+// "production" or "prod" (case-insensitive); the legacy ENV/ENVIRONMENT
+// variables are honoured too so that setting any of them errs on the safe side. It is the single shared check for
+// production-only behaviour.
+func IsProduction() bool {
+	for _, key := range []string{"APP_ENV", "ENV", "ENVIRONMENT"} {
+		env := strings.TrimSpace(os.Getenv(key))
+		if strings.EqualFold(env, "production") || strings.EqualFold(env, "prod") {
+			return true
+		}
+	}
+	return false
+}
+
+// SimulationRoutesEnabled reports whether the explicit opt-in flag
+// ENABLE_SIMULATION_ROUTES=true is set.
+func SimulationRoutesEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("ENABLE_SIMULATION_ROUTES")), "true")
+}
+
 // IsProduction returns true if running in a production environment.
 func (c *Config) IsProduction() bool {
 	return strings.EqualFold(c.Env, "production") || strings.EqualFold(c.Env, "prod")

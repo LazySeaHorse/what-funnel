@@ -92,6 +92,9 @@ func (svc *Service) UpdateAccountName(ctx context.Context, accountID, actorID uu
 
 // UpdateAccountSettings updates the non-sensitive settings JSONB column.
 func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorID uuid.UUID, settings map[string]any) error {
+	if err := validateSettings(settings); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
@@ -130,6 +133,9 @@ func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorI
 // It is used by focused flows such as onboarding so unrelated preferences and
 // onboarding progress cannot be lost through a stale read-modify-write cycle.
 func (svc *Service) MergeAccountSettings(ctx context.Context, accountID, actorID uuid.UUID, patch map[string]any) error {
+	if err := validateSettings(patch); err != nil {
+		return err
+	}
 	patchRaw, err := json.Marshal(patch)
 	if err != nil {
 		return fmt.Errorf("marshal settings patch: %w", err)
