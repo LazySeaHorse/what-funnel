@@ -445,7 +445,9 @@
               message.parsedContent.caption ||
               (message.parsedContent.media_id
                 ? ""
-                : JSON.stringify(message.parsedContent))}
+                : message._optimistic === true
+                  ? `Sending ${message.content_type === "text" ? "message" : message.content_type}…`
+                  : JSON.stringify(message.parsedContent))}
             {@const prevMsg = idx > 0 ? displayMessages[idx - 1] : null}
             {@const nextMsg =
               idx < displayMessages.length - 1
