@@ -105,6 +105,24 @@ func (c *Client) List(ctx context.Context) ([]service.AdapterSnapshot, error) {
 	return snapshots, nil
 }
 
+// Error is returned when the adapter rejects a request with a non-2xx status.
+// Message is the user-safe error text the adapter supplied, if any.
+type Error struct {
+	Status  int
+	Message string
+}
+
+func (e *Error) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("call adapter: status %d", e.Status)
+	}
+	return fmt.Sprintf("call adapter: status %d: %s", e.Status, e.Message)
+}
+
+// IsInvalidInput reports whether the adapter rejected the request as unprocessable
+// (for example an invalid credential), meaning Message can be shown to the user.
+func (e *Error) IsInvalidInput() bool { return e.Status == http.StatusUnprocessableEntity }
+
 var errAdapterNotFound = errors.New("adapter resource not found")
 
 func (c *Client) Download(ctx context.Context, channelID, providerRef string) (service.ProviderMedia, error) {
@@ -159,11 +177,15 @@ func (c *Client) request(
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		raw, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		if response.StatusCode == http.StatusNotFound {
 			return errAdapterNotFound
 		}
-		return fmt.Errorf("call adapter: status %d", response.StatusCode)
+		var payload struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &payload)
+		return &Error{Status: response.StatusCode, Message: payload.Error}
 	}
 	if result == nil || response.StatusCode == http.StatusNoContent {
 		return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -380,5 +381,34 @@ func TestNewHandler_Validation(t *testing.T) {
 	}
 	if _, err := NewHandler(&fakeController{}, HandlerConfig{SharedSecret: ""}); err == nil {
 		t.Fatal("expected error for empty secret")
+	}
+}
+
+func TestHandlerInvalidCredentialReturns422(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"/v1/connections":          `{"channel_id":"c1","credential":"x"}`,
+		"/v1/connections/c1/retry": `{"credential":"x"}`,
+	}
+	for path, body := range cases {
+		controller := &fakeController{
+			createErr: fmt.Errorf("wrapped: %w", NewInvalidCredential("Invalid bot token.")),
+			retryErr:  NewInvalidCredential("Invalid bot token."),
+		}
+		handler, err := NewHandler(controller, HandlerConfig{ProviderName: "Telegram", SharedSecret: "s"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer s")
+		recorder := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("%s status = %d, want 422", path, recorder.Code)
+		}
+		if !strings.Contains(recorder.Body.String(), "Invalid bot token.") {
+			t.Fatalf("%s body = %s", path, recorder.Body.String())
+		}
 	}
 }

@@ -286,9 +286,10 @@ func TestGatewayForwardsKBResponseShape(t *testing.T) {
 	}
 }
 
-func TestGateway_SimulationAndInternalRoutesBlockedInProduction(t *testing.T) {
-	t.Setenv("APP_ENV", "production")
-	t.Setenv("ENABLE_SIMULATION_ROUTES", "false")
+func TestGateway_SimulationAndInternalRoutesBlockedByDefault(t *testing.T) {
+	// No APP_ENV fallback: only an explicit opt-in mounts these routes.
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("ENABLE_SIMULATION_ROUTES", "")
 
 	identitySrv := startFakeIdentity(t, true, "admin")
 	kbSrv, _ := startFakeKB(t)
@@ -303,7 +304,7 @@ func TestGateway_SimulationAndInternalRoutesBlockedInProduction(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("expected 404 for /internal/conversations in production, got %d", resp.StatusCode)
+		t.Errorf("expected 404 for /internal/conversations by default, got %d", resp.StatusCode)
 	}
 
 	// 2. /simulate-inbound should be blocked (404)
@@ -313,6 +314,6 @@ func TestGateway_SimulationAndInternalRoutesBlockedInProduction(t *testing.T) {
 	}
 	defer respSim.Body.Close()
 	if respSim.StatusCode != http.StatusNotFound {
-		t.Errorf("expected 404 for /simulate-inbound in production, got %d", respSim.StatusCode)
+		t.Errorf("expected 404 for /simulate-inbound by default, got %d", respSim.StatusCode)
 	}
 }

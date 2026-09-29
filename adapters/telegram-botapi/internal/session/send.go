@@ -32,8 +32,8 @@ func (m *Manager) Send(ctx context.Context, command messaging.Command) error {
 	if err != nil {
 		return err
 	}
-	session.sendMu.RLock()
-	defer session.sendMu.RUnlock()
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
 	if session.copySnapshot().State != messaging.ConnectionConnected {
 		return ErrNotConnected
 	}

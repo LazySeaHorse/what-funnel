@@ -1,11 +1,12 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
@@ -13,28 +14,50 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 )
 
-// KB validates the session cookie with identity-svc, checks if the role is admin/manager,
+type kbIdentityKey struct{}
+
+type kbIdentity struct{ UserID, AccountID string }
+
+// KB validates the session cookie with identity-svc, requires the manager role,
 // injects X-Account-ID and X-User-ID headers, and proxies the request to the KB compiler service.
 func KB(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
-	client := &http.Client{
-		Timeout: 25 * time.Second,
+	// Session validation is a small request; bound it and never follow redirects.
+	authClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
+	authMeURL := *identityBase
+	authMeURL.Path = strings.TrimRight(authMeURL.Path, "/") + "/auth/me"
+	authMeURL.RawPath = ""
+	authMeURL.RawQuery = ""
+
+	// The trusted identity reaches the rewrite through the request context.
+	reverse := newReverseProxy(kbBase, logger, func(pr *httputil.ProxyRequest) {
+		identity, _ := pr.In.Context().Value(kbIdentityKey{}).(kbIdentity)
+		// Rewrite /api/kb/ to /internal/kb/.
+		pr.Out.URL.Path = strings.Replace(pr.Out.URL.Path, "/api/kb/", "/internal/kb/", 1)
+		pr.Out.URL.RawPath = ""
+		// Inject trusted tenant, user, and internal service auth headers.
+		pr.Out.Header.Set("X-Account-ID", identity.AccountID)
+		pr.Out.Header.Set("X-User-ID", identity.UserID)
+		if internalSecret := middleware.InternalServiceSecret(); internalSecret != "" {
+			pr.Out.Header.Set("X-Internal-Token", internalSecret)
+		}
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Validate session against identity-svc/auth/me
-		authMeURL := fmt.Sprintf("%s://%s/auth/me", identityBase.Scheme, identityBase.Host)
-		authReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, authMeURL, nil)
+		authReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, authMeURL.String(), nil)
 		if err != nil {
 			logger.Error("kbProxy: create auth request", "error", err)
 			http.Error(w, "gateway error", http.StatusBadGateway)
 			return
 		}
-
-		// Forward Cookie header
 		if cookie := r.Header.Get("Cookie"); cookie != "" {
 			authReq.Header.Set("Cookie", cookie)
 		}
-
-		authResp, err := client.Do(authReq)
+		authResp, err := authClient.Do(authReq)
 		if err != nil {
 			logger.Error("kbProxy: call identity-svc failed", "error", err)
 			http.Error(w, "identity service unavailable", http.StatusBadGateway)
@@ -49,7 +72,6 @@ func KB(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		// Parse user details
 		var authMe struct {
 			UserID    string `json:"user_id"`
 			AccountID string `json:"account_id"`
@@ -69,50 +91,8 @@ func KB(kbBase, identityBase *url.URL, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		// 3. Forward request to kb-compiler (rewriting /api/kb/ to /internal/kb/)
-		targetPath := strings.Replace(r.URL.Path, "/api/kb/", "/internal/kb/", 1)
-		target := *kbBase
-		target.Path = strings.TrimRight(target.Path, "/") + targetPath
-		target.RawQuery = r.URL.RawQuery
-
-		req, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), r.Body)
-		if err != nil {
-			logger.Error("kbProxy: create forwarding request", "error", err)
-			http.Error(w, "gateway error", http.StatusBadGateway)
-			return
-		}
-
-		// Forward headers (excluding untrusted client internal headers)
-		for key, vals := range r.Header {
-			if IsInternalHeader(key) {
-				continue
-			}
-			for _, v := range vals {
-				req.Header.Add(key, v)
-			}
-		}
-
-		// Inject trusted tenant, user, and internal service auth headers
-		req.Header.Set("X-Account-ID", authMe.AccountID)
-		req.Header.Set("X-User-ID", authMe.UserID)
-		if internalSecret := middleware.InternalServiceSecret(); internalSecret != "" {
-			req.Header.Set("X-Internal-Token", internalSecret)
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			logger.Error("kbProxy: upstream error", "target", target.String(), "error", err)
-			http.Error(w, "gateway error: upstream unavailable", http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		for key, vals := range resp.Header {
-			for _, v := range vals {
-				w.Header().Add(key, v)
-			}
-		}
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		// 3. Forward the request to kb-compiler.
+		ctx := context.WithValue(r.Context(), kbIdentityKey{}, kbIdentity{UserID: authMe.UserID, AccountID: authMe.AccountID})
+		reverse.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
