@@ -47,7 +47,7 @@ func (s *ConversationService) ChangeProviderReaction(ctx context.Context, accoun
 
 func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, kind messaging.CommandKind, text, emoji string, removed bool) error {
 	// 1. Verify caller can see the conversation (SEC-06)
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+	if err := s.CanSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
 		return err
 	}
 

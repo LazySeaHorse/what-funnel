@@ -59,10 +59,6 @@ func (s *ConversationService) CanSeeConversation(ctx context.Context, accountID,
 	return canSeeConversation(ctx, s.pool, accountID, userID, convoID, role)
 }
 
-func (s *ConversationService) canSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
-	return s.CanSeeConversation(ctx, accountID, userID, convoID, role)
-}
-
 // ---------------------------------------------------------------------------
 // Shared scan helper — eliminates the duplicated 14-variable scan block that
 // was copy-pasted between ListConversations and GetConversation.
@@ -307,9 +303,9 @@ func (s *ConversationService) GetConversation(ctx context.Context, accountID, us
 }
 
 // GetConversationMessages returns paginated messages for a conversation.
-// Visibility is checked via the lightweight canSeeConversation guard.
+// Visibility is checked via the lightweight CanSeeConversation guard.
 func (s *ConversationService) GetConversationMessages(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string, beforeCursor string, limit int) ([]*types.Message, string, error) {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, userRole); err != nil {
+	if err := s.CanSeeConversation(ctx, accountID, userID, conversationID, userRole); err != nil {
 		return nil, "", err
 	}
 
@@ -501,7 +497,7 @@ func (s *ConversationService) ReadConversation(ctx context.Context, accountID, u
 // the next customer contact,
 // records an audit log, and publishes conversation.closed and conversation.updated events.
 func (s *ConversationService) CloseConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) error {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+	if err := s.CanSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
 		return err
 	}
 

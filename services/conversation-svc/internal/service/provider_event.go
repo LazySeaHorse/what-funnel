@@ -229,15 +229,13 @@ func upsertProviderMessage(
 	if err := insertProviderMedia(ctx, tx, accountID, channelID, messageID, message); err != nil {
 		return providerEventResult{}, err
 	}
-	// A customer message reopens a closed conversation. Only genuinely new
-	// inbound messages do: duplicates returned above.
-	if _, err := tx.Exec(ctx, `
-		UPDATE conversations
-		SET last_message_at = GREATEST(COALESCE(last_message_at, $1), $1),
-		    status = CASE WHEN $3 THEN 'open' ELSE status END
-		WHERE id = $2
-	`, message.ProviderTimestamp, conversationID, message.Direction == messaging.DirectionInbound); err != nil {
-		return providerEventResult{}, fmt.Errorf("update provider conversation: %w", err)
+	// last_message_at is already advanced by the conversation upsert. A new
+	// customer message also reopens a closed conversation; duplicates returned
+	// above so they never do.
+	if message.Direction == messaging.DirectionInbound {
+		if _, err := tx.Exec(ctx, `UPDATE conversations SET status = 'open' WHERE id = $1 AND status <> 'open'`, conversationID); err != nil {
+			return providerEventResult{}, fmt.Errorf("reopen provider conversation: %w", err)
+		}
 	}
 	if message.Direction == messaging.DirectionOutbound {
 		if err := pauseAIAfterHumanMessage(ctx, tx, accountID, conversationID, nil, messageID, types.AIStateReasonExternalHumanMessage); err != nil {

@@ -110,9 +110,6 @@ func (s *LeadService) CreateLead(ctx context.Context, accountID, userID, convoID
 	}
 
 	// Resolve the initial pipeline state.
-	if s.pipelineResolver == nil {
-		s.pipelineResolver = &DBLeadPipelineResolver{}
-	}
 	initialPipeline, err := s.pipelineResolver.ResolveInitialPipeline(ctx, tx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get lead pipeline: %w", err)
