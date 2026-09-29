@@ -18,7 +18,7 @@ test.describe('Onboarding Wizard UI Monkey Fuzzing', () => {
 			seed: 63124,
 			maxActions: 50,
 			actionDelayMs: 25,
-			ignoredConsoleErrors: [/favicon\.ico/i, /Failed to load resource/i]
+			ignoredConsoleErrors: []
 		});
 
 		await fuzzer.run();
@@ -33,7 +33,7 @@ test.describe('Onboarding Wizard UI Monkey Fuzzing', () => {
 			seed: 74215,
 			maxActions: 50,
 			actionDelayMs: 25,
-			ignoredConsoleErrors: [/favicon\.ico/i, /Failed to load resource/i]
+			ignoredConsoleErrors: []
 		});
 
 		await fuzzer.run();
@@ -48,7 +48,7 @@ test.describe('Onboarding Wizard UI Monkey Fuzzing', () => {
 			seed: 85326,
 			maxActions: 50,
 			actionDelayMs: 25,
-			ignoredConsoleErrors: [/favicon\.ico/i, /Failed to load resource/i]
+			ignoredConsoleErrors: []
 		});
 
 		await fuzzer.run();
