@@ -53,24 +53,29 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 	return svc.identity.CreateUser(ctx, accountID, actorID, req)
 }
 
-// DeleteUser removes a user from an account, unassigning conversations in workspace domain
-// and delegating user/session deletion to IdentityProvisioner.
+// DeleteUser removes a user from an account. The identity domain deletes the
+// user and revokes sessions first; only once that succeeded is the user
+// unassigned from conversations in the workspace domain. Doing it in this order
+// means an identity failure leaves the user and their assignments untouched.
 func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUserID uuid.UUID) error {
 	if actorID == targetUserID {
 		return fmt.Errorf("cannot delete own account")
 	}
 
-	// 1. Workspace domain cleanup: unassign from conversations
+	// 1. Identity domain lifecycle: delete user credentials and revoke sessions
+	if err := svc.identity.DeleteUser(ctx, accountID, actorID, targetUserID); err != nil {
+		return err
+	}
+
+	// 2. Workspace domain cleanup: unassign from conversations
 	err := dbgen.New(svc.pool).UnassignUserFromConversations(ctx, dbgen.UnassignUserFromConversationsParams{
 		UserID:    targetUserID,
 		AccountID: accountID,
 	})
 	if err != nil {
-		return fmt.Errorf("unassign conversations: %w", err)
+		return fmt.Errorf("user deleted but unassigning conversations failed: %w", err)
 	}
-
-	// 2. Identity domain lifecycle: delete user credentials and revoke sessions
-	return svc.identity.DeleteUser(ctx, accountID, actorID, targetUserID)
+	return nil
 }
 
 // ResetUserPassword updates the password of targetUserID and revokes existing sessions via IdentityProvisioner.
