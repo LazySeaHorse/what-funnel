@@ -493,19 +493,25 @@ func (s *ConversationService) CloseConversation(ctx context.Context, accountID, 
 			WHERE conversation_id = $1 AND account_id = $2
 			FOR UPDATE
 		), updated AS (
+			-- Blocked states are deliberate moderation decisions (unblocking
+			-- suspected spam is manager-only), so closing must not lift them.
 			UPDATE conversation_ai_state
-			SET state = 'active', state_reason = 'conversation_closed', run_state = 'idle',
+			SET state = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN state ELSE 'active' END,
+			    state_reason = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN state_reason ELSE 'conversation_closed' END,
+			    run_state = 'idle',
 			    run_started_at = NULL,
 			    generation_epoch = generation_epoch + 1, cooldown_level = 0,
 			    next_review_at = NULL, unanswered_count = 0,
-			    unanswered_window_started_at = NULL, blocked_at = NULL,
+			    unanswered_window_started_at = NULL,
+			    blocked_at = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN blocked_at ELSE NULL END,
 			    version = version + 1, updated_at = NOW()
 			WHERE conversation_id = $1 AND account_id = $2
+			RETURNING state
 		)
 		INSERT INTO conversation_ai_state_events (
 			account_id, conversation_id, actor_user_id, from_state, to_state, reason
 		)
-		SELECT $2, $1, $3, state, 'active', 'conversation_closed' FROM previous
+		SELECT $2, $1, $3, previous.state, updated.state, 'conversation_closed' FROM previous, updated
 	`, conversationID, accountID, userID)
 	if err != nil {
 		return fmt.Errorf("reset conversation AI state: %w", err)

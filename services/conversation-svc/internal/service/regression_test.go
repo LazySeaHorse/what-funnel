@@ -207,3 +207,59 @@ func TestIngestProviderEvent_MissingTargetIsRetryable(t *testing.T) {
 	require.NoError(t, svc.IngestProviderEvent(ctx, providerCreatedEvent(channelID, "evt-"+uuid.NewString(), "404", "x", now)))
 	require.NoError(t, svc.IngestProviderEvent(ctx, receipt))
 }
+
+func TestBlockedAIStateSurvivesCloseAndHumanReply(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	accountID, managerID := setupTestTenant(t, pool, "blocked-ai-state")
+	var agentID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'blocked-agent@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&agentID))
+	channelID := newTelegramChannel(t, pool, accountID, "blocked bot")
+
+	aiState := func(conversationID uuid.UUID) (string, bool) {
+		var state string
+		var blockedAt *time.Time
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state, blocked_at FROM conversation_ai_state WHERE conversation_id = $1`, conversationID).Scan(&state, &blockedAt))
+		return state, blockedAt != nil
+	}
+
+	for _, blocked := range []string{"blocked_spam", "blocked_manual"} {
+		t.Run(blocked+" closed by agent", func(t *testing.T) {
+			convo := newConversation(t, pool, accountID, channelID, "close-"+blocked, agentID)
+			_, err := pool.Exec(ctx, `UPDATE conversation_ai_state SET state = $2, blocked_at = NOW() WHERE conversation_id = $1`, convo, blocked)
+			require.NoError(t, err)
+
+			require.NoError(t, svc.CloseConversation(ctx, accountID, agentID, convo, types.RoleAgent))
+			state, hasBlockedAt := aiState(convo)
+			require.Equal(t, blocked, state)
+			require.True(t, hasBlockedAt)
+		})
+
+		t.Run(blocked+" human reply", func(t *testing.T) {
+			convo := newConversation(t, pool, accountID, channelID, "reply-"+blocked, agentID)
+			_, err := pool.Exec(ctx, `UPDATE conversation_ai_state SET state = $2, blocked_at = NOW() WHERE conversation_id = $1`, convo, blocked)
+			require.NoError(t, err)
+
+			_, err = svc.SendMessage(ctx, service.SendMessageParams{
+				AccountID: accountID, ConversationID: convo, Sender: types.MessageSenderHuman,
+				SenderUserID: &agentID, ContentType: "text", Text: "hello",
+			})
+			require.NoError(t, err)
+			state, hasBlockedAt := aiState(convo)
+			require.Equal(t, blocked, state)
+			require.True(t, hasBlockedAt)
+		})
+	}
+
+	t.Run("non-blocked state is still reset on close", func(t *testing.T) {
+		convo := newConversation(t, pool, accountID, channelID, "close-paused")
+		_, err := pool.Exec(ctx, `UPDATE conversation_ai_state SET state = 'paused_human' WHERE conversation_id = $1`, convo)
+		require.NoError(t, err)
+		require.NoError(t, svc.CloseConversation(ctx, accountID, managerID, convo, types.RoleManager))
+		state, _ := aiState(convo)
+		require.Equal(t, "active", state)
+	})
+}

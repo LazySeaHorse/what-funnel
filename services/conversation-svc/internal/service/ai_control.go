@@ -153,18 +153,24 @@ func pauseAIAfterHumanMessage(
 			WHERE conversation_id = $1 AND account_id = $2
 			FOR UPDATE
 		), updated AS (
+			-- A human reply must not lift a block: blocked_spam is manager-only
+			-- to clear and blocked_manual is an explicit decision. Keep the
+			-- state, its reason and blocked_at together.
 			UPDATE conversation_ai_state
-			SET state = $3, state_reason = $4, run_state = 'idle',
+			SET state = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN state ELSE $3 END,
+			    state_reason = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN state_reason ELSE $4 END,
+			    run_state = 'idle',
 			    run_started_at = NULL,
 			    generation_epoch = generation_epoch + 1, next_review_at = NULL,
 			    version = version + 1, updated_at = NOW()
 			WHERE conversation_id = $1 AND account_id = $2
+			RETURNING state
 		)
 		INSERT INTO conversation_ai_state_events (
 			account_id, conversation_id, actor_user_id, from_state, to_state, reason,
 			triggering_message_id
 		)
-		SELECT $2, $1, $5, state, $3, $4, $6 FROM previous
+		SELECT $2, $1, $5, previous.state, updated.state, $4, $6 FROM previous, updated
 	`, conversationID, accountID, types.AIStatePausedHuman, reason, actorUserID, messageID)
 	if err != nil {
 		return fmt.Errorf("pause AI after human message: %w", err)
