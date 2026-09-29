@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Keep in sync with packages/go-common/migrations/Dockerfile and `make tools`.
+  GOOSE_VERSION: v3.20.0
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version-file: go.work
           cache: true
 
       - name: Verify Go workspace
@@ -79,12 +83,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version-file: go.work
           cache: true
 
       - name: Install Goose
         run: |
-          go install github.com/pressly/goose/v3/cmd/goose@latest
+          go install github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
 
       - name: Run database migrations
         env:
@@ -92,17 +96,20 @@ jobs:
         run: |
           goose -dir packages/go-common/migrations postgres "$DATABASE_URL" up
 
-      - name: Run DB-backed Go service tests
+      - name: Run all Go module tests against Postgres and Redis (no -short)
         env:
+          # CI=true makes DB/Redis-dependent tests fail instead of silently skipping.
+          CI: 'true'
           DATABASE_URL: postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable
-          SESSION_SECRET: change-me-in-production-at-least-32-chars
-          ENCRYPTION_KEY: change-me-32-byte-hex-key-padded
+          REDIS_URL: localhost:6379
+          SESSION_SECRET: ci-session-secret-0123456789abcdef0123456789
+          INTERNAL_SERVICE_TOKEN: ci-internal-service-token-0123456789abcdef
+          ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
         run: |
-          go test -v -race -count=1 -timeout 120s \
-            ./packages/go-common/db/... \
-            ./services/identity-svc/internal/service/... \
-            ./services/workspace-svc/internal/service/... \
-            ./services/conversation-svc/internal/service/...
+          # tests/integration drives a full running stack (gateway + all services);
+          # its stack-independent tests already run with -short in the unit job.
+          pkgs=$(go list -m | grep -v '/tests/integration' | sed 's|$|/...|')
+          go test -v -race -count=1 -timeout 300s $pkgs
 
   # ---------------------------------------------------------------------------
   # Python: AI services tests
@@ -110,6 +117,37 @@ jobs:
   test-python:
     name: Python Services Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: whatfunnel
+          POSTGRES_PASSWORD: whatfunnel
+          POSTGRES_DB: whatfunnel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatfunnel -d whatfunnel"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # CI=true makes DB/Redis-dependent tests fail instead of skipping.
+      CI: 'true'
+      DATABASE_URL: postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+      INTERNAL_SERVICE_TOKEN: ci-internal-service-token-0123456789abcdef
+      SESSION_SECRET: ci-session-secret-0123456789abcdef0123456789
+      APP_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -129,22 +167,34 @@ jobs:
           pip install -r services/ai-answer-svc/requirements.txt
           pip install -r services/ai-kb-compiler/requirements.txt
 
+      - name: Set up Go (for goose)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Run database migrations
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
+          goose -dir packages/go-common/migrations postgres "$DATABASE_URL" up
+
+      - name: Run shared Python package tests
+        env:
+          PYTHONPATH: packages/python
+        run: |
+          pytest -v packages/python/tests
+
       - name: Run ai-answer-svc tests
         env:
           PYTHONPATH: packages/python:services/ai-answer-svc
         run: |
           pytest -v services/ai-answer-svc/tests
 
-      - name: Run ai-kb-compiler unit tests
+      - name: Run ai-kb-compiler tests
         env:
           PYTHONPATH: packages/python:services/ai-kb-compiler
-          APP_ENCRYPTION_KEY: change-me-32-byte-hex-key-padded
         run: |
-          pytest -v \
-            services/ai-kb-compiler/tests/test_plain_text.py \
-            services/ai-kb-compiler/tests/test_llm.py \
-            services/ai-kb-compiler/tests/test_crypto.py \
-            services/ai-kb-compiler/tests/test_vector_math.py
+          pytest -v services/ai-kb-compiler/tests
 
   # ---------------------------------------------------------------------------
   # Web: SvelteKit check & production build
@@ -201,8 +251,17 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright UI tests
-        run: npx playwright test tests/ui
+      # Mock-API suites only (no backend needed). The top-level tests/*.spec.ts
+      # suites drive a real running stack and are run via `make pw`.
+      - name: Run Playwright UI, unit, and fast mock fuzz suites
+        run: >-
+          npx playwright test
+          tests/ui tests/unit
+          tests/fuzz/monkey-mock.spec.ts
+          tests/fuzz/auth-monkey.spec.ts
+          tests/fuzz/onboarding-monkey.spec.ts
+          tests/fuzz/chaos.spec.ts
+          tests/fuzz/race-monkey.spec.ts
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
@@ -218,9 +277,10 @@ jobs:
   docker-build:
     name: Multi-Arch Docker Build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [test-go, test-python, test-web]
+    timeout-minutes: 30
+    needs: [test-go, test-go-db, test-python, test-web, test-playwright]
     strategy:
+      fail-fast: false
       matrix:
         service:
           - name: api-gateway
@@ -242,6 +302,28 @@ jobs:
           - name: notification-svc
             dockerfile: services/notification-svc/Dockerfile
             context: .
+            platforms: linux/amd64,linux/arm64
+          # CGO/sqlite adapters and the Python AI services are amd64-only in CI
+          # (cross-building them under QEMU is prohibitively slow).
+          - name: whatsapp-adapter
+            dockerfile: adapters/whatsapp-whatsmeow/Dockerfile
+            context: .
+            platforms: linux/amd64
+          - name: telegram-adapter
+            dockerfile: adapters/telegram-botapi/Dockerfile
+            context: .
+            platforms: linux/amd64
+          - name: ai-answer-svc
+            dockerfile: services/ai-answer-svc/Dockerfile
+            context: .
+            platforms: linux/amd64
+          - name: ai-kb-compiler
+            dockerfile: services/ai-kb-compiler/Dockerfile
+            context: .
+            platforms: linux/amd64
+          - name: migrate
+            dockerfile: packages/go-common/migrations/Dockerfile
+            context: packages/go-common/migrations
             platforms: linux/amd64,linux/arm64
           - name: web
             dockerfile: apps/web/Dockerfile
@@ -265,3 +347,51 @@ jobs:
           platforms: ${{ matrix.service.platforms }}
           push: false
           tags: whatfunnel/${{ matrix.service.name }}:latest
+
+  # ---------------------------------------------------------------------------
+  # Docker: production deploy Dockerfiles (deploy/dockerfiles/*) consume
+  # host-compiled binaries and the static web build, so compile those first.
+  # ---------------------------------------------------------------------------
+  deploy-image-build:
+    name: Deploy Dockerfiles Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [test-go, test-go-db, test-python, test-web, test-playwright]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Compile service binaries
+        run: |
+          mkdir -p bin
+          for svc in api-gateway identity-svc workspace-svc conversation-svc notification-svc; do
+            CGO_ENABLED=0 go build -trimpath -o "bin/$svc" "./services/$svc/cmd/$svc"
+          done
+          CGO_ENABLED=1 go build -trimpath -o bin/whatsapp-adapter ./adapters/whatsapp-whatsmeow/cmd/whatsapp-adapter
+          CGO_ENABLED=1 go build -trimpath -o bin/telegram-adapter ./adapters/telegram-botapi/cmd/telegram-adapter
+          GOBIN="$PWD/bin" go install "github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}"
+
+      - name: Build static web app
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build deploy images
+        run: |
+          for name in api-gateway identity-svc workspace-svc conversation-svc notification-svc whatsapp-adapter telegram-adapter migrate web; do
+            docker build -f "deploy/dockerfiles/Dockerfile.$name" -t "whatfunnel/deploy-$name:ci" .
+          done
