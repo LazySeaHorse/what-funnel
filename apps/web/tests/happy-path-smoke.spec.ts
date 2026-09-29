@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanupAccountByEmail } from './support/db-cleanup';
+import { cleanupAccountByEmail, e2eEmail } from './support/db-cleanup';
 
 const createdEmails: string[] = [];
 
@@ -14,7 +14,7 @@ test('happy-path smoke: registration, onboarding, send message, view in timeline
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // 1. Registration
-  const email = `smoke-${Date.now()}@e2e.local`;
+  const email = e2eEmail('smoke');
   createdEmails.push(email);
 
   await page.goto('/signup');

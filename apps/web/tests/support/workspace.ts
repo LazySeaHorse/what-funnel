@@ -1,10 +1,11 @@
 import { expect, type Page } from '@playwright/test';
+import { e2eEmail } from './db-cleanup';
 export { cleanupAccountByEmail } from './db-cleanup';
 
 export const PASSWORD = 'E2ePassword99!';
 
 export function uniqueEmail(prefix: string) {
-	return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10_000)}@e2e.local`;
+	return e2eEmail(prefix);
 }
 
 export async function signupAndOpenSettings(page: Page, workspaceName = 'UI Safety Test Workspace') {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanupAccountByEmail } from './support/db-cleanup';
+import { cleanupAccountByEmail, e2eEmail } from './support/db-cleanup';
 
 const createdEmails: string[] = [];
 
@@ -26,7 +26,7 @@ test.describe('Visual Regression Snapshots', () => {
   test('inbox screen visual snapshot', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
-    const email = `visual-${Date.now()}@e2e.local`;
+    const email = e2eEmail('visual');
     createdEmails.push(email);
 
     await page.goto('/signup');

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanupAccountByEmail } from './support/db-cleanup';
+import { cleanupAccountByEmail, e2eEmail } from './support/db-cleanup';
 
 const createdEmails: string[] = [];
 
@@ -14,7 +14,7 @@ test('left sidebar Simulate tab opens full Customer Simulation Studio and simula
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Sign up a fresh account
-  const email = `sim-left-${Date.now()}@e2e.local`;
+  const email = e2eEmail('sim-left');
   createdEmails.push(email);
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');
@@ -73,7 +73,7 @@ test('simulating Telegram chat sends native webhook and displays Telegram channe
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Sign up a fresh account
-  const email = `sim-tg-${Date.now()}@e2e.local`;
+  const email = e2eEmail('sim-tg');
   createdEmails.push(email);
   await page.goto('/signup');
   await page.waitForLoadState('networkidle');

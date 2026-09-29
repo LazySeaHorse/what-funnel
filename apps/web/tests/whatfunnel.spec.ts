@@ -18,7 +18,7 @@
 import { test, expect, type Page } from "@playwright/test";
 // @ts-ignore
 import { execFileSync } from "child_process";
-import { cleanupAccountByEmail } from "./support/db-cleanup";
+import { cleanupAccountByEmail, e2eEmail } from "./support/db-cleanup";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ const PASSWORD = "E2ePassword99!";
 const trackedEmails: string[] = [];
 
 function uniqueEmail(prefix = "test") {
-  const email = `${prefix}-${Date.now()}-${Math.floor(Math.random() * 9999)}@e2e.local`;
+  const email = e2eEmail(prefix);
   trackedEmails.push(email);
   return email;
 }

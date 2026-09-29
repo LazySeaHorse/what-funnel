@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { DeterministicMonkeyFuzzer } from './monkey';
+import { e2eEmail } from '../support/db-cleanup';
 
 test.describe('Live Backend UI Monkey Fuzzing', () => {
 	test('runs deterministic monkey testing against real backend services and database', async ({ page }) => {
 		test.setTimeout(90000);
 		await page.setViewportSize({ width: 1440, height: 900 });
 
-		const email = `monkey-live-${Date.now()}@e2e.local`;
+		const email = e2eEmail('monkey-live');
 
 		// 1. Sign up a fresh isolated tenant workspace
 		await page.goto('/signup');

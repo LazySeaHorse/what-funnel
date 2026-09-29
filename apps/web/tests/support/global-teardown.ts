@@ -1,5 +1,9 @@
-import { cleanupAllTestAccounts } from './db-cleanup';
+import { cleanupAllTestAccounts, clearDbUsageMarker, dbWasUsed } from './db-cleanup';
 
 export default async function globalTeardown() {
-	cleanupAllTestAccounts();
+	// Only clean up when this run actually created accounts through the real API.
+	if (dbWasUsed()) {
+		cleanupAllTestAccounts();
+	}
+	clearDbUsageMarker();
 }

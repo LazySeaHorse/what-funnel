@@ -1,137 +1,146 @@
 // @ts-ignore
 import { execFileSync } from 'child_process';
+// @ts-ignore
+import { existsSync, rmSync, writeFileSync } from 'fs';
+// @ts-ignore
+import { tmpdir } from 'os';
+// @ts-ignore
+import { join } from 'path';
 
 declare const process: any;
 
+/**
+ * Every account the E2E suites create through the real API is marked by an
+ * e-mail address on this reserved (RFC 6761 ".test") domain. Cleanup deletes
+ * ONLY accounts whose users are all on this domain, never anything else that
+ * happens to live in the dev database.
+ */
+export const E2E_EMAIL_DOMAIN = 'e2e.whatfunnel.test';
+
+// Set explicitly (e.g. by `make pw-fuzz-live` for the fuzz DB). When it is not
+// set we may fall back to `docker exec` against the default dev stack.
+const EXPLICIT_DATABASE_URL: string | undefined = process.env.DATABASE_URL;
 const DATABASE_URL =
-	process.env.DATABASE_URL ||
-	'postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable';
+	EXPLICIT_DATABASE_URL || 'postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable';
 
-export function runSql(sql: string): void {
-	// Attempt 1: direct psql CLI if available
-	try {
-		execFileSync('psql', [DATABASE_URL, '-c', sql], {
-			stdio: 'pipe',
-			timeout: 10000
-		});
-		return;
-	} catch {
-		// psql not in PATH or connection failed, fallback to docker
+/** Per-run identifier, created by global setup and inherited by workers via env. */
+export function e2eRunId(): string {
+	if (!process.env.E2E_RUN_ID) {
+		process.env.E2E_RUN_ID = `${Date.now().toString(36)}${Math.floor(Math.random() * 0xffff).toString(36)}`;
 	}
+	return process.env.E2E_RUN_ID as string;
+}
 
-	// Attempt 2: docker exec whatfunnel-postgres
-	try {
-		execFileSync(
-			'docker',
-			['exec', 'whatfunnel-postgres', 'psql', '-U', 'whatfunnel', '-d', 'whatfunnel', '-c', sql],
-			{
-				stdio: 'pipe',
-				timeout: 10000
-			}
-		);
-		return;
-	} catch {
-		// fallback to docker compose
-	}
-
-	// Attempt 3: docker compose exec
-	try {
-		execFileSync(
-			'docker',
-			['compose', 'exec', '-T', 'postgres', 'psql', '-U', 'whatfunnel', '-d', 'whatfunnel', '-c', sql],
-			{
-				stdio: 'pipe',
-				timeout: 10000
-			}
-		);
-	} catch (err: any) {
-		const stderr = err?.stderr?.toString?.() || '';
-		if (
-			stderr.includes('is not running') ||
-			stderr.includes('No such container') ||
-			stderr.includes('Cannot connect to the Docker daemon') ||
-			err?.code === 'ENOENT'
-		) {
-			// Database service is not running (e.g. running standalone UI tests in CI); skip cleanup.
-			return;
-		}
-		console.warn('DB cleanup execution failed:', err);
-	}
+function markerFile(): string {
+	return join(tmpdir(), `whatfunnel-e2e-${e2eRunId()}.used-db`);
 }
 
 /**
- * Remove all test accounts and synthetic users.
- * Safeguard: Never deletes foo@barr.com or account Foobarr.
+ * Build a unique marked e-mail for a test that creates a real account. Calling
+ * this records that the run touched the database, so teardown knows cleanup is
+ * needed. Mock-only runs never call it and therefore never connect to the DB.
+ */
+export function e2eEmail(prefix: string): string {
+	try {
+		writeFileSync(markerFile(), '1');
+	} catch (err) {
+		console.warn('[e2e] could not record DB usage marker; account cleanup may be skipped:', err);
+	}
+	return `${prefix}-${e2eRunId()}-${Math.floor(Math.random() * 1_000_000)}@${E2E_EMAIL_DOMAIN}`;
+}
+
+export function dbWasUsed(): boolean {
+	return existsSync(markerFile());
+}
+
+export function clearDbUsageMarker(): void {
+	rmSync(markerFile(), { force: true });
+}
+
+function attempt(cmd: string, args: string[]): { ok: true } | { ok: false; error: string } {
+	try {
+		execFileSync(cmd, args, { stdio: 'pipe', timeout: 10000 });
+		return { ok: true };
+	} catch (err: any) {
+		const stderr = err?.stderr?.toString?.().trim() || '';
+		return { ok: false, error: `${cmd}: ${stderr || err?.message || err}` };
+	}
+}
+
+/** Run SQL. Returns null on success, or a description of every failed attempt. */
+export function runSql(sql: string): string | null {
+	const failures: string[] = [];
+
+	const direct = attempt('psql', [DATABASE_URL, '-v', 'ON_ERROR_STOP=1', '-c', sql]);
+	if (direct.ok) return null;
+	failures.push(direct.error);
+
+	// Docker fallbacks only target the default dev database; never use them when
+	// the caller pointed us at a specific database.
+	if (!EXPLICIT_DATABASE_URL) {
+		const pgArgs = ['psql', '-v', 'ON_ERROR_STOP=1', '-U', 'whatfunnel', '-d', 'whatfunnel', '-c', sql];
+		const exec = attempt('docker', ['exec', 'whatfunnel-postgres', ...pgArgs]);
+		if (exec.ok) return null;
+		failures.push(exec.error);
+
+		const compose = attempt('docker', ['compose', 'exec', '-T', 'postgres', ...pgArgs]);
+		if (compose.ok) return null;
+		failures.push(compose.error);
+	}
+	return failures.join('\n  ');
+}
+
+function warnCleanupFailure(what: string, detail: string): void {
+	console.error(
+		`\n!!! [e2e] DATABASE CLEANUP FAILED (${what}). Test accounts may be left in the database.\n  ${detail}\n`
+	);
+}
+
+const MARKER_LIKE = `'%@${E2E_EMAIL_DOMAIN}'`;
+
+/**
+ * Remove accounts created by E2E runs: accounts whose users ALL use the E2E
+ * marker domain. Accounts with any real user are left untouched.
  */
 export function cleanupAllTestAccounts(): void {
 	const sql = `
 		BEGIN;
 		DELETE FROM accounts
-		WHERE id NOT IN (
-			SELECT account_id FROM users WHERE email = 'foo@barr.com'
-		) AND (
-			id IN (
-				SELECT DISTINCT account_id FROM users
-				WHERE (email LIKE '%@e2e.local' OR email LIKE '%@example.com' OR email LIKE '%@local.test')
-				  AND email != 'foo@barr.com'
-			)
-			OR name LIKE 'What Funnel Studio%'
-			OR name LIKE 'Glamour Salon%'
-			OR name LIKE 'Realtime Sync Studio%'
-			OR name LIKE 'Telegram Sim Test Studio%'
-			OR name LIKE '%Test Biz%'
-			OR name LIKE 'Done Screen Test%'
-			OR name LIKE 'Biz Type Test%'
-			OR name LIKE 'Mode Test Biz%'
-			OR name LIKE 'Reply Mode Test%'
-			OR name LIKE 'RBAC % Biz%'
-			OR name LIKE 'UI Safety Test Workspace%'
-			OR name LIKE 'E2E %'
-			OR name = 'TestTenant'
-			OR name = 'Onboarding Test Biz'
-			OR name = 'Mode Test Biz'
-			OR name = 'Biz Type Test'
-			OR name = 'Done Screen Test'
-			OR name = 'Reply Mode Test'
-			OR name = 'Channel Test Biz'
-			OR name = 'Inbound Test Biz'
-			OR name = 'Outbound Test Biz'
-			OR name = 'Lead Test Biz'
-			OR name = 'Filter Test Biz'
-			OR name = 'Settings Test Biz'
-			OR name = 'WS Test Biz'
-			OR name = 'Auth Test Business'
-			OR name = 'Login Test Biz'
+		WHERE id IN (
+			SELECT account_id FROM users
+			GROUP BY account_id
+			HAVING bool_and(email LIKE ${MARKER_LIKE})
 		);
-
-		DELETE FROM users
-		WHERE (email LIKE '%@e2e.local' OR email LIKE '%@example.com' OR email LIKE '%@local.test')
-		  AND email != 'foo@barr.com';
+		DELETE FROM users WHERE email LIKE ${MARKER_LIKE};
 		COMMIT;
 	`;
-	runSql(sql);
+	const failure = runSql(sql);
+	if (failure) warnCleanupFailure('all marked accounts', failure);
 }
 
 /**
- * Delete a specific test account and user by email.
- * Safeguard: Never deletes foo@barr.com.
+ * Delete a specific test account by e-mail. Refuses any address outside the
+ * E2E marker domain.
  */
 export function cleanupAccountByEmail(email: string): void {
-	if (!email || email === 'foo@barr.com') return;
+	if (!email) return;
+	if (!email.endsWith(`@${E2E_EMAIL_DOMAIN}`)) {
+		console.warn(`[e2e] refusing to clean up non-E2E account: ${email}`);
+		return;
+	}
 	const escaped = email.replace(/'/g, "''");
 	const sql = `
 		BEGIN;
 		DELETE FROM accounts
-		WHERE id IN (
-			SELECT account_id FROM users WHERE email = '${escaped}'
-		) AND id NOT IN (
-			SELECT account_id FROM users WHERE email = 'foo@barr.com'
+		WHERE id IN (SELECT account_id FROM users WHERE email = '${escaped}')
+		  AND id IN (
+			SELECT account_id FROM users
+			GROUP BY account_id
+			HAVING bool_and(email LIKE ${MARKER_LIKE})
 		);
-
-		DELETE FROM users
-		WHERE email = '${escaped}'
-		  AND email != 'foo@barr.com';
+		DELETE FROM users WHERE email = '${escaped}';
 		COMMIT;
 	`;
-	runSql(sql);
+	const failure = runSql(sql);
+	if (failure) warnCleanupFailure(`account ${email}`, failure);
 }
