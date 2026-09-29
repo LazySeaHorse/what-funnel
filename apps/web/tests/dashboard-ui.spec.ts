@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { cleanupAccountByEmail } from "./support/db-cleanup";
+import { cleanupAccountByEmail, e2eEmail } from "./support/db-cleanup";
 
 const createdEmails: string[] = [];
 
@@ -16,7 +16,7 @@ test("dashboard UI renders correctly with What Funnel branding and Poppins font"
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Sign up a fresh account
-  const email = `dash-${Date.now()}@e2e.local`;
+  const email = e2eEmail('dash');
   createdEmails.push(email);
   await page.goto("/signup");
   await page.waitForLoadState("networkidle");
@@ -65,7 +65,7 @@ test("leads tab UI renders real database leads with table and detail drawer", as
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  const email = `leads-real-${Date.now()}@e2e.local`;
+  const email = e2eEmail('leads-real');
   createdEmails.push(email);
   await page.goto("/signup");
   await page.waitForLoadState("networkidle");

@@ -242,11 +242,12 @@ func TestAIAnswerE2E(t *testing.T) {
 	closeResp, closeBody := post(t, adminClient, gatewayURL+"/conversations/"+convoIDStr+"/close", nil)
 	require.Equal(t, http.StatusOK, closeResp.StatusCode, "close must succeed: %v", closeBody)
 
-	// Wait up to 5 seconds to let python background worker process the close event
-	time.Sleep(3 * time.Second)
-
-	// Verify that AI control returns to active.
-	err = pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState)
-	require.NoError(t, err)
-	assert.Equal(t, "active", aiState, "AI should resume after close and idle debounce")
+	// The python background worker processes the close event asynchronously; the
+	// AI control state must return to active.
+	require.Eventually(t, func() bool {
+		if err := pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState); err != nil {
+			return false
+		}
+		return aiState == "active"
+	}, 20*time.Second, 200*time.Millisecond, "AI should resume after close and idle debounce (last state %q)", aiState)
 }

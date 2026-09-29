@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockWorkspaceApi } from '../support/mock-api';
+import { mockIdleWebSocket, mockWorkspaceApi } from '../support/mock-api';
 import { DeterministicMonkeyFuzzer } from './monkey';
 
 function sampleConversations() {
@@ -107,6 +107,7 @@ test.describe('Multi-Seed Soak Sweep Fuzzing', () => {
 			test.setTimeout(90000);
 			await page.setViewportSize({ width: 1440, height: 900 });
 
+			await mockIdleWebSocket(page);
 			await mockWorkspaceApi(page, {
 				role: 'manager',
 				productMode: 'full_workspace',

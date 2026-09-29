@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { mockWorkspaceApi } from '../support/mock-api';
-import { DeterministicMonkeyFuzzer } from './monkey';
+import { mockIdleWebSocket, mockWorkspaceApi } from '../support/mock-api';
+import { DeterministicMonkeyFuzzer, resolveFuzzSeed } from './monkey';
 
 function sampleConversations() {
 	return [
@@ -29,9 +29,10 @@ test.describe('Network Chaos UI Fuzzing', () => {
 		test.setTimeout(90000);
 		await page.setViewportSize({ width: 1440, height: 900 });
 
-		const seed = process.env.FUZZ_SEED ? parseInt(process.env.FUZZ_SEED, 10) : 777123;
+		const seed = resolveFuzzSeed(777123);
 
 		// 1. Mock API with built-in chaos fault injection
+		await mockIdleWebSocket(page);
 		await mockWorkspaceApi(page, {
 			role: 'manager',
 			productMode: 'full_workspace',
@@ -55,19 +56,12 @@ test.describe('Network Chaos UI Fuzzing', () => {
 			seed,
 			maxActions: 60,
 			actionDelayMs: 25,
+			// Chaos-only: these are the exact console signatures of the faults we inject
+			// (5xx/429 responses and aborted connections). Anything else still fails the run.
 			ignoredConsoleErrors: [
-				/favicon\.ico/i,
-				/ws proxy/i,
-				/WebSocket/i,
-				/WS error/i,
-				/ECONNRESET/i,
-				/Failed to load resource/i,
-				/net::ERR_FAILED/i,
-				/Chaos fault injected/i,
-				/Failed to fetch/i,
-				/ApiError/i,
-				/Load failed/i,
-				/Service unavailable/i
+				/Failed to load resource: the server responded with a status of (500|502|503|429)/i,
+				/Failed to load resource: net::ERR_FAILED/i,
+				/Chaos fault injected/i
 			]
 		});
 

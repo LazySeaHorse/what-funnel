@@ -18,7 +18,7 @@ test.describe('Auth UI Monkey Fuzzing', () => {
 			seed: 41235,
 			maxActions: 50,
 			actionDelayMs: 25,
-			ignoredConsoleErrors: [/favicon\.ico/i, /Failed to load resource/i, /The username or password is incorrect/i]
+			ignoredConsoleErrors: [/Failed to load resource: the server responded with a status of 401/i, /The username or password is incorrect/i]
 		});
 
 		await fuzzer.run();
@@ -34,7 +34,7 @@ test.describe('Auth UI Monkey Fuzzing', () => {
 			seed: 52341,
 			maxActions: 50,
 			actionDelayMs: 25,
-			ignoredConsoleErrors: [/favicon\.ico/i, /Failed to load resource/i, /Failed to create workspace/i]
+			ignoredConsoleErrors: [/Failed to load resource: the server responded with a status of (400|409|422)/i, /Failed to create workspace/i]
 		});
 
 		await fuzzer.run();

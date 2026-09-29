@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanupAccountByEmail } from './support/db-cleanup';
+import { cleanupAccountByEmail, e2eEmail } from './support/db-cleanup';
 
 const createdEmails: string[] = [];
 
@@ -13,7 +13,7 @@ test.afterEach(() => {
 test('new inbox UI: textarea composer, no note tab, AI toggle switch, cluster radii', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  const email = `ui-audit-${Date.now()}@e2e.local`;
+  const email = e2eEmail('ui-audit');
   createdEmails.push(email);
   await page.goto('/signup');
   await page.fill('#account-name-input', 'Audit Studio');

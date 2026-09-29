@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { mockWorkspaceApi } from '../support/mock-api';
 
+// Placeholder of the knowledge composer (KnowledgeComposer default), asserted exactly.
+const KNOWLEDGE_PLACEHOLDER =
+	'Paste raw website copy, FAQs, or service policies. AI structures it into searchable concepts and instant replies.';
+
 test('Knowledge tab uses the same reviewed ingestion contract as onboarding', async ({ page }) => {
 	const api = await mockWorkspaceApi(page, { role: 'manager', productMode: 'full_workspace' });
 	await page.goto('/inbox?tab=knowledge');
 	await expect(page.getByRole('heading', { name: 'Knowledge base', exact: true })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Add knowledge' }).click();
-	await page.getByPlaceholder(/Paste raw website copy|Paste business information/).fill('Consulting costs $100 per hour.');
+	await page.getByPlaceholder(KNOWLEDGE_PLACEHOLDER, { exact: true }).fill('Consulting costs $100 per hour.');
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Concept title')).toHaveValue('Pricing');
@@ -79,7 +83,7 @@ test('Knowledge tab can discard a reviewed ingestion to return to paste state', 
 	await page.goto('/inbox?tab=knowledge');
 
 	await page.getByRole('button', { name: 'Add knowledge' }).click();
-	await page.getByPlaceholder(/Paste raw website copy|Paste business information/).fill('Return policy requires 14 days.');
+	await page.getByPlaceholder(KNOWLEDGE_PLACEHOLDER, { exact: true }).fill('Return policy requires 14 days.');
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
 
@@ -107,18 +111,37 @@ test('Knowledge tab resumes the latest active ingestion through the shared workf
 
 test('clicking away from popup while knowledge is being ingested does not stop process and shows spinner', async ({ page }) => {
 	const api = await mockWorkspaceApi(page, { role: 'manager', productMode: 'full_workspace' });
+
+	// Hold the ingestion status poll so the background "busy" state is observable
+	// deterministically; the response is released once the spinner has been asserted.
+	let releaseIngestion!: () => void;
+	const ingestionGate = new Promise<void>((resolve) => (releaseIngestion = resolve));
+	await page.route(/\/api-gateway\/api\/kb\/ingestions\/(?!latest)[^/]+$/, async (route) => {
+		if (route.request().method() === 'GET') await ingestionGate;
+		await route.fallback();
+	});
+
 	await page.goto('/inbox?tab=knowledge');
 
 	await page.getByRole('button', { name: 'Add knowledge' }).click();
 	await expect(page.getByRole('dialog', { name: 'Add knowledge' })).toBeVisible();
 
-	await page.getByPlaceholder(/Paste raw website copy|Paste business information/).fill('Consulting costs $100 per hour.');
+	await page.getByPlaceholder(KNOWLEDGE_PLACEHOLDER, { exact: true }).fill('Consulting costs $100 per hour.');
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 
 	// Click away on the backdrop overlay to close popup
 	await page.locator('div[role="dialog"][aria-label="Add knowledge"]').click({ position: { x: 5, y: 5 } });
 	await expect(page.getByRole('dialog', { name: 'Add knowledge' })).not.toBeVisible();
 
-	// When ingestion finishes in background, verify review can be resumed
-	await expect(page.getByRole('button', { name: /Add knowledge|Adding knowledge|Review ready/ })).toBeVisible();
+	// The process keeps running in the background: the spinner is shown, not the review cue.
+	const spinner = page.getByTestId('add-knowledge-spinner');
+	await expect(spinner).toBeVisible();
+	await expect(page.getByText('Adding knowledge…', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('review-ready')).not.toBeVisible();
+
+	// When ingestion finishes in the background, the review can be resumed.
+	releaseIngestion();
+	await expect(page.getByTestId('review-ready')).toBeVisible();
+	await expect(spinner).not.toBeVisible();
+	expect(api.requests.filter((request) => request.path === '/api/kb/ingestions' && request.method === 'POST')).toHaveLength(1);
 });

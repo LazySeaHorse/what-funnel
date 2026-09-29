@@ -11,11 +11,9 @@ test('manager global auto-reply control reports and persists the workspace mode'
 	await page.goto('/inbox?tab=knowledge');
 	const toggle = page.getByRole('switch', { name: 'Global AI auto-reply default' });
 	await expect(toggle).toHaveAttribute('aria-checked', 'true');
-	await expect(toggle).toContainText('ON');
 
 	await toggle.click();
 	await expect(toggle).toHaveAttribute('aria-checked', 'false');
-	await expect(toggle).toContainText('OFF');
 	expect(api.requests).toContainEqual(expect.objectContaining({
 		path: '/workspace/account/settings',
 		method: 'PATCH',

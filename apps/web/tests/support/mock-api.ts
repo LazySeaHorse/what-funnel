@@ -30,6 +30,8 @@ export interface MockWorkspaceOptions {
 	failures?: string[];
 	conversations?: any[];
 	messages?: any[];
+	/** Per-conversation message lists; falls back to `messages` for unlisted conversations. */
+	messagesByConversation?: Record<string, any[]>;
 	replyDraft?: any | null;
 	knowledge?: { concepts?: any[]; patterns?: any[] };
 	activeIngestion?: any;
@@ -49,6 +51,17 @@ export interface MockWorkspaceOptions {
 		minDelayMs?: number;
 		maxDelayMs?: number;
 	};
+}
+
+/**
+ * Accept the app's /ws connection and keep it open without sending anything, so
+ * mock-mode suites do not depend on (or log errors about) a real notification
+ * service. Opt-in: suites that test websocket behaviour install their own fakes.
+ */
+export async function mockIdleWebSocket(page: Page) {
+	await page.routeWebSocket(/\/ws(\?.*)?$/, () => {
+		// Intentionally no handlers: the connection stays open and silent.
+	});
 }
 
 export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions = {}) {
@@ -247,7 +260,7 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			const conversationID = path.split('/')[2];
 			return json((options.conversations ?? []).find((conversation) => conversation.id === conversationID) ?? {});
 		}
-		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: options.messages ?? [], next_cursor: null });
+		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: options.messagesByConversation?.[path.split('/')[2]] ?? options.messages ?? [], next_cursor: null });
 		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
 		if (/^\/conversations\/[^/]+\/assign$/.test(path) && request.method() === 'PATCH') {
 			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);

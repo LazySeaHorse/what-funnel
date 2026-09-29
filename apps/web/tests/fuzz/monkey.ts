@@ -28,6 +28,23 @@ export class Mulberry32 {
 	}
 }
 
+/** Fixed default so a plain `make pw-fuzz*` run is reproducible; override with FUZZ_SEED=<int>. */
+export const DEFAULT_FUZZ_SEED = 20240611;
+
+/**
+ * Resolve the fuzz seed. FUZZ_SEED must be a non-negative integer ("0" is a
+ * valid seed); an unset or empty value selects `defaultSeed`. Anything else is
+ * an error rather than silently becoming NaN or a random seed.
+ */
+export function resolveFuzzSeed(defaultSeed: number = DEFAULT_FUZZ_SEED): number {
+	const raw = process.env.FUZZ_SEED?.trim();
+	if (raw === undefined || raw === '') return defaultSeed;
+	if (!/^\d+$/.test(raw)) {
+		throw new Error(`FUZZ_SEED must be a non-negative integer, got ${JSON.stringify(process.env.FUZZ_SEED)}`);
+	}
+	return Number.parseInt(raw, 10);
+}
+
 export interface FuzzActionRecord {
 	step: number;
 	type: string;
@@ -67,24 +84,27 @@ export class DeterministicMonkeyFuzzer {
 	private onActionCallback?: (action: FuzzActionRecord) => void;
 
 	private actionHistory: FuzzActionRecord[] = [];
+	private skippedActions = 0;
 	private caughtErrors: Array<{ type: 'pageerror' | 'console'; message: string; stack?: string }> = [];
 
 	constructor(page: Page, options: MonkeyFuzzerOptions = {}) {
 		this.page = page;
-		this.seed = options.seed ?? (process.env.FUZZ_SEED ? parseInt(process.env.FUZZ_SEED, 10) : Math.floor(Math.random() * 1000000));
+		this.seed = options.seed ?? resolveFuzzSeed();
+		console.log(`[fuzz] seed=${this.seed} (reproduce with FUZZ_SEED=${this.seed})`);
 		this.rng = new Mulberry32(this.seed);
 		this.maxActions = options.maxActions ?? 50;
 		this.actionDelayMs = options.actionDelayMs ?? 40;
 		this.allowDestructive = options.allowDestructive ?? false;
 		this.enableRaceActions = options.enableRaceActions ?? false;
+		// Only messages that are expected in every mock-mode run. Suites that expect
+		// more (network chaos, aborted requests) must scope that in their own options.
 		const defaultIgnored = [
+			// The dev server has no favicon; matched against message text or resource URL.
 			/favicon\.ico/i,
+			// Vite dev-proxy noise when the (mocked) websocket upstream is absent.
 			/ws proxy error/i,
 			/ws proxy socket error/i,
-			/ECONNRESET/i,
-			/WebSocket/i,
-			/WS error/i,
-			/Failed to load resource: the server responded with a status of 404/i
+			/WebSocket connection to '[^']*\/ws[^']*' failed/i
 		];
 		this.ignoredConsoleErrors = [
 			...defaultIgnored,
@@ -112,8 +132,9 @@ export class DeterministicMonkeyFuzzer {
 		this.page.on('console', (msg) => {
 			if (msg.type() === 'error') {
 				const text = msg.text();
+				const haystack = `${text} ${msg.location().url ?? ''}`;
 				const isIgnored = this.ignoredConsoleErrors.some((pattern) =>
-					typeof pattern === 'string' ? text.includes(pattern) : pattern.test(text)
+					typeof pattern === 'string' ? haystack.includes(pattern) : pattern.test(haystack)
 				);
 				if (!isIgnored) {
 					this.caughtErrors.push({
@@ -188,9 +209,10 @@ export class DeterministicMonkeyFuzzer {
 						await this.actionScroll();
 					}
 				}
-			} catch (err: any) {
-				// Benign action dispatch failure (element detached, modal closed mid-click)
-				// is normal during rapid fuzzing; only real runtime page errors should fail the test.
+			} catch (err) {
+				// Only tolerated failures are handled in attempt(); anything reaching here is unexpected.
+				this.recordAction('ACTION_ERROR', undefined, String((err as Error)?.message ?? err));
+				throw err;
 			}
 
 			if (this.actionDelayMs > 0) {
@@ -198,6 +220,36 @@ export class DeterministicMonkeyFuzzer {
 			}
 
 			this.assertNoErrors();
+		}
+
+		// A run where every dispatched action was skipped exercised nothing.
+		const performed = this.actionHistory.filter((a) => a.type !== 'SKIP' && a.type !== 'DIALOG').length;
+		if (this.maxActions > 0 && performed === 0) {
+			throw new Error(
+				`Fuzzer performed no actions (${this.skippedActions} skipped) with seed ${this.seed}; the page exposed nothing to interact with.`
+			);
+		}
+	}
+
+	/**
+	 * Run one Playwright interaction. Races inherent to fuzzing (element detached or
+	 * covered mid-action, a timeout because a modal closed) are recorded as SKIP and
+	 * tolerated; every other error is a real failure and propagates.
+	 */
+	private async attempt(label: string, fn: () => Promise<unknown>): Promise<void> {
+		try {
+			await fn();
+		} catch (err) {
+			const message = String((err as Error)?.message ?? err);
+			const name = (err as Error)?.name;
+			const benign =
+				name === 'TimeoutError' ||
+				/element is not attached|element was detached|intercepts pointer events|element is not visible|element is outside of the viewport|Element is not an <input>|Malformed value/i.test(
+					message
+				);
+			if (!benign) throw err;
+			this.skippedActions++;
+			this.recordAction('SKIP', label, message.split('\n')[0].slice(0, 120));
 		}
 	}
 
@@ -220,7 +272,7 @@ export class DeterministicMonkeyFuzzer {
 		const label = text.slice(0, 40).replace(/\s+/g, ' ').trim() || tagName;
 
 		this.recordAction('CLICK', `${tagName}[${label}]`);
-		await element.click({ timeout: 500, force: true }).catch(() => {});
+		await this.attempt('click', () => element.click({ timeout: 500, force: true }));
 	}
 
 	private async actionFillInput(): Promise<void> {
@@ -238,7 +290,7 @@ export class DeterministicMonkeyFuzzer {
 		this.recordAction('FILL', `${name}`, payload.length > 50 ? `${payload.slice(0, 47)}...` : payload);
 
 		// Either fill directly or type with random dispatch
-		await input.fill(payload, { timeout: 500 }).catch(() => {});
+		await this.attempt('fill', () => input.fill(payload, { timeout: 500 }));
 	}
 
 	private async actionKeyPress(): Promise<void> {
@@ -246,7 +298,7 @@ export class DeterministicMonkeyFuzzer {
 		const key = this.rng.pick(keys);
 
 		this.recordAction('KEY', key);
-		await this.page.keyboard.press(key).catch(() => {});
+		await this.attempt('key', () => this.page.keyboard.press(key));
 	}
 
 	private async actionTabHop(): Promise<void> {
@@ -256,14 +308,14 @@ export class DeterministicMonkeyFuzzer {
 		const navButton = this.page.locator(`button:has-text("${section}")`).first();
 		if (await navButton.isVisible().catch(() => false)) {
 			this.recordAction('NAV', section);
-			await navButton.click({ timeout: 1000 }).catch(() => {});
+			await this.attempt('nav', () => navButton.click({ timeout: 1000 }));
 		}
 	}
 
 	private async actionScroll(): Promise<void> {
 		const deltaY = this.rng.pick([-500, -200, 200, 500, 1000]);
 		this.recordAction('SCROLL', `deltaY=${deltaY}`);
-		await this.page.mouse.wheel(0, deltaY).catch(() => {});
+		await this.attempt('scroll', () => this.page.mouse.wheel(0, deltaY));
 	}
 
 	private async actionBurstClick(): Promise<void> {
@@ -282,10 +334,12 @@ export class DeterministicMonkeyFuzzer {
 
 		this.recordAction('BURST_CLICK', `${tagName}[${label}]`);
 		// Fire 2 rapid clicks concurrently without delay
-		await Promise.allSettled([
-			element.click({ timeout: 400, force: true }),
-			element.click({ timeout: 400, force: true })
-		]);
+		await this.attempt('burst-click', () =>
+			Promise.all([
+				element.click({ timeout: 400, force: true }),
+				element.click({ timeout: 400, force: true })
+			])
+		);
 	}
 
 	private async actionRapidTabTear(): Promise<void> {
@@ -296,10 +350,12 @@ export class DeterministicMonkeyFuzzer {
 		if (await navButton.isVisible().catch(() => false)) {
 			this.recordAction('TAB_TEAR', targetSection);
 			const randomClickable = this.page.locator('button:visible:not([disabled]), a[href]:visible').first();
-			await Promise.allSettled([
-				randomClickable.click({ timeout: 400, force: true }).catch(() => {}),
-				navButton.click({ timeout: 400, force: true }).catch(() => {})
-			]);
+			await this.attempt('tab-tear', () =>
+				Promise.all([
+					randomClickable.click({ timeout: 400, force: true }),
+					navButton.click({ timeout: 400, force: true })
+				])
+			);
 		}
 	}
 
@@ -321,7 +377,7 @@ export class DeterministicMonkeyFuzzer {
 			firstError.stack ? `Stack Trace:\n${firstError.stack}` : '',
 			`----------------------------------------------------------------------`,
 			`To reproduce this exact run:`,
-			`  FUZZ_SEED=${this.seed} npx playwright test tests/fuzz/monkey-mock.spec.ts`,
+			`  FUZZ_SEED=${this.seed} npx playwright test <the failing spec under tests/fuzz/>`,
 			`----------------------------------------------------------------------`,
 			`Last Actions Prior to Failure:`,
 			historyReport,

@@ -90,6 +90,10 @@ test-verbose: ## Run full test suite with verbose output
 	cd adapters/whatsapp-whatsmeow && go test ./... -v -count=1 -timeout 120s
 	cd adapters/telegram-botapi && go test ./... -v -count=1 -timeout 120s
 
+test-destructive: ## Run failover tests that kill/pause/restart dev stack containers (DISRUPTS the shared dev stack)
+	@echo "WARNING: this stops/pauses/restarts containers of the running dev stack."
+	WHATFUNNEL_DESTRUCTIVE_TESTS=1 go test ./tests/integration/... -count=1 -v -timeout 300s -run 'TestOutboxClaimSIGKILLRecovery|TestRedisPauseResumeFailover|TestPostgresBounceRestart'
+
 test-scale-fuzz: ## Run non-deterministic concurrent scale fuzz test (5 agents, 2 managers, 20 customers)
 	go test ./tests/integration/... -v -count=1 -run TestConcurrentScaleMultiAgentFuzz_E2E
 
@@ -116,7 +120,7 @@ lint: ## Run golangci-lint
 # ---------------------------------------------------------------------------
 
 tools: ## Install required Go tools
-	go install github.com/pressly/goose/v3/cmd/goose@latest
+	go install github.com/pressly/goose/v3/cmd/goose@v3.20.0
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
 
 sqlc-gen: ## Generate Go code from SQL queries with sqlc
@@ -155,12 +159,9 @@ pw-fuzz-all: ## Run all fast UI monkey fuzz test suites
 
 
 pw-fuzz-live: ## Run deterministic UI monkey tests against an ephemeral isolated Docker pod stack
-	@echo "Spinning up ephemeral fuzz stack (wf-fuzz)..."
-	docker compose -f docker-compose.fuzz.yml -p wf-fuzz up -d
-	@echo "Waiting for services to be ready..."
-	@sleep 5
+	@echo "Spinning up ephemeral fuzz stack (wf-fuzz) and waiting for healthchecks..."
+	docker compose -f docker-compose.fuzz.yml -p wf-fuzz up -d --build --wait
 	@echo "Running live UI monkey fuzzing..."
 	@ROOT_DIR=$$(pwd); \
 	bash -c "trap 'echo Teardown ephemeral stack... && docker compose -f $$ROOT_DIR/docker-compose.fuzz.yml -p wf-fuzz down -v' EXIT; \
-		cd apps/web && API_GATEWAY_URL=http://localhost:18089 WS_GATEWAY_URL=ws://localhost:18089 npx playwright test tests/fuzz/monkey-live.spec.ts"
-
+		cd apps/web && DATABASE_URL='postgres://whatfunnel:whatfunnel@localhost:5443/whatfunnel?sslmode=disable' API_GATEWAY_URL=http://localhost:18089 WS_GATEWAY_URL=ws://localhost:18089 npx playwright test tests/fuzz/monkey-live.spec.ts"

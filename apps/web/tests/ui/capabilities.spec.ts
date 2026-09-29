@@ -49,6 +49,9 @@ test.describe('effective UI capabilities', () => {
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
 		await expect(page.locator('.lead-panel')).not.toBeVisible();
+		// The internal-note editor lives in the lead panel and must not be offered.
+		await expect(page.getByRole('button', { name: '+ Add note' })).not.toBeVisible();
+		await expect(page.getByText('Internal notes', { exact: true })).not.toBeVisible();
 		await expect(page.getByText(replyDraft.draft_text, { exact: true })).not.toBeVisible();
 		await expect(page.getByPlaceholder('Enter a message...')).toBeVisible();
 
@@ -77,11 +80,13 @@ test.describe('effective UI capabilities', () => {
 		await expect(page.getByTestId('operator-identity')).not.toBeVisible();
 		await expect(page.getByTitle('Assign conversation')).not.toBeVisible();
 		await expect(page.locator('.lead-panel')).toBeVisible();
+		await expect(page.locator('.lead-panel').getByText('Internal notes', { exact: true })).toBeVisible();
+		await expect(page.locator('.lead-panel').getByRole('button', { name: '+ Add note' })).toBeVisible();
 		await expect(page.getByText(replyDraft.draft_text, { exact: true })).toBeVisible();
 
 		await page.getByRole('button', { name: 'Preferences', exact: true }).click();
 		await expect(page.getByRole('heading', { name: 'Preferences', exact: true })).toBeVisible();
-		await expect(page.getByText('test-slug-agent', { exact: true })).toBeVisible();
+		await expect(page.getByText('test-slug/agent', { exact: true })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'AI reply mode', exact: true })).toBeVisible();
 		await page.getByRole('radio', { name: /Auto-send/ }).check();
 		await page.getByRole('button', { name: 'Save preference' }).click();

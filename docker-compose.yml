@@ -25,6 +25,8 @@ services:
       POSTGRES_USER: whatfunnel
       POSTGRES_PASSWORD: whatfunnel
       POSTGRES_DB: whatfunnel
+    # pg_stat_statements is required by tests/integration/slow_query_test.go
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -110,6 +112,7 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       AI_PROVIDER_TEST_TIMEOUT_SECONDS: "60"
+      IDENTITY_SVC_URL: http://identity-svc:8081
       PORT: "8082"
       LOG_LEVEL: info
       APP_ENV: ${APP_ENV:-development}
@@ -141,6 +144,8 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
       APP_ENV: ${APP_ENV:-development}
+      # Dev/test only: expose simulation/internal routes (opt-in; absent in prod).
+      ENABLE_SIMULATION_ROUTES: "true"
     ports:
       - "127.0.0.1:18080:8080"
     depends_on:
@@ -168,6 +173,8 @@ services:
       PORT: "8083"
       LOG_LEVEL: info
       APP_ENV: ${APP_ENV:-development}
+      # Dev/test only: CSRF exemption for simulation routes (opt-in; absent in prod).
+      ENABLE_SIMULATION_ROUTES: "true"
       WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
       TELEGRAM_ADAPTER_URL: http://telegram-adapter:8087
       ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
@@ -210,6 +217,7 @@ services:
       CONVERSATION_INTERNAL_URL: http://conversation-svc:8083
       ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
       ADAPTER_CONSUMER_NAME: whatsapp-adapter-1
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
     volumes:
       - whatsapp_adapter_data:/data
     depends_on:
@@ -241,6 +249,7 @@ services:
       ADAPTER_SHARED_SECRET: change-me-in-production-adapter-secret
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       ADAPTER_CONSUMER_NAME: telegram-adapter-1
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
     volumes:
       - telegram_adapter_data:/data
     depends_on:
