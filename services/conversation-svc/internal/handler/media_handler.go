@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -16,11 +17,31 @@ import (
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
+// mediaTransferTimeout bounds one media upload or download. The server-wide
+// read/write timeouts (15s) are sized for JSON and would cut off a 20 MiB
+// transfer on a slow link.
+const mediaTransferTimeout = 5 * time.Minute
+
+// extendMediaDeadlines lifts the server's per-request read and write
+// deadlines for this transfer. Writers that cannot adjust deadlines (for
+// example test recorders) keep the server defaults.
+func extendMediaDeadlines(w http.ResponseWriter, request *http.Request) {
+	controller := http.NewResponseController(w)
+	deadline := time.Now().Add(mediaTransferTimeout)
+	if err := controller.SetReadDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.WarnContext(request.Context(), "extend media read deadline failed", "error", err)
+	}
+	if err := controller.SetWriteDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.WarnContext(request.Context(), "extend media write deadline failed", "error", err)
+	}
+}
+
 func (h *Handler) UploadConversationMedia(w http.ResponseWriter, request *http.Request) {
 	viewer, ok := mediaViewerFromRequest(w, request)
 	if !ok {
 		return
 	}
+	extendMediaDeadlines(w, request)
 	conversationID, err := uuid.Parse(mux.Vars(request)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid conversation ID.")
@@ -90,6 +111,7 @@ func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, viewe
 		writeError(w, http.StatusBadRequest, "Invalid media ID.")
 		return
 	}
+	extendMediaDeadlines(w, request)
 	content, err := h.svc.OpenMedia(request.Context(), viewer, mediaID)
 	if err != nil {
 		writeMediaOpenError(w, request, err, "Media is unavailable. Open the original platform to view it.")
@@ -138,6 +160,7 @@ func NewInternalMediaHandler(svc *service.Service, secret string) http.Handler {
 			writeError(w, http.StatusBadRequest, "Invalid media ID.")
 			return
 		}
+		extendMediaDeadlines(w, request)
 		content, err := svc.OpenMedia(request.Context(), nil, mediaID)
 		if err != nil {
 			writeMediaOpenError(w, request, err, "Media unavailable.")

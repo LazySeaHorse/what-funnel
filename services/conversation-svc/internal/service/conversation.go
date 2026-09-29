@@ -256,7 +256,7 @@ func (s *ConversationService) ListConversations(ctx context.Context, accountID, 
 		sqlQuery += fmt.Sprintf(` AND l.current_state_key = $%d`, len(args))
 	}
 
-	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`
+	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC, c.id DESC`
 
 	args = append(args, limit, offset)
 	sqlQuery += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))

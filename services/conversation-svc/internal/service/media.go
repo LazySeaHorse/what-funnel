@@ -35,7 +35,6 @@ type ProviderMediaFetcher interface {
 type MediaService struct {
 	pool          *pgxpool.Pool
 	store         mediastore.Store
-	mediaRoot     string
 	mediaFetchers map[messaging.Provider]ProviderMediaFetcher
 	mediaMu       sync.RWMutex
 }
@@ -125,7 +124,6 @@ func (s *MediaService) ConfigureMediaCache(root string) error {
 	}
 	s.mediaMu.Lock()
 	s.store = store
-	s.mediaRoot = root
 	s.mediaMu.Unlock()
 	return nil
 }
@@ -198,7 +196,7 @@ func (s *MediaService) SaveOutboundMedia(
 		ID: uuid.New(), Filename: filename, MIMEType: mimeType,
 		SizeBytes: int64(len(data)), ExpiresAt: time.Now().UTC().Add(retention),
 	}
-	storageKey, err := s.writeMediaFile(media.ID, data)
+	storageKey, err := s.writeMediaFile(ctx, media.ID, data, media.MIMEType)
 	if err != nil {
 		return MediaObject{}, err
 	}
@@ -316,7 +314,7 @@ func (s *MediaService) OpenMedia(ctx context.Context, viewer *MediaViewer, media
 		return MediaContent{}, err
 	}
 	media.ExpiresAt = time.Now().UTC().Add(retention)
-	key, err := s.writeMediaFile(media.ID, downloaded.Data)
+	key, err := s.writeMediaFile(ctx, media.ID, downloaded.Data, media.MIMEType)
 	if err != nil {
 		return MediaContent{}, err
 	}
@@ -407,21 +405,37 @@ func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
 		return fmt.Errorf("iterate expired media: %w", err)
 	}
 	rows.Close()
+	// One object that cannot be deleted must not starve the rest of the batch
+	// (it is retried on the next run), so keep going and report every failure.
+	var failures []error
 	for _, object := range expired {
-		if err := store.Delete(ctx, object.key); err != nil {
-			return fmt.Errorf("remove expired media: %w", err)
+		if ctx.Err() != nil {
+			return errors.Join(append(failures, ctx.Err())...)
 		}
+		if err := store.Delete(ctx, object.key); err != nil {
+			slog.WarnContext(ctx, "remove expired media failed", "media_id", object.id, "error", err)
+			failures = append(failures, fmt.Errorf("remove expired media %s: %w", object.id, err))
+			continue
+		}
+		// Media re-downloadable from the provider keeps its row without the
+		// cached blob; uploads have no provider copy (and the table requires
+		// a storage_key or provider_ref), so their expired row is removed.
 		if _, err := s.pool.Exec(ctx, `
-			UPDATE media_objects SET storage_key = NULL
-			WHERE id = $1 AND storage_key = $2 AND expires_at <= NOW()
+			WITH cleared AS (
+				UPDATE media_objects SET storage_key = NULL
+				WHERE id = $1 AND storage_key = $2 AND expires_at <= NOW() AND provider_ref IS NOT NULL
+			)
+			DELETE FROM media_objects
+			WHERE id = $1 AND storage_key = $2 AND expires_at <= NOW() AND provider_ref IS NULL
 		`, object.id, object.key); err != nil {
-			return fmt.Errorf("clear expired media: %w", err)
+			slog.WarnContext(ctx, "clear expired media failed", "media_id", object.id, "error", err)
+			failures = append(failures, fmt.Errorf("clear expired media %s: %w", object.id, err))
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
-func (s *MediaService) writeMediaFile(id uuid.UUID, data []byte) (string, error) {
+func (s *MediaService) writeMediaFile(ctx context.Context, id uuid.UUID, data []byte, contentType string) (string, error) {
 	s.mediaMu.RLock()
 	store := s.store
 	s.mediaMu.RUnlock()
@@ -429,15 +443,11 @@ func (s *MediaService) writeMediaFile(id uuid.UUID, data []byte) (string, error)
 		return "", errors.New("media cache is not configured")
 	}
 	key := id.String()
-	if err := store.Put(context.Background(), key, bytes.NewReader(data), int64(len(data)), "application/octet-stream"); err != nil {
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if err := store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), contentType); err != nil {
 		return "", fmt.Errorf("write media: %w", err)
 	}
 	return key, nil
-}
-
-func (s *MediaService) mediaPath(key string) string {
-	s.mediaMu.RLock()
-	root := s.mediaRoot
-	s.mediaMu.RUnlock()
-	return filepath.Join(root, filepath.Base(key))
 }
