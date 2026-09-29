@@ -30,6 +30,7 @@
   let aiReplyModeDefault = $state<"auto_send" | "draft_only">("draft_only");
   let aiProviderConfigured = $state(false);
   let aiProviderStatusLoaded = $state(false);
+  let aiToggleError = $state("");
   let togglingGlobalAI = $state(false);
   let initializing = $state(true);
   let capabilities = $derived(workspace.capabilities);
@@ -148,22 +149,37 @@
     )
       return;
     togglingGlobalAI = true;
+    aiToggleError = "";
     try {
       const patch = computeGlobalAutoReplyPatch({
         currentlyEnabled: aiAutoReplyEnabled,
       });
-      await apiRequest("/workspace/account/settings", {
-        method: "PATCH",
-        body: patch,
-      });
+      try {
+        await apiRequest("/workspace/account/settings", {
+          method: "PATCH",
+          body: patch,
+        });
+      } catch (err) {
+        console.error("Failed to update global AI auto-reply:", err);
+        aiToggleError = "Could not update AI auto-reply. Please try again.";
+        // Re-sync local state with the backend, which still has the old value.
+        await refreshAccountQuietly();
+        return;
+      }
       aiReplyModeDefault = patch.ai_reply_mode_default;
       if (patch.ai_enabled !== undefined) aiEnabled = patch.ai_enabled;
-      await workspace.refreshAccount();
-    } catch {
-      // Keep optimistic UI in sync with backend truth
-      await workspace.refreshAccount();
+      await refreshAccountQuietly();
     } finally {
       togglingGlobalAI = false;
+    }
+  }
+
+  async function refreshAccountQuietly() {
+    try {
+      await workspace.refreshAccount();
+    } catch (err) {
+      console.error("Failed to refresh workspace account:", err);
+      if (!aiToggleError) aiToggleError = "Could not refresh workspace settings. Reload the page if they look out of date.";
     }
   }
 
@@ -212,6 +228,20 @@
       selected={selectedSection}
       bind:searchQuery
     />
+    {#if aiToggleError}
+      <div
+        role="alert"
+        class="flex items-center justify-between gap-2 px-4 py-2 bg-rose-50 border-b border-rose-200 text-xs text-rose-800"
+      >
+        <span>{aiToggleError}</span>
+        <button
+          type="button"
+          class="cursor-pointer text-rose-600 hover:text-rose-800"
+          aria-label="Dismiss error"
+          onclick={() => (aiToggleError = "")}>✕</button
+        >
+      </div>
+    {/if}
     {#if selectedSection === "inbox"}
       <InboxWorkspace
         {inbox}
