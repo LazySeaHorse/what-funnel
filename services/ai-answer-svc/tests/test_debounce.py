@@ -38,11 +38,16 @@ async def redis_client(monkeypatch):
     monkeypatch.setattr("debounce.DEBOUNCE_QUEUE_KEY", queue)
     monkeypatch.setattr("debounce.DEBOUNCE_META_PREFIX", meta)
     monkeypatch.setattr("debounce.DEBOUNCE_SEEN_PREFIX", seen)
-    client = Redis.from_url(f"redis://{os.getenv('REDIS_URL', 'localhost:6379')}")
+    url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    if "://" not in url:
+        url = f"redis://{url}"
+    client = Redis.from_url(url)
     try:
         await client.ping()
     except Exception:
         await client.aclose()
+        if os.getenv("CI"):
+            pytest.fail("Redis is not reachable")
         pytest.skip("Redis is not reachable")
     try:
         yield client

@@ -192,6 +192,8 @@ async def convo_env():
     try:
         pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=3, timeout=5)
     except Exception:
+        if os.getenv("CI"):
+            pytest.fail("Postgres is not reachable")
         pytest.skip("Postgres is not reachable")
     account_id, channel_id, contact_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     convo_id, msg_id = uuid.uuid4(), uuid.uuid4()
