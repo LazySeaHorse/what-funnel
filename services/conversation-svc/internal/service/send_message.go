@@ -172,6 +172,12 @@ func findIdempotentMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageComman
 	if err != nil {
 		return nil, fmt.Errorf("check message idempotency key: %w", err)
 	}
+	// The key is unique per account, not per conversation. Never hand back a
+	// message that belongs to a conversation the caller did not address: the
+	// visibility check only covered cmd.conversationID.
+	if existing.ConversationID != cmd.conversationID {
+		return nil, conflictf("idempotency key was already used for a different conversation")
+	}
 	return &existing, nil
 }
 
