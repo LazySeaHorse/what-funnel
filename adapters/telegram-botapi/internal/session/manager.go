@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/botapi"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/normalize"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
@@ -140,6 +140,7 @@ func (m *Manager) Create(ctx context.Context, channelID, token string) (Snapshot
 	if exists {
 		return Snapshot{}, ErrAlreadyExists
 	}
+	// Validate against Telegram before taking any lock or reserving the channel.
 	bot, err := validateBotToken(ctx, m.api, token)
 	if err != nil {
 		return Snapshot{}, err
@@ -153,20 +154,28 @@ func (m *Manager) Create(ctx context.Context, channelID, token string) (Snapshot
 	if username != "" {
 		remoteID = "@" + username
 	}
+	// Reserve the channel atomically so concurrent creates cannot both proceed.
+	session := m.newSession(channelID, bot.ID, username, token, messaging.ConnectionConnecting, "Connecting to Telegram.", remoteID)
+	m.mu.Lock()
+	if _, exists := m.sessions[channelID]; exists {
+		m.mu.Unlock()
+		return Snapshot{}, ErrAlreadyExists
+	}
+	m.sessions[channelID] = session
+	m.mu.Unlock()
 	_, err = m.db.ExecContext(ctx, `
 		INSERT INTO telegram_sessions (channel_id, bot_id, username, encrypted_token, update_offset, state, remote_account_id, updated_at)
 		VALUES (?, ?, ?, ?, 0, 'connecting', ?, CURRENT_TIMESTAMP)
 	`, channelID, bot.ID, username, encrypted, remoteID)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		m.mu.Lock()
+		delete(m.sessions, channelID)
+		m.mu.Unlock()
+		if isUniqueViolation(err) {
 			return Snapshot{}, ErrAlreadyExists
 		}
 		return Snapshot{}, fmt.Errorf("store telegram session: %w", err)
 	}
-	session := m.newSession(channelID, bot.ID, username, token, messaging.ConnectionConnecting, "Connecting to Telegram.", remoteID)
-	m.mu.Lock()
-	m.sessions[channelID] = session
-	m.mu.Unlock()
 	m.startPolling(session)
 	return session.copySnapshot(), nil
 }
@@ -183,21 +192,24 @@ func (m *Manager) Retry(ctx context.Context, channelID, credential string) (Snap
 	if credential != "" {
 		return m.replaceCredential(ctx, session, credential)
 	}
-	session.sendMu.Lock()
-	defer session.sendMu.Unlock()
+	// Validate outside sendMu so a slow Telegram call does not block sends.
+	session.mu.RLock()
+	token := session.token
+	session.mu.RUnlock()
 	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if _, err := m.api.GetMe(validateCtx, session.token); err != nil {
+	if _, err := m.api.GetMe(validateCtx, token); err != nil {
 		m.setStatus(session, messaging.ConnectionError, "Telegram rejected this bot token.")
 		return session.copySnapshot(), errors.New("telegram session: bot token validation failed")
 	}
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
 	m.restartPolling(session)
 	return session.copySnapshot(), nil
 }
 
 func (m *Manager) replaceCredential(ctx context.Context, session *botSession, credential string) (Snapshot, error) {
-	session.sendMu.Lock()
-	defer session.sendMu.Unlock()
+	// Validate outside sendMu so a slow Telegram call does not block sends.
 	bot, err := validateBotToken(ctx, m.api, credential)
 	if err != nil {
 		return session.copySnapshot(), err
@@ -206,7 +218,11 @@ func (m *Manager) replaceCredential(ctx context.Context, session *botSession, cr
 	if err != nil {
 		return session.copySnapshot(), fmt.Errorf("encrypt replacement telegram bot token: %w", err)
 	}
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
 	if err := stopPolling(ctx, session); err != nil {
+		// The poller was cancelled but not yet observed as stopped; make sure it ends up running again.
+		m.restartPolling(session)
 		return session.copySnapshot(), err
 	}
 	username := strings.TrimSpace(bot.Username)
@@ -222,7 +238,7 @@ func (m *Manager) replaceCredential(ctx context.Context, session *botSession, cr
 	`, bot.ID, username, encrypted, remoteID, session.channelID)
 	if err != nil {
 		m.startPolling(session)
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if isUniqueViolation(err) {
 			return session.copySnapshot(), ErrAlreadyExists
 		}
 		return session.copySnapshot(), fmt.Errorf("replace telegram bot token: %w", err)
@@ -303,8 +319,16 @@ func (m *Manager) Logout(ctx context.Context, channelID string) error {
 	session.sendMu.Lock()
 	defer session.sendMu.Unlock()
 	if err := stopPolling(ctx, session); err != nil {
+		m.restartPolling(session)
 		return err
 	}
+	deleted := false
+	defer func() {
+		// Any failure after polling stopped must not leave a "connected" session with no poller.
+		if !deleted {
+			m.restartPolling(session)
+		}
+	}()
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin delete telegram session: %w", err)
@@ -322,6 +346,7 @@ func (m *Manager) Logout(ctx context.Context, channelID string) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit delete telegram session: %w", err)
 	}
+	deleted = true
 	m.mu.Lock()
 	delete(m.sessions, channelID)
 	m.mu.Unlock()
@@ -408,6 +433,7 @@ func (m *Manager) poll(ctx context.Context, session *botSession) {
 		return
 	}
 	failures := 0
+	storeFailures := 0
 	for {
 		updates, err := m.api.GetUpdates(ctx, session.token, offset)
 		if err != nil {
@@ -429,17 +455,45 @@ func (m *Manager) poll(ctx context.Context, session *botSession) {
 			continue
 		}
 		failures = 0
-		if session.copySnapshot().State != messaging.ConnectionConnected {
-			m.setStatus(session, messaging.ConnectionConnected, "")
-		}
+		var storeErr error
 		for _, update := range updates {
+			if update.UpdateID < offset {
+				// Already stored; update IDs are monotonic, so this is a redelivery.
+				continue
+			}
 			if err := m.storeUpdate(ctx, session.channelID, update); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				m.logger.Error("store telegram update", "channel_id", session.channelID, "update_id", update.UpdateID, "error", err)
+				storeErr = err
 				break
 			}
 			offset = update.UpdateID + 1
 		}
+		if storeErr != nil {
+			// Back off instead of immediately re-fetching the same batch in a hot loop.
+			storeFailures++
+			m.setStatus(session, messaging.ConnectionError, "Could not store Telegram updates. Retrying automatically.")
+			if !wait(ctx, retryDelay(storeErr, storeFailures)) {
+				return
+			}
+			continue
+		}
+		storeFailures = 0
+		if session.copySnapshot().State != messaging.ConnectionConnected {
+			m.setStatus(session, messaging.ConnectionConnected, "")
+		}
 	}
+}
+
+// isUniqueViolation reports whether err is a SQLite UNIQUE or PRIMARY KEY constraint violation.
+func isUniqueViolation(err error) bool {
+	var sqliteErr sqlite3.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	return sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique || sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey
 }
 
 func retryDelay(err error, failures int) time.Duration {

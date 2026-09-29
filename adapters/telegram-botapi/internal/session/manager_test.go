@@ -385,6 +385,81 @@ func TestManagerRejectsDuplicateBotAcrossChannels(t *testing.T) {
 	}
 }
 
+func TestManagerConcurrentCreateSameChannel(t *testing.T) {
+	fake := newFakeTelegram(t)
+	const token = "402:race"
+	fake.addBot(token, 402, "race_bot")
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, &recordingPublisher{})
+
+	const attempts = 6
+	var wg sync.WaitGroup
+	results := make(chan error, attempts)
+	for range attempts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := manager.Create(t.Context(), "channel-race", token)
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			succeeded++
+		case !errors.Is(err, ErrAlreadyExists):
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful creates = %d, want 1", succeeded)
+	}
+	snapshots, err := manager.List(t.Context())
+	if err != nil || len(snapshots) != 1 {
+		t.Fatalf("List() = %v, %v; want one session", snapshots, err)
+	}
+}
+
+func TestManagerBacksOffWhenStoringUpdatesFails(t *testing.T) {
+	fake := newFakeTelegram(t)
+	const token = "403:store-fail"
+	fake.addBot(token, 403, "store_fail_bot")
+	manager := newTestManager(t, filepath.Join(t.TempDir(), "telegram.db"), fake, &recordingPublisher{})
+	if _, err := manager.Create(t.Context(), "channel-store-fail", token); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		snapshot, _ := manager.Snapshot("channel-store-fail")
+		return snapshot.State == messaging.ConnectionConnected
+	})
+
+	// Break persistence, then deliver an update that must be stored.
+	if _, err := manager.db.ExecContext(t.Context(), `DROP TABLE adapter_event_outbox`); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	fake.updates[token] = []botapi.Update{{UpdateID: 1, Message: &botapi.Message{MessageID: 1, Date: 100, Chat: botapi.Chat{ID: 41, Type: "private"}, From: &botapi.User{ID: 41, FirstName: "U"}, Text: "hi"}}}
+	fake.mu.Unlock()
+
+	waitFor(t, func() bool {
+		snapshot, _ := manager.Snapshot("channel-store-fail")
+		return snapshot.State == messaging.ConnectionError
+	})
+	fake.mu.Lock()
+	before := fake.methods[token+":getUpdates"]
+	fake.mu.Unlock()
+	time.Sleep(300 * time.Millisecond)
+	fake.mu.Lock()
+	after := fake.methods[token+":getUpdates"]
+	fake.mu.Unlock()
+	// A hot loop would issue many requests in 300ms; the backoff allows none before 1s.
+	if after-before > 1 {
+		t.Fatalf("getUpdates calls during backoff = %d, want <= 1", after-before)
+	}
+}
+
 func TestPrivateChatID(t *testing.T) {
 	t.Parallel()
 	for _, value := range []string{"0", "-100", "group", ""} {
