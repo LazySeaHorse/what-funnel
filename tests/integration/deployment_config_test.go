@@ -251,9 +251,16 @@ func TestEnvironmentVariableCompleteness(t *testing.T) {
 	envData, err := os.ReadFile(envExamplePath)
 	require.NoError(t, err, ".env.example must exist")
 
+	// A variable counts as documented when it appears as `KEY=value` or as a
+	// commented-out `# KEY=value` line (used for optional settings with defaults).
+	commentedKey := regexp.MustCompile(`^#\s*([A-Z][A-Z0-9_]*)=`)
 	documentedKeys := make(map[string]bool)
 	for _, line := range strings.Split(string(envData), "\n") {
 		trimmed := strings.TrimSpace(line)
+		if m := commentedKey.FindStringSubmatch(trimmed); m != nil {
+			documentedKeys[m[1]] = true
+			continue
+		}
 		if strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
 			continue
 		}

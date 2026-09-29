@@ -144,9 +144,33 @@ func TestIdempotencyReplay(t *testing.T) {
 			messaging.DirectionInbound,
 		)
 
-		time.Sleep(1 * time.Second)
+		// The events stream is consumed in order, so once a later sentinel event has
+		// been ingested the replayed duplicate has definitely been processed too.
+		sentinelID := "prov_sentinel_" + uuid.NewString()
+		publishTestProviderMessage(
+			t, ps, channelID.String(), threadID,
+			"sender_"+uuid.NewString(), "Sender Name",
+			"Sentinel after duplicate", sentinelID,
+			messaging.DirectionInbound,
+		)
+		require.Eventually(t, func() bool {
+			var cnt int
+			_ = pool.QueryRow(ctx, `
+				SELECT COUNT(*) FROM messages
+				WHERE account_id = $1 AND provider_message_id = $2
+			`, accountID, sentinelID).Scan(&cnt)
+			return cnt == 1
+		}, 10*time.Second, 100*time.Millisecond, "sentinel event should be ingested after the duplicate")
 
 		// Verify database STILL has exactly 1 record for this provider_message_id
+		assert.Never(t, func() bool {
+			var cnt int
+			_ = pool.QueryRow(ctx, `
+				SELECT COUNT(*) FROM messages
+				WHERE account_id = $1 AND provider_message_id = $2
+			`, accountID, providerMsgID).Scan(&cnt)
+			return cnt != 1
+		}, 500*time.Millisecond, 100*time.Millisecond, "replayed event must never create a duplicate message record")
 		var finalCount int
 		err = pool.QueryRow(ctx, `
 			SELECT COUNT(*) FROM messages

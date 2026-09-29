@@ -32,6 +32,17 @@ const (
 	workspaceURL = "http://localhost:8082"
 )
 
+// skipOrFail skips locally when a dependency of a (non-short) integration test is
+// unavailable, but fails under CI so a missing service/database can never turn
+// the suite into a silent green no-op.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatalf("CI requires this integration dependency: "+format, args...)
+	}
+	t.Skipf("skipping integration test: "+format, args...)
+}
+
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
@@ -43,14 +54,14 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		t.Skipf("skipping integration test: parse DSN: %v", err)
+		skipOrFail(t, "parse DSN: %v", err)
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		t.Skipf("skipping integration test: connect: %v", err)
+		skipOrFail(t, "connect: %v", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
-		t.Skipf("skipping integration test: ping: %v", err)
+		skipOrFail(t, "ping: %v", err)
 	}
 	t.Cleanup(pool.Close)
 	return pool
@@ -142,8 +153,13 @@ func skipIfServicesDown(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 	resp, err := http.Get(gatewayURL + "/healthz")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		t.Skip("skipping integration test: api-gateway is not reachable (run `make up` first)")
+	if err != nil {
+		skipOrFail(t, "api-gateway is not reachable (run `make up` first): %v", err)
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		skipOrFail(t, "api-gateway /healthz returned %d (run `make up` first)", resp.StatusCode)
 	}
 }
 

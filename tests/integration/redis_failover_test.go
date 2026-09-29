@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -14,38 +13,35 @@ import (
 )
 
 // TestRedisPauseResumeFailover pauses Redis mid-traffic, resumes it,
-// and ensures connection recovers and events are processed without drops.
+// and ensures the consumers reconnect and events are processed without drops
+// or duplicates.
+//
+// DESTRUCTIVE: pauses the shared dev stack's Redis. Opt in with
+// WHATFUNNEL_DESTRUCTIVE_TESTS=1 (`make test-destructive`).
 func TestRedisPauseResumeFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping redis failover test in short mode")
 	}
+	requireDestructive(t)
 	skipIfServicesDown(t)
 
 	pool := testPool(t)
 	ctx := context.Background()
 
+	// Register recovery/cleanup BEFORE anything that can fail so Redis is never
+	// left paused and no account leaks. Unpausing a running container is a no-op error.
 	adminEmail := uniqueEmail("redis-pause-mgr")
-	adminClient := newClient()
+	t.Cleanup(func() { cleanupAccountByEmail(t, adminEmail) })
+	t.Cleanup(func() { _, _ = composeCmd(t, "unpause", "redis") })
 
+	adminClient := newClient()
 	regResp, body := post(t, adminClient, gatewayURL+"/auth/signup", map[string]string{
 		"account_name": "Redis Pause Co",
 		"email":        adminEmail,
 		"password":     "AdminPassword123!",
 	})
 	require.Equal(t, 201, regResp.StatusCode)
-	accountIDStr := body["account_id"].(string)
-	accountID := uuid.MustParse(accountIDStr)
-
-	t.Cleanup(func() {
-		// Ensure redis is unpaused in case test failed while paused
-		_ = exec.Command("docker", "compose", "unpause", "redis").Run()
-		pool.Exec(ctx, `DELETE FROM sessions WHERE data::text LIKE '%'||$1||'%'`, accountIDStr)
-		pool.Exec(ctx, `DELETE FROM messages WHERE account_id = $1`, accountID)
-		pool.Exec(ctx, `DELETE FROM conversations WHERE account_id = $1`, accountID)
-		pool.Exec(ctx, `DELETE FROM channels WHERE account_id = $1`, accountID)
-		pool.Exec(ctx, `DELETE FROM users WHERE account_id = $1`, accountID)
-		pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
-	})
+	accountID := uuid.MustParse(body["account_id"].(string))
 
 	channelID := createTestProviderChannel(t, pool, accountID, "Redis Pause Channel")
 
@@ -53,52 +49,49 @@ func TestRedisPauseResumeFailover(t *testing.T) {
 	require.NoError(t, err)
 	defer ps.Close()
 
+	countMessages := func() int {
+		var count int
+		_ = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE account_id = $1`, accountID).Scan(&count)
+		return count
+	}
+
 	// 1. Send pre-pause message
 	t.Log("Step 1: Sending message before pausing Redis...")
 	publishTestProviderMessage(t, ps, channelID, "+15551111111", "customer1", "Customer 1", "Hello pre-pause", "msg_pre_1", messaging.DirectionInbound)
+	require.Eventually(t, func() bool { return countMessages() == 1 }, 10*time.Second, 200*time.Millisecond, "Pre-pause message must be processed")
 
-	require.Eventually(t, func() bool {
-		var count int
-		_ = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE account_id = $1 AND provider_message_id = 'msg_pre_1'`, accountID).Scan(&count)
-		return count == 1
-	}, 10*time.Second, 200*time.Millisecond, "Pre-pause message must be processed")
-
-	// 2. Pause Redis container
+	// 2. Pause Redis and prove it is actually unreachable (the outage is real).
 	t.Log("Step 2: Pausing Redis container...")
-	pauseCmd := exec.Command("docker", "compose", "pause", "redis")
-	out, err := pauseCmd.CombinedOutput()
+	out, err := composeCmd(t, "pause", "redis")
 	require.NoError(t, err, "pause redis: %s", string(out))
+	require.Eventually(t, func() bool { return !redisReachable("localhost:6379") },
+		10*time.Second, 200*time.Millisecond, "Redis must become unreachable while paused")
 
-	// Wait 1 second while paused
-	time.Sleep(1 * time.Second)
-
-	// 3. Resume Redis container
+	// 3. Resume Redis and wait until it answers again.
 	t.Log("Step 3: Resuming Redis container...")
-	unpauseCmd := exec.Command("docker", "compose", "unpause", "redis")
-	out, err = unpauseCmd.CombinedOutput()
+	out, err = composeCmd(t, "unpause", "redis")
 	require.NoError(t, err, "unpause redis: %s", string(out))
+	require.Eventually(t, func() bool { return redisReachable("localhost:6379") },
+		15*time.Second, 200*time.Millisecond, "Redis must answer again after unpause")
 
-	// Reconnect pubsub client if needed
 	psPost, err := pubsub.NewClient("localhost:6379")
 	require.NoError(t, err)
 	defer psPost.Close()
 
-	// 4. Send post-resume message
+	// 4. Send post-resume message; the consumers must have reconnected to ingest it.
 	t.Log("Step 4: Sending message after resuming Redis...")
 	publishTestProviderMessage(t, psPost, channelID, "+15552222222", "customer2", "Customer 2", "Hello post-resume", "msg_post_2", messaging.DirectionInbound)
 
-	// 5. Verify both messages are in the database (no dropped events)
-	t.Log("Step 5: Verifying all messages persisted without drops...")
-	require.Eventually(t, func() bool {
-		var count int
-		_ = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE account_id = $1`, accountID).Scan(&count)
-		return count >= 2
-	}, 15*time.Second, 300*time.Millisecond, "Both messages must be ingested after redis unpause")
+	// 5. Both messages persisted exactly once (no drops, no duplicates).
+	require.Eventually(t, func() bool { return countMessages() == 2 },
+		30*time.Second, 300*time.Millisecond, "Both messages must be ingested after redis unpause")
+	assert.Never(t, func() bool { return countMessages() != 2 },
+		2*time.Second, 200*time.Millisecond, "message count must stay at exactly 2 (no redelivery duplicates)")
 
-	var totalCount int
-	err = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE account_id = $1`, accountID).Scan(&totalCount)
-	require.NoError(t, err)
-	assert.Equal(t, 2, totalCount, "Exact message count preserved with zero drops")
-
-	t.Log("Step 6: Redis pause/resume failover verified successfully.")
+	for _, providerID := range []string{"msg_pre_1", "msg_post_2"} {
+		var n int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM messages WHERE account_id = $1 AND provider_message_id = $2`, accountID, providerID).Scan(&n))
+		assert.Equal(t, 1, n, "provider message %s must be stored exactly once", providerID)
+	}
 }

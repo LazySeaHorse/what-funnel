@@ -90,6 +90,10 @@ test-verbose: ## Run full test suite with verbose output
 	cd adapters/whatsapp-whatsmeow && go test ./... -v -count=1 -timeout 120s
 	cd adapters/telegram-botapi && go test ./... -v -count=1 -timeout 120s
 
+test-destructive: ## Run failover tests that kill/pause/restart dev stack containers (DISRUPTS the shared dev stack)
+	@echo "WARNING: this stops/pauses/restarts containers of the running dev stack."
+	WHATFUNNEL_DESTRUCTIVE_TESTS=1 go test ./tests/integration/... -count=1 -v -timeout 300s -run 'TestOutboxClaimSIGKILLRecovery|TestRedisPauseResumeFailover|TestPostgresBounceRestart'
+
 test-scale-fuzz: ## Run non-deterministic concurrent scale fuzz test (5 agents, 2 managers, 20 customers)
 	go test ./tests/integration/... -v -count=1 -run TestConcurrentScaleMultiAgentFuzz_E2E
 

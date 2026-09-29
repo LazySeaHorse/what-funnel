@@ -2,15 +2,34 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
+
+// seedConversation inserts a contact and open conversation for the account and returns its ID.
+func seedConversation(t *testing.T, pool *pgxpool.Pool, accountID uuid.UUID, channelID string) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	contactID, convoID := uuid.New(), uuid.New()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO contacts (id, account_id, channel_id, external_identity, display_name)
+		VALUES ($1, $2, $3, '+15550001111', 'SQLi Contact')`, contactID, accountID, channelID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO conversations (id, account_id, channel_id, contact_id, status, external_thread_id)
+		VALUES ($1, $2, $3, $4, 'open', '+15550001111')`, convoID, accountID, channelID, contactID)
+	require.NoError(t, err)
+	return convoID
+}
 
 // TestSQLInjection_SecurityHardening tests sending aggressive SQL injection payloads
 // across multiple input vectors to ensure queries are strictly parameterized,
@@ -34,13 +53,17 @@ func TestSQLInjection_SecurityHardening(t *testing.T) {
 	require.Equal(t, http.StatusCreated, regResp.StatusCode)
 	accountIDStr := body["account_id"].(string)
 
+	// Every account created below (including the ones the signup payloads create)
+	// is removed afterwards; all account-owned tables cascade.
+	createdEmails := []string{legitEmail}
 	t.Cleanup(func() {
-		pool.Exec(ctx, `DELETE FROM sessions WHERE data::text LIKE '%'||$1||'%'`, accountIDStr)
-		pool.Exec(ctx, `DELETE FROM messages WHERE account_id = $1`, accountIDStr)
-		pool.Exec(ctx, `DELETE FROM conversations WHERE account_id = $1`, accountIDStr)
-		pool.Exec(ctx, `DELETE FROM users WHERE account_id = $1`, accountIDStr)
-		pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountIDStr)
+		for _, email := range createdEmails {
+			cleanupAccountByEmail(t, email)
+		}
 	})
+	accountID := uuid.MustParse(accountIDStr)
+	channelID := createTestProviderChannel(t, pool, accountID, "SQLi Channel")
+	convoID := seedConversation(t, pool, accountID, channelID)
 
 	// Login to get valid session
 	loginResp, _ := post(t, client, gatewayURL+"/auth/login", map[string]any{
@@ -78,24 +101,67 @@ func TestSQLInjection_SecurityHardening(t *testing.T) {
 	t.Run("Auth Signup SQLi Sanitization", func(t *testing.T) {
 		for _, payload := range sqlInjectionPayloads {
 			anonClient := newClient()
+			email := fmt.Sprintf("sqli_%s@test.com", uuid.NewString()[:8])
+			createdEmails = append(createdEmails, email)
 			resp, _ := post(t, anonClient, gatewayURL+"/auth/signup", map[string]any{
 				"account_name": payload,
-				"email":        fmt.Sprintf("sqli_%s@test.com", uuid.NewString()[:8]),
+				"email":        email,
 				"password":     payload,
 			})
 			assert.NotEqual(t, http.StatusInternalServerError, resp.StatusCode)
 		}
 	})
 
-	// 3. Test Search / Query Parameters in Conversations
-	t.Run("Conversations Query Param SQLi", func(t *testing.T) {
+	// 3. Query parameters the conversation handlers actually read: `state` (lead state
+	// filter, reaches SQL), `filter` (allow-listed), and the `before` message cursor.
+	// A payload that were interpolated into SQL would either error (500), return rows
+	// it should not (`OR 1=1`) or stall the request (pg_sleep).
+	const sleepBudget = 1500 * time.Millisecond // pg_sleep payloads sleep 2s if they execute
+	t.Run("Conversations state filter SQLi", func(t *testing.T) {
 		for _, payload := range sqlInjectionPayloads {
-			escapedQuery := url.QueryEscape(payload)
-			searchURL := fmt.Sprintf("%s/conversations?search=%s", gatewayURL, escapedQuery)
+			start := time.Now()
+			resp, err := client.Get(gatewayURL + "/conversations?state=" + url.QueryEscape(payload))
+			require.NoError(t, err)
+			elapsed := time.Since(start)
+			var list []any
+			decodeErr := json.NewDecoder(resp.Body).Decode(&list)
+			resp.Body.Close()
 
-			resp, _ := get(t, client, searchURL)
-			assert.NotEqual(t, http.StatusInternalServerError, resp.StatusCode,
-				"Search with SQLi payload %q must not trigger 500 error", payload)
+			assert.Equal(t, http.StatusOK, resp.StatusCode, "state=%q must be treated as an (unmatched) literal", payload)
+			require.NoError(t, decodeErr, "state=%q must return a JSON array", payload)
+			assert.Empty(t, list, "state=%q must match no leads (a non-empty list means the payload altered the query)", payload)
+			assert.Less(t, elapsed, sleepBudget, "state=%q must not execute pg_sleep", payload)
+		}
+		// Control: the seeded conversation is listed with no filter, proving an empty result above is meaningful.
+		resp, err := client.Get(gatewayURL + "/conversations")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		var all []map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&all))
+		var found bool
+		for _, c := range all {
+			found = found || c["id"] == convoID.String()
+		}
+		assert.True(t, found, "seeded conversation must be listed without a filter")
+	})
+
+	t.Run("Conversations filter allow-list", func(t *testing.T) {
+		for _, payload := range sqlInjectionPayloads {
+			resp, err := client.Get(gatewayURL + "/conversations?filter=" + url.QueryEscape(payload))
+			require.NoError(t, err)
+			resp.Body.Close()
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "filter=%q must be rejected by the allow-list", payload)
+		}
+	})
+
+	t.Run("Message cursor SQLi", func(t *testing.T) {
+		for _, payload := range sqlInjectionPayloads {
+			start := time.Now()
+			resp, err := client.Get(fmt.Sprintf("%s/conversations/%s/messages?before=%s", gatewayURL, convoID, url.QueryEscape(payload)))
+			require.NoError(t, err)
+			resp.Body.Close()
+			assert.Less(t, resp.StatusCode, http.StatusInternalServerError, "before=%q must not cause a server error", payload)
+			assert.Less(t, time.Since(start), sleepBudget, "before=%q must not execute pg_sleep", payload)
 		}
 	})
 

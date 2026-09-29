@@ -107,21 +107,20 @@ func TestChatbotOnlyE2E(t *testing.T) {
 		"Customer Bob", "Hello, is this bot active?", "msg-inbound-bot-1",
 		messaging.DirectionInbound)
 
-	// Wait for ingestion
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify conversation exists and is not under human control. The answer
-	// worker may already have moved an unconfigured workspace to review.
+	// Wait for ingestion to create the conversation and its AI state, then verify
+	// it is not under human control. The answer worker may already have moved an
+	// unconfigured workspace to review.
 	var convoID uuid.UUID
 	var aiState string
-	err = pool.QueryRow(ctx, `
-		SELECT c.id, ais.state
-		FROM conversations c
-		JOIN conversation_ai_state ais ON ais.conversation_id = c.id
-		JOIN contacts co ON c.contact_id = co.id
-		WHERE c.channel_id = $1 AND co.external_identity = 'whatsapp-bot-1'
-	`, uuid.MustParse(channelIDStr)).Scan(&convoID, &aiState)
-	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return pool.QueryRow(ctx, `
+			SELECT c.id, ais.state
+			FROM conversations c
+			JOIN conversation_ai_state ais ON ais.conversation_id = c.id
+			JOIN contacts co ON c.contact_id = co.id
+			WHERE c.channel_id = $1 AND co.external_identity = 'whatsapp-bot-1'
+		`, uuid.MustParse(channelIDStr)).Scan(&convoID, &aiState) == nil
+	}, 10*time.Second, 100*time.Millisecond, "inbound message must create a conversation with AI state")
 	assert.NotEqual(t, "paused_human", aiState, "AI control must not start under human ownership")
 
 	// 5. Ingest External Outbound Event (business owner replies from their phone)
@@ -130,13 +129,13 @@ func TestChatbotOnlyE2E(t *testing.T) {
 		"", "I am taking over from my phone", "msg-external-bot-1",
 		messaging.DirectionOutbound)
 
-	// Wait for ingestion
-	time.Sleep(500 * time.Millisecond)
-
 	// Verify takeover paused the durable AI control state.
-	err = pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState)
-	require.NoError(t, err)
-	assert.Equal(t, "paused_human", aiState, "AI must pause after external outbound reply")
+	require.Eventually(t, func() bool {
+		if err := pool.QueryRow(ctx, `SELECT state FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&aiState); err != nil {
+			return false
+		}
+		return aiState == "paused_human"
+	}, 10*time.Second, 100*time.Millisecond, "AI must pause after external outbound reply (last state %q)", aiState)
 
 	// Verify the external outbound message is persisted in DB
 	var direction, senderType string
