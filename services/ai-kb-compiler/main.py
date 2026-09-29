@@ -33,6 +33,17 @@ logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INF
 logger = logging.getLogger("ai-kb-compiler")
 
 
+def log_worker_exit(task: asyncio.Task) -> None:
+    """The ingestion worker must never stop silently; surface any unexpected exit."""
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error("KB ingestion worker died unexpectedly", exc_info=error)
+    else:
+        logger.error("KB ingestion worker exited unexpectedly")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -43,6 +54,7 @@ async def lifespan(app: FastAPI):
         run_worker(app.state.db, CompilePasteSchema),
         name="kb-ingestion-worker",
     )
+    app.state.ingestion_worker.add_done_callback(log_worker_exit)
     # Start periodic mining scheduler
     app.state.scheduler = start_scheduler(app.state.db)
     yield

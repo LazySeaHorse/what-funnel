@@ -5,8 +5,11 @@ import uuid
 from contextlib import suppress
 from typing import Any
 
+from config import config
 from db import ScopedDB
 from llm import get_ai_config, provider_client
+from phrases import normalize_trigger_phrases
+from slug import concept_base_slug, lock_concept_slugs
 
 
 logger = logging.getLogger("ai-kb-compiler")
@@ -28,6 +31,13 @@ def compilation_prompt(raw_text: str) -> str:
 
 
 async def _claim(pool, status: str) -> dict[str, Any] | None:
+    """Atomically claim the oldest ingestion in `status`.
+
+    queued -> processing is a real state transition (SKIP LOCKED makes it exclusive).
+    'publishing' is set by the API and has no distinct "running" status, so claiming it only
+    touches updated_at; exclusivity for publishing is enforced by _publish(), which re-checks
+    the status under FOR UPDATE inside its transaction, so two replicas can never both publish.
+    """
     started_column = ", started_at = COALESCE(started_at, NOW())" if status == "queued" else ""
     next_status = "processing" if status == "queued" else "publishing"
     row = await pool.fetchrow(
@@ -53,13 +63,33 @@ async def _claim(pool, status: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def _processing_lease_seconds() -> float:
+    # An extraction is a single provider call; anything 'processing' for longer than the
+    # request timeout (plus slack) has no live worker behind it.
+    return float(config.AI_REQUEST_TIMEOUT_SECONDS) + 120.0
+
+
+async def _requeue_orphaned(pool) -> None:
+    """Re-queue extractions whose worker died. Only stale rows are touched, never jobs that
+    another replica is actively working on (unlike resetting every 'processing' row)."""
+    await pool.execute(
+        """
+        UPDATE kb_ingestions
+        SET status = 'queued', updated_at = NOW()
+        WHERE status = 'processing'
+          AND updated_at < NOW() - make_interval(secs => $1::double precision)
+        """,
+        _processing_lease_seconds(),
+    )
+
+
 async def _fail(pool, ingestion_id: uuid.UUID, error: Exception) -> None:
     logger.exception("KB ingestion %s failed", ingestion_id, exc_info=error)
     await pool.execute(
         """
         UPDATE kb_ingestions
         SET status = 'failed', error = $2, completed_at = NOW(), updated_at = NOW()
-        WHERE id = $1
+        WHERE id = $1 AND status IN ('processing', 'publishing')
         """,
         ingestion_id,
         str(error)[:2000],
@@ -83,6 +113,12 @@ async def _extract(pool, job: dict[str, Any], response_schema: Any) -> None:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            status = await conn.fetchval(
+                "SELECT status FROM kb_ingestions WHERE id = $1 FOR UPDATE", job["id"]
+            )
+            if status != "processing":
+                logger.info("KB ingestion %s is %s, discarding stale extraction", job["id"], status)
+                return
             await conn.execute("DELETE FROM kb_ingestion_items WHERE ingestion_id = $1", job["id"])
             await conn.execute("DELETE FROM kb_ingestion_patterns WHERE ingestion_id = $1", job["id"])
             await conn.executemany(
@@ -115,11 +151,7 @@ async def _extract(pool, job: dict[str, Any], response_schema: Any) -> None:
                         position,
                         pattern["canonical_question"],
                         pattern["answer_text"],
-                        list(dict.fromkeys(
-                            phrase.lower().strip()
-                            for phrase in pattern.get("trigger_phrases", [])
-                            if phrase.strip()
-                        )),
+                        normalize_trigger_phrases(pattern.get("trigger_phrases", [])),
                     )
                     for position, pattern in enumerate(patterns)
                 ],
@@ -132,14 +164,6 @@ async def _extract(pool, job: dict[str, Any], response_schema: Any) -> None:
                 """,
                 job["id"],
             )
-
-
-def _slugify(title: str) -> str:
-    import re
-
-    slug = re.sub(r"[^a-z0-9\s-]", "", title.lower())
-    slug = re.sub(r"[\s-]+", "-", slug).strip("-")
-    return slug or "concept"
 
 
 async def _publish(pool, job: dict[str, Any]) -> None:
@@ -182,6 +206,15 @@ async def _publish(pool, job: dict[str, Any]) -> None:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Exclusive publish: another replica may have claimed the same ingestion. Whoever gets
+            # the row lock first publishes and completes it; the loser sees a non-publishing status.
+            status = await conn.fetchval(
+                "SELECT status FROM kb_ingestions WHERE id = $1 FOR UPDATE", job["id"]
+            )
+            if status != "publishing":
+                logger.info("KB ingestion %s is %s, skipping duplicate publish", job["id"], status)
+                return
+            await lock_concept_slugs(ScopedDB(conn, job["account_id"]))
             used_slugs = {
                 row["slug"]
                 for row in await conn.fetch(
@@ -190,7 +223,7 @@ async def _publish(pool, job: dict[str, Any]) -> None:
                 )
             }
             for item, vector in zip(concept_rows, concept_vectors):
-                base_slug = _slugify(item["title"])
+                base_slug = concept_base_slug(item["title"])
                 slug = base_slug
                 suffix = 1
                 while slug in used_slugs:
@@ -283,29 +316,46 @@ async def _publish(pool, job: dict[str, Any]) -> None:
             )
 
 
+async def _work_once(pool, response_schema: Any) -> bool:
+    """Process at most one ingestion. Returns False when there was nothing to do."""
+    job = await _claim(pool, "publishing")
+    action = _publish
+    if not job:
+        await _requeue_orphaned(pool)
+        job = await _claim(pool, "queued")
+        action = lambda worker_pool, worker_job: _extract(worker_pool, worker_job, response_schema)
+    if not job:
+        return False
+    try:
+        await action(pool, job)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        await _fail(pool, job["id"], error)
+    return True
+
+
 async def run_worker(pool, response_schema: Any) -> None:
-    # A process restart should safely resume work that had not reached a review boundary.
-    await pool.execute(
-        "UPDATE kb_ingestions SET status = 'queued', updated_at = NOW() WHERE status = 'processing'"
-    )
-    delay = 1.0
+    """Ingestion worker loop. Transient errors (e.g. the database being briefly unreachable) are
+    logged and retried with backoff; only cancellation stops the loop."""
+    idle_delay = 1.0
+    error_delay = 1.0
     while True:
-        job = await _claim(pool, "publishing")
-        action = _publish
-        if not job:
-            job = await _claim(pool, "queued")
-            action = lambda worker_pool, worker_job: _extract(worker_pool, worker_job, response_schema)
-        if not job:
-            await asyncio.sleep(delay)
-            delay = min(10.0, delay * 2.0)
-            continue
-        delay = 1.0
         try:
-            await action(pool, job)
+            worked = await _work_once(pool, response_schema)
         except asyncio.CancelledError:
             raise
-        except Exception as error:
-            await _fail(pool, job["id"], error)
+        except Exception:
+            logger.exception("KB ingestion worker iteration failed; retrying in %.0fs", error_delay)
+            await asyncio.sleep(error_delay)
+            error_delay = min(60.0, error_delay * 2.0)
+            continue
+        error_delay = 1.0
+        if worked:
+            idle_delay = 1.0
+        else:
+            await asyncio.sleep(idle_delay)
+            idle_delay = min(10.0, idle_delay * 2.0)
 
 
 async def stop_worker(task: asyncio.Task | None) -> None:
