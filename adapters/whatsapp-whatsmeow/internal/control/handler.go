@@ -23,6 +23,9 @@ type Controller interface {
 	Download(ctx context.Context, channelID, providerRef string) (session.MediaFile, error)
 }
 
+// controllerAdapter adapts the WhatsApp session manager to adapterkit.Controller.
+// WhatsApp links a device by scanning a QR code, so there is no caller-supplied
+// credential; the credential arguments of Create and Retry are intentionally ignored.
 type controllerAdapter struct {
 	target Controller
 }
