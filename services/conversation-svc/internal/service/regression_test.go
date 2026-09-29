@@ -322,3 +322,39 @@ func TestMediaVisibilityFollowsConversation(t *testing.T) {
 	err = open(viewer(agent2, types.RoleAgent), orphanID)
 	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
 }
+
+func TestAssignConversation_ValidatesConversationAndAssignees(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	accountID, managerID := setupTestTenant(t, pool, "assign-validate")
+	otherAccountID, otherUserID := setupTestTenant(t, pool, "assign-validate-other")
+	channelID := newTelegramChannel(t, pool, accountID, "assign bot")
+	convo := newConversation(t, pool, accountID, channelID, "assign-thread")
+
+	// Unknown conversation: 404, and no audit trail for a no-op.
+	missing := uuid.New()
+	err := svc.AssignConversation(ctx, accountID, missing, []uuid.UUID{managerID}, managerID)
+	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
+	var audits int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE account_id = $1 AND action = 'conversation.assigned'`, accountID).Scan(&audits))
+	require.Equal(t, 0, audits)
+
+	// A conversation from another account is equally not found.
+	err = svc.AssignConversation(ctx, otherAccountID, convo, []uuid.UUID{otherUserID}, otherUserID)
+	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
+
+	// Assignees must belong to the account.
+	err = svc.AssignConversation(ctx, accountID, convo, []uuid.UUID{otherUserID}, managerID)
+	require.True(t, errors.Is(err, service.ErrValidation), "got %v", err)
+	err = svc.AssignConversation(ctx, accountID, convo, []uuid.UUID{uuid.New()}, managerID)
+	require.True(t, errors.Is(err, service.ErrValidation), "got %v", err)
+
+	// Valid assignment (duplicates collapse) succeeds.
+	require.NoError(t, svc.AssignConversation(ctx, accountID, convo, []uuid.UUID{managerID, managerID}, managerID))
+	var assigned []uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1`, convo).Scan(&assigned))
+	require.Equal(t, []uuid.UUID{managerID}, assigned)
+}

@@ -408,20 +408,39 @@ func (s *ConversationService) loadMessageReactions(ctx context.Context, accountI
 }
 
 // AssignConversation sets the assigned users on a conversation.
+// Every assignee must be a user of the same account, and the conversation must
+// exist in it.
 func (s *ConversationService) AssignConversation(ctx context.Context, accountID, conversationID uuid.UUID, assignedUserIDs []uuid.UUID, actorUserID uuid.UUID) error {
+	assignedUserIDs = uniqueUUIDs(assignedUserIDs)
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin assignment tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `
+	if len(assignedUserIDs) > 0 {
+		var members int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM users WHERE account_id = $1 AND id = ANY($2)
+		`, accountID, assignedUserIDs).Scan(&members); err != nil {
+			return fmt.Errorf("validate assignees: %w", err)
+		}
+		if members != len(assignedUserIDs) {
+			return invalidf("assigned users must belong to this account")
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE conversations
 		SET assigned_user_ids = $1
 		WHERE id = $2 AND account_id = $3
 	`, assignedUserIDs, conversationID, accountID)
 	if err != nil {
 		return fmt.Errorf("update assignment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return notFoundf("conversation not found")
 	}
 
 	aw := audit.NewWriterFromTx(tx)
@@ -437,7 +456,7 @@ func (s *ConversationService) AssignConversation(ctx context.Context, accountID,
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return err
+		return fmt.Errorf("commit assignment tx: %w", err)
 	}
 
 	_, err = s.pubsub.Publish(ctx, "conversation.assigned", ConversationAssignedEvent{
@@ -449,6 +468,19 @@ func (s *ConversationService) AssignConversation(ctx context.Context, accountID,
 		fmt.Printf("failed to publish conversation.assigned: %v\n", err)
 	}
 	return nil
+}
+
+func uniqueUUIDs(ids []uuid.UUID) []uuid.UUID {
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	unique := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 // ReadConversation upserts a read-receipt for the given user.
