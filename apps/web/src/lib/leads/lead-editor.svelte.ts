@@ -9,6 +9,7 @@ export class LeadEditor {
 	notes = $state<any[]>([]);
 	history = $state<any[]>([]);
 	loading = $state(false);
+	error = $state('');
 
 	private requestVersion = 0;
 	private detailsRequest: AbortController | null = null;
@@ -36,6 +37,7 @@ export class LeadEditor {
 
 		this.conversationID = conversationID;
 		this.leadID = leadID;
+		this.error = '';
 		await this.loadDetails(leadID);
 	}
 
@@ -46,6 +48,7 @@ export class LeadEditor {
 		this.notes = [];
 		this.history = [];
 		this.loading = false;
+		this.error = '';
 	}
 
 	dispose() {
@@ -53,61 +56,86 @@ export class LeadEditor {
 	}
 
 	async changeStage(stateKey: string) {
-		if (!this.leadID) return;
-		const leadID = this.leadID;
-		const updated = await this.request(`/leads/${leadID}/state`, {
-			method: 'PATCH',
-			body: { state_key: stateKey }
-		});
-		if (this.leadID === leadID && this.lead) {
-			this.lead.current_state_key = updated?.current_state_key ?? stateKey;
+		const leadID = this.requireLeadID();
+		if (!leadID) return;
+		this.error = '';
+		try {
+			const updated = await this.request(`/leads/${leadID}/state`, {
+				method: 'PATCH',
+				body: { state_key: stateKey }
+			});
+			if (this.leadID === leadID && this.lead) {
+				this.lead.current_state_key = updated?.current_state_key ?? stateKey;
+			}
+			await this.inbox.loadConversations();
+		} catch (error) {
+			this.fail('Failed to change the lead stage. Please try again.', error, leadID);
 		}
-		await this.inbox.loadConversations();
 	}
 
 	async addTag(tag: string) {
-		if (!this.leadID) return;
+		const leadID = this.requireLeadID();
+		if (!leadID) return;
 		const value = tag.trim();
-		const leadID = this.leadID;
 		const tags = this.lead?.tags ?? [];
 		if (!value || tags.includes(value)) return;
 		await this.updateTags(leadID, [...tags, value]);
 	}
 
 	async removeTag(tag: string) {
-		if (!this.leadID) return;
-		const leadID = this.leadID;
+		const leadID = this.requireLeadID();
+		if (!leadID) return;
 		await this.updateTags(leadID, (this.lead?.tags ?? []).filter((value: string) => value !== tag));
 	}
 
 	async toggleAssignee(userID: string) {
-		if (!this.conversationID) return;
-		const conversationID = this.conversationID;
+		const conversationID = this.requireConversationID();
+		if (!conversationID) return;
+		this.error = '';
 		const current = this.conversation?.assigned_user_ids ?? [];
-		await this.inbox.assignConversation(
-			conversationID,
-			current.includes(userID)
-				? current.filter((id: string) => id !== userID)
-				: [...current, userID]
-		);
+		try {
+			await this.inbox.assignConversation(
+				conversationID,
+				current.includes(userID)
+					? current.filter((id: string) => id !== userID)
+					: [...current, userID]
+			);
+		} catch (error) {
+			this.fail('Failed to update assignees. Please try again.', error, this.leadID);
+			return;
+		}
+		// assignConversation records its own failure instead of throwing.
+		const mutationError = this.inbox.mutationErrors[conversationID];
+		if (mutationError && this.conversationID === conversationID) this.error = mutationError;
 	}
 
 	async addNote(body: string) {
-		if (!this.leadID) return;
-		const leadID = this.leadID;
+		const leadID = this.requireLeadID();
+		if (!leadID) return;
 		const value = body.trim();
 		if (!value) return;
-		await this.request(`/leads/${leadID}/notes`, { method: 'POST', body: { body: value } });
+		this.error = '';
+		try {
+			await this.request(`/leads/${leadID}/notes`, { method: 'POST', body: { body: value } });
+		} catch (error) {
+			this.fail('Failed to add the note. Please try again.', error, leadID);
+			return;
+		}
 		if (this.leadID === leadID) await this.loadDetails(leadID);
 	}
 
 	private async updateTags(leadID: string, tags: string[]) {
-		const updated = await this.request(`/leads/${leadID}/tags`, {
-			method: 'PATCH',
-			body: { tags }
-		});
-		if (this.leadID === leadID && this.lead) this.lead.tags = updated.tags;
-		await this.inbox.loadConversations();
+		this.error = '';
+		try {
+			const updated = await this.request(`/leads/${leadID}/tags`, {
+				method: 'PATCH',
+				body: { tags }
+			});
+			if (this.leadID === leadID && this.lead) this.lead.tags = updated.tags;
+			await this.inbox.loadConversations();
+		} catch (error) {
+			this.fail('Failed to update tags. Please try again.', error, leadID);
+		}
 	}
 
 	private async loadDetails(leadID: string) {
@@ -116,6 +144,9 @@ export class LeadEditor {
 		const controller = new AbortController();
 		this.detailsRequest = controller;
 		this.loading = true;
+		this.error = '';
+		this.notes = [];
+		this.history = [];
 		try {
 			const [notes, history] = await Promise.all([
 				this.request(`/leads/${leadID}/notes`, { signal: controller.signal }),
@@ -127,7 +158,7 @@ export class LeadEditor {
 			}
 		} catch (error) {
 			if (!(error instanceof DOMException && error.name === 'AbortError')) {
-				console.error('Failed to load lead details:', error);
+				this.fail('Failed to load lead details. Please try again.', error, leadID);
 			}
 		} finally {
 			if (version === this.requestVersion) {
@@ -143,13 +174,25 @@ export class LeadEditor {
 		this.detailsRequest = null;
 	}
 
-	private requireLeadID(): string {
-		if (!this.leadID) throw new Error('No lead is selected.');
+	private fail(message: string, cause: unknown, leadID: string | null) {
+		console.error(message, cause);
+		if (leadID === null || this.leadID === leadID) this.error = message;
+	}
+
+	// Surfaces the "nothing selected" case instead of silently ignoring the action.
+	private requireLeadID(): string | null {
+		if (!this.leadID) {
+			this.error = 'No lead is selected.';
+			return null;
+		}
 		return this.leadID;
 	}
 
-	private requireConversationID(): string {
-		if (!this.conversationID) throw new Error('No conversation is selected.');
+	private requireConversationID(): string | null {
+		if (!this.conversationID) {
+			this.error = 'No conversation is selected.';
+			return null;
+		}
 		return this.conversationID;
 	}
 }

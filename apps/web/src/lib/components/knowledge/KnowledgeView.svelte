@@ -54,6 +54,8 @@
 	let purging = $state(false);
 	let purgeResult = $state<{ concepts: number; patterns: number } | null>(null);
 	let purgeError = $state('');
+	let actionError = $state('');
+	let loadError = $state('');
 
 	// Active editing targets
 	let editingConceptId = $state<string | null>(null);
@@ -96,6 +98,7 @@
 
 	async function load(refresh = false) {
 		loading = !refresh;
+		loadError = '';
 		try {
 			const [conceptsRes, patternsRes, suggestionsRes, miningRes] = await Promise.allSettled([
 				apiRequest('/api/kb/concepts'),
@@ -115,6 +118,16 @@
 				});
 			}
 			if (miningRes.status === 'fulfilled') lastRun = miningRes.value?.last_run ?? null;
+			const failed = [
+				[conceptsRes, 'concepts'],
+				[patternsRes, 'patterns'],
+				[suggestionsRes, 'AI suggestions'],
+				[miningRes, 'the latest audit']
+			].filter(([res]) => (res as PromiseSettledResult<unknown>).status === 'rejected');
+			for (const [res, name] of failed) {
+				console.error(`Failed to load ${name}`, (res as PromiseRejectedResult).reason);
+			}
+			if (failed.length) loadError = `Failed to load ${failed.map(([, name]) => name).join(', ')}. Showing what could be loaded.`;
 		} finally {
 			loading = false;
 		}
@@ -126,7 +139,12 @@
 	});
 	onDestroy(() => ingestion.dispose());
 
+	function errorMessage(err: unknown, fallback: string) {
+		return err instanceof Error && err.message ? err.message : fallback;
+	}
+
 	async function deleteConcept(id: string) {
+		actionError = '';
 		if (!confirm('Delete this knowledge concept?')) return;
 		try {
 			await apiRequest(`/api/kb/concepts/${id}`, { method: 'DELETE' });
@@ -134,10 +152,12 @@
 			if (editingConceptId === id) editingConceptId = null;
 		} catch (err) {
 			console.error('Failed to delete concept', err);
+			actionError = errorMessage(err, 'Failed to delete the concept.');
 		}
 	}
 
 	async function deletePattern(id: string) {
+		actionError = '';
 		if (!confirm('Delete this pattern?')) return;
 		try {
 			await apiRequest(`/api/kb/patterns/${id}`, { method: 'DELETE' });
@@ -145,6 +165,7 @@
 			if (editingPatternId === id) editingPatternId = null;
 		} catch (err) {
 			console.error('Failed to delete pattern', err);
+			actionError = errorMessage(err, 'Failed to delete the pattern.');
 		}
 	}
 
@@ -223,27 +244,33 @@
 	}
 
 	async function reviewSuggestion(id: string, action: 'approve' | 'reject') {
+		actionError = '';
 		try {
 			await apiRequest(`/api/kb/suggestions/${id}/${action}`, { method: 'POST', body: { reviewed_by: reviewerID } });
 			suggestions = suggestions.filter((suggestion) => suggestion.id !== id);
 			if (action === 'approve') await load(true);
 		} catch (err) {
 			console.error('Failed to review suggestion', err);
+			actionError = errorMessage(err, `Failed to ${action} the suggestion.`);
 		}
 	}
 
 	async function triggerMining() {
 		mining = true;
 		miningResult = null;
+		actionError = '';
 		try {
 			miningResult = await apiRequest('/api/kb/mine/trigger', { method: 'POST' });
 			await load(true);
 		} catch (err) {
 			console.error('Failed to trigger mining', err);
+			actionError = errorMessage(err, 'Failed to run the chat audit.');
 		} finally {
 			mining = false;
 		}
 	}
+
+	let reviewReady = $derived(ingestion.phase === 'review' && !showAddKnowledgeModal);
 
 	function formatDate(iso?: string | null) {
 		if (!iso) return 'Never';
@@ -274,9 +301,12 @@
 					size="sm"
 					onclick={() => (showAddKnowledgeModal = true)}
 					class="shadow-2xs"
-					title={ingestion.busy && !showAddKnowledgeModal ? 'Adding knowledge in background… (click to view)' : 'Add knowledge'}
+					title={ingestion.busy && !showAddKnowledgeModal ? 'Adding knowledge in background… (click to view)' : reviewReady ? 'Your knowledge is ready to review' : 'Add knowledge'}
 				>
-					{#if ingestion.busy && !showAddKnowledgeModal}
+					{#if reviewReady}
+						<CheckIcon class="w-3.5 h-3.5" />
+						<span data-testid="review-ready">Review ready</span>
+					{:else if ingestion.busy && !showAddKnowledgeModal}
 						<span data-testid="add-knowledge-spinner" class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" aria-label="Ingesting knowledge" role="status"></span>
 						<span>Adding knowledge…</span>
 					{:else}
@@ -293,7 +323,9 @@
 					disabled={purging || ingestion.phase !== 'idle'}
 					busy={purging}
 					class="shadow-2xs"
-					title="Permanently remove all concepts and deterministic patterns"
+					title={ingestion.phase !== 'idle'
+						? 'Finish or discard the knowledge currently being added before purging'
+						: 'Permanently remove all concepts and deterministic patterns'}
 				>
 					<TrashIcon class="w-3.5 h-3.5" />
 					<span>Purge knowledge base</span>
@@ -380,6 +412,17 @@
 				</button>
 			</div>
 		{/if}
+		{#if loadError || actionError}
+			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs" role="alert" data-testid="knowledge-error">
+				<div class="flex items-center gap-2">
+					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
+					<span>{actionError || loadError}</span>
+				</div>
+				<button type="button" onclick={() => { if (actionError) actionError = ''; else loadError = ''; }} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
+					<XMarkIcon class="w-4 h-4" />
+				</button>
+			</div>
+		{/if}
 		{#if pasteResult?.added !== undefined}
 			<div class="px-3.5 py-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between gap-2 shadow-2xs">
 				<div class="flex items-center gap-2">
@@ -417,7 +460,7 @@
 							<BookOpenIcon class="w-6 h-6" />
 						</div>
 						<div class="text-sm font-medium text-slate-800">
-							{searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
+							{loadError ? 'Knowledge concepts could not be loaded' : searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
 						</div>
 						<div class="text-xs text-slate-500 mt-1">
 							{searchQuery.trim() ? 'Try adjusting your search terms' : 'Click "Add knowledge" above to extract concepts with AI'}

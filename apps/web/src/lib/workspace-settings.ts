@@ -17,32 +17,51 @@ export interface WorkspaceSettings {
 	[key: string]: unknown;
 }
 
+function asString(value: unknown): string | undefined {
+	return typeof value === 'string' ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+	return typeof value === 'boolean' ? value : undefined;
+}
+
+// The settings blob is free-form JSON, so time_format may arrive as the string
+// '12'/'24' (what the settings form writes) or as a bare number.
+function asTimeFormat(value: unknown): '12' | '24' | undefined {
+	const normalized = typeof value === 'number' ? String(value) : value;
+	return normalized === '12' || normalized === '24' ? normalized : undefined;
+}
+
+function asReplyMode(value: unknown): 'auto_send' | 'draft_only' | undefined {
+	return value === 'auto_send' || value === 'draft_only' ? value : undefined;
+}
+
 function sanitizeSettings(obj: Record<string, unknown>): WorkspaceSettings {
-	return {
-		...obj,
-		timezone: typeof obj.timezone === 'string' ? obj.timezone : undefined,
-		language: typeof obj.language === 'string' ? obj.language : undefined,
-		date_format: typeof obj.date_format === 'string' ? obj.date_format : undefined,
-		time_format: obj.time_format === '12' || obj.time_format === '24' ? obj.time_format : undefined,
-		business_type: typeof obj.business_type === 'string' ? obj.business_type : undefined,
-		business_category: typeof obj.business_category === 'string' ? obj.business_category : undefined,
-		business_phone: typeof obj.business_phone === 'string' ? obj.business_phone : undefined,
-		business_email: typeof obj.business_email === 'string' ? obj.business_email : undefined,
-		business_address: typeof obj.business_address === 'string' ? obj.business_address : undefined,
-		business_website: typeof obj.business_website === 'string' ? obj.business_website : undefined,
-		business_hours: typeof obj.business_hours === 'string' ? obj.business_hours : undefined,
-		lead_tracking_enabled:
-			typeof obj.lead_tracking_enabled === 'boolean' ? obj.lead_tracking_enabled : undefined,
-		unassigned_conversations_visible_to_members:
-			typeof obj.unassigned_conversations_visible_to_members === 'boolean'
-				? obj.unassigned_conversations_visible_to_members
-				: undefined,
-		ai_enabled: typeof obj.ai_enabled === 'boolean' ? obj.ai_enabled : undefined,
-		ai_reply_mode_default:
-			obj.ai_reply_mode_default === 'auto_send' || obj.ai_reply_mode_default === 'draft_only'
-				? obj.ai_reply_mode_default
-				: undefined
+	const known: Record<string, unknown> = {
+		timezone: asString(obj.timezone),
+		language: asString(obj.language),
+		date_format: asString(obj.date_format),
+		time_format: asTimeFormat(obj.time_format),
+		business_type: asString(obj.business_type),
+		business_category: asString(obj.business_category),
+		business_phone: asString(obj.business_phone),
+		business_email: asString(obj.business_email),
+		business_address: asString(obj.business_address),
+		business_website: asString(obj.business_website),
+		business_hours: asString(obj.business_hours),
+		lead_tracking_enabled: asBoolean(obj.lead_tracking_enabled),
+		unassigned_conversations_visible_to_members: asBoolean(obj.unassigned_conversations_visible_to_members),
+		ai_enabled: asBoolean(obj.ai_enabled),
+		ai_reply_mode_default: asReplyMode(obj.ai_reply_mode_default)
 	};
+	// Start from the raw object, then overwrite known keys with their validated
+	// value, or drop them entirely when invalid (never leave an explicit undefined).
+	const result: Record<string, unknown> = { ...obj };
+	for (const [key, value] of Object.entries(known)) {
+		if (value === undefined) delete result[key];
+		else result[key] = value;
+	}
+	return result as WorkspaceSettings;
 }
 
 export function decodeWorkspaceSettings(raw: unknown): WorkspaceSettings {

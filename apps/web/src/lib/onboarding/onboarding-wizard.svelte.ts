@@ -73,6 +73,8 @@ export class OnboardingWizardController {
 	loading = $state(true);
 	submitting = $state(false);
 	error = $state('');
+	// Non-fatal problems (setup can continue); shown as a notice, not a blocker.
+	warning = $state('');
 	productMode = $state<ProductMode>('full_workspace');
 	pipelineID = $state('');
 
@@ -151,7 +153,7 @@ export class OnboardingWizardController {
 
 	get connectedChannelsText(): string {
 		const conn = this.channels.filter((c) => c.connected).map((c) => c.name);
-		return conn.length > 0 ? conn.join(', ') : 'WhatsApp, Instagram';
+		return conn.length > 0 ? conn.join(', ') : 'None';
 	}
 
 	get aiModeLabel(): string {
@@ -221,7 +223,9 @@ export class OnboardingWizardController {
 			try {
 				const slugData = await this.request('/workspace/account/slug');
 				if (slugData?.slug) this.slug = slugData.slug;
-			} catch {}
+			} catch (err: any) {
+				this.warn('We could not load your saved workspace address.', err);
+			}
 
 			if (this.productMode === 'full_workspace') {
 				try {
@@ -235,7 +239,9 @@ export class OnboardingWizardController {
 								role: u.role
 							}));
 					}
-				} catch {}
+				} catch (err: any) {
+					this.warn('We could not load your existing team members.', err);
+				}
 			}
 
 			if (this.productMode === 'chatbot_only' && (this.stepNum === 3 || this.stepNum === 4)) {
@@ -300,12 +306,20 @@ export class OnboardingWizardController {
 		try {
 			const chList = await this.request('/channels');
 			if (Array.isArray(chList) && chList.length > 0) {
-				for (const c of chList) {
-					const found = this.channels.find((item) => item.type === c.type);
-					if (found) found.connected = c.status === 'connected';
+				// A type can have several channel rows; it is connected if any of them is.
+				for (const found of this.channels) {
+					if (!chList.some((c: any) => c.type === found.type)) continue;
+					found.connected = chList.some((c: any) => c.type === found.type && c.status === 'connected');
 				}
 			}
-		} catch {}
+		} catch (err: any) {
+			this.warn('We could not refresh your channel connection status.', err);
+		}
+	}
+
+	private warn(message: string, cause: unknown): void {
+		console.error(message, cause);
+		this.warning = message;
 	}
 
 	async toggleChannel(channel?: any): Promise<void> {
