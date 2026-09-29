@@ -13,6 +13,20 @@ var (
 	ErrNotConnected  = errors.New("adapter: channel not connected")
 )
 
+// InvalidCredentialError reports that a caller-supplied credential was rejected.
+// Its message is safe to show to end users.
+type InvalidCredentialError struct{ Message string }
+
+func (e *InvalidCredentialError) Error() string { return e.Message }
+
+// ErrInvalidCredential is the sentinel matched by errors.Is for InvalidCredentialError.
+var ErrInvalidCredential = errors.New("adapter: invalid credential")
+
+func (e *InvalidCredentialError) Is(target error) bool { return target == ErrInvalidCredential }
+
+// NewInvalidCredential returns a user-safe invalid credential error.
+func NewInvalidCredential(message string) error { return &InvalidCredentialError{Message: message} }
+
 // Snapshot represents the connection state of a messaging adapter channel.
 type Snapshot struct {
 	ChannelID       string                     `json:"channel_id"`

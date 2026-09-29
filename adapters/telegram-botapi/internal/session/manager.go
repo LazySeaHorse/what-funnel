@@ -277,7 +277,7 @@ func validateBotToken(ctx context.Context, api *botapi.Client, token string) (bo
 		var apiErr *botapi.Error
 		if errors.As(err, &apiErr) {
 			if apiErr.ErrorCode == http.StatusUnauthorized || apiErr.ErrorCode == http.StatusNotFound {
-				return botapi.User{}, errors.New("Invalid Telegram bot token. Please check your token from @BotFather.")
+				return botapi.User{}, adapterkit.NewInvalidCredential("Invalid Telegram bot token. Please check your token from @BotFather.")
 			}
 			return botapi.User{}, fmt.Errorf("Telegram API error (%d): %s", apiErr.ErrorCode, apiErr.Description)
 		}
@@ -287,7 +287,7 @@ func validateBotToken(ctx context.Context, api *botapi.Client, token string) (bo
 		return botapi.User{}, fmt.Errorf("Could not reach Telegram API: %w", err)
 	}
 	if !bot.IsBot {
-		return botapi.User{}, errors.New("The provided token belongs to a user account, not a bot.")
+		return botapi.User{}, adapterkit.NewInvalidCredential("The provided token belongs to a user account, not a bot.")
 	}
 	if err := api.DeleteWebhook(validateCtx, token, true); err != nil {
 		return botapi.User{}, fmt.Errorf("Could not clear Telegram webhook for polling: %w", err)
