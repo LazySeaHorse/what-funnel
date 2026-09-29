@@ -89,6 +89,10 @@ func run(logger *slog.Logger) error {
 		return c.Run(groupCtx, "notification-svc", consumerName)
 	})
 	group.Go(func() error {
+		srvHandler.RunRevalidation(groupCtx, server.DefaultRevalidateInterval)
+		return nil
+	})
+	group.Go(func() error {
 		logger.Info("notification-svc listening", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("serve HTTP: %w", err)

@@ -91,8 +91,22 @@ func TestConsumer_AllStreams_StartAndDispatch(t *testing.T) {
 		require.NoError(t, <-consumerDone)
 	}()
 
-	// Give a moment for consumers to subscribe
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the consumer group exists on both streams under test (readiness signal).
+	groupReady := func(stream string) bool {
+		groups, err := ps.RawClient().XInfoGroups(ctx, stream).Result()
+		if err != nil {
+			return false
+		}
+		for _, g := range groups {
+			if g.Name == testGroup {
+				return true
+			}
+		}
+		return false
+	}
+	require.Eventually(t, func() bool {
+		return groupReady("lead.state_changed") && groupReady("channel.status_changed")
+	}, 5*time.Second, 10*time.Millisecond, "consumer groups were not created")
 
 	// 1. Publish lead.state_changed
 	leadID := uuid.New()
