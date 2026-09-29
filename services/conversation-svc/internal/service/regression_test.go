@@ -358,3 +358,34 @@ func TestAssignConversation_ValidatesConversationAndAssignees(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT assigned_user_ids FROM conversations WHERE id = $1`, convo).Scan(&assigned))
 	require.Equal(t, []uuid.UUID{managerID}, assigned)
 }
+
+func TestSendMessage_SimulatorChannelNeverReachesAdapterCommands(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	accountID, userID := setupTestTenant(t, pool, "simulator-send")
+
+	channel, err := svc.EnsureSimulatorChannel(ctx, accountID, "telegram")
+	require.NoError(t, err)
+	convo := newConversation(t, pool, accountID, channel.ID, "sim-thread")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM message_outbox WHERE account_id = $1`, accountID)
+	})
+
+	msg, err := svc.SendMessage(ctx, service.SendMessageParams{
+		AccountID: accountID, ConversationID: convo, Sender: types.MessageSenderHuman,
+		SenderUserID: &userID, ContentType: "text", Text: "hello simulator",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "sent", msg.DeliveryStatus)
+
+	var status string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT delivery_status FROM messages WHERE id = $1`, msg.ID).Scan(&status))
+	require.Equal(t, "sent", status)
+
+	var outbox int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM message_outbox WHERE account_id = $1`, accountID).Scan(&outbox))
+	require.Equal(t, 0, outbox, "simulator sends must not enqueue adapter commands")
+}

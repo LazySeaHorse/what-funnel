@@ -14,6 +14,10 @@ import (
 var ErrChannelNotFound error = &categorizedError{kind: ErrNotFound, msg: "channel not found"}
 var ErrUnsupportedSimulatorProvider = errors.New("unsupported simulator provider")
 
+// simulatorRemoteAccountPrefix marks the synthetic channels created by
+// EnsureSimulatorChannel through their remote_account_id.
+const simulatorRemoteAccountPrefix = "simulator:"
+
 // EnsureSimulatorChannel returns a synthetic channel used only by the local
 // simulation UI. It deliberately has no provider_connections row, so it can
 // never be mistaken for a paired provider account or reach a live adapter.
@@ -33,7 +37,7 @@ func (s *ConnectionService) EnsureSimulatorChannel(ctx context.Context, accountI
 		DO UPDATE SET updated_at = channels.updated_at
 		RETURNING id, account_id, type, status, status_detail, label, provider,
 		          remote_account_id, capabilities, created_at, updated_at
-	`, accountID, provider, label, "simulator:"+provider).Scan(
+	`, accountID, provider, label, simulatorRemoteAccountPrefix+provider).Scan(
 		&channel.ID, &channel.AccountID, &channel.Type, &channel.Status,
 		&channel.StatusDetail, &channel.Label, &channel.Provider,
 		&channel.RemoteAccountID, &channel.Capabilities,

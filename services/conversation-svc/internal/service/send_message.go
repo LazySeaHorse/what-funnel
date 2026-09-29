@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -47,7 +48,10 @@ func (c SendMessageParams) validate() error {
 }
 
 type outboundDestination struct {
-	channelID        uuid.UUID
+	channelID uuid.UUID
+	// simulated channels are local development stand-ins with no provider
+	// session; their messages must never enter the adapter command streams.
+	simulated        bool
 	provider         messaging.Provider
 	externalIdentity string
 	capabilities     messaging.Capabilities
@@ -93,7 +97,11 @@ func (s *ConversationService) sendMessage(ctx context.Context, cmd SendMessagePa
 	if err != nil {
 		return nil, err
 	}
-	if err := insertOutboxCommand(ctx, tx, destination, cmd, msg); err != nil {
+	if destination.simulated {
+		if err := markSimulatedMessageSent(ctx, tx, msg); err != nil {
+			return nil, err
+		}
+	} else if err := insertOutboxCommand(ctx, tx, destination, cmd, msg); err != nil {
 		return nil, err
 	}
 	invalidatedDraftID, err := applyOutboundMessageEffects(ctx, tx, cmd, msg)
@@ -108,7 +116,9 @@ func (s *ConversationService) sendMessage(ctx context.Context, cmd SendMessagePa
 	}
 
 	s.publishOutboundMessageEvents(ctx, cmd, msg, invalidatedDraftID)
-	s.outbox.nudgeOutbox(ctx, "send:"+msg.ID.String())
+	if !destination.simulated {
+		s.outbox.nudgeOutbox(ctx, "send:"+msg.ID.String())
+	}
 	return msg, nil
 }
 
@@ -173,15 +183,17 @@ func authorizeAIMessage(ctx context.Context, tx pgx.Tx, cmd SendMessageParams) e
 func loadOutboundDestination(ctx context.Context, tx pgx.Tx, accountID, conversationID uuid.UUID) (outboundDestination, error) {
 	var destination outboundDestination
 	var capabilityJSON []byte
+	var remoteAccountID string
 	err := tx.QueryRow(ctx, `
 		SELECT c.channel_id, COALESCE(ch.provider, ch.type),
-		       COALESCE(c.external_thread_id, co.external_identity), ch.capabilities
+		       COALESCE(c.external_thread_id, co.external_identity), ch.capabilities,
+		       COALESCE(ch.remote_account_id, '')
 		FROM conversations c
 		JOIN channels ch ON c.channel_id = ch.id
 		JOIN contacts co ON c.contact_id = co.id
 		WHERE c.id = $1 AND c.account_id = $2
 		FOR UPDATE OF c
-	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity, &capabilityJSON)
+	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity, &capabilityJSON, &remoteAccountID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return outboundDestination{}, notFoundf("conversation not found")
 	}
@@ -191,7 +203,20 @@ func loadOutboundDestination(ctx context.Context, tx pgx.Tx, accountID, conversa
 	if err := json.Unmarshal(capabilityJSON, &destination.capabilities); err != nil {
 		return outboundDestination{}, fmt.Errorf("decode provider capabilities: %w", err)
 	}
+	destination.simulated = strings.HasPrefix(remoteAccountID, simulatorRemoteAccountPrefix)
 	return destination, nil
+}
+
+// markSimulatedMessageSent completes a send on a simulator channel locally:
+// there is no provider to deliver to, so the message is simply "sent".
+func markSimulatedMessageSent(ctx context.Context, tx pgx.Tx, msg *types.Message) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE messages SET delivery_status = 'sent', provider_timestamp = created_at WHERE id = $1
+	`, msg.ID); err != nil {
+		return fmt.Errorf("mark simulated message sent: %w", err)
+	}
+	msg.DeliveryStatus = "sent"
+	return nil
 }
 
 func lockReplyDraft(ctx context.Context, tx pgx.Tx, cmd SendMessageParams) error {
