@@ -24,7 +24,7 @@ func TestHandler_GetMedia_SecurityHeaders(t *testing.T) {
 	}
 
 	pool := testPool(t)
-	accountID, _ := setupTestTenant(t, pool, "media-sec-test")
+	accountID, userID := setupTestTenant(t, pool, "media-sec-test")
 
 	// Create a channel
 	var channelID uuid.UUID
@@ -136,6 +136,8 @@ func TestHandler_GetMedia_SecurityHeaders(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/media/"+mediaID.String(), nil)
 			req = req.WithContext(context.WithValue(req.Context(), types.ContextKeyAccountID, accountID))
+			req = req.WithContext(context.WithValue(req.Context(), types.ContextKeyUserID, userID))
+			req = req.WithContext(context.WithValue(req.Context(), types.ContextKeyUserRole, types.RoleManager))
 			req = mux.SetURLVars(req, map[string]string{"id": mediaID.String()})
 
 			rr := httptest.NewRecorder()

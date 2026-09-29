@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -262,4 +263,62 @@ func TestBlockedAIStateSurvivesCloseAndHumanReply(t *testing.T) {
 		state, _ := aiState(convo)
 		require.Equal(t, "active", state)
 	})
+}
+
+func TestMediaVisibilityFollowsConversation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	require.NoError(t, svc.ConfigureMediaCache(t.TempDir()))
+	accountID, managerID := setupTestTenant(t, pool, "media-visibility")
+	var agent1, agent2 uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'media-a1@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&agent1))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'media-a2@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&agent2))
+	channelID := newTelegramChannel(t, pool, accountID, "media bot")
+	convo := newConversation(t, pool, accountID, channelID, "media-thread", agent1)
+
+	viewer := func(user uuid.UUID, role string) service.MediaViewer {
+		return service.MediaViewer{AccountID: accountID, UserID: user, Role: role}
+	}
+
+	// A user who cannot see the conversation cannot upload into it.
+	_, err := svc.SaveOutboundMedia(ctx, viewer(agent2, types.RoleAgent), convo, "a.png", "image/png", strings.NewReader("png-bytes"))
+	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
+
+	media, err := svc.SaveOutboundMedia(ctx, viewer(agent1, types.RoleAgent), convo, "a.png", "image/png", strings.NewReader("png-bytes"))
+	require.NoError(t, err)
+
+	open := func(v service.MediaViewer, id uuid.UUID) error {
+		content, err := svc.OpenMedia(ctx, &v, id)
+		if err == nil {
+			_ = content.Reader.Close()
+		}
+		return err
+	}
+	require.NoError(t, open(viewer(agent1, types.RoleAgent), media.ID))
+	require.NoError(t, open(viewer(managerID, types.RoleManager), media.ID))
+	err = open(viewer(agent2, types.RoleAgent), media.ID)
+	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
+
+	// Another account never sees it either.
+	otherAccount, otherManager := setupTestTenant(t, pool, "media-visibility-other")
+	err = open(service.MediaViewer{AccountID: otherAccount, UserID: otherManager, Role: types.RoleManager}, media.ID)
+	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
+
+	// Media not tied to any conversation: uploader or manager only.
+	stored, err := svc.SaveOutboundMedia(ctx, viewer(managerID, types.RoleManager), convo, "b.png", "image/png", strings.NewReader("xyz"))
+	require.NoError(t, err)
+	// Reuse the stored blob for an upload that never got tied to a conversation.
+	orphanID := uuid.New()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO media_objects (id, account_id, channel_id, uploaded_by_user_id, mime_type, size_bytes, storage_key, expires_at)
+		VALUES ($1, $2, $3, $4, 'image/png', 3, $5, NOW() + INTERVAL '1 day')
+	`, orphanID, accountID, channelID, agent1, stored.ID.String())
+	require.NoError(t, err)
+	require.NoError(t, open(viewer(agent1, types.RoleAgent), orphanID))
+	require.NoError(t, open(viewer(managerID, types.RoleManager), orphanID))
+	err = open(viewer(agent2, types.RoleAgent), orphanID)
+	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
 }

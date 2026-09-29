@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 )
 
@@ -138,14 +140,28 @@ func (s *MediaService) RegisterProviderMediaFetcher(provider messaging.Provider,
 	s.mediaFetchers[provider] = fetcher
 }
 
+// MediaViewer identifies the authenticated user asking to read media so the
+// download can be authorised against the conversation the media belongs to.
+type MediaViewer struct {
+	AccountID uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+}
+
+// SaveOutboundMedia stores an upload for a conversation the caller can see.
 func (s *MediaService) SaveOutboundMedia(
 	ctx context.Context,
-	accountID, conversationID uuid.UUID,
+	viewer MediaViewer,
+	conversationID uuid.UUID,
 	filename, mimeType string,
 	source io.Reader,
 ) (MediaObject, error) {
 	if source == nil {
 		return MediaObject{}, invalidf("media file is required")
+	}
+	accountID := viewer.AccountID
+	if err := canSeeConversation(ctx, s.pool, accountID, viewer.UserID, conversationID, viewer.Role); err != nil {
+		return MediaObject{}, err
 	}
 	var channelID uuid.UUID
 	if err := s.pool.QueryRow(ctx, `
@@ -188,11 +204,11 @@ func (s *MediaService) SaveOutboundMedia(
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO media_objects (
-			id, account_id, channel_id, filename, mime_type, size_bytes,
-			storage_key, expires_at
+			id, account_id, channel_id, conversation_id, uploaded_by_user_id,
+			filename, mime_type, size_bytes, storage_key, expires_at
 		)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8)
-	`, media.ID, accountID, channelID, media.Filename, media.MIMEType,
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10)
+	`, media.ID, accountID, channelID, conversationID, viewer.UserID, media.Filename, media.MIMEType,
 		media.SizeBytes, storageKey, media.ExpiresAt)
 	if err != nil {
 		s.mediaMu.RLock()
@@ -206,35 +222,44 @@ func (s *MediaService) SaveOutboundMedia(
 	return media, nil
 }
 
-func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, mediaID uuid.UUID) (MediaContent, error) {
+// OpenMedia returns the media's content. A nil viewer is the trusted internal
+// (adapter) caller. Otherwise the media must belong to the viewer's account and
+// to a conversation the viewer may see; media not tied to any conversation yet
+// is readable only by its uploader or a manager.
+func (s *MediaService) OpenMedia(ctx context.Context, viewer *MediaViewer, mediaID uuid.UUID) (MediaContent, error) {
 	var (
-		media       MediaObject
-		channelID   uuid.UUID
-		provider    messaging.Provider
-		providerRef *string
-		storageKey  *string
+		media          MediaObject
+		accountID      uuid.UUID
+		channelID      uuid.UUID
+		provider       messaging.Provider
+		providerRef    *string
+		storageKey     *string
+		conversationID *uuid.UUID
+		uploadedBy     *uuid.UUID
 	)
-	query := `
+	err := s.pool.QueryRow(ctx, `
 		SELECT media.id, COALESCE(media.filename, ''), media.mime_type, media.size_bytes,
-		       media.expires_at, media.channel_id, channel.provider,
-		       media.provider_ref, media.storage_key
+		       media.expires_at, media.account_id, media.channel_id, channel.provider,
+		       media.provider_ref, media.storage_key,
+		       COALESCE(media.conversation_id, message.conversation_id), media.uploaded_by_user_id
 		FROM media_objects AS media
 		JOIN channels AS channel ON channel.id = media.channel_id
-		WHERE media.id = $1`
-	args := []any{mediaID}
-	if accountID != nil {
-		query += " AND media.account_id = $2"
-		args = append(args, *accountID)
-	}
-	err := s.pool.QueryRow(ctx, query, args...).Scan(
+		LEFT JOIN messages AS message ON message.id = media.message_id
+		WHERE media.id = $1`, mediaID).Scan(
 		&media.ID, &media.Filename, &media.MIMEType, &media.SizeBytes,
-		&media.ExpiresAt, &channelID, &provider, &providerRef, &storageKey,
+		&media.ExpiresAt, &accountID, &channelID, &provider, &providerRef, &storageKey,
+		&conversationID, &uploadedBy,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MediaContent{}, notFoundf("media not found")
 	}
 	if err != nil {
 		return MediaContent{}, fmt.Errorf("load media: %w", err)
+	}
+	if viewer != nil {
+		if err := s.authorizeMediaViewer(ctx, *viewer, accountID, conversationID, uploadedBy); err != nil {
+			return MediaContent{}, err
+		}
 	}
 
 	s.mediaMu.RLock()
@@ -265,7 +290,10 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 	}
 	downloaded, err := fetcher.Download(ctx, channelID.String(), *providerRef)
 	if err != nil {
-		return MediaContent{}, fmt.Errorf("download provider media: %w", err)
+		// The provider no longer serves the file (expired, revoked, or the
+		// session is gone). Surface it as unavailable media, but keep the cause.
+		slog.WarnContext(ctx, "download provider media failed", "media_id", media.ID, "provider", provider, "error", err)
+		return MediaContent{}, notFoundf("media is unavailable from the provider")
 	}
 	if int64(len(downloaded.Data)) > messaging.MaxMediaBytes {
 		return MediaContent{}, messaging.ErrMediaTooLarge
@@ -303,6 +331,30 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 		return MediaContent{}, fmt.Errorf("cache provider media: %w", err)
 	}
 	return MediaContent{MediaObject: media, Reader: io.NopCloser(bytes.NewReader(downloaded.Data))}, nil
+}
+
+func (s *MediaService) authorizeMediaViewer(
+	ctx context.Context,
+	viewer MediaViewer,
+	mediaAccountID uuid.UUID,
+	conversationID, uploadedBy *uuid.UUID,
+) error {
+	if mediaAccountID != viewer.AccountID {
+		return notFoundf("media not found")
+	}
+	if conversationID != nil {
+		if err := canSeeConversation(ctx, s.pool, viewer.AccountID, viewer.UserID, *conversationID, viewer.Role); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return notFoundf("media not found")
+			}
+			return err
+		}
+		return nil
+	}
+	if viewer.Role == types.RoleManager || (uploadedBy != nil && *uploadedBy == viewer.UserID) {
+		return nil
+	}
+	return notFoundf("media not found")
 }
 
 func (s *MediaService) RunMediaCleanup(ctx context.Context) error {
