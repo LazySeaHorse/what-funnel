@@ -314,7 +314,7 @@ test.describe('onboarding persistence', () => {
 		await page.goto('/onboarding/6');
 
 		await expect(page.getByRole('heading', { name: 'Add business knowledge' })).toBeVisible();
-		await expect(page.getByText('AI-powered extraction')).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Add knowledge base sources' })).toBeVisible();
 
 		const textarea = page.getByPlaceholder(/Paste raw business info/);
 		await expect(textarea).toBeVisible();

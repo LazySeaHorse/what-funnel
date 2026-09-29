@@ -183,7 +183,7 @@ test.describe("in-app settings safety net", () => {
     const credentialsDialog = page.getByRole("dialog", {
       name: "User credentials",
     });
-    await expect(credentialsDialog).toContainText("test-slug-newagent");
+    await expect(credentialsDialog).toContainText("test-slug/newagent");
     await credentialsDialog.getByRole("button", { name: "Done" }).click();
     const userRow = page
       .getByText("newagent", { exact: true })
