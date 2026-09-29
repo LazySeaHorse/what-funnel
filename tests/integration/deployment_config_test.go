@@ -108,6 +108,17 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 		assert.NotContains(t, raw, "change-me-in-production", "dummy default session secret must not be hardcoded in prod compose")
 		assert.NotContains(t, raw, "change-me-32-byte-hex-key-padded", "dummy default encryption key must not be hardcoded in prod compose")
 		assert.NotContains(t, raw, "change-me-adapter-secret", "dummy adapter secret must not be hardcoded in prod compose")
+		assert.NotContains(t, strings.ToLower(raw), "minioadmin", "default MinIO credentials must not be present in prod compose")
+		assert.NotContains(t, raw, "ENABLE_SIMULATION_ROUTES: \"true\"", "simulation routes must not be enabled in prod compose")
+		assert.NotContains(t, raw, "AI_PROVIDER_FAKE", "the fake AI provider must not be configurable in prod compose")
+
+		// Required secrets must fail closed (`${VAR:?msg}`), never default to empty or a fallback.
+		requiredSecrets := []string{"SESSION_SECRET", "ENCRYPTION_KEY", "INTERNAL_SERVICE_TOKEN", "ADAPTER_SHARED_SECRET", "POSTGRES_PASSWORD"}
+		for _, v := range requiredSecrets {
+			assert.Regexp(t, regexp.MustCompile(`\$\{`+v+`:\?`), raw, "prod compose must require %s with ${%s:?...}", v, v)
+			assert.NotRegexp(t, regexp.MustCompile(`\$\{`+v+`:?-`), raw, "prod compose must not give %s a default value", v)
+		}
+		assert.NotRegexp(t, regexp.MustCompile(`\$\{[A-Z_]*(SECRET|TOKEN|PASSWORD|KEY)[A-Z_]*:-\}`), raw, "secret-like variables must not default to an empty string in prod compose")
 		assert.NotContains(t, strings.ToLower(raw), "synapse", "legacy Synapse services must not be present")
 		assert.NotContains(t, strings.ToLower(raw), "mautrix", "legacy mautrix services must not be present")
 	})
@@ -132,6 +143,11 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 		for _, v := range requiredVars {
 			assert.Contains(t, content, v+"=", ".env.example must document %s", v)
 		}
+
+		assert.NotRegexp(t, regexp.MustCompile(`(?m)^ENCRYPTION_KEY=[0-9a-fA-F]{32,}`), content,
+			".env.example must not ship a valid-looking ENCRYPTION_KEY; operators must generate their own")
+		assert.NotContains(t, content, "MEDIA_STORAGE_BACKEND=s3",
+			".env.example media backend must match the prod compose default (disk)")
 	})
 }
 
@@ -219,7 +235,9 @@ func TestFrontendProductionBuildSetup(t *testing.T) {
 		content := string(data)
 		assert.Contains(t, content, "location /api-gateway/", "must proxy /api-gateway/")
 		assert.Contains(t, content, "location /ws", "must handle /ws endpoint")
-		assert.Contains(t, content, "proxy_pass http://notification-svc:8084/ws;", "must proxy /ws directly to notification-svc bypassing api-gateway")
+		assert.Contains(t, content, "set $upstream_ws http://notification-svc:8084;", "must proxy /ws directly to notification-svc bypassing api-gateway")
+		assert.Contains(t, content, "proxy_pass $upstream_ws;", "/ws must use a variable upstream so DNS is re-resolved at request time (no URI part: original /ws path is forwarded)")
+		assert.NotContains(t, content, "proxy_pass http://notification-svc", "static proxy_pass resolves the upstream once at startup")
 		assert.Contains(t, content, "proxy_set_header Upgrade $http_upgrade;", "must include WebSocket upgrade header")
 		assert.Contains(t, content, "try_files $uri $uri/ /index.html;", "must include SPA route fallback")
 	})
