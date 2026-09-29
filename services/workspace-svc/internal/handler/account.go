@@ -88,6 +88,10 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.UpdateAccountSettings(r.Context(), accountID, actorID, settings); err != nil {
+		if errors.Is(err, service.ErrInvalidSettings) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,6 +112,10 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.MergeAccountSettings(r.Context(), accountID, actorID, settings); err != nil {
+		if errors.Is(err, service.ErrInvalidSettings) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -125,7 +133,8 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.svc.UpdateAIProviderConfig(r.Context(), accountID, actorID, config); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, service.ErrAIProviderNotConfigured) || strings.Contains(err.Error(), "is required") {
+		if errors.Is(err, service.ErrAIProviderNotConfigured) || errors.Is(err, service.ErrAIProviderKeyRequired) ||
+			strings.Contains(err.Error(), "is required") || strings.Contains(err.Error(), "base url") {
 			status = http.StatusBadRequest
 		}
 		writeError(w, status, err.Error())

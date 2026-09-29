@@ -192,3 +192,28 @@ func TestClientList(t *testing.T) {
 	})
 }
 
+func TestClientCreateSurfacesAdapterErrorMessage(t *testing.T) {
+	t.Parallel()
+
+	client, err := New("http://telegram-adapter:8086", "shared-secret")
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	client.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnprocessableEntity,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"error":"Invalid Telegram bot token."}`)),
+		}, nil
+	})
+
+	_, err = client.Create(context.Background(), "channel-1", "bad")
+	var adapterErr *Error
+	if !errors.As(err, &adapterErr) {
+		t.Fatalf("Create() error = %v, want *Error", err)
+	}
+	if adapterErr.Status != http.StatusUnprocessableEntity || adapterErr.Message != "Invalid Telegram bot token." || !adapterErr.IsInvalidInput() {
+		t.Fatalf("adapter error = %+v", adapterErr)
+	}
+}
+

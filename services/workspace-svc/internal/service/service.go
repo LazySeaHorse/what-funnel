@@ -53,10 +53,18 @@ func New(pool *pgxpool.Pool, encryptionKey string, opts ...Option) (*Service, er
 		aiProviderTestTimeout:    durationFromEnv("AI_PROVIDER_TEST_TIMEOUT_SECONDS", 60*time.Second),
 		aiProviderTestMaxRetries: 2,
 		aiProviderTestRetryDelay: 250 * time.Millisecond,
-		identity:                 NewIdentityProvisioner(pool, os.Getenv("IDENTITY_SVC_URL")),
 	}
 	for _, opt := range opts {
 		opt(svc)
+	}
+	if svc.identity == nil {
+		if p, err := NewIdentityProvisioner(os.Getenv("IDENTITY_SVC_URL")); err == nil {
+			svc.identity = p
+		} else {
+			// User lifecycle operations fail with ErrIdentityNotConfigured; the
+			// service binary refuses to start in this state (see cmd/workspace-svc).
+			svc.identity = unconfiguredIdentityProvisioner{}
+		}
 	}
 	return svc, nil
 }

@@ -13,6 +13,9 @@ export interface AIReplyDraft {
 	updated_at: string;
 }
 
+// crypto.randomUUID is unavailable in insecure (plain-http, non-localhost) contexts.
+let optimisticSeq = 0;
+
 export class InboxState {
 	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; replyToMessageID: string | null; sending: boolean; error: string }>>({});
 	aiControlPending = $state<Record<string, boolean>>({});
@@ -332,7 +335,7 @@ export class InboxState {
 		const pendingDraftID = this.replyDrafts[convoID]?.id;
 
 		// Optimistic update: append message immediately, clear composer for instant feedback
-		const optimisticID = `__optimistic__${Date.now()}`;
+		const optimisticID = `__optimistic__${Date.now()}_${++optimisticSeq}`;
 		if (this.activeConvoID === convoID) {
 			this.messages = [...this.messages, {
 				id: optimisticID,
@@ -509,13 +512,15 @@ export class InboxState {
 					case 'message.received':
 					case 'message.sent':
 						if (event.conversation_id === this.activeConvoID) {
-							const optIndex = this.messages.findIndex((m: any) => m._optimistic && m.conversation_id === event.conversation_id);
-							if (optIndex !== -1 && event.type === 'message.sent') {
-								this.messages = this.messages.map((m: any, i: number) => i === optIndex ? event.message : m);
-							} else if (!this.messages.some((m: any) => m.id === event.message.id)) {
+							if (!this.messages.some((m: any) => m.id === event.message.id)) {
 								this.messages = [...this.messages, event.message];
 							}
-							await apiRequest(`/conversations/${this.activeConvoID}/read`, { method: 'POST' });
+							if (event.type === 'message.received') {
+								const readConvoID = this.activeConvoID;
+								apiRequest(`/conversations/${readConvoID}/read`, { method: 'POST' }).catch((err) => {
+									console.error('Failed to mark conversation read:', err);
+								});
+							}
 						}
 						await this.loadConversations();
 						break;

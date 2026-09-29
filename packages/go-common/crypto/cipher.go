@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 )
 
@@ -29,7 +30,11 @@ type Cipher struct {
 }
 
 // ParseKey parses an encryption key that is either a 64-character hex string
-// (representing 32 decoded bytes) or a raw 32-byte string.
+// (representing 32 decoded bytes) or a raw 32-byte string. Precedence is by
+// length only: exactly 64 characters are hex-decoded, exactly 32 characters are
+// used as raw bytes. A 32-character all-hex string is therefore interpreted as
+// raw bytes (existing deployments depend on this) and a warning is logged,
+// since it is most likely a truncated/mistyped 64-character hex key.
 func ParseKey(keyStr string) ([]byte, error) {
 	keyStr = strings.TrimSpace(keyStr)
 	switch len(keyStr) {
@@ -40,6 +45,9 @@ func ParseKey(keyStr string) ([]byte, error) {
 		}
 		return raw, nil
 	case 32:
+		if _, err := hex.DecodeString(keyStr); err == nil {
+			slog.Warn("crypto: 32-character all-hex ENCRYPTION_KEY is used as raw key bytes; hex keys must be 64 characters")
+		}
 		return []byte(keyStr), nil
 	default:
 		return nil, fmt.Errorf("%w: key must be 64 hex characters or 32 raw bytes, got %d characters", ErrInvalidKey, len(keyStr))

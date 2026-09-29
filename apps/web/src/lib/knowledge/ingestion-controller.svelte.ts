@@ -122,8 +122,8 @@ export class KnowledgeIngestionController {
 				case 'complete': {
 					const result: IngestionResult = {
 						status: 'complete',
-						conceptsAdded: this.concepts.filter((item) => item.approved).length,
-						patternsAdded: this.patterns.filter((item) => item.approved).length
+						conceptsAdded: countPublished(ingestion.concepts),
+						patternsAdded: countPublished(ingestion.patterns)
 					};
 					this.id = '';
 					this.concepts = [];
@@ -168,6 +168,14 @@ export class KnowledgeIngestionController {
 		this.abortController?.abort();
 		this.abortController = null;
 	}
+}
+
+// The server marks every published draft item with status 'published', so the
+// counts stay correct even when the ingestion was resumed after a reload.
+function countPublished(items: unknown): number {
+	return Array.isArray(items) ? items.filter((item: any) =>
+		item?.status === undefined ? item?.approved === true : item.status === 'published'
+	).length : 0;
 }
 
 function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {

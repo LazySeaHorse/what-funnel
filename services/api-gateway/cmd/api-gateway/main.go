@@ -13,8 +13,10 @@
 //	/conversations/*  → conversation-svc
 //	/leads/*          → conversation-svc
 //	/ws               → notification-svc (WebSocket)
-//	/api/kb/*         → ai-kb-compiler (admin-only)
+//	/api/kb/*         → ai-kb-compiler (manager-only)
 //	/healthz          → local health check
+//
+// Prometheus metrics are served on METRICS_ADDR (default :9090), not the public listener.
 package main
 
 import (
@@ -25,13 +27,13 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
-	commonmw "github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
+	commonmw "github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	gwmiddleware "github.com/whatfunnel/whatfunnel/services/api-gateway/internal/middleware"
 	"github.com/whatfunnel/whatfunnel/services/api-gateway/internal/proxy"
 )
@@ -77,12 +79,28 @@ func main() {
 	handler := newRouter(aiKBCompilerBase, identityBase, workspaceBase, conversationBase, notificationBase, logger)
 
 	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      gwmiddleware.Logging(logger)(handler),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  90 * time.Second,
+		Addr:              ":" + port,
+		Handler:           gwmiddleware.Logging(logger)(handler),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// No WriteTimeout: it would cut off long downloads, streams and WebSocket tunnels.
+		// The upstream transport bounds time-to-first-byte instead.
+		IdleTimeout: 90 * time.Second,
 	}
+
+	// Metrics are served on a separate internal listener that is not published by compose.
+	metricsAddr := envOrDefault("METRICS_ADDR", ":9090")
+	metricsSrv := &http.Server{
+		Addr:              metricsAddr,
+		Handler:           newMetricsHandler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		logger.Info("api-gateway metrics listening", "addr", metricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("metrics server error", "error", err)
+		}
+	}()
 
 	go func() {
 		logger.Info("api-gateway listening", "port", port)
@@ -101,7 +119,15 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("shutdown error", "error", err)
 	}
+	_ = metricsSrv.Shutdown(ctx)
 	logger.Info("api-gateway stopped")
+}
+
+// newMetricsHandler serves Prometheus metrics for the internal metrics listener.
+func newMetricsHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	return mux
 }
 
 // newRouter builds and returns the gateway mux. Extracted for testability.
@@ -117,7 +143,6 @@ func newRouter(
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"status":"ok","service":"api-gateway"}`)
 	}).Methods(http.MethodGet)
-	r.Handle("/metrics", metrics.Handler()).Methods(http.MethodGet)
 
 	// Proxy /auth/* → identity-svc
 	r.PathPrefix("/auth/").Handler(proxy.HTTP(identityBase, logger))
@@ -140,10 +165,10 @@ func newRouter(
 	// Proxy /leads/* → conversation-svc
 	r.PathPrefix("/leads").Handler(proxy.HTTP(conversationBase, logger))
 
-	// In production, internal inter-service endpoints and simulation test harnesses
-	// are not mounted on the public gateway to prevent unauthorized external access.
-	appEnv := strings.ToLower(os.Getenv("APP_ENV"))
-	if appEnv != "production" || os.Getenv("ENABLE_SIMULATION_ROUTES") == "true" {
+	// Internal inter-service endpoints and simulation test harnesses are not mounted
+	// on the public gateway by default to prevent unauthorized external access.
+	// They are mounted only when ENABLE_SIMULATION_ROUTES=true is explicitly set.
+	if config.SimulationRoutesEnabled() {
 		r.PathPrefix("/internal/conversations").Handler(proxy.HTTP(conversationBase, logger))
 		r.PathPrefix("/simulate").Handler(proxy.HTTP(conversationBase, logger))
 		r.Handle("/simulate-inbound", proxy.HTTP(conversationBase, logger))
@@ -154,7 +179,7 @@ func newRouter(
 	// double-proxy overhead. This route is retained for dev/test harness backwards compatibility.
 	r.Handle("/ws", proxy.WebSocket(notificationBase, logger))
 
-	// Proxy /api/kb/* → ai-kb-compiler (admin-only)
+	// Proxy /api/kb/* → ai-kb-compiler (manager-only)
 	r.PathPrefix("/api/kb/").Handler(proxy.KB(aiKBCompilerBase, identityBase, logger))
 
 	// Catch-all 404

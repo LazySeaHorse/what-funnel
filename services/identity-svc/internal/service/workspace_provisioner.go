@@ -24,7 +24,8 @@ func NewDefaultWorkspaceProvisioner() *DefaultWorkspaceProvisioner {
 	return &DefaultWorkspaceProvisioner{}
 }
 
-// ProvisionWorkspace creates default CRM pipeline for the account unless chatbot-only mode is selected.
+// ProvisionWorkspace creates the default CRM pipeline for the account in every product
+// mode; productMode is currently ignored (chatbot-only accounts get the pipeline too).
 func (p *DefaultWorkspaceProvisioner) ProvisionWorkspace(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, productMode string) error {
 	statesJSON, err := json.Marshal(types.DefaultPipelineStates)
 	if err != nil {

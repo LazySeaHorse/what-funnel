@@ -1,8 +1,11 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -339,5 +342,34 @@ func TestManagerList(t *testing.T) {
 	cancel()
 	if _, err := manager.List(canceledCtx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("List() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestRestoreSkipsMissingDeviceWithWarning(t *testing.T) {
+	path := t.TempDir() + "/sessions/store.db"
+	publisher := &recordingPublisher{notify: make(chan struct{}, 1)}
+	first, err := NewManager(t.Context(), path, publisher, nil, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	if err := first.saveMapping(t.Context(), "channel-gone", "15551234567:1@s.whatsapp.net"); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var logs bytes.Buffer
+	second, err := NewManager(t.Context(), path, publisher, nil, slog.New(slog.NewTextHandler(&logs, nil)))
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	list, err := second.List(t.Context())
+	if err != nil || len(list) != 0 {
+		t.Fatalf("List() = %v, %v; want empty", list, err)
+	}
+	if !strings.Contains(logs.String(), "channel-gone") || !strings.Contains(logs.String(), "level=WARN") {
+		t.Fatalf("expected warning naming the skipped channel, got:\n%s", logs.String())
 	}
 }

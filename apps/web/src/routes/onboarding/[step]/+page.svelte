@@ -166,6 +166,12 @@
 				</div>
 			{/if}
 
+			{#if wizard.warning && !wizard.error}
+				<div class="px-5 sm:px-10 lg:px-12 pt-3 shrink-0 bg-white">
+					<div role="status" class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-medium w-full">{wizard.warning}</div>
+				</div>
+			{/if}
+
 			<OnboardingFooter
 				stepNum={wizard.stepNum}
 				kbStatus={wizard.kbStatus}

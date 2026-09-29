@@ -96,6 +96,10 @@ func (h *Handler) create(w http.ResponseWriter, request *http.Request) {
 			writeError(w, http.StatusConflict, fmt.Sprintf("This %s connection already exists.", h.providerName))
 			return
 		}
+		if invalid := (*InvalidCredentialError)(nil); errors.As(err, &invalid) {
+			writeError(w, http.StatusUnprocessableEntity, invalid.Message)
+			return
+		}
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("Could not connect %s.", h.providerName))
 		return
 	}
@@ -113,6 +117,10 @@ func (h *Handler) retry(w http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("%s connection not found.", h.providerName))
+			return
+		}
+		if invalid := (*InvalidCredentialError)(nil); errors.As(err, &invalid) {
+			writeError(w, http.StatusUnprocessableEntity, invalid.Message)
 			return
 		}
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("Could not restart %s pairing.", h.providerName))
