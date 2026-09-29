@@ -35,11 +35,7 @@ func (h *Handler) CreateLead(w http.ResponseWriter, r *http.Request) {
 
 	lead, err := h.svc.CreateLead(r.Context(), accountID, userID, convoID, userRole)
 	if err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, "conversation not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -80,11 +76,7 @@ func (h *Handler) UpdateLeadState(w http.ResponseWriter, r *http.Request) {
 
 	lead, err := h.svc.UpdateLeadState(r.Context(), accountID, userID, leadID, userRole, body.StateKey)
 	if err != nil {
-		if err.Error() == "lead not found" {
-			writeError(w, http.StatusNotFound, "lead not found")
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -125,11 +117,7 @@ func (h *Handler) UpdateLeadTags(w http.ResponseWriter, r *http.Request) {
 
 	lead, err := h.svc.UpdateLeadTags(r.Context(), accountID, userID, leadID, userRole, body.Tags)
 	if err != nil {
-		if err.Error() == "lead not found" {
-			writeError(w, http.StatusNotFound, "lead not found")
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -170,11 +158,7 @@ func (h *Handler) CreateLeadNote(w http.ResponseWriter, r *http.Request) {
 
 	note, err := h.svc.CreateLeadNote(r.Context(), accountID, userID, leadID, userRole, body.Body)
 	if err != nil {
-		if err.Error() == "lead not found" {
-			writeError(w, http.StatusNotFound, "lead not found")
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -207,11 +191,7 @@ func (h *Handler) ListLeadNotes(w http.ResponseWriter, r *http.Request) {
 
 	notes, err := h.svc.ListLeadNotes(r.Context(), accountID, userID, leadID, userRole)
 	if err != nil {
-		if err.Error() == "lead not found" {
-			writeError(w, http.StatusNotFound, "lead not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -244,11 +224,7 @@ func (h *Handler) ListLeadHistory(w http.ResponseWriter, r *http.Request) {
 
 	history, err := h.svc.ListLeadHistory(r.Context(), accountID, userID, leadID, userRole)
 	if err != nil {
-		if err.Error() == "lead not found" {
-			writeError(w, http.StatusNotFound, "lead not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 

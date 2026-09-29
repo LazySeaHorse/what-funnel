@@ -28,7 +28,7 @@ type providerMessageTarget struct {
 func (s *ConversationService) EditProviderMessage(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return errors.New("message text is required")
+		return invalidf("message text is required")
 	}
 	return s.enqueueProviderMessageCommand(ctx, accountID, userID, role, conversationID, messageID, messaging.CommandEditMessage, text, "", false)
 }
@@ -40,15 +40,15 @@ func (s *ConversationService) DeleteProviderMessage(ctx context.Context, account
 func (s *ConversationService) ChangeProviderReaction(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, emoji string, removed bool) error {
 	emoji = strings.TrimSpace(emoji)
 	if !removed && emoji == "" {
-		return errors.New("reaction emoji is required")
+		return invalidf("reaction emoji is required")
 	}
 	return s.enqueueProviderMessageCommand(ctx, accountID, userID, role, conversationID, messageID, messaging.CommandChangeReaction, "", emoji, removed)
 }
 
 func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context, accountID, userID uuid.UUID, role string, conversationID, messageID uuid.UUID, kind messaging.CommandKind, text, emoji string, removed bool) error {
 	// 1. Verify caller can see the conversation (SEC-06)
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
-		return errors.New("conversation not found")
+	if err := s.CanSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+		return err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -68,7 +68,7 @@ func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context,
 	if role != types.RoleManager {
 		if kind == messaging.CommandEditMessage || kind == messaging.CommandDeleteMessage {
 			if target.senderUserID == nil || *target.senderUserID != userID {
-				return errors.New("forbidden: cannot modify messages sent by other users")
+				return forbiddenf("forbidden: cannot modify messages sent by other users")
 			}
 		}
 	}
@@ -114,9 +114,7 @@ func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context,
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit provider message command: %w", err)
 	}
-	if s.outbox != nil {
-		_ = s.outbox.DispatchOutboxOnce(ctx)
-	}
+	s.outbox.nudgeOutbox(ctx, command.ID)
 	return nil
 }
 
@@ -134,7 +132,7 @@ func loadProviderMessageTarget(ctx context.Context, tx pgx.Tx, accountID, conver
 		  AND m.direction = 'outbound' AND m.provider_message_id IS NOT NULL
 	`, messageID, conversationID, accountID).Scan(&target.channelID, &target.provider, &target.externalThread, &target.providerMessage, &target.contentType, &capabilityJSON, &target.senderUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return providerMessageTarget{}, errors.New("provider message not found or is not mutable")
+		return providerMessageTarget{}, notFoundf("provider message not found or is not mutable")
 	}
 	if err != nil {
 		return providerMessageTarget{}, fmt.Errorf("load provider message: %w", err)
@@ -150,7 +148,7 @@ func requireProviderCapability(capabilities messaging.Capabilities, kind messagi
 		kind == messaging.CommandDeleteMessage && capabilities.Deletes ||
 		kind == messaging.CommandChangeReaction && capabilities.Reactions
 	if !supported {
-		return errors.New("this messaging provider does not support that operation")
+		return invalidf("this messaging provider does not support that operation")
 	}
 	return nil
 }

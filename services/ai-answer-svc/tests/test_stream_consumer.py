@@ -191,7 +191,8 @@ async def test_cooldown_scheduler_graceful_stop():
         task = asyncio.create_task(
             cooldown_scheduler(db_pool_mock, redis_mock, stop_event=stop_event)
         )
-        await asyncio.sleep(0.02)
+        while mock_review.await_count < 1:
+            await asyncio.sleep(0)  # yield until the scheduler has actually run a cycle
         assert not task.done()
 
         stop_event.set()
@@ -212,7 +213,8 @@ async def test_debounce_scheduler_graceful_stop():
         task = asyncio.create_task(
             debounce_scheduler(db_pool_mock, redis_mock, stop_event=stop_event)
         )
-        await asyncio.sleep(0.02)
+        while mock_pop.await_count < 1:
+            await asyncio.sleep(0)  # yield until the scheduler has actually run a cycle
         assert not task.done()
 
         stop_event.set()
@@ -317,6 +319,7 @@ async def test_consume_stream_malformed_json_payload(caplog):
         return [("conversation.updated", [(bad_msg_id, {"payload": "{bad_json: True, invalid}"})])]
 
     redis_mock.xreadgroup.side_effect = readgroup_side_effect
+    redis_mock.xpending_range.return_value = [{"message_id": bad_msg_id, "times_delivered": 1}]
     handler = AsyncMock()
 
     with caplog.at_level(logging.ERROR):
@@ -392,6 +395,7 @@ async def test_consume_stream_handler_exception(caplog):
 
     redis_mock.xreadgroup.side_effect = readgroup_side_effect
     handler = AsyncMock(side_effect=RuntimeError("Handler execution failed unexpectedly"))
+    redis_mock.xpending_range.return_value = [{"message_id": msg_id, "times_delivered": 1}]
 
     with caplog.at_level(logging.ERROR):
         await consume_stream(
@@ -541,3 +545,161 @@ async def test_process_stream_message_bytes_and_string_payload():
     )
     handler.assert_awaited_once_with(payload_dict_2, db_pool_mock, redis_mock)
     redis_mock.xack.assert_awaited_once_with("stream-1", "group-1", "msg-2")
+
+
+# ==============================================================================
+# Poison messages / dead letter
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_failed_message_below_delivery_cap_stays_pending():
+    redis_mock = AsyncMock()
+    redis_mock.xpending_range.return_value = [{"message_id": "1-0", "times_delivered": 2}]
+    handler = AsyncMock(side_effect=RuntimeError("boom"))
+
+    await _process_stream_message(
+        "1-0", {"payload": json.dumps({"a": 1})}, "conversation.updated", "grp", handler, MagicMock(), redis_mock
+    )
+
+    redis_mock.xack.assert_not_awaited()
+    redis_mock.xadd.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_poison_message_is_dead_lettered_and_acked_at_delivery_cap():
+    from main import config
+
+    redis_mock = AsyncMock()
+    redis_mock.xpending_range.return_value = [
+        {"message_id": "1-0", "times_delivered": config.STREAM_MAX_DELIVERIES}
+    ]
+    handler = AsyncMock(side_effect=RuntimeError("boom"))
+    raw = json.dumps({"a": 1})
+
+    await _process_stream_message(
+        "1-0", {b"payload": raw.encode()}, "conversation.updated", "grp", handler, MagicMock(), redis_mock
+    )
+
+    redis_mock.xadd.assert_awaited_once()
+    stream, fields = redis_mock.xadd.await_args.args
+    assert stream == "conversation.updated.dead"
+    assert fields["original_id"] == "1-0"
+    assert fields["payload"] == raw.encode()
+    assert "boom" in fields["error"]
+    redis_mock.xack.assert_awaited_once_with("conversation.updated", "grp", "1-0")
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_failure_leaves_message_pending():
+    from main import config
+
+    redis_mock = AsyncMock()
+    redis_mock.xpending_range.return_value = [
+        {"message_id": "1-0", "times_delivered": config.STREAM_MAX_DELIVERIES + 3}
+    ]
+    redis_mock.xadd.side_effect = ConnectionError("redis down")
+    handler = AsyncMock(side_effect=RuntimeError("boom"))
+
+    await _process_stream_message(
+        "1-0", {"payload": "{}"}, "conversation.updated", "grp", handler, MagicMock(), redis_mock
+    )
+
+    redis_mock.xack.assert_not_awaited()
+
+
+# ==============================================================================
+# Debounce scheduler concurrency and failure handling
+# ==============================================================================
+
+
+def _due_item(**overrides):
+    import uuid
+
+    item = {
+        "conversation_id": uuid.uuid4(),
+        "account_id": uuid.uuid4(),
+        "latest_message_id": uuid.uuid4(),
+        "has_non_text": False,
+        "bubble_count": 1,
+        "attempts": 0,
+    }
+    item.update(overrides)
+    return item
+
+
+@pytest.mark.asyncio
+async def test_debounce_scheduler_runs_due_conversations_concurrently_and_bounded(monkeypatch):
+    monkeypatch.setattr("main.config.AI_CASCADE_CONCURRENCY", 2)
+    items = [_due_item() for _ in range(3)]
+    stop_event = asyncio.Event()
+    release = asyncio.Event()
+    started: list = []
+    running = 0
+    max_running = 0
+
+    async def slow_cascade(convo_id, *args, **kwargs):
+        nonlocal running, max_running
+        started.append(convo_id)
+        running += 1
+        max_running = max(max_running, running)
+        await release.wait()
+        running -= 1
+
+    pops = []
+
+    async def pop(redis_client, batch_size=50):
+        pops.append(batch_size)
+        if not items:
+            return []
+        batch = [items.pop(0) for _ in range(min(batch_size, len(items)))]
+        return batch
+
+    with patch("main.pop_due_conversations", side_effect=pop), \
+         patch("main.execute_conversation_cascade", side_effect=slow_cascade):
+        task = asyncio.create_task(debounce_scheduler(MagicMock(), AsyncMock(), stop_event=stop_event))
+        while len(started) < 2:
+            await asyncio.sleep(0)
+        # Two slow cascades are running at once (not sequential) and the cap holds.
+        assert running == 2
+        assert len(started) == 2
+        assert pops[0] == 2
+        release.set()
+        while len(started) < 3:
+            await asyncio.sleep(0)
+        stop_event.set()
+        await asyncio.wait_for(task, timeout=2.0)
+
+    assert max_running == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_debounced_cascade_is_requeued_with_attempt_count():
+    from main import run_debounced_item
+
+    item = _due_item(attempts=0)
+    redis_mock = AsyncMock()
+    with patch("main.execute_conversation_cascade", AsyncMock(side_effect=RuntimeError("db down"))), \
+         patch("main.requeue_in_flight", AsyncMock()) as requeue:
+        await run_debounced_item(item, MagicMock(), redis_mock)
+
+    requeue.assert_awaited_once()
+    assert requeue.await_args.kwargs["attempts"] == 1
+    assert requeue.await_args.args[1] == item["conversation_id"]
+
+
+@pytest.mark.asyncio
+async def test_debounced_cascade_gives_up_after_max_attempts_and_flags_human(monkeypatch):
+    from main import run_debounced_item
+
+    monkeypatch.setattr("main.config.AI_DEBOUNCE_MAX_ATTEMPTS", 3)
+    item = _due_item(attempts=2)
+    with patch("main.execute_conversation_cascade", AsyncMock(side_effect=RuntimeError("db down"))), \
+         patch("main.requeue_in_flight", AsyncMock()) as requeue, \
+         patch("main.mark_review_required", AsyncMock()) as flag:
+        await run_debounced_item(item, MagicMock(), AsyncMock())
+
+    requeue.assert_not_awaited()
+    flag.assert_awaited_once()
+    assert flag.await_args.args[1] == item["conversation_id"]
+    assert flag.await_args.args[2] == "ai_error"

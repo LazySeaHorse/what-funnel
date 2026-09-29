@@ -9,6 +9,9 @@ import (
 var (
 	// ErrNotFound is returned when an object is not found in the media store.
 	ErrNotFound = errors.New("mediastore: object not found")
+	// ErrInvalidKey is returned for keys that are not a single plain file name
+	// (empty, path separators, traversal segments).
+	ErrInvalidKey = errors.New("mediastore: invalid object key")
 )
 
 // Store defines the storage operations required for conversation media.

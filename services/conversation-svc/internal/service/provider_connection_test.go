@@ -117,83 +117,120 @@ func (m *mockAdapterControl) List(ctx context.Context) ([]AdapterSnapshot, error
 	return []AdapterSnapshot{}, nil
 }
 
+// evictionTestService returns a connection service whose clock the test drives
+// and whose "database has channel data" answer is fixed, so eviction policy
+// can be tested without a database.
+func evictionTestService(policy OrphanEvictionPolicy, hasData bool, mock *mockAdapterControl) (*ConnectionService, *time.Time) {
+	svc := NewConnectionService(nil)
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return clock }
+	svc.hasChannelData = func(context.Context, messaging.Provider) (bool, error) { return hasData, nil }
+	svc.ConfigureOrphanEviction(policy)
+	svc.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
+	return svc, &clock
+}
+
 func TestEvictOrphanedChannel(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
-	tests := []struct {
-		name       string
-		provider   messaging.Provider
-		setup      func(*ConnectionService, *mockAdapterControl)
-		channelID  string
-		wantErr    bool
-		errContain string
-		wantLogout []string
-	}{
-		{
-			name:       "unconfigured provider",
-			provider:   messaging.ProviderWhatsApp,
-			setup:      func(cs *ConnectionService, mock *mockAdapterControl) {},
-			channelID:  "ch-1",
-			wantErr:    true,
-			errContain: "is not configured",
+	t.Run("unconfigured provider", func(t *testing.T) {
+		t.Parallel()
+		svc := NewConnectionService(nil)
+		_, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-1")
+		if err == nil || !strings.Contains(err.Error(), "is not configured") {
+			t.Fatalf("err = %v, want 'is not configured'", err)
+		}
+	})
+
+	t.Run("disabled by default never logs out", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockAdapterControl{}
+		svc := NewConnectionService(nil)
+		svc.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
+		evicted, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-1")
+		if evicted || err != nil || len(mock.logoutCalls) != 0 {
+			t.Fatalf("evicted = %v, err = %v, logouts = %v; want no eviction", evicted, err, mock.logoutCalls)
+		}
+	})
+
+	t.Run("only after the grace period", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockAdapterControl{}
+		svc, clock := evictionTestService(OrphanEvictionPolicy{Enabled: true, Grace: time.Hour}, true, mock)
+
+		if evicted, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-grace"); evicted || err != nil {
+			t.Fatalf("first sighting: evicted = %v, err = %v; want neither", evicted, err)
+		}
+		*clock = clock.Add(59 * time.Minute)
+		if evicted, _ := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-grace"); evicted {
+			t.Fatal("evicted before the grace period elapsed")
+		}
+		*clock = clock.Add(2 * time.Minute)
+		evicted, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-grace")
+		if !evicted || err != nil {
+			t.Fatalf("after grace: evicted = %v, err = %v; want eviction", evicted, err)
+		}
+		if !reflect.DeepEqual(mock.logoutCalls, []string{"ch-grace"}) {
+			t.Errorf("logoutCalls = %v, want [ch-grace]", mock.logoutCalls)
+		}
+	})
+
+	t.Run("never evicts when the database has no channel data", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockAdapterControl{}
+		svc, clock := evictionTestService(OrphanEvictionPolicy{Enabled: true}, false, mock)
+		for i := 0; i < 3; i++ {
+			*clock = clock.Add(24 * time.Hour)
+			if evicted, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-empty-db"); evicted || err != nil {
+				t.Fatalf("evicted = %v, err = %v against an empty database", evicted, err)
+			}
+		}
+		if len(mock.logoutCalls) != 0 {
+			t.Fatalf("logoutCalls = %v, want none", mock.logoutCalls)
+		}
+	})
+
+	t.Run("logout failure is an error and not an eviction", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockAdapterControl{logoutFunc: func(context.Context, string) error { return errors.New("logout failed") }}
+		svc, _ := evictionTestService(OrphanEvictionPolicy{Enabled: true}, true, mock)
+		evicted, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-err")
+		if evicted || err == nil || !strings.Contains(err.Error(), "logout failed") {
+			t.Fatalf("evicted = %v, err = %v; want a logout error and no eviction", evicted, err)
+		}
+	})
+
+	t.Run("session already gone is not counted", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockAdapterControl{logoutFunc: func(context.Context, string) error { return ErrAdapterConnectionNotFound }}
+		svc, _ := evictionTestService(OrphanEvictionPolicy{Enabled: true}, true, mock)
+		if evicted, err := svc.EvictOrphanedChannel(ctx, messaging.ProviderWhatsApp, "ch-gone"); evicted || err != nil {
+			t.Fatalf("evicted = %v, err = %v; want neither", evicted, err)
+		}
+	})
+}
+
+func TestReconcileAdapterConnections_CountsOnlySuccessfulEvictions(t *testing.T) {
+	t.Parallel()
+	mock := &mockAdapterControl{
+		listFunc: func(context.Context) ([]AdapterSnapshot, error) {
+			return []AdapterSnapshot{{ChannelID: "orphan-ok"}, {ChannelID: "orphan-fails"}}, nil
 		},
-		{
-			name:     "logout returns error",
-			provider: messaging.ProviderWhatsApp,
-			setup: func(cs *ConnectionService, mock *mockAdapterControl) {
-				mock.logoutFunc = func(ctx context.Context, channelID string) error {
-					return errors.New("logout failed")
-				}
-				cs.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
-			},
-			channelID:  "ch-err",
-			wantErr:    true,
-			errContain: "logout failed",
-			wantLogout: []string{"ch-err"},
-		},
-		{
-			name:     "logout succeeds",
-			provider: messaging.ProviderWhatsApp,
-			setup: func(cs *ConnectionService, mock *mockAdapterControl) {
-				mock.logoutFunc = func(ctx context.Context, channelID string) error {
-					return nil
-				}
-				cs.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
-			},
-			channelID:  "ch-success",
-			wantErr:    false,
-			wantLogout: []string{"ch-success"},
+		logoutFunc: func(_ context.Context, channelID string) error {
+			if channelID == "orphan-fails" {
+				return errors.New("adapter unreachable")
+			}
+			return nil
 		},
 	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			mock := &mockAdapterControl{}
-			connSvc := NewConnectionService(nil)
-			tt.setup(connSvc, mock)
-
-			err := connSvc.EvictOrphanedChannel(context.Background(), tt.provider, tt.channelID)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("EvictOrphanedChannel() err = nil, want error")
-				}
-				if !strings.Contains(err.Error(), tt.errContain) {
-					t.Errorf("EvictOrphanedChannel() err = %v, want substring %q", err, tt.errContain)
-				}
-			} else {
-				if err != nil {
-					t.Fatalf("EvictOrphanedChannel() unexpected err: %v", err)
-				}
-			}
-
-			if tt.wantLogout != nil {
-				if !reflect.DeepEqual(mock.logoutCalls, tt.wantLogout) {
-					t.Errorf("logoutCalls = %v, want %v", mock.logoutCalls, tt.wantLogout)
-				}
-			}
-		})
+	svc, _ := evictionTestService(OrphanEvictionPolicy{Enabled: true}, true, mock)
+	evicted, err := svc.ReconcileAdapterConnections(context.Background(), messaging.ProviderWhatsApp)
+	if evicted != 1 {
+		t.Errorf("evicted = %d, want 1 (the failed logout must not count)", evicted)
+	}
+	if err == nil || !strings.Contains(err.Error(), "adapter unreachable") {
+		t.Errorf("err = %v, want the logout failure to be reported", err)
 	}
 }
 
@@ -212,6 +249,7 @@ func TestReconcileAdapterConnections_Unit(t *testing.T) {
 	t.Run("list error", func(t *testing.T) {
 		t.Parallel()
 		connSvc := NewConnectionService(nil)
+		connSvc.ConfigureOrphanEviction(OrphanEvictionPolicy{Enabled: true})
 		mock := &mockAdapterControl{
 			listFunc: func(ctx context.Context) ([]AdapterSnapshot, error) {
 				return nil, errors.New("list failed")
@@ -235,6 +273,9 @@ func testDBPool(t *testing.T) *pgxpool.Pool {
 	defer cancel()
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("integration test database is required in CI: %v", err)
+		}
 		t.Skipf("skipping integration test: %v", err)
 	}
 	t.Cleanup(pool.Close)
@@ -282,6 +323,7 @@ func TestReconcileAdapterConnections_Integration(t *testing.T) {
 	}
 
 	connSvc := NewConnectionService(pool)
+	connSvc.ConfigureOrphanEviction(OrphanEvictionPolicy{Enabled: true})
 	connSvc.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
 
 	evicted, err := connSvc.ReconcileAdapterConnections(ctx, messaging.ProviderWhatsApp)
@@ -312,7 +354,7 @@ func TestReconcileAdapterConnections_Integration(t *testing.T) {
 	}
 }
 
-func TestCreateChannelConnection_RetrySelfHealing(t *testing.T) {
+func TestStartProviderConnection_DoesNotRetryOrReconcileOnCreateFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -321,7 +363,7 @@ func TestCreateChannelConnection_RetrySelfHealing(t *testing.T) {
 	ctx := context.Background()
 
 	var accountID uuid.UUID
-	err := pool.QueryRow(ctx, `INSERT INTO accounts (name) VALUES ('retry-test') RETURNING id`).Scan(&accountID)
+	err := pool.QueryRow(ctx, `INSERT INTO accounts (name) VALUES ('start-failure-test') RETURNING id`).Scan(&accountID)
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
@@ -331,65 +373,28 @@ func TestCreateChannelConnection_RetrySelfHealing(t *testing.T) {
 		pool.Exec(context.Background(), `DELETE FROM accounts WHERE id = $1`, accountID)
 	})
 
-	t.Run("succeeds on second create attempt after reconciliation", func(t *testing.T) {
-		createAttempts := 0
-		mock := &mockAdapterControl{
-			createFunc: func(ctx context.Context, channelID, credential string) (AdapterSnapshot, error) {
-				createAttempts++
-				if createAttempts == 1 {
-					return AdapterSnapshot{}, errors.New("adapter conflict / stale state")
-				}
-				return AdapterSnapshot{
-					ChannelID: channelID,
-					State:     messaging.ConnectionConnected,
-					Detail:    "connected successfully",
-				}, nil
-			},
-			listFunc: func(ctx context.Context) ([]AdapterSnapshot, error) {
-				return []AdapterSnapshot{}, nil
-			},
-		}
+	mock := &mockAdapterControl{
+		createFunc: func(ctx context.Context, channelID, credential string) (AdapterSnapshot, error) {
+			return AdapterSnapshot{}, errors.New("bad token")
+		},
+	}
+	connSvc := NewConnectionService(pool)
+	connSvc.ConfigureOrphanEviction(OrphanEvictionPolicy{Enabled: true})
+	connSvc.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
 
-		connSvc := NewConnectionService(pool)
-		connSvc.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
-
-		conn, err := connSvc.CreateChannelConnection(ctx, accountID, messaging.ProviderWhatsApp, "healing-channel", "")
-		if err != nil {
-			t.Fatalf("CreateChannelConnection() unexpected error = %v", err)
-		}
-		if conn.State != messaging.ConnectionConnected {
-			t.Errorf("conn.State = %v, want %v", conn.State, messaging.ConnectionConnected)
-		}
-		if len(mock.createCalls) != 2 {
-			t.Errorf("createCalls = %d, want 2", len(mock.createCalls))
-		}
-		if mock.listCalls < 1 {
-			t.Errorf("listCalls = %d, want at least 1 (reconciliation should run)", mock.listCalls)
-		}
-	})
-
-	t.Run("fails when retry also fails", func(t *testing.T) {
-		mock := &mockAdapterControl{
-			createFunc: func(ctx context.Context, channelID, credential string) (AdapterSnapshot, error) {
-				return AdapterSnapshot{}, errors.New("adapter persistent failure")
-			},
-			listFunc: func(ctx context.Context) ([]AdapterSnapshot, error) {
-				return []AdapterSnapshot{}, nil
-			},
-		}
-
-		connSvc := NewConnectionService(pool)
-		connSvc.RegisterAdapterControl(messaging.ProviderWhatsApp, mock)
-
-		conn, err := connSvc.CreateChannelConnection(ctx, accountID, messaging.ProviderWhatsApp, "failing-channel", "")
-		if err == nil {
-			t.Fatal("CreateChannelConnection() error = nil, want error")
-		}
-		if conn == nil || conn.State != messaging.ConnectionError {
-			t.Errorf("conn.State = %v, want %v", conn.State, messaging.ConnectionError)
-		}
-		if len(mock.createCalls) != 2 {
-			t.Errorf("createCalls = %d, want 2 (initial + 1 retry)", len(mock.createCalls))
-		}
-	})
+	conn, err := connSvc.StartProviderConnection(ctx, accountID, messaging.ProviderWhatsApp, "failing-channel", "")
+	if err == nil {
+		t.Fatal("StartProviderConnection() error = nil, want error")
+	}
+	if conn == nil || conn.State != messaging.ConnectionError {
+		t.Fatalf("connection = %+v, want the durable error-state record", conn)
+	}
+	// A bad credential must reach the provider exactly once, and a failed
+	// create must not trigger an adapter-wide reconcile.
+	if len(mock.createCalls) != 1 {
+		t.Errorf("createCalls = %d, want 1", len(mock.createCalls))
+	}
+	if mock.listCalls != 0 || len(mock.logoutCalls) != 0 {
+		t.Errorf("listCalls = %d, logoutCalls = %v; want no reconcile", mock.listCalls, mock.logoutCalls)
+	}
 }

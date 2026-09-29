@@ -47,7 +47,7 @@ func (h *Handler) SimulateInbound(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.SimulateInbound(r.Context(), accountID, body.ChannelID, body.SenderExternalID, body.SenderDisplayName, body.SenderAvatarURL, body.ContentType, body.Text, body.MediaURL); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -76,7 +76,7 @@ func (h *Handler) EnsureChannelForSimulator(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, channel)
@@ -93,7 +93,7 @@ func (h *Handler) ListChannelsForSimulator(w http.ResponseWriter, r *http.Reques
 
 	channels, err := h.svc.ListChannels(r.Context(), accountID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 

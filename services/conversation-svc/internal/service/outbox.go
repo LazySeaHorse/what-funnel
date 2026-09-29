@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -32,6 +33,14 @@ func NewOutboxService(pool *pgxpool.Pool, pubsub *pubsub.Client) *OutboxService 
 	}
 }
 
+// maxOutboxAttempts bounds delivery retries for one command. With the capped
+// exponential backoff below this is roughly half an hour of trying, after
+// which the command is abandoned and its message is marked failed instead of
+// staying "queued" forever.
+const maxOutboxAttempts = 10
+
+const outboxFailureDetail = "Could not deliver this message to the messaging provider."
+
 type claimedCommand struct {
 	id       uuid.UUID
 	provider messaging.Provider
@@ -57,7 +66,7 @@ func (s *OutboxService) DispatchOutbox(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		dispatched, err := s.dispatchOutboxOnce(ctx)
+		dispatched, err := s.dispatchOutboxOnce(ctx, "")
 		if err != nil && ctx.Err() == nil {
 			// The row is released with backoff by dispatchOutboxOnce. Keep the
 			// worker alive so a transient Redis or database failure self-heals.
@@ -87,16 +96,29 @@ func nextBackoff(current, max time.Duration) time.Duration {
 	return next
 }
 
-// DispatchOutboxOnce attempts one ready command. It is also used as a
-// best-effort low-latency nudge after an outbound message commits.
-func (s *OutboxService) DispatchOutboxOnce(ctx context.Context) error {
-	_, err := s.dispatchOutboxOnce(ctx)
+// DispatchOutboxCommand attempts to deliver one specific just-committed command
+// as a low-latency nudge. If an earlier command for the same conversation has
+// not been delivered yet, it is left for the background worker so order is
+// preserved. The row stays queued on failure, so callers may log and continue.
+func (s *OutboxService) DispatchOutboxCommand(ctx context.Context, commandID string) error {
+	_, err := s.dispatchOutboxOnce(ctx, commandID)
 	return err
 }
 
-func (s *OutboxService) dispatchOutboxOnce(ctx context.Context) (bool, error) {
+// nudgeOutbox dispatches a freshly committed command and logs (never drops)
+// failures: the durable row is retried by the background worker.
+func (s *OutboxService) nudgeOutbox(ctx context.Context, commandID string) {
+	if s == nil {
+		return
+	}
+	if err := s.DispatchOutboxCommand(ctx, commandID); err != nil {
+		slog.WarnContext(ctx, "immediate outbox dispatch failed; the worker will retry", "command_id", commandID, "error", err)
+	}
+}
+
+func (s *OutboxService) dispatchOutboxOnce(ctx context.Context, commandID string) (bool, error) {
 	claimID := uuid.NewString()
-	claimed, err := s.claimOutboxCommand(ctx, claimID)
+	claimed, err := s.claimOutboxCommand(ctx, claimID, commandID)
 	if err != nil || claimed == nil {
 		return false, err
 	}
@@ -106,7 +128,7 @@ func (s *OutboxService) dispatchOutboxOnce(ctx context.Context) (bool, error) {
 		_, err = s.pubsub.Publish(ctx, stream, claimed.command)
 	}
 	if err != nil {
-		releaseErr := s.releaseOutboxCommand(ctx, claimed.id, claimID, err)
+		releaseErr := s.releaseOutboxCommand(ctx, claimed, claimID, err)
 		return true, errors.Join(err, releaseErr)
 	}
 	if err := s.markOutboxDispatched(ctx, claimed.id, claimID); err != nil {
@@ -117,7 +139,11 @@ func (s *OutboxService) dispatchOutboxOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (s *OutboxService) claimOutboxCommand(ctx context.Context, claimID string) (*claimedCommand, error) {
+// claimOutboxCommand claims the oldest deliverable command, or, when commandID
+// is set, that specific command if it is deliverable. A command is only
+// deliverable when no earlier undelivered command exists for the same
+// conversation, so a backing-off command is never overtaken by a later one.
+func (s *OutboxService) claimOutboxCommand(ctx context.Context, claimID, commandID string) (*claimedCommand, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin outbox claim: %w", err)
@@ -131,13 +157,23 @@ func (s *OutboxService) claimOutboxCommand(ctx context.Context, claimID string) 
 	)
 	err = tx.QueryRow(ctx, `
 		WITH candidate AS (
-			SELECT id
-			FROM message_outbox
-			WHERE dispatched_at IS NULL
-			  AND available_at <= NOW()
-			  AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL '5 minutes')
-			ORDER BY created_at, id
-			FOR UPDATE SKIP LOCKED
+			SELECT o.id
+			FROM message_outbox AS o
+			JOIN messages AS m ON m.id = o.message_id
+			WHERE o.dispatched_at IS NULL
+			  AND o.available_at <= NOW()
+			  AND (o.claimed_at IS NULL OR o.claimed_at < NOW() - INTERVAL '5 minutes')
+			  AND ($2::TEXT = '' OR o.command->>'id' = $2::TEXT)
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM message_outbox AS earlier
+			      JOIN messages AS earlier_message ON earlier_message.id = earlier.message_id
+			      WHERE earlier.dispatched_at IS NULL
+			        AND earlier_message.conversation_id = m.conversation_id
+			        AND (earlier.created_at, earlier.id) < (o.created_at, o.id)
+			  )
+			ORDER BY o.created_at, o.id
+			FOR UPDATE OF o SKIP LOCKED
 			LIMIT 1
 		)
 		UPDATE message_outbox AS outbox
@@ -145,7 +181,7 @@ func (s *OutboxService) claimOutboxCommand(ctx context.Context, claimID string) 
 		FROM candidate
 		WHERE outbox.id = candidate.id
 		RETURNING outbox.id, outbox.provider, outbox.command
-	`, claimID).Scan(&rowID, &provider, &commandJSON)
+	`, claimID, commandID).Scan(&rowID, &provider, &commandJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -212,12 +248,24 @@ func (s *OutboxService) markOutboxDispatched(ctx context.Context, id uuid.UUID, 
 	return nil
 }
 
-func (s *OutboxService) releaseOutboxCommand(ctx context.Context, id uuid.UUID, claimID string, dispatchErr error) error {
+// releaseOutboxCommand records a failed delivery attempt and schedules a
+// retry with backoff. After maxOutboxAttempts the command is abandoned: the
+// row is closed (so it stops blocking the conversation's later commands) and,
+// for a send, the message is marked failed so the agent sees it.
+func (s *OutboxService) releaseOutboxCommand(ctx context.Context, claimed *claimedCommand, claimID string, dispatchErr error) error {
 	detail := dispatchErr.Error()
 	if len(detail) > 1000 {
 		detail = detail[:1000]
 	}
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin release outbox command: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var attempts int
+	var messageID uuid.UUID
+	err = tx.QueryRow(ctx, `
 		UPDATE message_outbox
 		SET attempts = attempts + 1,
 		    available_at = NOW() + LEAST(INTERVAL '5 minutes', INTERVAL '1 second' * POWER(2, LEAST(attempts, 8))),
@@ -225,9 +273,48 @@ func (s *OutboxService) releaseOutboxCommand(ctx context.Context, id uuid.UUID, 
 		    claimed_by = NULL,
 		    last_error = $3
 		WHERE id = $1 AND claimed_by = $2 AND dispatched_at IS NULL
-	`, id, claimID, detail)
+		RETURNING attempts, message_id
+	`, claimed.id, claimID, detail).Scan(&attempts, &messageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // The claim expired and another worker owns the row now.
+	}
 	if err != nil {
 		return fmt.Errorf("release outbox command: %w", err)
+	}
+
+	abandoned := attempts >= maxOutboxAttempts
+	var failed ConversationUpdatedEvent
+	if abandoned {
+		if _, err := tx.Exec(ctx, `
+			UPDATE message_outbox SET dispatched_at = NOW() WHERE id = $1
+		`, claimed.id); err != nil {
+			return fmt.Errorf("abandon outbox command %s: %w", claimed.id, err)
+		}
+		if claimed.command.Kind == messaging.CommandSendMessage {
+			err := tx.QueryRow(ctx, `
+				UPDATE messages
+				SET delivery_status = 'failed', delivery_detail = $2
+				WHERE id = $1 AND delivery_status = 'queued'
+				RETURNING account_id, conversation_id
+			`, messageID, outboxFailureDetail).Scan(&failed.AccountID, &failed.ConversationID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("fail message for abandoned outbox command %s: %w", claimed.id, err)
+			}
+			failed.MessageID = messageID
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit release outbox command: %w", err)
+	}
+	if abandoned {
+		slog.ErrorContext(ctx, "abandoned provider command after repeated delivery failures",
+			"outbox_id", claimed.id, "command_id", claimed.command.ID, "kind", claimed.command.Kind,
+			"attempts", attempts, "error", dispatchErr)
+		if failed.ConversationID != uuid.Nil && s.pubsub != nil {
+			if _, err := s.pubsub.Publish(ctx, "conversation.updated", failed); err != nil {
+				slog.WarnContext(ctx, "failed to publish conversation.updated for failed message", "error", err)
+			}
+		}
 	}
 	return nil
 }

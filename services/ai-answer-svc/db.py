@@ -1,5 +1,6 @@
 import os
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 import asyncpg
 
@@ -21,6 +22,13 @@ class ScopedDB:
 
     async def execute(self, query: str, *args: Any) -> str:
         return await self.pool.execute(query, *args)
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Yield a connection inside a transaction (all statements commit or roll back together)."""
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                yield conn
 
 async def create_db_pool(dsn: str) -> asyncpg.Pool:
     min_size = int(os.getenv("DB_POOL_MIN_SIZE", "1"))

@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from plain_text import normalize_plain_text
 
 
@@ -82,10 +82,10 @@ class PublishIngestionRequest(BaseModel):
 
 
 class UpdateConceptRequest(BaseModel):
-    title: Optional[str] = None
-    type: Optional[str] = None
-    body_text: Optional[str] = None
-    tags: Optional[List[str]] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    type: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    body_text: Optional[str] = Field(default=None, min_length=1, max_length=100_000)
+    tags: Optional[List[str]] = Field(default=None, max_length=50)
 
 
 class ApproveSuggestionRequest(BaseModel):
@@ -98,6 +98,33 @@ class RejectSuggestionRequest(BaseModel):
 
 
 class UpdatePatternRequest(BaseModel):
-    canonical_question: Optional[str] = None
-    answer_text: Optional[str] = None
-    trigger_phrases: Optional[List[str]] = None
+    canonical_question: Optional[str] = Field(default=None, min_length=1, max_length=1000)
+    answer_text: Optional[str] = Field(default=None, min_length=1, max_length=100_000)
+    trigger_phrases: Optional[List[str]] = Field(default=None, max_length=50)
+
+
+# Payloads of automation suggestions (stored by mining / compile-paste, or edited by the reviewer).
+# Validated before approval so malformed payloads are rejected with 422 instead of failing later.
+
+class SuggestionConceptPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=500)
+    body_text: str = Field(min_length=1, max_length=100_000)
+    type: str = Field(default="faq", min_length=1, max_length=100)
+    tags: List[str] = Field(default_factory=list, max_length=50)
+
+
+class SuggestionPatternPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    canonical_question: str = Field(min_length=1, max_length=1000)
+    answer_text: str = Field(min_length=1, max_length=100_000)
+    trigger_phrases: List[str] = Field(default_factory=list, max_length=50)
+
+
+class SuggestionEditedAnswerPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    pattern_id: uuid.UUID
+    answer_text: str = Field(min_length=1, max_length=100_000)

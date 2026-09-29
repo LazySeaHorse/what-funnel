@@ -20,14 +20,14 @@ func BenchmarkMessagePreparation(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		cmd := sendMessageCommand{
-			accountID:      accountID,
-			conversationID: conversationID,
-			sender:         types.MessageSenderHuman,
-			senderUserID:   &senderUserID,
-			contentType:    "text",
-			text:           "Benchmark message content payload",
-			idempotencyKey: "idem_bench_key",
+		cmd := SendMessageParams{
+			AccountID:      accountID,
+			ConversationID: conversationID,
+			Sender:         types.MessageSenderHuman,
+			SenderUserID:   &senderUserID,
+			ContentType:    "text",
+			Text:           "Benchmark message content payload",
+			IdempotencyKey: "idem_bench_key",
 		}
 		if err := cmd.validate(); err != nil {
 			b.Fatalf("validation failed: %v", err)

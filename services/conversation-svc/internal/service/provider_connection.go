@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,17 +39,62 @@ type AdapterControl interface {
 	List(context.Context) ([]AdapterSnapshot, error)
 }
 
+// OrphanEvictionPolicy controls when adapter sessions that have no channel in
+// the database are logged out. Logging out a WhatsApp session unpairs the
+// phone irreversibly, so the default is off: a restored, empty or lagging
+// database must not be able to wipe live pairings.
+type OrphanEvictionPolicy struct {
+	// Enabled turns eviction on. When false nothing is ever logged out.
+	Enabled bool
+	// Grace is how long an adapter session must have been observed without a
+	// matching channel before it is evicted.
+	Grace time.Duration
+}
+
 type ConnectionService struct {
 	pool       *pgxpool.Pool
 	controls   map[messaging.Provider]AdapterControl
 	controlsMu sync.RWMutex
+
+	evictionMu     sync.Mutex
+	evictionPolicy OrphanEvictionPolicy
+	orphanSeen     map[string]time.Time
+	now            func() time.Time
+	// hasChannelData reports whether the database holds any channel for the
+	// provider; an empty table means the database, not the adapter, is suspect.
+	hasChannelData func(context.Context, messaging.Provider) (bool, error)
 }
 
 func NewConnectionService(pool *pgxpool.Pool) *ConnectionService {
-	return &ConnectionService{
-		pool:     pool,
-		controls: make(map[messaging.Provider]AdapterControl),
+	s := &ConnectionService{
+		pool:       pool,
+		controls:   make(map[messaging.Provider]AdapterControl),
+		orphanSeen: make(map[string]time.Time),
+		now:        time.Now,
 	}
+	s.hasChannelData = s.providerHasChannels
+	return s
+}
+
+// ConfigureOrphanEviction sets the orphaned-session eviction policy.
+func (s *ConnectionService) ConfigureOrphanEviction(policy OrphanEvictionPolicy) {
+	s.evictionMu.Lock()
+	defer s.evictionMu.Unlock()
+	s.evictionPolicy = policy
+}
+
+func (s *ConnectionService) orphanPolicy() OrphanEvictionPolicy {
+	s.evictionMu.Lock()
+	defer s.evictionMu.Unlock()
+	return s.evictionPolicy
+}
+
+func (s *ConnectionService) providerHasChannels(ctx context.Context, provider messaging.Provider) (bool, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM channels WHERE provider = $1)`, provider).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check provider channel data: %w", err)
+	}
+	return exists, nil
 }
 
 func (s *ConnectionService) RegisterAdapterControl(provider messaging.Provider, control AdapterControl) {
@@ -65,13 +111,13 @@ func (s *ConnectionService) StartProviderConnection(
 ) (*types.ProviderConnection, error) {
 	label = strings.TrimSpace(label)
 	if !provider.Valid() {
-		return nil, errors.New("provider is not available")
+		return nil, invalidf("provider is not available")
 	}
 	if provider == messaging.ProviderTelegram && strings.TrimSpace(credential) == "" {
-		return nil, errors.New("telegram bot token is required")
+		return nil, invalidf("telegram bot token is required")
 	}
 	if label == "" || len(label) > 80 {
-		return nil, errors.New("label must contain 1 to 80 characters")
+		return nil, invalidf("label must contain 1 to 80 characters")
 	}
 	control, err := s.adapterControl(provider)
 	if err != nil {
@@ -125,10 +171,6 @@ func (s *ConnectionService) StartProviderConnection(
 
 	snapshot, err := control.Create(ctx, connection.ChannelID.String(), credential)
 	if err != nil {
-		_, _ = s.ReconcileAdapterConnections(ctx, provider)
-		snapshot, err = control.Create(ctx, connection.ChannelID.String(), credential)
-	}
-	if err != nil {
 		detail := "Could not connect this provider account. Check the credentials and try again."
 		_ = s.updateProviderConnection(ctx, connection.ChannelID, messaging.ConnectionError, detail, "")
 		connection.State = messaging.ConnectionError
@@ -140,15 +182,6 @@ func (s *ConnectionService) StartProviderConnection(
 		return nil, err
 	}
 	return connection, nil
-}
-
-func (s *ConnectionService) CreateChannelConnection(
-	ctx context.Context,
-	accountID uuid.UUID,
-	provider messaging.Provider,
-	label, credential string,
-) (*types.ProviderConnection, error) {
-	return s.StartProviderConnection(ctx, accountID, provider, label, credential)
 }
 
 func (s *ConnectionService) RetryProviderConnection(
@@ -283,42 +316,110 @@ func (s *ConnectionService) DeleteProviderConnection(
 	return nil
 }
 
-func (s *ConnectionService) EvictOrphanedChannel(ctx context.Context, provider messaging.Provider, channelID string) error {
+// EvictOrphanedChannel logs an adapter session out when it has no channel in
+// the database. It reports whether a logout actually happened. Nothing is
+// evicted unless eviction is enabled, the database holds channel data for the
+// provider, and the session has stayed orphaned for the policy's grace period.
+func (s *ConnectionService) EvictOrphanedChannel(ctx context.Context, provider messaging.Provider, channelID string) (bool, error) {
 	control, err := s.adapterControl(provider)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return control.Logout(ctx, channelID)
+	return s.evictIfOrphaned(ctx, provider, control, channelID)
 }
 
+func (s *ConnectionService) evictIfOrphaned(ctx context.Context, provider messaging.Provider, control AdapterControl, channelID string) (bool, error) {
+	policy := s.orphanPolicy()
+	if !policy.Enabled {
+		return false, nil
+	}
+	key := string(provider) + "/" + channelID
+
+	if channelUUID, err := uuid.Parse(channelID); err == nil {
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1 AND provider = $2)`, channelUUID, provider).Scan(&exists); err != nil {
+			return false, fmt.Errorf("query channel existence: %w", err)
+		}
+		if exists {
+			s.forgetOrphan(key)
+			return false, nil
+		}
+	}
+	hasData, err := s.hasChannelData(ctx, provider)
+	if err != nil {
+		return false, err
+	}
+	if !hasData {
+		// No channels at all for this provider: far more likely a restored or
+		// empty database than every session being an orphan.
+		return false, nil
+	}
+	firstSeen := s.markOrphanSeen(key)
+	if s.now().Sub(firstSeen) < policy.Grace {
+		return false, nil
+	}
+	if err := control.Logout(ctx, channelID); err != nil {
+		if errors.Is(err, ErrAdapterConnectionNotFound) {
+			s.forgetOrphan(key)
+			return false, nil
+		}
+		return false, fmt.Errorf("evict orphaned adapter channel %s: %w", channelID, err)
+	}
+	s.forgetOrphan(key)
+	return true, nil
+}
+
+// markOrphanSeen records the first time a session was seen without a channel
+// and returns that time.
+func (s *ConnectionService) markOrphanSeen(key string) time.Time {
+	s.evictionMu.Lock()
+	defer s.evictionMu.Unlock()
+	first, ok := s.orphanSeen[key]
+	if !ok {
+		first = s.now()
+		s.orphanSeen[key] = first
+	}
+	return first
+}
+
+func (s *ConnectionService) forgetOrphan(key string) {
+	s.evictionMu.Lock()
+	defer s.evictionMu.Unlock()
+	delete(s.orphanSeen, key)
+}
+
+// ReconcileAdapterConnections evicts adapter sessions that no longer have a
+// channel, subject to the orphan eviction policy. It returns how many sessions
+// were actually logged out; failed logouts are reported in the error and not
+// counted.
 func (s *ConnectionService) ReconcileAdapterConnections(ctx context.Context, provider messaging.Provider) (int, error) {
 	control, err := s.adapterControl(provider)
 	if err != nil {
 		return 0, err
+	}
+	if !s.orphanPolicy().Enabled {
+		return 0, nil
 	}
 	connections, err := control.List(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("list adapter connections: %w", err)
 	}
 	evictedCount := 0
+	var errs []error
 	for _, conn := range connections {
-		channelUUID, err := uuid.Parse(conn.ChannelID)
+		evicted, err := s.evictIfOrphaned(ctx, provider, control, conn.ChannelID)
 		if err != nil {
-			_ = control.Logout(ctx, conn.ChannelID)
-			evictedCount++
+			if ctx.Err() != nil {
+				return evictedCount, err
+			}
+			errs = append(errs, err)
 			continue
 		}
-		var exists bool
-		err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1 AND provider = $2)`, channelUUID, provider).Scan(&exists)
-		if err != nil {
-			return evictedCount, fmt.Errorf("query channel existence: %w", err)
-		}
-		if !exists {
-			_ = control.Logout(ctx, conn.ChannelID)
+		if evicted {
 			evictedCount++
 		}
 	}
-	return evictedCount, nil
+	return evictedCount, errors.Join(errs...)
 }
 
 func isProviderConnectionLabelConflict(err error) bool {

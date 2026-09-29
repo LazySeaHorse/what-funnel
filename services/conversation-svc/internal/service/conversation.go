@@ -43,24 +43,20 @@ func canSeeConversation(ctx context.Context, pool *pgxpool.Pool, accountID, user
 		JOIN accounts a ON c.account_id = a.id
 		WHERE c.id = $1 AND c.account_id = $2
 	`, convoID, accountID).Scan(&assignedUserIDs, &settingsBytes)
-	if err == pgx.ErrNoRows {
-		return errors.New("conversation not found")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notFoundf("conversation not found")
 	}
 	if err != nil {
 		return fmt.Errorf("check conversation visibility: %w", err)
 	}
 	if !types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes)) {
-		return errors.New("conversation not found")
+		return notFoundf("conversation not found")
 	}
 	return nil
 }
 
 func (s *ConversationService) CanSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
 	return canSeeConversation(ctx, s.pool, accountID, userID, convoID, role)
-}
-
-func (s *ConversationService) canSeeConversation(ctx context.Context, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
-	return s.CanSeeConversation(ctx, accountID, userID, convoID, role)
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +252,7 @@ func (s *ConversationService) ListConversations(ctx context.Context, accountID, 
 		sqlQuery += fmt.Sprintf(` AND l.current_state_key = $%d`, len(args))
 	}
 
-	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`
+	sqlQuery += ` ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC, c.id DESC`
 
 	args = append(args, limit, offset)
 	sqlQuery += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
@@ -294,22 +290,22 @@ func (s *ConversationService) GetConversation(ctx context.Context, accountID, us
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, errors.New("conversation not found")
+			return nil, notFoundf("conversation not found")
 		}
 		return nil, err
 	}
 
 	if !types.CanSeeConversation(userRole, userID, d.item.Conversation.AssignedUserIDs, unassignedVisible) {
-		return nil, errors.New("conversation not found")
+		return nil, notFoundf("conversation not found")
 	}
 
 	return d.item, nil
 }
 
 // GetConversationMessages returns paginated messages for a conversation.
-// Visibility is checked via the lightweight canSeeConversation guard.
+// Visibility is checked via the lightweight CanSeeConversation guard.
 func (s *ConversationService) GetConversationMessages(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string, beforeCursor string, limit int) ([]*types.Message, string, error) {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, userRole); err != nil {
+	if err := s.CanSeeConversation(ctx, accountID, userID, conversationID, userRole); err != nil {
 		return nil, "", err
 	}
 
@@ -326,7 +322,7 @@ func (s *ConversationService) GetConversationMessages(ctx context.Context, accou
 	if beforeCursor != "" {
 		cursorTime, cursorID, err := decodeCursor(beforeCursor)
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid cursor: %w", err)
+			return nil, "", invalidf("invalid cursor: %v", err)
 		}
 		args = append(args, cursorTime, cursorID)
 		sqlQuery += fmt.Sprintf(" AND (created_at < $%d OR (created_at = $%d AND id < $%d))", len(args)-1, len(args)-1, len(args))
@@ -408,20 +404,39 @@ func (s *ConversationService) loadMessageReactions(ctx context.Context, accountI
 }
 
 // AssignConversation sets the assigned users on a conversation.
+// Every assignee must be a user of the same account, and the conversation must
+// exist in it.
 func (s *ConversationService) AssignConversation(ctx context.Context, accountID, conversationID uuid.UUID, assignedUserIDs []uuid.UUID, actorUserID uuid.UUID) error {
+	assignedUserIDs = uniqueUUIDs(assignedUserIDs)
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin assignment tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `
+	if len(assignedUserIDs) > 0 {
+		var members int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM users WHERE account_id = $1 AND id = ANY($2)
+		`, accountID, assignedUserIDs).Scan(&members); err != nil {
+			return fmt.Errorf("validate assignees: %w", err)
+		}
+		if members != len(assignedUserIDs) {
+			return invalidf("assigned users must belong to this account")
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE conversations
 		SET assigned_user_ids = $1
 		WHERE id = $2 AND account_id = $3
 	`, assignedUserIDs, conversationID, accountID)
 	if err != nil {
 		return fmt.Errorf("update assignment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return notFoundf("conversation not found")
 	}
 
 	aw := audit.NewWriterFromTx(tx)
@@ -437,7 +452,7 @@ func (s *ConversationService) AssignConversation(ctx context.Context, accountID,
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return err
+		return fmt.Errorf("commit assignment tx: %w", err)
 	}
 
 	_, err = s.pubsub.Publish(ctx, "conversation.assigned", ConversationAssignedEvent{
@@ -449,6 +464,19 @@ func (s *ConversationService) AssignConversation(ctx context.Context, accountID,
 		fmt.Printf("failed to publish conversation.assigned: %v\n", err)
 	}
 	return nil
+}
+
+func uniqueUUIDs(ids []uuid.UUID) []uuid.UUID {
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	unique := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 // ReadConversation upserts a read-receipt for the given user.
@@ -469,7 +497,7 @@ func (s *ConversationService) ReadConversation(ctx context.Context, accountID, u
 // the next customer contact,
 // records an audit log, and publishes conversation.closed and conversation.updated events.
 func (s *ConversationService) CloseConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, role string) error {
-	if err := s.canSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
+	if err := s.CanSeeConversation(ctx, accountID, userID, conversationID, role); err != nil {
 		return err
 	}
 
@@ -493,19 +521,25 @@ func (s *ConversationService) CloseConversation(ctx context.Context, accountID, 
 			WHERE conversation_id = $1 AND account_id = $2
 			FOR UPDATE
 		), updated AS (
+			-- Blocked states are deliberate moderation decisions (unblocking
+			-- suspected spam is manager-only), so closing must not lift them.
 			UPDATE conversation_ai_state
-			SET state = 'active', state_reason = 'conversation_closed', run_state = 'idle',
+			SET state = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN state ELSE 'active' END,
+			    state_reason = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN state_reason ELSE 'conversation_closed' END,
+			    run_state = 'idle',
 			    run_started_at = NULL,
 			    generation_epoch = generation_epoch + 1, cooldown_level = 0,
 			    next_review_at = NULL, unanswered_count = 0,
-			    unanswered_window_started_at = NULL, blocked_at = NULL,
+			    unanswered_window_started_at = NULL,
+			    blocked_at = CASE WHEN state IN ('blocked_spam', 'blocked_manual') THEN blocked_at ELSE NULL END,
 			    version = version + 1, updated_at = NOW()
 			WHERE conversation_id = $1 AND account_id = $2
+			RETURNING state
 		)
 		INSERT INTO conversation_ai_state_events (
 			account_id, conversation_id, actor_user_id, from_state, to_state, reason
 		)
-		SELECT $2, $1, $3, state, 'active', 'conversation_closed' FROM previous
+		SELECT $2, $1, $3, previous.state, updated.state, 'conversation_closed' FROM previous, updated
 	`, conversationID, accountID, userID)
 	if err != nil {
 		return fmt.Errorf("reset conversation AI state: %w", err)
@@ -564,7 +598,7 @@ func decodeCursor(cursorStr string) (time.Time, uuid.UUID, error) {
 	}
 	parts := strings.SplitN(string(b), ",", 2)
 	if len(parts) != 2 {
-		return time.Time{}, uuid.Nil, fmt.Errorf("invalid cursor format")
+		return time.Time{}, uuid.Nil, invalidf("invalid cursor format")
 	}
 	t, err := time.Parse(time.RFC3339Nano, parts[0])
 	if err != nil {

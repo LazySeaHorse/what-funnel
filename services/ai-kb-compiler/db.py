@@ -1,5 +1,6 @@
 import os
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 import asyncpg
 
@@ -29,6 +30,17 @@ class ScopedDB:
 
     async def execute(self, query: str, *args: Any) -> str:
         return await self.pool.execute(query, *args)
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Yield a ScopedDB bound to a single connection inside a transaction.
+
+        Everything run through the yielded object (queries, audit logs, slug allocation)
+        commits or rolls back together.
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                yield ScopedDB(conn, self.account_id)
 
 async def create_db_pool(dsn: str) -> asyncpg.Pool:
     # Setup custom type conversion for vector type if needed,

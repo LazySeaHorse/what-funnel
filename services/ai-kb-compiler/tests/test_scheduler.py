@@ -24,7 +24,8 @@ async def test_scheduled_mining_job():
     finally:
         await pool.close()
 
-def test_start_scheduler():
+@pytest.mark.asyncio
+async def test_start_scheduler():
     mock_pool = MagicMock()
     scheduler = start_scheduler(mock_pool)
     assert scheduler is not None

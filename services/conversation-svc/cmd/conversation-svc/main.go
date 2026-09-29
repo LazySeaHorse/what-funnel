@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -67,6 +69,16 @@ func run(logger *slog.Logger) error {
 	whatsAppControl, err := adapterclient.New(cfg.WhatsAppAdapterURL, cfg.AdapterSharedSecret)
 	if err != nil {
 		return fmt.Errorf("configure whatsapp adapter: %w", err)
+	}
+	evictionPolicy, err := orphanEvictionPolicyFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	svc.ConfigureOrphanEviction(evictionPolicy)
+	if evictionPolicy.Enabled {
+		logger.Info("orphaned adapter session eviction is enabled", "grace", evictionPolicy.Grace.String())
+	} else {
+		logger.Info("orphaned adapter session eviction is disabled")
 	}
 	svc.RegisterAdapterControl(messaging.ProviderWhatsApp, whatsAppControl)
 	svc.RegisterProviderMediaFetcher(messaging.ProviderWhatsApp, whatsAppControl)
@@ -140,9 +152,11 @@ func run(logger *slog.Logger) error {
 			if err := svc.IngestProviderEvent(ctx, event); err != nil {
 				if service.IsTerminalIngestError(err) {
 					if errors.Is(err, service.ErrChannelNotFound) {
-						if evictErr := svc.EvictOrphanedChannel(groupCtx, event.Provider, event.ChannelID); evictErr != nil {
+						evicted, evictErr := svc.EvictOrphanedChannel(groupCtx, event.Provider, event.ChannelID)
+						switch {
+						case evictErr != nil:
 							logger.Warn("failed to evict orphaned adapter channel", "channel_id", event.ChannelID, "error", evictErr)
-						} else {
+						case evicted:
 							logger.Info("evicted orphaned adapter channel", "channel_id", event.ChannelID)
 						}
 					}
@@ -154,6 +168,12 @@ func run(logger *slog.Logger) error {
 						"error", err,
 					)
 					return nil
+				}
+				if errors.Is(err, service.ErrProviderTargetNotFound) {
+					// Expected while the target's own event is still in flight;
+					// redelivery is bounded by the stream's dead-letter limit.
+					logger.Warn("provider event target not stored yet, will retry", "event_id", event.ID, "kind", event.Kind, "error", err)
+					return err
 				}
 				logger.Error("failed to ingest provider event", "event_id", event.ID, "error", err)
 				return err
@@ -168,13 +188,14 @@ func run(logger *slog.Logger) error {
 		reconcile := func() {
 			for _, provider := range providers {
 				evicted, err := svc.ReconcileAdapterConnections(groupCtx, provider)
-				if err != nil {
-					if groupCtx.Err() != nil {
-						return
-					}
-					logger.Warn("failed to reconcile adapter connections", "provider", provider, "error", err)
-				} else if evicted > 0 {
+				if groupCtx.Err() != nil {
+					return
+				}
+				if evicted > 0 {
 					logger.Info("reconciled adapter connections", "provider", provider, "evicted", evicted)
+				}
+				if err != nil {
+					logger.Warn("failed to reconcile adapter connections", "provider", provider, "evicted", evicted, "error", err)
 				}
 			}
 		}
@@ -232,6 +253,28 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("conversation-svc stopped")
 	return nil
+}
+
+// orphanEvictionPolicyFromEnv reads the opt-in for logging out adapter
+// sessions that have no channel in the database. Eviction unpairs WhatsApp
+// phones irreversibly, so it stays off unless explicitly enabled.
+func orphanEvictionPolicyFromEnv(getenv func(string) string) (service.OrphanEvictionPolicy, error) {
+	policy := service.OrphanEvictionPolicy{Grace: 6 * time.Hour}
+	if raw := strings.TrimSpace(getenv("ADAPTER_ORPHAN_EVICTION")); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return service.OrphanEvictionPolicy{}, fmt.Errorf("parse ADAPTER_ORPHAN_EVICTION: %w", err)
+		}
+		policy.Enabled = enabled
+	}
+	if raw := strings.TrimSpace(getenv("ADAPTER_ORPHAN_EVICTION_GRACE")); raw != "" {
+		grace, err := time.ParseDuration(raw)
+		if err != nil || grace < 0 {
+			return service.OrphanEvictionPolicy{}, fmt.Errorf("parse ADAPTER_ORPHAN_EVICTION_GRACE: invalid duration %q", raw)
+		}
+		policy.Grace = grace
+	}
+	return policy, nil
 }
 
 func consumerResult(ctx context.Context, stream string, err error) error {
