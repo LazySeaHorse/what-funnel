@@ -95,29 +95,26 @@ async def test_rapidfuzz_matching():
             return [mock_pattern]
         return []
 
-    with patch("main.ScopedDB") as MockScopedDB:
+    draft_id = uuid.uuid4()
+    with patch("main.ScopedDB") as MockScopedDB, \
+         patch("main.insert_pending_draft", AsyncMock(return_value=draft_id)) as insert_draft:
         db_instance = MockScopedDB.return_value
         db_instance.fetchrow = mock_fetchrow
         db_instance.fetch = mock_fetch
         db_instance.execute = AsyncMock()
-        draft_id = uuid.uuid4()
-        db_instance.fetchval = AsyncMock(return_value=draft_id)
         db_instance.account_id = account_id
 
         await process_conversation_updated(data, db_pool, redis_client)
 
-        # The draft and answer event are stored atomically.
-        db_instance.fetchval.assert_awaited_once()
-        args = db_instance.fetchval.call_args[0]
-        params = args[1:]
-        assert "INSERT INTO ai_reply_drafts" in args[0]
-        assert "INSERT INTO ai_answer_events" in args[0]
-        assert params[0] == account_id
-        assert params[1] == convo_id
-        assert params[2] == message_id
-        assert params[3] == "Yes, we offer house calls."
-        assert params[4] == "pattern"
-        assert params[5] == 1.0
+        # The draft and answer event are stored atomically by insert_pending_draft.
+        insert_draft.assert_awaited_once()
+        args = insert_draft.call_args[0]
+        assert args[0] is db_instance
+        assert args[1] == convo_id
+        assert args[2] == message_id
+        assert args[3] == "Yes, we offer house calls."
+        assert args[4] == "pattern"
+        assert args[5] == 1.0
 
         # 2. Redis published the draft to the WebSocket queue
         reply_events = [call for call in redis_client.xadd.call_args_list if call.args[0] == "ai.reply_ready"]

@@ -14,6 +14,15 @@ class Config:
     ALLOW_INSECURE_INTERNAL_AUTH: bool = os.getenv("ALLOW_INSECURE_INTERNAL_AUTH", "").lower() in ("true", "1", "yes")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "1000"))
+    # A run still marked 'replying' after this long is considered dead and may be reclaimed.
+    # It must exceed the worst case of one embedding call plus one completion call, otherwise a slow
+    # (but alive) generation gets duplicated by a second worker.
+    AI_RUN_RECLAIM_SECONDS: float = float(
+        os.getenv("AI_RUN_RECLAIM_SECONDS") or max(120.0, 2 * float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "1000")) + 60.0)
+    )
+    AI_CASCADE_CONCURRENCY: int = max(1, int(os.getenv("AI_CASCADE_CONCURRENCY", "8")))
+    AI_DEBOUNCE_MAX_ATTEMPTS: int = max(1, int(os.getenv("AI_DEBOUNCE_MAX_ATTEMPTS", "3")))
+    STREAM_MAX_DELIVERIES: int = max(1, int(os.getenv("STREAM_MAX_DELIVERIES", "5")))
     AI_DEBOUNCE_ENABLED: bool = os.getenv("AI_DEBOUNCE_ENABLED", "true").lower() in ("true", "1", "yes")
     AI_DEBOUNCE_FIRST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_FIRST_SECONDS", "10.0"))
     AI_DEBOUNCE_SUBSEQUENT_SECONDS: float = float(os.getenv("AI_DEBOUNCE_SUBSEQUENT_SECONDS", "5.0"))
