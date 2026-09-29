@@ -112,8 +112,7 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"
       AI_PROVIDER_TEST_TIMEOUT_SECONDS: "60"
-      # Dev/test only: deterministic fake AI provider (never set in prod compose).
-      AI_PROVIDER_FAKE: "true"
+      IDENTITY_SVC_URL: http://identity-svc:8081
       PORT: "8082"
       LOG_LEVEL: info
       APP_ENV: ${APP_ENV:-development}

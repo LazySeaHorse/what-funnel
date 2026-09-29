@@ -78,7 +78,7 @@ services:
     environment:
       INTERNAL_SERVICE_TOKEN: fuzz-internal-service-token-secret-32chars
       APP_ENV: development
-      AI_PROVIDER_FAKE: "true"
+      IDENTITY_SVC_URL: http://identity-svc:8081
       DATABASE_URL: postgres://whatfunnel:whatfunnel@postgres:5432/whatfunnel?sslmode=disable
       SESSION_SECRET: fuzz-secret-at-least-32-chars-long-xxx
       ENCRYPTION_KEY: "change-me-32-byte-hex-key-padded"

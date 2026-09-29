@@ -110,7 +110,6 @@ func TestProductionDockerComposeSecurityInvariants(t *testing.T) {
 		assert.NotContains(t, raw, "change-me-adapter-secret", "dummy adapter secret must not be hardcoded in prod compose")
 		assert.NotContains(t, strings.ToLower(raw), "minioadmin", "default MinIO credentials must not be present in prod compose")
 		assert.NotContains(t, raw, "ENABLE_SIMULATION_ROUTES: \"true\"", "simulation routes must not be enabled in prod compose")
-		assert.NotContains(t, raw, "AI_PROVIDER_FAKE", "the fake AI provider must not be configurable in prod compose")
 
 		// Required secrets must fail closed (`${VAR:?msg}`), never default to empty or a fallback.
 		requiredSecrets := []string{"SESSION_SECRET", "ENCRYPTION_KEY", "INTERNAL_SERVICE_TOKEN", "ADAPTER_SHARED_SECRET", "POSTGRES_PASSWORD"}
