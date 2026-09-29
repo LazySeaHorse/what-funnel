@@ -3,7 +3,6 @@ package session
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -126,7 +125,7 @@ func (s *Store) PurgeExpired(ctx context.Context) error {
 // RevokeUserSessions deletes all active sessions for the given user.
 func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`,
+		`DELETE FROM sessions WHERE session_data_json(data)->>'user_id' = $1`,
 		userID.String())
 	return err
 }
@@ -134,9 +133,8 @@ func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error 
 // RevokeAccountSessions deletes all active sessions for the given account.
 func (s *Store) RevokeAccountSessions(ctx context.Context, accountID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1`,
+		`DELETE FROM sessions WHERE session_data_json(data)->>'account_id' = $1`,
 		accountID.String())
 	return err
 }
 
-var _ = base64.StdEncoding

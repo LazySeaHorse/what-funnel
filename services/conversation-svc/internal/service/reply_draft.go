@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -67,7 +66,7 @@ func (s *AIDraftService) DismissReplyDraft(ctx context.Context, accountID, userI
 		RETURNING id
 	`, draftID, accountID, conversationID).Scan(&updatedID)
 	if err == pgx.ErrNoRows {
-		return errors.New("reply draft not found")
+		return notFoundf("reply draft not found")
 	}
 	if err != nil {
 		return fmt.Errorf("dismiss AI reply draft: %w", err)

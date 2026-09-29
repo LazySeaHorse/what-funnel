@@ -39,6 +39,9 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	defer cancel()
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("integration test database is required in CI: %v", err)
+		}
 		t.Skipf("skipping integration test: %v", err)
 	}
 	t.Cleanup(pool.Close)

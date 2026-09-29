@@ -4,9 +4,11 @@ import (
 	"crypto/subtle"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -15,12 +17,31 @@ import (
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
+// mediaTransferTimeout bounds one media upload or download. The server-wide
+// read/write timeouts (15s) are sized for JSON and would cut off a 20 MiB
+// transfer on a slow link.
+const mediaTransferTimeout = 5 * time.Minute
+
+// extendMediaDeadlines lifts the server's per-request read and write
+// deadlines for this transfer. Writers that cannot adjust deadlines (for
+// example test recorders) keep the server defaults.
+func extendMediaDeadlines(w http.ResponseWriter, request *http.Request) {
+	controller := http.NewResponseController(w)
+	deadline := time.Now().Add(mediaTransferTimeout)
+	if err := controller.SetReadDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.WarnContext(request.Context(), "extend media read deadline failed", "error", err)
+	}
+	if err := controller.SetWriteDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.WarnContext(request.Context(), "extend media write deadline failed", "error", err)
+	}
+}
+
 func (h *Handler) UploadConversationMedia(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
+	viewer, ok := mediaViewerFromRequest(w, request)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
 		return
 	}
+	extendMediaDeadlines(w, request)
 	conversationID, err := uuid.Parse(mux.Vars(request)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid conversation ID.")
@@ -41,7 +62,7 @@ func (h *Handler) UploadConversationMedia(w http.ResponseWriter, request *http.R
 	}
 	defer file.Close()
 	media, err := h.svc.SaveOutboundMedia(
-		request.Context(), accountID, conversationID,
+		request.Context(), viewer, conversationID,
 		header.Filename, header.Header.Get("Content-Type"), file,
 	)
 	if errors.Is(err, messaging.ErrMediaTooLarge) {
@@ -49,30 +70,51 @@ func (h *Handler) UploadConversationMedia(w http.ResponseWriter, request *http.R
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Could not store media.")
+		if errors.Is(err, service.ErrNotFound) || errors.Is(err, service.ErrForbidden) || errors.Is(err, service.ErrValidation) {
+			writeServiceError(w, request, err)
+			return
+		}
+		slog.ErrorContext(request.Context(), "store outbound media failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Could not store media.")
 		return
 	}
 	writeJSON(w, http.StatusCreated, media)
 }
 
-func (h *Handler) GetMedia(w http.ResponseWriter, request *http.Request) {
+// mediaViewerFromRequest builds the authorisation subject for media access.
+func mediaViewerFromRequest(w http.ResponseWriter, request *http.Request) (service.MediaViewer, bool) {
 	accountID, ok := middleware.AccountIDFromContext(request)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
+		return service.MediaViewer{}, false
 	}
-	h.serveMedia(w, request, &accountID)
+	userID, ok := middleware.UserIDFromContext(request)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Missing user.")
+		return service.MediaViewer{}, false
+	}
+	role, _ := middleware.RoleFromContext(request)
+	return service.MediaViewer{AccountID: accountID, UserID: userID, Role: role}, true
 }
 
-func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, accountID *uuid.UUID) {
+func (h *Handler) GetMedia(w http.ResponseWriter, request *http.Request) {
+	viewer, ok := mediaViewerFromRequest(w, request)
+	if !ok {
+		return
+	}
+	h.serveMedia(w, request, &viewer)
+}
+
+func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, viewer *service.MediaViewer) {
 	mediaID, err := uuid.Parse(mux.Vars(request)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid media ID.")
 		return
 	}
-	content, err := h.svc.OpenMedia(request.Context(), accountID, mediaID)
+	extendMediaDeadlines(w, request)
+	content, err := h.svc.OpenMedia(request.Context(), viewer, mediaID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "Media is unavailable. Open the original platform to view it.")
+		writeMediaOpenError(w, request, err, "Media is unavailable. Open the original platform to view it.")
 		return
 	}
 	defer content.Reader.Close()
@@ -89,6 +131,22 @@ func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, accou
 	_, _ = io.Copy(w, content.Reader)
 }
 
+// writeMediaOpenError reports media that cannot be served as 404 with a
+// user-facing hint and everything else (database, store, provider failures) as
+// a logged 500 so operational problems are not disguised as missing files.
+func writeMediaOpenError(w http.ResponseWriter, request *http.Request, err error, notFoundMessage string) {
+	if errors.Is(err, service.ErrNotFound) {
+		writeError(w, http.StatusNotFound, notFoundMessage)
+		return
+	}
+	if errors.Is(err, messaging.ErrMediaTooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, "Media must be 20 MiB or smaller.")
+		return
+	}
+	slog.ErrorContext(request.Context(), "open media failed", "error", err)
+	writeError(w, http.StatusInternalServerError, "Could not read media.")
+}
+
 func NewInternalMediaHandler(svc *service.Service, secret string) http.Handler {
 	expected := []byte(strings.TrimSpace(secret))
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -102,9 +160,10 @@ func NewInternalMediaHandler(svc *service.Service, secret string) http.Handler {
 			writeError(w, http.StatusBadRequest, "Invalid media ID.")
 			return
 		}
+		extendMediaDeadlines(w, request)
 		content, err := svc.OpenMedia(request.Context(), nil, mediaID)
 		if err != nil {
-			writeError(w, http.StatusNotFound, "Media unavailable.")
+			writeMediaOpenError(w, request, err, "Media unavailable.")
 			return
 		}
 		defer content.Reader.Close()

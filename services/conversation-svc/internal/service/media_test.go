@@ -66,14 +66,14 @@ func TestMediaCacheWritesPrivateFile(t *testing.T) {
 		t.Fatalf("ConfigureMediaCache() error = %v", err)
 	}
 	id := uuid.New()
-	key, err := svc.writeMediaFile(id, []byte("content"))
+	key, err := svc.writeMediaFile(context.Background(), id, []byte("content"), "text/plain")
 	if err != nil {
 		t.Fatalf("writeMediaFile() error = %v", err)
 	}
 	if key != id.String() {
 		t.Errorf("storage key = %q, want %q", key, id)
 	}
-	file, err := os.Open(svc.mediaPath("../" + key))
+	file, err := os.Open(filepath.Join(root, key))
 	if err != nil {
 		t.Fatalf("open cached file: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestMediaServiceWithCustomMediaStore(t *testing.T) {
 	svc := NewMediaService(nil)
 
 	// Unconfigured store returns error
-	_, err := svc.writeMediaFile(uuid.New(), []byte("data"))
+	_, err := svc.writeMediaFile(context.Background(), uuid.New(), []byte("data"), "")
 	if err == nil {
 		t.Fatal("expected error when media store is unconfigured")
 	}
@@ -108,7 +108,7 @@ func TestMediaServiceWithCustomMediaStore(t *testing.T) {
 
 	id := uuid.New()
 	content := []byte("hello custom media store")
-	key, err := svc.writeMediaFile(id, content)
+	key, err := svc.writeMediaFile(context.Background(), id, content, "text/plain")
 	if err != nil {
 		t.Fatalf("writeMediaFile() error = %v", err)
 	}

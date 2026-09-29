@@ -102,7 +102,8 @@ func (s *IngestionService) IngestInbound(ctx context.Context, event types.Inboun
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (contact_id, channel_id)
 		DO UPDATE SET
-			last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at)
+			last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at),
+			status = 'open'
 		RETURNING id, (xmax = 0) AS is_new
 	`, accountID, contactID, channelID, timestamp).Scan(&conversationID, &isNew)
 	if err != nil {
@@ -285,12 +286,12 @@ func (s *IngestionService) SimulateInbound(
 		channelID, accountID,
 	).Scan(&provider); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("channel not found or not owned by account")
+			return notFoundf("channel not found or not owned by account")
 		}
 		return fmt.Errorf("channel lookup failed: %w", err)
 	}
 	if !provider.Valid() {
-		return errors.New("channel does not use a supported provider adapter")
+		return invalidf("channel does not use a supported provider adapter")
 	}
 
 	now := time.Now().UTC()
@@ -319,7 +320,7 @@ func (s *IngestionService) SimulateInbound(
 		Message:       message,
 	}
 	if err := event.Validate(); err != nil {
-		return fmt.Errorf("validate simulated event: %w", err)
+		return invalidf("invalid simulated event: %v", err)
 	}
 
 	if _, err := s.pubsub.Publish(ctx, "adapter.events", event); err != nil {

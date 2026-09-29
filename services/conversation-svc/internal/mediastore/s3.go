@@ -38,12 +38,11 @@ func NewS3Store(ctx context.Context, cfg S3Config) (*S3Store, error) {
 		return nil, errors.New("mediastore: s3 bucket is required")
 	}
 
-	endpoint = strings.TrimPrefix(endpoint, "http://")
-	endpoint = strings.TrimPrefix(endpoint, "https://")
+	endpoint, secure := parseS3Endpoint(endpoint, cfg.UseSSL)
 
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.UseSSL,
+		Secure: secure,
 		Region: cfg.Region,
 	})
 	if err != nil {
@@ -65,6 +64,19 @@ func NewS3Store(ctx context.Context, cfg S3Config) (*S3Store, error) {
 		client: client,
 		bucket: bucket,
 	}, nil
+}
+
+// parseS3Endpoint splits an optional scheme from the endpoint. An explicit
+// scheme decides TLS (so "https://minio.example" is never used over plaintext
+// because UseSSL was left false); without one, useSSL applies.
+func parseS3Endpoint(endpoint string, useSSL bool) (host string, secure bool) {
+	switch {
+	case strings.HasPrefix(endpoint, "https://"):
+		return strings.TrimPrefix(endpoint, "https://"), true
+	case strings.HasPrefix(endpoint, "http://"):
+		return strings.TrimPrefix(endpoint, "http://"), false
+	}
+	return endpoint, useSSL
 }
 
 // Put uploads an object to the S3 bucket.

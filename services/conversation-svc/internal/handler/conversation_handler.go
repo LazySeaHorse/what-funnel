@@ -4,13 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
+)
+
+const (
+	defaultMessagesLimit = 20
+	maxMessagesLimit     = 100
 )
 
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +36,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Verify conversation visibility and access permissions (SEC-04)
 	if err := h.svc.CanSeeConversation(r.Context(), accountID, callerUserID, convoID, callerRole); err != nil {
-		writeError(w, http.StatusNotFound, "conversation not found")
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -123,7 +127,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey:   body.IdempotencyKey,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -146,15 +150,7 @@ func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.EditProviderMessage(r.Context(), accountID, userID, role, conversationID, messageID, body.Text); err != nil {
-		if strings.Contains(err.Error(), "forbidden") {
-			writeError(w, http.StatusForbidden, err.Error())
-			return
-		}
-		if strings.Contains(err.Error(), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
@@ -169,15 +165,7 @@ func (h *Handler) DeleteProviderMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.svc.DeleteProviderMessage(r.Context(), accountID, userID, role, conversationID, messageID); err != nil {
-		if strings.Contains(err.Error(), "forbidden") {
-			writeError(w, http.StatusForbidden, err.Error())
-			return
-		}
-		if strings.Contains(err.Error(), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
@@ -200,15 +188,7 @@ func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.svc.ChangeProviderReaction(r.Context(), accountID, userID, role, conversationID, messageID, body.Emoji, body.Removed); err != nil {
-		if strings.Contains(err.Error(), "forbidden") {
-			writeError(w, http.StatusForbidden, err.Error())
-			return
-		}
-		if strings.Contains(err.Error(), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
@@ -240,11 +220,7 @@ func (h *Handler) GetReplyDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	draft, err := h.svc.GetPendingReplyDraft(r.Context(), accountID, userID, conversationID, role)
 	if err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"draft": draft})
@@ -267,11 +243,7 @@ func (h *Handler) DismissReplyDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.DismissReplyDraft(r.Context(), accountID, userID, conversationID, draftID, role); err != nil {
-		if err.Error() == "conversation not found" || err.Error() == "reply draft not found" {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "dismissed"})
@@ -294,11 +266,7 @@ func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.CloseConversation(r.Context(), accountID, userID, convoID, role); err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -352,7 +320,7 @@ func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
 
 	conversations, err := h.svc.ListConversations(r.Context(), accountID, userID, userRole, filter, leadState, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -389,11 +357,7 @@ func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
 
 	convo, err := h.svc.GetConversation(r.Context(), accountID, userID, convoID, userRole)
 	if err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, "conversation not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -426,20 +390,19 @@ func (h *Handler) GetConversationMessages(w http.ResponseWriter, r *http.Request
 
 	beforeCursor := r.URL.Query().Get("before")
 	limitStr := r.URL.Query().Get("limit")
-	limit := 20
+	limit := defaultMessagesLimit
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
 		}
 	}
+	if limit > maxMessagesLimit {
+		limit = maxMessagesLimit
+	}
 
 	messages, nextCursor, err := h.svc.GetConversationMessages(r.Context(), accountID, userID, convoID, userRole, beforeCursor, limit)
 	if err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, "conversation not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -491,7 +454,7 @@ func (h *Handler) AssignConversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.AssignConversation(r.Context(), accountID, convoID, assignedUserIDs, userID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -517,19 +480,7 @@ func (h *Handler) UpdateConversationAIControl(w http.ResponseWriter, r *http.Req
 	}
 	state, err := h.svc.UpdateConversationAIControl(r.Context(), accountID, userID, conversationID, role, body.Action, body.ReplyOverride)
 	if err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		if strings.HasPrefix(err.Error(), "invalid ") || err.Error() == "an action or reply_override is required" {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if strings.Contains(err.Error(), "role required") {
-			writeError(w, http.StatusForbidden, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ai_control": state})
@@ -562,16 +513,12 @@ func (h *Handler) ReadConversation(w http.ResponseWriter, r *http.Request) {
 	// Verify visibility first
 	_, err = h.svc.GetConversation(r.Context(), accountID, userID, convoID, userRole)
 	if err != nil {
-		if err.Error() == "conversation not found" {
-			writeError(w, http.StatusNotFound, "conversation not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
 	if err := h.svc.ReadConversation(r.Context(), accountID, userID, convoID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, r, err)
 		return
 	}
 
