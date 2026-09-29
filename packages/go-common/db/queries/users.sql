@@ -15,13 +15,6 @@ FROM users
 WHERE email = @email::text
 LIMIT 1;
 
--- name: GetUserBySlugIdentifier :one
-SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
-FROM users u
-JOIN accounts a ON a.id = u.account_id
-WHERE (a.slug || '/' || u.username) = @identifier::text
-LIMIT 1;
-
 -- name: GetUserBySlugAndUsername :one
 SELECT u.id, u.account_id, COALESCE(u.email, '') AS email, COALESCE(u.username, '') AS username, u.password_hash, u.role, u.created_at
 FROM users u
@@ -50,10 +43,6 @@ SELECT EXISTS(
 INSERT INTO users (account_id, email, username, password_hash, role)
 VALUES (@account_id, NULLIF(@email::text, ''), NULLIF(@username::text, ''), @password_hash, @role)
 RETURNING id, account_id, COALESCE(email, '') AS email, COALESCE(username, '') AS username, role, created_at;
-
--- name: CreateUserWithExplicitID :exec
-INSERT INTO users (id, account_id, email, username, password_hash, role, created_at)
-VALUES (@id, @account_id, NULLIF(@email::text, ''), NULLIF(@username::text, ''), @password_hash, @role, @created_at);
 
 -- name: UpdateUserPassword :exec
 UPDATE users
