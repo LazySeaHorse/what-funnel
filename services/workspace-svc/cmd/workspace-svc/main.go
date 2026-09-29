@@ -14,6 +14,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/session"
@@ -26,6 +27,11 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
+	if err := middleware.ValidateInternalServiceToken(); err != nil {
+		logger.Error("internal service auth", "error", err)
+		os.Exit(1)
+	}
+
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -36,7 +42,12 @@ func main() {
 	logger.Info("connected to database")
 
 	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
-	svc, err := service.New(pool, cfg.EncryptionKey)
+	identityProvisioner, err := service.NewIdentityProvisioner(os.Getenv("IDENTITY_SVC_URL"))
+	if err != nil {
+		logger.Error("identity provisioner", "error", err)
+		os.Exit(1)
+	}
+	svc, err := service.New(pool, cfg.EncryptionKey, service.WithIdentityProvisioner(identityProvisioner))
 	if err != nil {
 		logger.Error("failed to init service", "error", err)
 		os.Exit(1)

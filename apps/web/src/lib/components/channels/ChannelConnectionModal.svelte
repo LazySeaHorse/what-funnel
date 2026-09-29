@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { apiRequest } from "$lib/api";
   import { Modal, Button, Input } from "$lib/components/ui";
 
@@ -48,16 +49,38 @@
     selectedProvider = initialConnection ? initialConnection.provider : provider;
   });
 
+  // Poll key: only changes when a different connection starts or stops needing
+  // polls, so the poll's own updates to activeConnection do not recreate the timer.
+  let pollChannelID = $derived(
+    activeConnection && !["connected", "error", "disconnected"].includes(activeConnection.state)
+      ? activeConnection.channel_id
+      : null
+  );
+
   $effect(() => {
-    const connection = activeConnection;
-    if (!connection || ["connected", "error", "disconnected"].includes(connection.state)) return;
-    const timer = window.setInterval(() => void refreshActive().catch(() => {}), 3000);
+    const channelID = pollChannelID;
+    if (!channelID) return;
+    let inFlight = false;
+    const timer = window.setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await untrack(() => refreshActive(channelID));
+      } catch {
+        // Transient poll failure; the next tick retries.
+      } finally {
+        inFlight = false;
+      }
+    }, 3000);
     return () => window.clearInterval(timer);
   });
 
-  async function refreshActive() {
+  async function refreshActive(expectedChannelID?: string) {
     if (!activeConnection) return;
-    const refreshed = await apiRequest(`/channel-connections/${activeConnection.channel_id}`);
+    const channelID = activeConnection.channel_id;
+    if (expectedChannelID && expectedChannelID !== channelID) return;
+    const refreshed = await apiRequest(`/channel-connections/${channelID}`);
+    if (activeConnection?.channel_id !== channelID) return;
     activeConnection = refreshed;
     qrRefreshToken = Date.now();
     onchange?.(refreshed);
@@ -122,8 +145,6 @@
     onclose();
   }
 </script>
-
-<svelte:window onkeydown={(event) => event.key === "Escape" && handleClose()} />
 
 <Modal
   ariaLabel={`Connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}`}

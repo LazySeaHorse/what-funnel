@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// DefaultMaxDeliveries defines the max number of deliveries for an unacknowledged message
+// before it is dead-lettered to prevent infinite poison-pill retry loops.
+const DefaultMaxDeliveries = 5
 
 // Client wraps the redis.Client to support pub/sub via Redis Streams.
 type Client struct {
@@ -78,10 +83,6 @@ func (c *Client) Consume(ctx context.Context, stream, group, consumer string, ha
 		default:
 		}
 
-// DefaultMaxDeliveries defines the max number of deliveries for an unacknowledged message
-// before it is dead-lettered to prevent infinite poison-pill retry loops.
-const DefaultMaxDeliveries = 5
-
 		// Reclaim a stale pending entry first. This recovers handler failures and
 		// work owned by a consumer that crashed before acknowledging it.
 		claimed, _, claimErr := c.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
@@ -95,7 +96,7 @@ const DefaultMaxDeliveries = 5
 			}).Result()
 			if pErr == nil && len(pendings) > 0 && pendings[0].RetryCount > DefaultMaxDeliveries {
 				payload, _ := msg.Values["payload"].(string)
-				_, _ = c.rdb.XAdd(ctx, &redis.XAddArgs{
+				if _, dlqErr := c.rdb.XAdd(ctx, &redis.XAddArgs{
 					Stream: stream + ".dlq",
 					Values: map[string]any{
 						"original_id":      msg.ID,
@@ -105,10 +106,19 @@ const DefaultMaxDeliveries = 5
 						"payload":          payload,
 						"dead_lettered_at": time.Now().UTC().Format(time.RFC3339),
 					},
-				}).Result()
-				_ = c.rdb.XAck(ctx, stream, group, msg.ID).Err()
-				fmt.Printf("pubsub: message %s exceeded max retries (%d), moved to %s.dlq\n",
-					msg.ID, pendings[0].RetryCount, stream)
+				}).Result(); dlqErr != nil {
+					// Do not ack: the message must not be lost if it could not be dead-lettered.
+					slog.Error("pubsub: failed to dead-letter message; leaving it pending",
+						"stream", stream, "group", group, "id", msg.ID, "error", dlqErr)
+					time.Sleep(time.Second)
+					continue
+				}
+				if ackErr := c.rdb.XAck(ctx, stream, group, msg.ID).Err(); ackErr != nil {
+					slog.Error("pubsub: failed to ack dead-lettered message",
+						"stream", stream, "group", group, "id", msg.ID, "error", ackErr)
+				}
+				slog.Warn("pubsub: message exceeded max retries, moved to dead-letter stream",
+					"id", msg.ID, "retry_count", pendings[0].RetryCount, "dlq", stream+".dlq")
 				continue
 			}
 			c.handleMessages(ctx, stream, group, claimed, handler)
@@ -136,9 +146,9 @@ const DefaultMaxDeliveries = 5
 				return ctx.Err()
 			}
 			// Log the error to stdout so it is visible in docker compose logs
-			fmt.Printf("pubsub: XReadGroup error on stream %s group %s: %v\n", stream, group, err)
+			slog.Error("pubsub: XReadGroup error", "stream", stream, "group", group, "error", err)
 			if strings.Contains(err.Error(), "NOGROUP") {
-				fmt.Printf("pubsub: attempting to recreate group %s for stream %s\n", group, stream)
+				slog.Warn("pubsub: attempting to recreate consumer group", "stream", stream, "group", group)
 				_ = c.EnsureGroup(ctx, stream, group)
 			}
 			// Sleep on other errors to avoid a tight error loop

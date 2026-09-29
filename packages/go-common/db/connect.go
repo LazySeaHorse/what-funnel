@@ -18,7 +18,7 @@ func PoolConfig(dsn string) (*pgxpool.Config, error) {
 		return nil, fmt.Errorf("db: parse config: %w", err)
 	}
 
-	maxConns := int32(3)
+	maxConns := int32(10)
 	if envMax := os.Getenv("DB_POOL_MAX_CONNS"); envMax != "" {
 		if n, err := strconv.Atoi(envMax); err == nil && n > 0 {
 			maxConns = int32(n)

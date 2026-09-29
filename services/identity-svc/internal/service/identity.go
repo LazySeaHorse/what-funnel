@@ -89,6 +89,14 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	}
 	req.ProductMode = productMode
 
+	// Username is optional at signup, but when present it must satisfy the same
+	// rules as admin-created users (otherwise it cannot be used to log in).
+	if strings.TrimSpace(req.Username) != "" {
+		if req.Username, err = validateUsername(req.Username); err != nil {
+			return nil, err
+		}
+	}
+
 	hash, err := svc.hashPassword(req.Password)
 	if err != nil {
 		return nil, err
@@ -151,7 +159,7 @@ func validateAndNormalizeProductMode(mode string) (string, error) {
 		return "full_workspace", nil
 	}
 	if mode != "full_workspace" && mode != "chatbot_only" {
-		return "", fmt.Errorf("invalid product mode: %s", mode)
+		return "", validationErrorf("invalid product mode: %s", mode)
 	}
 	return mode, nil
 }
@@ -200,7 +208,7 @@ func checkEmailAvailable(ctx context.Context, qtx *dbgen.Queries, email string) 
 		return fmt.Errorf("service: check email: %w", err)
 	}
 	if count > 0 {
-		return fmt.Errorf("service: email already registered")
+		return ErrEmailTaken
 	}
 	return nil
 }
@@ -229,6 +237,9 @@ func createSignupUser(ctx context.Context, qtx *dbgen.Queries, accountID uuid.UU
 		Role:         role,
 	})
 	if err != nil {
+		if isUniqueViolation(err) {
+			return uuid.Nil, ErrEmailTaken
+		}
 		return uuid.Nil, fmt.Errorf("service: create user: %w", err)
 	}
 	return createdUser.ID, nil
@@ -374,18 +385,11 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 	if req.Role != types.RoleManager && req.Role != types.RoleAgent {
 		return nil, fmt.Errorf("invalid role: %q", req.Role)
 	}
-	req.Username = strings.TrimSpace(req.Username)
-	if req.Username == "" {
-		return nil, fmt.Errorf("username is required")
+	username, err := validateUsername(req.Username)
+	if err != nil {
+		return nil, err
 	}
-	if len(req.Username) < 2 {
-		return nil, fmt.Errorf("username must be at least 2 characters")
-	}
-	for _, ch := range req.Username {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
-			return nil, fmt.Errorf("username may only contain alphanumeric characters, hyphens, and underscores")
-		}
-	}
+	req.Username = username
 	if req.Password == "" {
 		return nil, fmt.Errorf("password is required")
 	}

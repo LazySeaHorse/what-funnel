@@ -9,19 +9,9 @@ import (
 	"context"
 )
 
-const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
-DELETE FROM sessions
-WHERE expiry < NOW()
-`
-
-func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredSessions)
-	return err
-}
-
 const deleteSessionsByAccountID = `-- name: DeleteSessionsByAccountID :exec
 DELETE FROM sessions
-WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1::text
+WHERE session_data_json(data)->>'account_id' = $1::text
 `
 
 func (q *Queries) DeleteSessionsByAccountID(ctx context.Context, accountID string) error {
@@ -31,7 +21,7 @@ func (q *Queries) DeleteSessionsByAccountID(ctx context.Context, accountID strin
 
 const deleteSessionsByUserID = `-- name: DeleteSessionsByUserID :exec
 DELETE FROM sessions
-WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1::text
+WHERE session_data_json(data)->>'user_id' = $1::text
 `
 
 func (q *Queries) DeleteSessionsByUserID(ctx context.Context, userID string) error {

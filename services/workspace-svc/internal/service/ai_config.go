@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 )
 
 const (
@@ -28,6 +28,11 @@ const (
 )
 
 var ErrAIProviderNotConfigured = errors.New("ai provider is not configured")
+
+// ErrAIProviderKeyRequired is returned when the endpoint changes without a new
+// API key: reusing the stored key against a different endpoint would let the
+// caller exfiltrate it.
+var ErrAIProviderKeyRequired = errors.New("ai provider api key must be re-entered to change the base url")
 
 var (
 	thoughtBlockPattern = regexp.MustCompile(`(?s)<thought>.*?</thought>`)
@@ -92,8 +97,11 @@ func (cfg AIProviderConfig) validate(requireAPIKey bool) error {
 	if parsedURL.Hostname() == "" {
 		return fmt.Errorf("ai provider base url host is required")
 	}
-	if os.Getenv("APP_ENV") == "production" && parsedURL.Scheme != "https" {
+	if config.IsProduction() && parsedURL.Scheme != "https" {
 		return fmt.Errorf("ai provider base url must use https in production")
+	}
+	if err := validateAIProviderHost(parsedURL.Hostname(), !config.IsProduction()); err != nil {
+		return err
 	}
 	if cfg.AnalysisModel == "" {
 		return fmt.Errorf("ai provider analysis model is required")
@@ -107,8 +115,23 @@ func (cfg AIProviderConfig) validate(requireAPIKey bool) error {
 	return nil
 }
 
+// validateAIProviderHost applies the same host rules as the dial-time SSRF guard
+// to literal hosts, so a stored base URL can never point at an internal address.
+// Hostnames that resolve to internal addresses are still blocked at dial time.
+func validateAIProviderHost(host string, allowLoopback bool) error {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	if !allowLoopback && (h == "localhost" || strings.HasSuffix(h, ".localhost")) {
+		return fmt.Errorf("ai provider base url host %q is not allowed", host)
+	}
+	if ip := net.ParseIP(strings.SplitN(h, "%", 2)[0]); ip != nil && isBlockedIP(ip, allowLoopback) {
+		return fmt.Errorf("ai provider base url must not point to a private, loopback or link-local address")
+	}
+	return nil
+}
+
 // UpdateAIProviderConfig encrypts the API key and atomically upserts the
-// provider settings. An empty API key retains the currently stored key.
+// provider settings. An empty API key retains the currently stored key, but only
+// while the base URL is unchanged.
 func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actorID uuid.UUID, cfg AIProviderConfig) error {
 	cfg = cfg.normalized()
 	if err := cfg.validate(false); err != nil {
@@ -121,18 +144,27 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	var storedBaseURL, storedEncryptedKey string
+	err = tx.QueryRow(ctx,
+		`SELECT base_url, encrypted_api_key FROM account_ai_providers WHERE account_id = $1 FOR UPDATE`,
+		accountID,
+	).Scan(&storedBaseURL, &storedEncryptedKey)
+	hasStored := true
+	if errors.Is(err, pgx.ErrNoRows) {
+		hasStored = false
+	} else if err != nil {
+		return fmt.Errorf("get existing ai provider config: %w", err)
+	}
+
 	var encryptedAPIKey string
 	if cfg.APIKey == "" {
-		err = tx.QueryRow(ctx,
-			`SELECT encrypted_api_key FROM account_ai_providers WHERE account_id = $1 FOR UPDATE`,
-			accountID,
-		).Scan(&encryptedAPIKey)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if !hasStored {
 			return ErrAIProviderNotConfigured
 		}
-		if err != nil {
-			return fmt.Errorf("get existing ai provider key: %w", err)
+		if strings.TrimRight(storedBaseURL, "/") != cfg.BaseURL {
+			return ErrAIProviderKeyRequired
 		}
+		encryptedAPIKey = storedEncryptedKey
 	} else {
 		encryptedAPIKey, err = svc.cipher.Encrypt([]byte(cfg.APIKey))
 		if err != nil {
@@ -140,7 +172,8 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 		}
 	}
 
-	_, err = tx.Exec(ctx, `
+	var inserted bool
+	err = tx.QueryRow(ctx, `
 		INSERT INTO account_ai_providers
 			(account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -151,19 +184,23 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 			reply_model = EXCLUDED.reply_model,
 			embedding_model = EXCLUDED.embedding_model,
 			updated_at = NOW()
-	`, accountID, cfg.BaseURL, encryptedAPIKey, cfg.AnalysisModel, cfg.ReplyModel, cfg.EmbeddingModel)
+		RETURNING (xmax = 0)
+	`, accountID, cfg.BaseURL, encryptedAPIKey, cfg.AnalysisModel, cfg.ReplyModel, cfg.EmbeddingModel).Scan(&inserted)
 	if err != nil {
 		return fmt.Errorf("store ai provider config: %w", err)
 	}
 
-	// When a valid AI provider is configured, activate ai_enabled if it was false/missing.
-	_, err = tx.Exec(ctx, `
-		UPDATE accounts
-		SET settings = settings || '{"ai_enabled": true}'::jsonb
-		WHERE id = $1 AND (settings->>'ai_enabled' IS NULL OR (settings->>'ai_enabled')::boolean = false)
-	`, accountID)
-	if err != nil {
-		return fmt.Errorf("activate ai in account settings: %w", err)
+	// Only the first-ever provider configuration activates AI. Later saves must
+	// not re-enable AI that a manager deliberately switched off.
+	if inserted {
+		_, err = tx.Exec(ctx, `
+			UPDATE accounts
+			SET settings = settings || '{"ai_enabled": true}'::jsonb
+			WHERE id = $1 AND (settings->>'ai_enabled' IS NULL OR (settings->>'ai_enabled')::boolean = false)
+		`, accountID)
+		if err != nil {
+			return fmt.Errorf("activate ai in account settings: %w", err)
+		}
 	}
 
 	aw := audit.NewWriterFromTx(tx)
@@ -304,7 +341,7 @@ func isBlockedIP(ip net.IP, allowLoopback bool) bool {
 }
 
 func (svc *Service) newSafeAIHTTPClient(cfg AIProviderConfig) *http.Client {
-	allowLoopback := os.Getenv("APP_ENV") != "production"
+	allowLoopback := !config.IsProduction()
 
 	dialer := &net.Dialer{
 		Timeout: svc.aiProviderTestTimeout,
@@ -342,7 +379,7 @@ func (svc *Service) newSafeAIHTTPClient(cfg AIProviderConfig) *http.Client {
 			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 				return fmt.Errorf("invalid redirect scheme: %s", req.URL.Scheme)
 			}
-			if os.Getenv("APP_ENV") == "production" && req.URL.Scheme != "https" {
+			if config.IsProduction() && req.URL.Scheme != "https" {
 				return errors.New("redirects must use https in production")
 			}
 			return nil
@@ -359,11 +396,6 @@ func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConf
 	cfg = cfg.normalized()
 	if err := cfg.validate(true); err != nil {
 		return result, err
-	}
-
-	// In automated test environments with synthetic keys, bypass external network requests
-	if cfg.APIKey == "e2e-provider-key" || strings.HasPrefix(cfg.APIKey, "e2e-") || strings.HasPrefix(cfg.APIKey, "sk-test-") || cfg.APIKey == "test-provider-key" || strings.Contains(cfg.BaseURL, "example.test") {
-		return successfulAIProviderTestResult(cfg), nil
 	}
 
 	client := svc.newSafeAIHTTPClient(cfg)
@@ -576,17 +608,6 @@ func waitForRetry(ctx context.Context, delay time.Duration) error {
 		return ctx.Err()
 	case <-timer.C:
 		return nil
-	}
-}
-
-func successfulAIProviderTestResult(cfg AIProviderConfig) AIProviderTestResult {
-	return AIProviderTestResult{
-		OK: true,
-		Checks: []AIProviderTestCheck{
-			{Role: "analysis", Model: cfg.AnalysisModel, OK: true, Message: "Structured output verified"},
-			{Role: "reply", Model: cfg.ReplyModel, OK: true, Message: "Structured output verified"},
-			{Role: "embedding", Model: cfg.EmbeddingModel, OK: true, Message: "Embedding model verified"},
-		},
 	}
 }
 

@@ -429,6 +429,9 @@ func (m *Manager) consumeQR(session *clientSession, qrChannel <-chan whatsmeow.Q
 	}
 }
 
+// restoreConnectConcurrency bounds how many restored channels connect at the same time.
+const restoreConnectConcurrency = 4
+
 func (m *Manager) restore(ctx context.Context) error {
 	type channelMapping struct {
 		channelID string
@@ -448,10 +451,15 @@ func (m *Manager) restore(ctx context.Context) error {
 		}
 		mappings = append(mappings, item)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate whatsapp channel mappings: %w", err)
+	}
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("close whatsapp channel mappings cursor: %w", err)
 	}
 
+	restored := make([]*clientSession, 0, len(mappings))
 	for _, item := range mappings {
 		jid, err := types.ParseJID(item.deviceJID)
 		if err != nil {
@@ -462,14 +470,35 @@ func (m *Manager) restore(ctx context.Context) error {
 			return fmt.Errorf("load whatsapp device: %w", err)
 		}
 		if device == nil {
+			m.logger.Warn("skipping whatsapp channel restore: device not found in store", "channel_id", item.channelID, "device_jid", item.deviceJID)
 			continue
 		}
 		session := m.newSession(item.channelID, device)
+		m.mu.Lock()
 		m.sessions[item.channelID] = session
-		if err := session.connect(15 * time.Second); err != nil {
-			m.setStatus(session, messaging.ConnectionError, "Could not restore the WhatsApp connection.", "")
-			m.logger.Warn("restore whatsapp connection", "channel_id", item.channelID, "error", err)
-		}
+		m.mu.Unlock()
+		restored = append(restored, session)
+	}
+
+	// Connect in the background (bounded) so one slow or unreachable channel
+	// cannot block startup; Close cancels the sessions and waits for these goroutines.
+	slots := make(chan struct{}, restoreConnectConcurrency)
+	for _, session := range restored {
+		m.wg.Go(func() {
+			select {
+			case slots <- struct{}{}:
+				defer func() { <-slots }()
+			case <-m.ctx.Done():
+				return
+			}
+			if err := session.connect(15 * time.Second); err != nil {
+				if m.ctx.Err() != nil {
+					return
+				}
+				m.setStatus(session, messaging.ConnectionError, "Could not restore the WhatsApp connection.", "")
+				m.logger.Warn("restore whatsapp connection", "channel_id", session.copySnapshot().ChannelID, "error", err)
+			}
+		})
 	}
 	return nil
 }

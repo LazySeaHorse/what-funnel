@@ -218,6 +218,7 @@ func ptr[T any](v T) *T {
 }
 
 func TestTestAIProviderConfig_Success(t *testing.T) {
+	useNonProductionEnv(t)
 	chatModels := make([]string, 0, 2)
 	var embedCalled bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +284,7 @@ func TestTestAIProviderConfig_Success(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_RequiresStructuredOutput(t *testing.T) {
+	useNonProductionEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/chat/completions" {
 			w.Header().Set("Content-Type", "application/json")
@@ -309,6 +311,7 @@ func TestTestAIProviderConfig_RequiresStructuredOutput(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
+	useNonProductionEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/chat/completions" {
 			w.Header().Set("Content-Type", "application/json")
@@ -335,6 +338,7 @@ func TestTestAIProviderConfig_ChatErrorLeakedKey(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
+	useNonProductionEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/chat/completions" {
 			w.Header().Set("Content-Type", "application/json")
@@ -367,6 +371,7 @@ func TestTestAIProviderConfig_EmbeddingError(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_CleansFencedJSON(t *testing.T) {
+	useNonProductionEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/embeddings" {
 			writeSuccessfulEmbedding(t, w)
@@ -383,6 +388,7 @@ func TestTestAIProviderConfig_CleansFencedJSON(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_ReportsTruncatedOutput(t *testing.T) {
+	useNonProductionEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/embeddings" {
 			writeSuccessfulEmbedding(t, w)
@@ -401,6 +407,7 @@ func TestTestAIProviderConfig_ReportsTruncatedOutput(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_RetriesTransientFailure(t *testing.T) {
+	useNonProductionEnv(t)
 	analysisAttempts := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/embeddings" {
@@ -431,6 +438,7 @@ func TestTestAIProviderConfig_RetriesTransientFailure(t *testing.T) {
 }
 
 func TestTestAIProviderConfig_ReportsTimeout(t *testing.T) {
+	useNonProductionEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(20 * time.Millisecond)
 		_, _ = w.Write([]byte(`{"choices":[]}`))
@@ -489,7 +497,17 @@ func TestAIProviderConfigValidate(t *testing.T) {
 	}
 }
 
-func TestTestAIProviderConfig_BlocksSSRF(t *testing.T) {
+// useNonProductionEnv makes the loopback httptest servers used by AI provider
+// tests reachable regardless of the environment the test process runs in.
+func useNonProductionEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("ENV", "")
+	t.Setenv("ENVIRONMENT", "")
+}
+
+func TestTestAIProviderConfig_RejectsInternalHostsAtValidation(t *testing.T) {
+	useNonProductionEnv(t)
 	svc, err := New(nil, "test-key-exactly-32-bytes-padded")
 	assert.NoError(t, err)
 
@@ -499,21 +517,64 @@ func TestTestAIProviderConfig_BlocksSSRF(t *testing.T) {
 		"http://172.16.0.1:5432/v1",
 		"http://192.168.1.1:6379/v1",
 	}
-
 	for _, target := range ssrfTargets {
 		t.Run(target, func(t *testing.T) {
-			result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+			_, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
 				APIKey:         "custom-user-supplied-key",
 				BaseURL:        target,
 				AnalysisModel:  "analysis-model",
 				ReplyModel:     "reply-model",
 				EmbeddingModel: "embed-model",
 			})
-			assert.NoError(t, err)
-			assert.False(t, result.OK)
-			// At least one check must fail due to SSRF block
-			assert.NotEmpty(t, result.Checks)
-			assert.Contains(t, result.Checks[0].Message, "SSRF protection")
+			assert.ErrorContains(t, err, "base url")
 		})
+	}
+}
+
+func TestAIProviderValidate_ProductionRejectsLoopbackHosts(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	for _, target := range []string{"https://localhost/v1", "https://127.0.0.1/v1", "https://[::1]/v1", "https://api.localhost/v1"} {
+		cfg := AIProviderConfig{APIKey: "k", BaseURL: target, AnalysisModel: "a", ReplyModel: "r", EmbeddingModel: "e"}
+		assert.Error(t, cfg.normalized().validate(true), target)
+	}
+	ok := AIProviderConfig{APIKey: "k", BaseURL: "https://api.openai.com/v1", AnalysisModel: "a", ReplyModel: "r", EmbeddingModel: "e"}
+	assert.NoError(t, ok.normalized().validate(true))
+}
+
+func TestAIProviderDialGuardBlocksLoopbackInProduction(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	t.Setenv("APP_ENV", "production")
+	svc, err := New(nil, "test-key-exactly-32-bytes-padded")
+	assert.NoError(t, err)
+	client := svc.newSafeAIHTTPClient(AIProviderConfig{})
+	resp, err := client.Get(srv.URL)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	assert.ErrorContains(t, err, "SSRF protection")
+}
+
+func TestTestAIProviderConfig_NoMagicKeyBypass(t *testing.T) {
+	useNonProductionEnv(t)
+	svc, err := New(nil, "test-key-exactly-32-bytes-padded")
+	assert.NoError(t, err)
+	svc.aiProviderTestMaxRetries = 0
+	svc.aiProviderTestTimeout = 2 * time.Second
+
+	// Previously these synthetic keys/hosts returned a fake verified result.
+	for _, key := range []string{"e2e-provider-key", "sk-test-abc", "test-provider-key"} {
+		result, err := svc.TestAIProviderConfig(context.Background(), AIProviderConfig{
+			APIKey:         key,
+			BaseURL:        "http://127.0.0.1:1/v1",
+			AnalysisModel:  "a",
+			ReplyModel:     "r",
+			EmbeddingModel: "e",
+		})
+		assert.NoError(t, err)
+		assert.False(t, result.OK, key)
 	}
 }

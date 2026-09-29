@@ -119,6 +119,9 @@ func TestJanitor_DatabasePurge(t *testing.T) {
 
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("database unavailable in CI: %v", err)
+		}
 		t.Skipf("skipping test: database unavailable: %v", err)
 	}
 	defer pool.Close()

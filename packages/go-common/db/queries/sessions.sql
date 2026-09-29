@@ -1,11 +1,7 @@
 -- name: DeleteSessionsByUserID :exec
 DELETE FROM sessions
-WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = @user_id::text;
+WHERE session_data_json(data)->>'user_id' = @user_id::text;
 
 -- name: DeleteSessionsByAccountID :exec
 DELETE FROM sessions
-WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = @account_id::text;
-
--- name: DeleteExpiredSessions :exec
-DELETE FROM sessions
-WHERE expiry < NOW();
+WHERE session_data_json(data)->>'account_id' = @account_id::text;

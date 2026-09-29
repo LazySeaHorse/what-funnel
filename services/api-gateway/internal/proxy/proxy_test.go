@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log/slog"
@@ -166,5 +167,79 @@ func TestWebSocketProxy_StripsForwardedHost(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for upstream request")
+	}
+}
+
+func TestWebSocketProxy_FirefoxConnectionHeader(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj := w.(http.Hijacker)
+		conn, rw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nhello-from-upstream")
+		_ = rw.Flush()
+		buf := make([]byte, 4)
+		_, _ = io.ReadFull(rw, buf)
+		_, _ = conn.Write(buf)
+	}))
+	defer upstream.Close()
+
+	u, _ := url.Parse(upstream.URL)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(proxy.WebSocket(u, logger))
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial error: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+
+	_, _ = conn.Write([]byte("GET /ws HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\n" +
+		"Connection: keep-alive, Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"))
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101, got %d", resp.StatusCode)
+	}
+	// Bytes the upstream sent right after the handshake must not be lost.
+	first := make([]byte, len("hello-from-upstream"))
+	if _, err := io.ReadFull(reader, first); err != nil || string(first) != "hello-from-upstream" {
+		t.Fatalf("expected buffered upstream bytes, got %q err=%v", first, err)
+	}
+	_, _ = conn.Write([]byte("ping"))
+	echo := make([]byte, 4)
+	if _, err := io.ReadFull(reader, echo); err != nil || string(echo) != "ping" {
+		t.Fatalf("expected echo, got %q err=%v", echo, err)
+	}
+}
+
+func TestHTTPProxy_ForwardedForOmitsPortAndRedirectsPassThrough(t *testing.T) {
+	var forwardedFor, realIP string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forwardedFor = r.Header.Get("X-Forwarded-For")
+		realIP = r.Header.Get("X-Real-IP")
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	u, _ := url.Parse(upstream.URL)
+	handler := proxy.HTTP(u, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.RemoteAddr = "203.0.113.9:54321"
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/elsewhere" {
+		t.Fatalf("expected redirect passthrough, got %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if forwardedFor != "203.0.113.9" || realIP != "203.0.113.9" {
+		t.Fatalf("expected port-less client ip, got XFF=%q X-Real-IP=%q", forwardedFor, realIP)
 	}
 }

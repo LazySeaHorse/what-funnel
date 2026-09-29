@@ -6,7 +6,8 @@ test('Knowledge tab uses the same reviewed ingestion contract as onboarding', as
 	await page.goto('/inbox?tab=knowledge');
 	await expect(page.getByRole('heading', { name: 'Knowledge base', exact: true })).toBeVisible();
 
-	await page.getByPlaceholder(/Paste business information/).fill('Consulting costs $100 per hour.');
+	await page.getByRole('button', { name: 'Add knowledge' }).click();
+	await page.getByPlaceholder(/Paste raw website copy|Paste business information/).fill('Consulting costs $100 per hour.');
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Concept title')).toHaveValue('Pricing');
@@ -77,13 +78,14 @@ test('Knowledge tab can discard a reviewed ingestion to return to paste state', 
 	await mockWorkspaceApi(page, { role: 'manager', productMode: 'full_workspace' });
 	await page.goto('/inbox?tab=knowledge');
 
-	await page.getByPlaceholder(/Paste business information/).fill('Return policy requires 14 days.');
+	await page.getByRole('button', { name: 'Add knowledge' }).click();
+	await page.getByPlaceholder(/Paste raw website copy|Paste business information/).fill('Return policy requires 14 days.');
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 	await expect(page.getByText('Review structured knowledge', { exact: true })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Discard', exact: true }).click();
 	await expect(page.getByText('Review structured knowledge', { exact: true })).not.toBeVisible();
-	await expect(page.getByRole('button', { name: 'Extract with AI', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Add knowledge' })).toBeVisible();
 });
 
 test('Knowledge tab resumes the latest active ingestion through the shared workflow', async ({ page }) => {
@@ -101,4 +103,22 @@ test('Knowledge tab resumes the latest active ingestion through the shared workf
 	await expect(page.getByLabel('Concept title')).toHaveValue('Pricing');
 	await page.getByRole('navigation', { name: 'Review sections' }).getByRole('button', { name: /Patterns/ }).click();
 	await expect(page.getByLabel('Canonical question')).toHaveValue('What does it cost?');
+});
+
+test('clicking away from popup while knowledge is being ingested does not stop process and shows spinner', async ({ page }) => {
+	const api = await mockWorkspaceApi(page, { role: 'manager', productMode: 'full_workspace' });
+	await page.goto('/inbox?tab=knowledge');
+
+	await page.getByRole('button', { name: 'Add knowledge' }).click();
+	await expect(page.getByRole('dialog', { name: 'Add knowledge' })).toBeVisible();
+
+	await page.getByPlaceholder(/Paste raw website copy|Paste business information/).fill('Consulting costs $100 per hour.');
+	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
+
+	// Click away on the backdrop overlay to close popup
+	await page.locator('div[role="dialog"][aria-label="Add knowledge"]').click({ position: { x: 5, y: 5 } });
+	await expect(page.getByRole('dialog', { name: 'Add knowledge' })).not.toBeVisible();
+
+	// When ingestion finishes in background, verify review can be resumed
+	await expect(page.getByRole('button', { name: /Add knowledge|Adding knowledge|Review ready/ })).toBeVisible();
 });

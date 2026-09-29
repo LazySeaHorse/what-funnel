@@ -11,13 +11,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 )
 
 const (
@@ -46,14 +46,7 @@ func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
 	if len(secure) > 0 {
 		isSecure = secure[0]
 	} else {
-		env := strings.ToLower(os.Getenv("ENV"))
-		if env == "" {
-			env = strings.ToLower(os.Getenv("ENVIRONMENT"))
-		}
-		if env == "" {
-			env = strings.ToLower(os.Getenv("APP_ENV"))
-		}
-		isSecure = env == "production" || env == "prod" || os.Getenv("COOKIE_SECURE") == "true" || os.Getenv("COOKIE_SECURE") == "1"
+		isSecure = config.IsProduction() || os.Getenv("COOKIE_SECURE") == "true" || os.Getenv("COOKIE_SECURE") == "1"
 	}
 
 	return &Store{
@@ -342,7 +335,7 @@ func (j *Janitor) Run(ctx context.Context) error {
 // RevokeUserSessions deletes all active sessions for the given user.
 func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'user_id' = $1`,
+		`DELETE FROM sessions WHERE session_data_json(data)->>'user_id' = $1`,
 		userID.String())
 	return err
 }
@@ -350,7 +343,7 @@ func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error 
 // RevokeAccountSessions deletes all active sessions for the given account.
 func (s *Store) RevokeAccountSessions(ctx context.Context, accountID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE convert_from(data, 'UTF8')::jsonb->>'account_id' = $1`,
+		`DELETE FROM sessions WHERE session_data_json(data)->>'account_id' = $1`,
 		accountID.String())
 	return err
 }

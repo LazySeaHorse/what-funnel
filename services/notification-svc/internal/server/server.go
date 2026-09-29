@@ -1,10 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
@@ -29,6 +30,9 @@ type Client struct {
 	Conn      *websocket.Conn
 	Send      chan []byte
 	Hub       *Hub
+	// sessionReq carries the cookies of the upgrade request so the session can
+	// be re-validated against the store while the socket stays open.
+	sessionReq *http.Request
 }
 
 type Hub struct {
@@ -113,20 +117,16 @@ type Server struct {
 	logger         *slog.Logger
 	upgrader       websocket.Upgrader
 	allowedOrigins []string
-	serverHost     string
 	isProd         bool
 }
 
-func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins []string, isProd bool, serverHost ...string) *Server {
+func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins []string, isProd bool) *Server {
 	s := &Server{
 		hub:            hub,
 		sess:           sess,
 		logger:         logger,
 		allowedOrigins: allowedOrigins,
 		isProd:         isProd,
-	}
-	if len(serverHost) > 0 && strings.TrimSpace(serverHost[0]) != "" {
-		s.serverHost = strings.TrimSpace(serverHost[0])
 	}
 	s.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -136,46 +136,8 @@ func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins 
 	return s
 }
 
-func (s *Server) SetServerHost(host string) {
-	s.serverHost = strings.TrimSpace(host)
-}
-
-func splitHostPortStrict(rawHost string) (host string, port string) {
-	rawHost = strings.TrimSpace(rawHost)
-	if rawHost == "" {
-		return "", ""
-	}
-	h, p, err := net.SplitHostPort(rawHost)
-	if err != nil {
-		return strings.ToLower(rawHost), ""
-	}
-	return strings.ToLower(h), p
-}
-
-func normalizeHost(rawHost string, scheme string) string {
-	h, p := splitHostPortStrict(rawHost)
-	if h == "" {
-		return ""
-	}
-	scheme = strings.ToLower(scheme)
-	if (p == "443" && (scheme == "https" || scheme == "wss")) ||
-		(p == "80" && (scheme == "http" || scheme == "ws")) {
-		p = ""
-	}
-	if p != "" {
-		return net.JoinHostPort(h, p)
-	}
-	return h
-}
-
-func isHostMatching(originHost, originScheme, candidateHost string) bool {
-	normOrigin := normalizeHost(originHost, originScheme)
-	normCandidate := normalizeHost(candidateHost, originScheme)
-	return normOrigin != "" && normOrigin == normCandidate
-}
-
 func (s *Server) isAllowedHost(host string) bool {
-	norm := normalizeHost(host, "")
+	norm := middleware.NormalizeHost(host, "")
 	if norm == "" {
 		return false
 	}
@@ -185,10 +147,10 @@ func (s *Server) isAllowedHost(host string) bool {
 			continue
 		}
 		if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
-			if isHostMatching(host, "", parsedAllowed.Host) {
+			if middleware.IsHostMatching(host, "", parsedAllowed.Host) {
 				return true
 			}
-		} else if isHostMatching(host, "", allowed) {
+		} else if middleware.IsHostMatching(host, "", allowed) {
 			return true
 		}
 	}
@@ -214,6 +176,9 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 			continue
 		}
 		if allowed == "*" {
+			if s.isProd {
+				continue
+			}
 			return true
 		}
 		if strings.EqualFold(allowed, origin) {
@@ -223,10 +188,10 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 			if parsedAllowed.Scheme != "" && !strings.EqualFold(parsedAllowed.Scheme, u.Scheme) {
 				continue
 			}
-			if isHostMatching(u.Host, u.Scheme, parsedAllowed.Host) {
+			if middleware.IsHostMatching(u.Host, u.Scheme, parsedAllowed.Host) {
 				return true
 			}
-		} else if isHostMatching(u.Host, u.Scheme, allowed) {
+		} else if middleware.IsHostMatching(u.Host, u.Scheme, allowed) {
 			return true
 		}
 	}
@@ -241,31 +206,17 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 
 	// 3. Same-host check (origin matches Host or trusted X-Forwarded-Host)
 	// Never blindly trust client-supplied X-Forwarded-Host: only trust it if it matches
-	// the configured server host or explicit allowed origins.
-	var trustedHost string
-	if s.serverHost != "" {
-		if isHostMatching(r.Host, "", s.serverHost) || s.isAllowedHost(r.Host) {
-			trustedHost = s.serverHost
-		}
-		if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-			if isHostMatching(fwdHost, "", s.serverHost) {
-				trustedHost = s.serverHost
-			} else if s.isAllowedHost(fwdHost) {
-				trustedHost = fwdHost
-			}
-		}
-	} else {
-		trustedHost = r.Host
-		if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-			if isHostMatching(fwdHost, "", r.Host) {
-				trustedHost = fwdHost
-			} else if s.isAllowedHost(fwdHost) {
-				trustedHost = fwdHost
-			}
+	// the request host or explicit allowed origins.
+	trustedHost := r.Host
+	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		if middleware.IsHostMatching(fwdHost, "", r.Host) {
+			trustedHost = fwdHost
+		} else if s.isAllowedHost(fwdHost) {
+			trustedHost = fwdHost
 		}
 	}
 
-	if trustedHost != "" && isHostMatching(u.Host, u.Scheme, trustedHost) {
+	if trustedHost != "" && middleware.IsHostMatching(u.Host, u.Scheme, trustedHost) {
 		return true
 	}
 
@@ -310,6 +261,8 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		Conn:      conn,
 		Send:      make(chan []byte, 256),
 		Hub:       s.hub,
+		// Detach from the request context, which ends once the handler returns.
+		sessionReq: r.Clone(context.Background()),
 	}
 
 	if err := s.hub.RegisterClient(client); err != nil {
@@ -320,6 +273,74 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// Start loops
 	go client.writePump()
 	go client.readPump()
+}
+
+// DefaultRevalidateInterval is how often open sockets re-check their session.
+const DefaultRevalidateInterval = 45 * time.Second
+
+// RunRevalidation periodically re-validates every connected client's session
+// against the store until ctx is done. Sockets whose session no longer exists
+// (logout, revocation, expiry) are closed; sockets whose role changed pick up
+// the new role.
+func (s *Server) RunRevalidation(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = DefaultRevalidateInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.RevalidateClients()
+		}
+	}
+}
+
+// RevalidateClients performs one revalidation pass over all connected clients.
+func (s *Server) RevalidateClients() {
+	for _, client := range s.hub.snapshotClients() {
+		if client.sessionReq == nil {
+			continue
+		}
+		userID, ok := s.sess.GetUserID(client.sessionReq)
+		if !ok || userID != client.UserID {
+			s.logger.Info("closing websocket: session no longer valid", "user_id", client.UserID)
+			s.hub.UnregisterClient(client)
+			continue
+		}
+		accountID, ok := s.sess.GetAccountID(client.sessionReq)
+		if !ok || accountID != client.AccountID {
+			s.hub.UnregisterClient(client)
+			continue
+		}
+		role, ok := s.sess.GetRole(client.sessionReq)
+		if !ok {
+			s.hub.UnregisterClient(client)
+			continue
+		}
+		s.hub.updateRole(client, role)
+	}
+}
+
+func (h *Hub) snapshotClients() []*Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]*Client, 0, len(h.clients))
+	for c := range h.clients {
+		out = append(out, c)
+	}
+	return out
+}
+
+func (h *Hub) updateRole(client *Client, role string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[client]; ok && client.Role != role {
+		h.logger.Info("websocket client role changed", "user_id", client.UserID, "role", role)
+		client.Role = role
+	}
 }
 
 func (c *Client) writePump() {

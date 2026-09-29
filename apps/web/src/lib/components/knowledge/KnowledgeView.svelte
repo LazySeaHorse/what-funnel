@@ -7,7 +7,8 @@
 		CheckIcon,
 		XMarkIcon,
 		BookOpenIcon,
-		ChatBubbleLeftRightIcon
+		ChatBubbleLeftRightIcon,
+		PlusIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import IngestionReview from '$lib/components/knowledge/IngestionReview.svelte';
 	import KnowledgeComposer from '$lib/components/knowledge/KnowledgeComposer.svelte';
@@ -46,12 +47,15 @@
 	let pasteText = $state('');
 	let pasteResult = $state<{ added?: number; patternsAdded?: number; error?: string } | null>(null);
 	const ingestion = new KnowledgeIngestionController();
+	let showAddKnowledgeModal = $state(false);
 	let expandedConcepts = $state<Record<string, boolean>>({});
 	let mining = $state(false);
 	let miningResult = $state<{ messages_scanned?: number; clusters_found?: number; suggestions_created?: number } | null>(null);
 	let purging = $state(false);
 	let purgeResult = $state<{ concepts: number; patterns: number } | null>(null);
 	let purgeError = $state('');
+	let actionError = $state('');
+	let loadError = $state('');
 
 	// Active editing targets
 	let editingConceptId = $state<string | null>(null);
@@ -94,6 +98,7 @@
 
 	async function load(refresh = false) {
 		loading = !refresh;
+		loadError = '';
 		try {
 			const [conceptsRes, patternsRes, suggestionsRes, miningRes] = await Promise.allSettled([
 				apiRequest('/api/kb/concepts'),
@@ -113,6 +118,16 @@
 				});
 			}
 			if (miningRes.status === 'fulfilled') lastRun = miningRes.value?.last_run ?? null;
+			const failed = [
+				[conceptsRes, 'concepts'],
+				[patternsRes, 'patterns'],
+				[suggestionsRes, 'AI suggestions'],
+				[miningRes, 'the latest audit']
+			].filter(([res]) => (res as PromiseSettledResult<unknown>).status === 'rejected');
+			for (const [res, name] of failed) {
+				console.error(`Failed to load ${name}`, (res as PromiseRejectedResult).reason);
+			}
+			if (failed.length) loadError = `Failed to load ${failed.map(([, name]) => name).join(', ')}. Showing what could be loaded.`;
 		} finally {
 			loading = false;
 		}
@@ -124,7 +139,12 @@
 	});
 	onDestroy(() => ingestion.dispose());
 
+	function errorMessage(err: unknown, fallback: string) {
+		return err instanceof Error && err.message ? err.message : fallback;
+	}
+
 	async function deleteConcept(id: string) {
+		actionError = '';
 		if (!confirm('Delete this knowledge concept?')) return;
 		try {
 			await apiRequest(`/api/kb/concepts/${id}`, { method: 'DELETE' });
@@ -132,10 +152,12 @@
 			if (editingConceptId === id) editingConceptId = null;
 		} catch (err) {
 			console.error('Failed to delete concept', err);
+			actionError = errorMessage(err, 'Failed to delete the concept.');
 		}
 	}
 
 	async function deletePattern(id: string) {
+		actionError = '';
 		if (!confirm('Delete this pattern?')) return;
 		try {
 			await apiRequest(`/api/kb/patterns/${id}`, { method: 'DELETE' });
@@ -143,6 +165,7 @@
 			if (editingPatternId === id) editingPatternId = null;
 		} catch (err) {
 			console.error('Failed to delete pattern', err);
+			actionError = errorMessage(err, 'Failed to delete the pattern.');
 		}
 	}
 
@@ -174,19 +197,26 @@
 	function discardIngestion() {
 		ingestion.discard();
 		pasteResult = null;
+		showAddKnowledgeModal = false;
 	}
 
 	async function handleIngestionResult(result: Awaited<ReturnType<KnowledgeIngestionController['start']>>) {
 		if (result.status !== 'complete') return;
 		pasteResult = { added: result.conceptsAdded, patternsAdded: result.patternsAdded };
 		pasteText = '';
+		showAddKnowledgeModal = false;
 		await load(true);
 	}
 
 	async function resumeLatestIngestion() {
 		try {
 			const result = await ingestion.resumeLatest();
-			if (result) await handleIngestionResult(result);
+			if (result) {
+				await handleIngestionResult(result);
+				if (result.status === 'review_required' || ingestion.phase === 'review') {
+					showAddKnowledgeModal = true;
+				}
+			}
 		} catch (error: any) {
 			pasteResult = { error: error.message || 'Failed to resume knowledge ingestion' };
 		}
@@ -196,7 +226,8 @@
 		if (!pasteText.trim()) return;
 		pasteResult = null;
 		try {
-			await handleIngestionResult(await ingestion.start(pasteText));
+			const res = await ingestion.start(pasteText);
+			await handleIngestionResult(res);
 		} catch (error: any) {
 			pasteResult = { error: error.message || 'Failed to compile' };
 		}
@@ -205,34 +236,41 @@
 	async function publishIngestion() {
 		pasteResult = null;
 		try {
-			await handleIngestionResult(await ingestion.publish());
+			const res = await ingestion.publish();
+			await handleIngestionResult(res);
 		} catch (error: any) {
 			pasteResult = { error: error.message || 'Failed to publish knowledge' };
 		}
 	}
 
 	async function reviewSuggestion(id: string, action: 'approve' | 'reject') {
+		actionError = '';
 		try {
 			await apiRequest(`/api/kb/suggestions/${id}/${action}`, { method: 'POST', body: { reviewed_by: reviewerID } });
 			suggestions = suggestions.filter((suggestion) => suggestion.id !== id);
 			if (action === 'approve') await load(true);
 		} catch (err) {
 			console.error('Failed to review suggestion', err);
+			actionError = errorMessage(err, `Failed to ${action} the suggestion.`);
 		}
 	}
 
 	async function triggerMining() {
 		mining = true;
 		miningResult = null;
+		actionError = '';
 		try {
 			miningResult = await apiRequest('/api/kb/mine/trigger', { method: 'POST' });
 			await load(true);
 		} catch (err) {
 			console.error('Failed to trigger mining', err);
+			actionError = errorMessage(err, 'Failed to run the chat audit.');
 		} finally {
 			mining = false;
 		}
 	}
+
+	let reviewReady = $derived(ingestion.phase === 'review' && !showAddKnowledgeModal);
 
 	function formatDate(iso?: string | null) {
 		if (!iso) return 'Never';
@@ -257,6 +295,26 @@
 			</div>
 
 			<div class="flex flex-wrap items-center gap-2">
+				<!-- Add Knowledge Action -->
+				<Button
+					variant="primary"
+					size="sm"
+					onclick={() => (showAddKnowledgeModal = true)}
+					class="shadow-2xs"
+					title={ingestion.busy && !showAddKnowledgeModal ? 'Adding knowledge in background… (click to view)' : reviewReady ? 'Your knowledge is ready to review' : 'Add knowledge'}
+				>
+					{#if reviewReady}
+						<CheckIcon class="w-3.5 h-3.5" />
+						<span data-testid="review-ready">Review ready</span>
+					{:else if ingestion.busy && !showAddKnowledgeModal}
+						<span data-testid="add-knowledge-spinner" class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" aria-label="Ingesting knowledge" role="status"></span>
+						<span>Adding knowledge…</span>
+					{:else}
+						<PlusIcon class="w-3.5 h-3.5" />
+						<span>Add knowledge</span>
+					{/if}
+				</Button>
+
 				<!-- Purge Action -->
 				<Button
 					variant="danger"
@@ -265,7 +323,9 @@
 					disabled={purging || ingestion.phase !== 'idle'}
 					busy={purging}
 					class="shadow-2xs"
-					title="Permanently remove all concepts and deterministic patterns"
+					title={ingestion.phase !== 'idle'
+						? 'Finish or discard the knowledge currently being added before purging'
+						: 'Permanently remove all concepts and deterministic patterns'}
 				>
 					<TrashIcon class="w-3.5 h-3.5" />
 					<span>Purge knowledge base</span>
@@ -352,6 +412,38 @@
 				</button>
 			</div>
 		{/if}
+		{#if loadError || actionError}
+			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs" role="alert" data-testid="knowledge-error">
+				<div class="flex items-center gap-2">
+					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
+					<span>{actionError || loadError}</span>
+				</div>
+				<button type="button" onclick={() => { if (actionError) actionError = ''; else loadError = ''; }} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
+					<XMarkIcon class="w-4 h-4" />
+				</button>
+			</div>
+		{/if}
+		{#if pasteResult?.added !== undefined}
+			<div class="px-3.5 py-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between gap-2 shadow-2xs">
+				<div class="flex items-center gap-2">
+					<CheckIcon class="w-4 h-4 text-emerald-600 shrink-0" />
+					<span>{pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} and {pasteResult.patternsAdded ?? 0} pattern{pasteResult.patternsAdded !== 1 ? 's' : ''} added</span>
+				</div>
+				<button type="button" onclick={() => (pasteResult = null)} class="text-emerald-500 hover:text-emerald-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
+					<XMarkIcon class="w-4 h-4" />
+				</button>
+			</div>
+		{:else if pasteResult?.error && !showAddKnowledgeModal}
+			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs">
+				<div class="flex items-center gap-2">
+					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
+					<span>{pasteResult.error}</span>
+				</div>
+				<button type="button" onclick={() => (pasteResult = null)} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
+					<XMarkIcon class="w-4 h-4" />
+				</button>
+			</div>
+		{/if}
 	</header>
 
 	{#if loading}
@@ -360,41 +452,6 @@
 		</div>
 	{:else if activeTab === 'concepts'}
 		<div class="flex-1 overflow-y-auto min-h-0 flex flex-col">
-			<!-- Ingestion Review / Paste Composer Area -->
-			<div class="px-6 py-4 border-b border-slate-100 shrink-0">
-				{#if ingestion.phase === 'review'}
-					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-						<div>
-							<div class="text-sm font-medium text-slate-900">Review structured knowledge</div>
-							<div class="text-xs text-slate-500 mt-0.5">The same concept and deterministic-pattern review used during onboarding.</div>
-						</div>
-						<div class="flex items-center gap-2">
-							<Button variant="secondary" size="sm" onclick={discardIngestion} disabled={ingestion.busy}>
-								Discard
-							</Button>
-							<Button variant="primary" size="sm" onclick={publishIngestion} disabled={ingestion.busy} busy={ingestion.busy}>
-								Add selected to Knowledge Base
-							</Button>
-						</div>
-					</div>
-					{#if pasteResult?.error}
-						<div class="mb-3 flex items-center gap-1.5 text-xs text-rose-600 font-medium">
-							<XMarkIcon class="w-4 h-4" />
-							<span>{pasteResult.error}</span>
-						</div>
-					{/if}
-					<div class="pr-1"><IngestionReview bind:concepts={ingestion.concepts} bind:patterns={ingestion.patterns} /></div>
-				{:else}
-					<KnowledgeComposer
-						bind:value={pasteText}
-						busy={ingestion.busy}
-						phase={ingestion.phase}
-						result={pasteResult}
-						onSubmit={compilePaste}
-					/>
-				{/if}
-			</div>
-
 			<!-- Concepts List -->
 			<div class="flex-1 overflow-y-auto px-6 py-4">
 				{#if filteredConcepts.length === 0}
@@ -403,10 +460,10 @@
 							<BookOpenIcon class="w-6 h-6" />
 						</div>
 						<div class="text-sm font-medium text-slate-800">
-							{searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
+							{loadError ? 'Knowledge concepts could not be loaded' : searchQuery.trim() ? 'No matching knowledge concepts' : 'No knowledge concepts found'}
 						</div>
 						<div class="text-xs text-slate-500 mt-1">
-							{searchQuery.trim() ? 'Try adjusting your search terms' : 'Paste business information above and click "Extract with AI"'}
+							{searchQuery.trim() ? 'Try adjusting your search terms' : 'Click "Add knowledge" above to extract concepts with AI'}
 						</div>
 					</div>
 				{:else}
@@ -516,3 +573,74 @@
 		</div>
 	{/if}
 </div>
+
+<svelte:window onkeydown={(e) => { if (showAddKnowledgeModal && e.key === 'Escape') showAddKnowledgeModal = false; }} />
+
+{#if showAddKnowledgeModal}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Add knowledge"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) {
+				showAddKnowledgeModal = false;
+			}
+		}}
+	>
+		<div
+			class="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 p-6 shadow-xl space-y-4"
+		>
+			<div class="flex items-center justify-between pb-2 border-b border-slate-100">
+				<div>
+					<h3 class="text-sm font-medium text-slate-900">
+						{ingestion.phase === 'review' ? 'Review structured knowledge' : 'Add knowledge'}
+					</h3>
+					<p class="text-xs text-slate-500 mt-0.5">
+						{ingestion.phase === 'review'
+							? 'Review concepts and deterministic patterns before adding them to your knowledge base.'
+							: 'Paste business facts, policies, FAQs, or pricing to automatically extract structured concepts.'}
+					</p>
+				</div>
+				<button
+					type="button"
+					onclick={() => (showAddKnowledgeModal = false)}
+					aria-label="Close dialog"
+					class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer shrink-0"
+				>
+					<XMarkIcon class="w-4 h-4" />
+				</button>
+			</div>
+
+			{#if ingestion.phase === 'review'}
+				<div class="space-y-3">
+					{#if pasteResult?.error}
+						<div class="flex items-center gap-1.5 text-xs text-rose-600 font-medium">
+							<XMarkIcon class="w-4 h-4" />
+							<span>{pasteResult.error}</span>
+						</div>
+					{/if}
+					<div class="max-h-[60vh] overflow-y-auto pr-1">
+						<IngestionReview bind:concepts={ingestion.concepts} bind:patterns={ingestion.patterns} />
+					</div>
+					<div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+						<Button variant="secondary" size="sm" onclick={discardIngestion} disabled={ingestion.busy}>
+							Discard
+						</Button>
+						<Button variant="primary" size="sm" onclick={publishIngestion} disabled={ingestion.busy} busy={ingestion.busy}>
+							Add selected to Knowledge Base
+						</Button>
+					</div>
+				</div>
+			{:else}
+				<KnowledgeComposer
+					bind:value={pasteText}
+					busy={ingestion.busy}
+					phase={ingestion.phase}
+					result={pasteResult}
+					onSubmit={compilePaste}
+				/>
+			{/if}
+		</div>
+	</div>
+{/if}
