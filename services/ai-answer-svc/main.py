@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from pydantic import BaseModel, create_model
 
-from config import config
+from config import config, internal_service_token
 from db import ScopedDB, create_db_pool
 from llm import get_ai_config, provider_client
 from matcher import match_tier1_patterns
@@ -57,7 +57,7 @@ async def send_ai_message(
     idempotency_key: str,
 ):
     send_url = f"http://conversation-svc:8083/internal/conversations/{conversation_id}/send"
-    secret = os.getenv("INTERNAL_SERVICE_TOKEN") or os.getenv("SESSION_SECRET") or config.INTERNAL_SERVICE_TOKEN
+    secret = internal_service_token()
     headers = {
         "X-Internal-Token": secret,
         "X-Account-ID": str(account_id),

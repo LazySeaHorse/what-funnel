@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 
 import kb_service
 from audit import write_audit_log
-from auth import get_db, get_internal_token, verify_internal_auth
+from auth import get_db, verify_internal_auth
 from config import config
 from db import ScopedDB, create_db_pool
 from ingestions import run_worker, stop_worker
