@@ -13,6 +13,9 @@ export interface AIReplyDraft {
 	updated_at: string;
 }
 
+// crypto.randomUUID is unavailable in insecure (plain-http, non-localhost) contexts.
+let optimisticSeq = 0;
+
 export class InboxState {
 	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; replyToMessageID: string | null; sending: boolean; error: string }>>({});
 	aiControlPending = $state<Record<string, boolean>>({});
@@ -332,7 +335,7 @@ export class InboxState {
 		const pendingDraftID = this.replyDrafts[convoID]?.id;
 
 		// Optimistic update: append message immediately, clear composer for instant feedback
-		const optimisticID = `__optimistic__${crypto.randomUUID()}`;
+		const optimisticID = `__optimistic__${Date.now()}_${++optimisticSeq}`;
 		if (this.activeConvoID === convoID) {
 			this.messages = [...this.messages, {
 				id: optimisticID,
