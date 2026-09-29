@@ -7,6 +7,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -19,13 +21,35 @@ import (
 // DefaultInternalServiceToken is the placeholder secret that must never be accepted.
 const DefaultInternalServiceToken = "change-me-in-production-at-least-32-chars"
 
-// InternalServiceSecret retrieves the configured secret for internal service-to-service communication.
+// MinInternalServiceTokenLength is the minimum accepted length of INTERNAL_SERVICE_TOKEN.
+const MinInternalServiceTokenLength = 32
+
+// InternalServiceSecret retrieves the configured secret for internal
+// service-to-service communication. It is sourced only from
+// INTERNAL_SERVICE_TOKEN; SESSION_SECRET is never reused for this purpose.
 func InternalServiceSecret() string {
-	secret := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
-	if secret == "" {
-		secret = strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+	return strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+}
+
+// ValidateInternalServiceToken verifies that a usable INTERNAL_SERVICE_TOKEN is
+// configured (at least 32 chars and not the known placeholder). Services that
+// rely on internal auth call this at startup. Setting
+// ALLOW_INSECURE_INTERNAL_AUTH=true bypasses the check (development only).
+func ValidateInternalServiceToken() error {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_INSECURE_INTERNAL_AUTH")), "true") {
+		return nil
 	}
-	return secret
+	secret := InternalServiceSecret()
+	if secret == "" {
+		return errors.New("INTERNAL_SERVICE_TOKEN is required")
+	}
+	if secret == DefaultInternalServiceToken {
+		return errors.New("INTERNAL_SERVICE_TOKEN must not be the default placeholder")
+	}
+	if len(secret) < MinInternalServiceTokenLength {
+		return fmt.Errorf("INTERNAL_SERVICE_TOKEN must be at least %d characters", MinInternalServiceTokenLength)
+	}
+	return nil
 }
 
 // IsAuthorizedInternalCall checks whether the provided internal token matches the expected service secret
@@ -53,6 +77,12 @@ type sessionStore interface {
 	GetUserID(r *http.Request) (uuid.UUID, bool)
 	GetAccountID(r *http.Request) (uuid.UUID, bool)
 	GetRole(r *http.Request) (string, bool)
+}
+
+// fullSessionStore is optionally implemented by stores that can return the whole
+// session in one lookup, avoiding one backing-store query per field.
+type fullSessionStore interface {
+	GetSession(r *http.Request) (map[string]string, error)
 }
 
 // SessionMiddleware is the concrete middleware implementation.
@@ -99,22 +129,50 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 			}
 		}
 
+		var username string
 		if !authenticated {
-			var ok bool
-			userID, ok = m.store.GetUserID(r)
-			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
-				return
-			}
-			accountID, ok = m.store.GetAccountID(r)
-			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing account"})
-				return
-			}
-			role, ok = m.store.GetRole(r)
-			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
-				return
+			// Prefer a single session lookup per request when the store supports it.
+			if full, ok := m.store.(fullSessionStore); ok {
+				data, err := full.GetSession(r)
+				if err != nil {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
+					return
+				}
+				var perr error
+				if userID, perr = uuid.Parse(data["user_id"]); perr != nil {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
+					return
+				}
+				if accountID, perr = uuid.Parse(data["account_id"]); perr != nil {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing account"})
+					return
+				}
+				var ok bool
+				if role, ok = data["role"]; !ok {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
+					return
+				}
+				username = data["username"]
+			} else {
+				var ok bool
+				userID, ok = m.store.GetUserID(r)
+				if !ok {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
+					return
+				}
+				accountID, ok = m.store.GetAccountID(r)
+				if !ok {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing account"})
+					return
+				}
+				role, ok = m.store.GetRole(r)
+				if !ok {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
+					return
+				}
+				if uStore, ok := m.store.(interface{ GetUsername(r *http.Request) (string, bool) }); ok {
+					username, _ = uStore.GetUsername(r)
+				}
 			}
 		}
 
@@ -122,11 +180,8 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 		ctx = withValue(ctx, types.ContextKeyUserID, userID)
 		ctx = withValue(ctx, types.ContextKeyAccountID, accountID)
 		ctx = withValue(ctx, types.ContextKeyUserRole, role)
-
-		if uStore, ok := m.store.(interface{ GetUsername(r *http.Request) (string, bool) }); ok {
-			if username, ok := uStore.GetUsername(r); ok && username != "" {
-				ctx = withValue(ctx, types.ContextKeyUsername, username)
-			}
+		if username != "" {
+			ctx = withValue(ctx, types.ContextKeyUsername, username)
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -136,17 +191,9 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 // RequireRole rejects requests where the authenticated user's role does not
 // match one of the allowed roles. Must be chained after RequireAuthenticated.
 func RequireRole(roles ...string) func(http.Handler) http.Handler {
-	allowed := make(map[string]bool, len(roles)*2)
+	allowed := make(map[string]bool, len(roles))
 	for _, r := range roles {
 		allowed[r] = true
-		if r == "manager" || r == "admin" {
-			allowed["admin"] = true
-			allowed["manager"] = true
-		}
-		if r == "agent" || r == "member" {
-			allowed["agent"] = true
-			allowed["member"] = true
-		}
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

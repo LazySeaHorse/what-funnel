@@ -17,7 +17,7 @@ func TestPoolConfig_Defaults(t *testing.T) {
 	cfg, err := PoolConfig("postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable")
 	require.NoError(t, err)
 
-	assert.Equal(t, int32(3), cfg.MaxConns)
+	assert.Equal(t, int32(10), cfg.MaxConns)
 	assert.Equal(t, int32(1), cfg.MinConns)
 	assert.Equal(t, 5*time.Minute, cfg.MaxConnIdleTime)
 	assert.Equal(t, 30*time.Minute, cfg.MaxConnLifetime)

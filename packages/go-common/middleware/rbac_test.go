@@ -358,11 +358,11 @@ func TestIsAuthorizedInternalCall_Matrix(t *testing.T) {
 			want:          true,
 		},
 		{
-			name:          "valid fallback to session secret matches",
+			name:          "session secret is never used as internal token",
 			internalToken: "",
 			sessionSecret: validSecret,
 			providedToken: validSecret,
-			want:          true,
+			want:          false,
 		},
 		{
 			name:          "internal service token takes precedence over session secret",
@@ -391,3 +391,65 @@ func TestIsAuthorizedInternalCall_Matrix(t *testing.T) {
 }
 
 
+
+func TestValidateInternalServiceToken(t *testing.T) {
+	const valid = "secure-random-internal-token-32-chars"
+	tests := []struct {
+		name     string
+		token    string
+		insecure string
+		wantErr  bool
+	}{
+		{"missing", "", "", true},
+		{"too short", "short", "", true},
+		{"default placeholder", middleware.DefaultInternalServiceToken, "", true},
+		{"valid", valid, "", false},
+		{"insecure escape hatch", "", "true", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("INTERNAL_SERVICE_TOKEN", tc.token)
+			t.Setenv("ALLOW_INSECURE_INTERNAL_AUTH", tc.insecure)
+			err := middleware.ValidateInternalServiceToken()
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+type countingSessionStore struct {
+	calls int
+	data  map[string]string
+}
+
+func (c *countingSessionStore) GetSession(*http.Request) (map[string]string, error) {
+	c.calls++
+	return c.data, nil
+}
+func (c *countingSessionStore) GetUserID(*http.Request) (uuid.UUID, bool)    { panic("per-field lookup") }
+func (c *countingSessionStore) GetAccountID(*http.Request) (uuid.UUID, bool) { panic("per-field lookup") }
+func (c *countingSessionStore) GetRole(*http.Request) (string, bool)         { panic("per-field lookup") }
+
+func TestRequireAuthenticated_FetchesSessionOnce(t *testing.T) {
+	uid, aid := uuid.New(), uuid.New()
+	store := &countingSessionStore{data: map[string]string{
+		"user_id": uid.String(), "account_id": aid.String(), "role": "manager", "username": "alice",
+	}}
+	m := middleware.NewSessionMiddleware(store)
+
+	var gotName string
+	h := m.RequireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotName, _ = middleware.UsernameFromContext(r)
+		got, _ := middleware.UserIDFromContext(r)
+		assert.Equal(t, uid, got)
+	}))
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/x", nil)
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, "alice", gotName)
+}
