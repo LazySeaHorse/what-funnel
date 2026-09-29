@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -26,21 +25,21 @@ type aiControlTransition struct {
 
 func parseAIControlCommand(action, replyOverride string) (aiControlCommand, error) {
 	if action == "" && replyOverride == "" {
-		return aiControlCommand{}, errors.New("an action or reply_override is required")
+		return aiControlCommand{}, invalidf("an action or reply_override is required")
 	}
 
 	cmd := aiControlCommand{}
 	if action != "" {
 		cmd.action = types.AIControlAction(action)
 		if !cmd.action.Valid() {
-			return aiControlCommand{}, errors.New("invalid AI control action")
+			return aiControlCommand{}, invalidf("invalid AI control action")
 		}
 		cmd.hasAction = true
 	}
 	if replyOverride != "" {
 		cmd.replyOverride = types.AIReplyOverride(replyOverride)
 		if !cmd.replyOverride.Valid() {
-			return aiControlCommand{}, errors.New("invalid reply_override")
+			return aiControlCommand{}, invalidf("invalid reply_override")
 		}
 		cmd.hasReplyOverride = true
 	}
@@ -53,7 +52,7 @@ func planAIControlTransition(current types.AIState, cmd aiControlCommand, canUnb
 		return transition, nil
 	}
 	if cmd.action == types.AIControlActionResume && current == types.AIStateBlockedSpam && !canUnblockSpam {
-		return aiControlTransition{}, errors.New("manager role required to unblock suspected spam")
+		return aiControlTransition{}, forbiddenf("manager role required to unblock suspected spam")
 	}
 
 	transition.stateChanged = true
@@ -80,7 +79,7 @@ func lockConversationAIState(ctx context.Context, tx pgx.Tx, accountID, conversa
 		FOR UPDATE
 	`, conversationID, accountID).Scan(&state)
 	if err == pgx.ErrNoRows {
-		return "", errors.New("conversation not found")
+		return "", notFoundf("conversation not found")
 	}
 	if err != nil {
 		return "", fmt.Errorf("lock conversation AI state: %w", err)

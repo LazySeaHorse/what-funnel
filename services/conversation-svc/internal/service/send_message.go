@@ -34,13 +34,13 @@ func (c sendMessageCommand) ai() bool    { return c.sender == types.MessageSende
 
 func (c sendMessageCommand) validate() error {
 	if !c.human() && !c.ai() {
-		return fmt.Errorf("invalid sender_type: %q", c.sender)
+		return invalidf("invalid sender_type: %q", c.sender)
 	}
 	if c.aiReplyDraftID != nil && !c.human() {
-		return errors.New("AI reply drafts can only be used by a human sender")
+		return invalidf("AI reply drafts can only be used by a human sender")
 	}
 	if c.ai() && c.generationEpoch == nil {
-		return errors.New("generation_epoch is required for AI messages")
+		return invalidf("generation_epoch is required for AI messages")
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func (s *ConversationService) sendMessage(ctx context.Context, cmd sendMessageCo
 		return nil, err
 	}
 	if cmd.replyToMessageID != nil && !destination.capabilities.Replies {
-		return nil, errors.New("this messaging provider does not support replies")
+		return nil, invalidf("this messaging provider does not support replies")
 	}
 	if err = resolveReplyTarget(ctx, tx, &cmd); err != nil {
 		return nil, err
@@ -195,7 +195,7 @@ func authorizeAIMessage(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand) 
 		allowed = state == types.AIStateCooldown || state == types.AIStateReviewRequired
 	}
 	if !allowed || currentEpoch != *cmd.generationEpoch {
-		return errors.New("stale or unauthorized AI message")
+		return conflictf("stale or unauthorized AI message")
 	}
 	return nil
 }
@@ -213,7 +213,7 @@ func loadOutboundDestination(ctx context.Context, tx pgx.Tx, accountID, conversa
 		FOR UPDATE OF c
 	`, conversationID, accountID).Scan(&destination.channelID, &destination.provider, &destination.externalIdentity, &capabilityJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return outboundDestination{}, errors.New("conversation not found")
+		return outboundDestination{}, notFoundf("conversation not found")
 	}
 	if err != nil {
 		return outboundDestination{}, fmt.Errorf("lookup conversation details: %w", err)
@@ -235,7 +235,7 @@ func lockReplyDraft(ctx context.Context, tx pgx.Tx, cmd sendMessageCommand) erro
 		FOR UPDATE
 	`, *cmd.aiReplyDraftID, cmd.accountID, cmd.conversationID).Scan(&draftID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("reply draft not found")
+		return notFoundf("reply draft not found")
 	}
 	if err != nil {
 		return fmt.Errorf("lock AI reply draft: %w", err)
@@ -253,7 +253,7 @@ func resolveReplyTarget(ctx context.Context, tx pgx.Tx, cmd *sendMessageCommand)
 		  AND provider_message_id IS NOT NULL AND deleted_at IS NULL
 	`, *cmd.replyToMessageID, cmd.accountID, cmd.conversationID).Scan(&cmd.replyToProviderID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("reply target is unavailable")
+		return invalidf("reply target is unavailable")
 	}
 	if err != nil {
 		return fmt.Errorf("resolve reply target: %w", err)
@@ -301,7 +301,7 @@ func insertOutboxCommand(
 ) error {
 	contentType := messaging.ContentType(cmd.contentType)
 	if !contentType.Valid() || contentType == messaging.ContentNotice {
-		return fmt.Errorf("unsupported outbound content type %q", cmd.contentType)
+		return invalidf("unsupported outbound content type %q", cmd.contentType)
 	}
 	normalized := &messaging.Message{
 		ExternalThreadID: destination.externalIdentity,
@@ -317,7 +317,7 @@ func insertOutboxCommand(
 	if cmd.mediaID != "" {
 		mediaID, err := uuid.Parse(cmd.mediaID)
 		if err != nil {
-			return errors.New("invalid outbound media id")
+			return invalidf("invalid outbound media id")
 		}
 		var media messaging.Media
 		err = tx.QueryRow(ctx, `
@@ -329,7 +329,7 @@ func insertOutboxCommand(
 			&media.ID, &media.Filename, &media.MIMEType, &media.SizeBytes,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("outbound media is unavailable")
+			return invalidf("outbound media is unavailable")
 		}
 		if err != nil {
 			return fmt.Errorf("load outbound media: %w", err)

@@ -57,14 +57,14 @@ func (s *LeadService) getLeadAndCheckVisibility(ctx context.Context, accountID, 
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("lead not found")
+			return nil, notFoundf("lead not found")
 		}
 		return nil, err
 	}
 	lead.CreatedBy = leadCreatedBy
 
 	if err := canSeeConversation(ctx, s.pool, accountID, userID, lead.ConversationID, userRole); err != nil {
-		return nil, fmt.Errorf("lead not found")
+		return nil, notFoundf("lead not found")
 	}
 	return &lead, nil
 }
@@ -118,7 +118,7 @@ func (s *LeadService) CreateLead(ctx context.Context, accountID, userID, convoID
 		return nil, fmt.Errorf("get lead pipeline: %w", err)
 	}
 	if initialPipeline == nil {
-		return nil, fmt.Errorf("pipeline has no states configured")
+		return nil, invalidf("pipeline has no states configured")
 	}
 	pipelineID := initialPipeline.ID
 	firstStateKey := initialPipeline.FirstStateKey
@@ -236,7 +236,7 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 		}
 	}
 	if !validState {
-		return nil, fmt.Errorf("invalid state key: %q", targetStateKey)
+		return nil, invalidf("invalid state key: %q", targetStateKey)
 	}
 
 	fromState := currentStateKey
@@ -342,7 +342,7 @@ func (s *LeadService) CreateLeadNote(ctx context.Context, accountID, userID uuid
 		return nil, err
 	}
 	if body == "" {
-		return nil, fmt.Errorf("note body cannot be empty")
+		return nil, invalidf("note body cannot be empty")
 	}
 
 	tx, err := s.pool.Begin(ctx)

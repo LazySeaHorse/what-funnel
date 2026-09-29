@@ -285,12 +285,12 @@ func (s *IngestionService) SimulateInbound(
 		channelID, accountID,
 	).Scan(&provider); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("channel not found or not owned by account")
+			return notFoundf("channel not found or not owned by account")
 		}
 		return fmt.Errorf("channel lookup failed: %w", err)
 	}
 	if !provider.Valid() {
-		return errors.New("channel does not use a supported provider adapter")
+		return invalidf("channel does not use a supported provider adapter")
 	}
 
 	now := time.Now().UTC()
@@ -319,7 +319,7 @@ func (s *IngestionService) SimulateInbound(
 		Message:       message,
 	}
 	if err := event.Validate(); err != nil {
-		return fmt.Errorf("validate simulated event: %w", err)
+		return invalidf("invalid simulated event: %v", err)
 	}
 
 	if _, err := s.pubsub.Publish(ctx, "adapter.events", event); err != nil {

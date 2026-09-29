@@ -145,14 +145,14 @@ func (s *MediaService) SaveOutboundMedia(
 	source io.Reader,
 ) (MediaObject, error) {
 	if source == nil {
-		return MediaObject{}, errors.New("media file is required")
+		return MediaObject{}, invalidf("media file is required")
 	}
 	var channelID uuid.UUID
 	if err := s.pool.QueryRow(ctx, `
 		SELECT channel_id FROM conversations WHERE id = $1 AND account_id = $2
 	`, conversationID, accountID).Scan(&channelID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return MediaObject{}, errors.New("conversation not found")
+			return MediaObject{}, notFoundf("conversation not found")
 		}
 		return MediaObject{}, fmt.Errorf("resolve media conversation: %w", err)
 	}
@@ -162,7 +162,7 @@ func (s *MediaService) SaveOutboundMedia(
 		return MediaObject{}, fmt.Errorf("read media upload: %w", err)
 	}
 	if len(data) == 0 {
-		return MediaObject{}, errors.New("media file is empty")
+		return MediaObject{}, invalidf("media file is empty")
 	}
 	if int64(len(data)) > messaging.MaxMediaBytes {
 		return MediaObject{}, messaging.ErrMediaTooLarge
@@ -231,7 +231,7 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 		&media.ExpiresAt, &channelID, &provider, &providerRef, &storageKey,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return MediaContent{}, errors.New("media not found")
+		return MediaContent{}, notFoundf("media not found")
 	}
 	if err != nil {
 		return MediaContent{}, fmt.Errorf("load media: %w", err)
@@ -254,14 +254,14 @@ func (s *MediaService) OpenMedia(ctx context.Context, accountID *uuid.UUID, medi
 		}
 	}
 	if providerRef == nil || *providerRef == "" {
-		return MediaContent{}, errors.New("media expired")
+		return MediaContent{}, notFoundf("media expired")
 	}
 
 	s.mediaMu.RLock()
 	fetcher := s.mediaFetchers[provider]
 	s.mediaMu.RUnlock()
 	if fetcher == nil {
-		return MediaContent{}, errors.New("media provider unavailable")
+		return MediaContent{}, notFoundf("media provider unavailable")
 	}
 	downloaded, err := fetcher.Download(ctx, channelID.String(), *providerRef)
 	if err != nil {

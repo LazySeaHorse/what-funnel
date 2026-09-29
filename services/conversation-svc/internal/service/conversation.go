@@ -43,14 +43,14 @@ func canSeeConversation(ctx context.Context, pool *pgxpool.Pool, accountID, user
 		JOIN accounts a ON c.account_id = a.id
 		WHERE c.id = $1 AND c.account_id = $2
 	`, convoID, accountID).Scan(&assignedUserIDs, &settingsBytes)
-	if err == pgx.ErrNoRows {
-		return errors.New("conversation not found")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notFoundf("conversation not found")
 	}
 	if err != nil {
 		return fmt.Errorf("check conversation visibility: %w", err)
 	}
 	if !types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes)) {
-		return errors.New("conversation not found")
+		return notFoundf("conversation not found")
 	}
 	return nil
 }
@@ -294,13 +294,13 @@ func (s *ConversationService) GetConversation(ctx context.Context, accountID, us
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, errors.New("conversation not found")
+			return nil, notFoundf("conversation not found")
 		}
 		return nil, err
 	}
 
 	if !types.CanSeeConversation(userRole, userID, d.item.Conversation.AssignedUserIDs, unassignedVisible) {
-		return nil, errors.New("conversation not found")
+		return nil, notFoundf("conversation not found")
 	}
 
 	return d.item, nil
@@ -326,7 +326,7 @@ func (s *ConversationService) GetConversationMessages(ctx context.Context, accou
 	if beforeCursor != "" {
 		cursorTime, cursorID, err := decodeCursor(beforeCursor)
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid cursor: %w", err)
+			return nil, "", invalidf("invalid cursor: %v", err)
 		}
 		args = append(args, cursorTime, cursorID)
 		sqlQuery += fmt.Sprintf(" AND (created_at < $%d OR (created_at = $%d AND id < $%d))", len(args)-1, len(args)-1, len(args))
@@ -564,7 +564,7 @@ func decodeCursor(cursorStr string) (time.Time, uuid.UUID, error) {
 	}
 	parts := strings.SplitN(string(b), ",", 2)
 	if len(parts) != 2 {
-		return time.Time{}, uuid.Nil, fmt.Errorf("invalid cursor format")
+		return time.Time{}, uuid.Nil, invalidf("invalid cursor format")
 	}
 	t, err := time.Parse(time.RFC3339Nano, parts[0])
 	if err != nil {

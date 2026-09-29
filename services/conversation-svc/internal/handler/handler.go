@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -83,4 +85,31 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// writeServiceError maps a service error to an HTTP response. Categorized
+// service errors carry client-safe messages; anything else is an internal
+// failure that is logged and reported with a generic message.
+func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
+	var status int
+	var category error
+	switch {
+	case errors.Is(err, service.ErrNotFound):
+		status, category = http.StatusNotFound, service.ErrNotFound
+	case errors.Is(err, service.ErrForbidden):
+		status, category = http.StatusForbidden, service.ErrForbidden
+	case errors.Is(err, service.ErrValidation):
+		status, category = http.StatusBadRequest, service.ErrValidation
+	case errors.Is(err, service.ErrConflict):
+		status, category = http.StatusConflict, service.ErrConflict
+	default:
+		slog.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	msg, ok := service.ClientMessage(err)
+	if !ok {
+		msg = category.Error()
+	}
+	writeError(w, status, msg)
 }
