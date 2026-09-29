@@ -1,9 +1,12 @@
 package adapterkit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +159,33 @@ func TestCommandConsumer_ConsumeError(t *testing.T) {
 
 	if err := consumer.Run(context.Background()); err == nil {
 		t.Fatal("expected error from Run(), got nil")
+	}
+}
+
+func TestCommandConsumer_LogsDroppedCommands(t *testing.T) {
+	var logs bytes.Buffer
+	mock := &mockStreamConsumer{}
+	consumer := NewCommandConsumer(mock, &recordSender{}, ConsumerConfig{
+		Provider:     messaging.ProviderTelegram,
+		ConsumerName: "worker-1",
+		Logger:       slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	if err := consumer.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waPayload, _ := json.Marshal(validTestCommand(messaging.ProviderWhatsApp))
+	invalid := validTestCommand(messaging.ProviderTelegram)
+	invalid.ChannelID = ""
+	invalidPayload, _ := json.Marshal(invalid)
+	for id, payload := range map[string][]byte{"s-1": []byte("nope"), "s-2": waPayload, "s-3": invalidPayload} {
+		if err := mock.handler(context.Background(), id, payload); err != nil {
+			t.Fatalf("handler(%s) error = %v", id, err)
+		}
+	}
+	out := logs.String()
+	for _, want := range []string{"undecodable", "another provider", "invalid adapter command", "stream_id=s-1", "stream_id=s-2", "stream_id=s-3", "command_id=cmd-1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output missing %q:\n%s", want, out)
+		}
 	}
 }

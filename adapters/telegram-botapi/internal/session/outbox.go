@@ -2,7 +2,9 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -57,8 +59,11 @@ func (m *Manager) publishEventOnce(ctx context.Context) error {
 		SELECT event_id, payload FROM adapter_event_outbox
 		WHERE available_at <= ? ORDER BY available_at, event_id LIMIT 1
 	`, time.Now().UnixMilli()).Scan(&eventID, &payload)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load queued telegram event: %w", err)
 	}
 	var event messaging.Event
 	if err := json.Unmarshal(payload, &event); err != nil {

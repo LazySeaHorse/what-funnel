@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 )
@@ -22,8 +23,9 @@ type CommandSender interface {
 type ConsumerConfig struct {
 	Provider     messaging.Provider
 	ConsumerName string
-	Stream       string // defaults to "adapter.commands." + Provider
-	Group        string // defaults to Provider + "-adapter"
+	Stream       string       // defaults to "adapter.commands." + Provider
+	Group        string       // defaults to Provider + "-adapter"
+	Logger       *slog.Logger // defaults to slog.Default()
 }
 
 // CommandConsumer consumes commands from a Redis stream for a specific messaging provider.
@@ -40,6 +42,9 @@ func NewCommandConsumer(client StreamConsumer, sender CommandSender, cfg Consume
 	}
 	if cfg.Group == "" {
 		cfg.Group = string(cfg.Provider) + "-adapter"
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
 	}
 	return &CommandConsumer{
 		client: client,
@@ -73,12 +78,21 @@ func (c *CommandConsumer) Run(ctx context.Context) error {
 		c.cfg.Stream,
 		c.cfg.Group,
 		c.cfg.ConsumerName,
-		func(ctx context.Context, _ string, payload []byte) error {
+		func(ctx context.Context, id string, payload []byte) error {
+			// Unprocessable commands are acknowledged (retrying cannot fix them) but never silently.
 			var command messaging.Command
 			if err := json.Unmarshal(payload, &command); err != nil {
+				c.cfg.Logger.Warn("dropping undecodable adapter command", "provider", c.cfg.Provider, "stream_id", id, "error", err)
 				return nil
 			}
-			if err := command.Validate(); err != nil || command.Provider != c.cfg.Provider {
+			if command.Provider != c.cfg.Provider {
+				c.cfg.Logger.Warn("dropping adapter command for another provider", "provider", c.cfg.Provider,
+					"stream_id", id, "command_id", command.ID, "command_provider", command.Provider)
+				return nil
+			}
+			if err := command.Validate(); err != nil {
+				c.cfg.Logger.Warn("dropping invalid adapter command", "provider", c.cfg.Provider,
+					"stream_id", id, "command_id", command.ID, "channel_id", command.ChannelID, "error", err)
 				return nil
 			}
 			return c.sender.Send(ctx, command)
