@@ -16,6 +16,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/service"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/session"
@@ -33,6 +34,9 @@ func main() {
 
 func run(logger *slog.Logger) error {
 	cfg := config.MustLoad()
+	if err := middleware.ValidateInternalServiceToken(); err != nil {
+		return fmt.Errorf("internal service auth: %w", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
