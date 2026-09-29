@@ -9,7 +9,7 @@ import (
 )
 
 func TestGatewayMetricsEndpoint(t *testing.T) {
-	gw := httptest.NewServer(buildRouter(t, "http://fake-id", "http://fake-kb"))
+	gw := httptest.NewServer(newMetricsHandler())
 	defer gw.Close()
 
 	resp, err := http.Get(gw.URL + "/metrics")
@@ -38,5 +38,19 @@ func TestGatewayMetricsEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(bodyStr, "# HELP") || !strings.Contains(bodyStr, "# TYPE") {
 		t.Errorf("expected Prometheus format header (# HELP, # TYPE)")
+	}
+}
+
+func TestGatewayPublicRouterDoesNotServeMetrics(t *testing.T) {
+	gw := httptest.NewServer(buildRouter(t, "http://fake-id", "http://fake-kb"))
+	defer gw.Close()
+
+	resp, err := http.Get(gw.URL + "/metrics")
+	if err != nil {
+		t.Fatalf("GET /metrics error: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 on public router, got %d", resp.StatusCode)
 	}
 }
