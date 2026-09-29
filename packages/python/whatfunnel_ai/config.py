@@ -3,6 +3,8 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .crypto import get_key_bytes
+
 
 class AIConfigurationError(ValueError):
     pass
@@ -18,20 +20,10 @@ class AIConfiguration:
 
 
 def _key_bytes(key: str) -> bytes:
-    key_str = key.strip()
-    if len(key_str) == 64:
-        try:
-            return bytes.fromhex(key_str)
-        except ValueError as exc:
-            raise AIConfigurationError(
-                f"AI provider encryption key has invalid 64-character hex encoding: {exc}"
-            ) from exc
-    elif len(key_str) == 32:
-        return key_str.encode("utf-8")
-    else:
-        raise AIConfigurationError(
-            f"AI provider encryption key must be 64 hex characters or 32 raw bytes, got {len(key_str)} characters"
-        )
+    try:
+        return get_key_bytes(key)
+    except ValueError as exc:
+        raise AIConfigurationError(f"AI provider encryption key: {exc}") from exc
 
 
 def _decrypt_api_key(encryption_key: str, ciphertext: str) -> str:
