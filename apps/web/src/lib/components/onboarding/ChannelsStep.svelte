@@ -29,10 +29,6 @@
 	}
 
 	function handleSuccess(connection: Connection) {
-		const target = channels.find((item) => item.type === connection.provider || item.id === connection.provider);
-		if (target) {
-			target.connected = true;
-		}
 		onConnect?.(connection);
 	}
 </script>
