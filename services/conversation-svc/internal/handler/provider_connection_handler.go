@@ -11,6 +11,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/adapterclient"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 	"rsc.io/qr"
 )
@@ -92,17 +93,27 @@ func (h *Handler) StartProviderConnection(w http.ResponseWriter, request *http.R
 	writeJSON(w, http.StatusCreated, connection)
 }
 
-// writeConnectionFailure reports an adapter failure as a 502. The durable
+// writeConnectionFailure reports an adapter failure. An adapter that rejects
+// the input itself (for example an invalid bot token) yields a 422 carrying
+// the adapter's user-safe message; every other failure is a 502. The durable
 // connection record (which carries a safe, user-facing failure detail and lets
 // the UI retry or unlink it) is included; adapter internals stay out of the
 // response and are logged instead.
 func writeConnectionFailure(w http.ResponseWriter, request *http.Request, connection *types.ProviderConnection, cause error) {
 	slog.WarnContext(request.Context(), "provider connection failed", "channel_id", connection.ChannelID, "provider", connection.Provider, "error", cause)
+	status := http.StatusBadGateway
 	message := connection.Detail
 	if message == "" {
 		message = "Could not connect this provider account."
 	}
-	writeJSON(w, http.StatusBadGateway, map[string]any{"error": message, "connection": connection})
+	var adapterErr *adapterclient.Error
+	if errors.As(cause, &adapterErr) && adapterErr.IsInvalidInput() {
+		status = http.StatusUnprocessableEntity
+		if adapterErr.Message != "" {
+			message = adapterErr.Message
+		}
+	}
+	writeJSON(w, status, map[string]any{"error": message, "connection": connection})
 }
 
 func (h *Handler) RetryProviderConnection(w http.ResponseWriter, request *http.Request) {
