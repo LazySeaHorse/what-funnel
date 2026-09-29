@@ -142,9 +142,7 @@ func (s *ConversationService) sendMessage(ctx context.Context, cmd sendMessageCo
 	}
 
 	s.publishOutboundMessageEvents(ctx, cmd, msg, invalidatedDraftID)
-	if s.outbox != nil {
-		_ = s.outbox.DispatchOutboxOnce(ctx)
-	}
+	s.outbox.nudgeOutbox(ctx, "send:"+msg.ID.String())
 	return msg, nil
 }
 

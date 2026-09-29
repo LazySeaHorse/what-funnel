@@ -114,9 +114,7 @@ func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context,
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit provider message command: %w", err)
 	}
-	if s.outbox != nil {
-		_ = s.outbox.DispatchOutboxOnce(ctx)
-	}
+	s.outbox.nudgeOutbox(ctx, command.ID)
 	return nil
 }
 
