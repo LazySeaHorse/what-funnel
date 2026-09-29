@@ -68,6 +68,7 @@
       </div>
     {:else if tab === "lead"}
       <div in:fade={{ duration: 120 }} class="space-y-5">
+        {#if editor.error}<p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert" data-testid="lead-editor-error">{editor.error}</p>{/if}
         <LeadStagePicker stateKey={editor.lead?.current_state_key || "new"} states={pipelineStates} onchange={(key) => editor.changeStage(key)} />
         {#if capabilities.manageAssignments}
           <LeadAssigneePicker users={inbox.users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />

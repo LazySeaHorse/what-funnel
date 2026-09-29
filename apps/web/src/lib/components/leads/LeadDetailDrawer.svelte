@@ -113,6 +113,7 @@
 	<div class="p-5 space-y-4 flex-1 text-xs">
 		{#if activeTab === 'overview'}
 			<div in:fade={{ duration: 120 }} class="space-y-4">
+				{#if editor.error}<p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert" data-testid="lead-editor-error">{editor.error}</p>{/if}
 				<LeadStagePicker stateKey={lead.stateKey} stateLabel={lead.stateLabel} states={pipelineStates.length ? pipelineStates : defaultStates} onchange={(key) => editor.changeStage(key)} />
 
 				{#if canManageAssignments}
@@ -167,6 +168,7 @@
 
 		{:else if activeTab === 'notes'}
 			<div in:fade={{ duration: 120 }}>
+				{#if editor.error}<p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert" data-testid="lead-editor-error">{editor.error}</p>{/if}
 				<LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
 			</div>
 
