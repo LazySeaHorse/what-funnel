@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -87,4 +88,122 @@ func TestSendMessage_IdempotencyKeyIsScopedToConversation(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, leaked)
 	require.True(t, errors.Is(err, service.ErrConflict), "got %v", err)
+}
+
+func providerCreatedEvent(channelID uuid.UUID, eventID, providerMessageID, thread string, at time.Time) messaging.Event {
+	return messaging.Event{
+		SchemaVersion: messaging.SchemaVersion,
+		ID:            eventID,
+		Kind:          messaging.EventMessageCreated,
+		Provider:      messaging.ProviderTelegram,
+		ChannelID:     channelID.String(),
+		OccurredAt:    at,
+		Message: &messaging.Message{
+			ProviderMessageID: providerMessageID,
+			ExternalThreadID:  thread,
+			Direction:         messaging.DirectionInbound,
+			Sender:            messaging.Sender{ExternalID: thread, DisplayName: "Customer"},
+			ContentType:       messaging.ContentText,
+			Text:              "hi",
+			ProviderTimestamp: at,
+		},
+	}
+}
+
+func cleanupProviderEvents(t *testing.T, pool *pgxpool.Pool, channelID uuid.UUID) {
+	t.Helper()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM processed_adapter_events WHERE channel_id = $1`, channelID)
+	})
+}
+
+func TestIngestProviderEvent_DuplicateProviderMessageIDWithNewEventIDIsSkipped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	accountID, _ := setupTestTenant(t, pool, "dup-provider-msg")
+	channelID := newTelegramChannel(t, pool, accountID, "dup bot")
+	cleanupProviderEvents(t, pool, channelID)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerCreatedEvent(channelID, "evt-"+uuid.NewString(), "900", "cust-1", now)))
+	// Same provider message, brand new event ID: previously a unique
+	// violation that rolled back and was redelivered until the DLQ.
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerCreatedEvent(channelID, "evt-"+uuid.NewString(), "900", "cust-1", now)))
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM messages WHERE account_id = $1 AND provider_message_id = '900'`, accountID).Scan(&count))
+	require.Equal(t, 1, count)
+}
+
+func TestIngestProviderEvent_InboundMessageReopensClosedConversation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	accountID, userID := setupTestTenant(t, pool, "reopen-convo")
+	channelID := newTelegramChannel(t, pool, accountID, "reopen bot")
+	cleanupProviderEvents(t, pool, channelID)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerCreatedEvent(channelID, "evt-"+uuid.NewString(), "1", "cust-2", now)))
+	var conversationID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM conversations WHERE account_id = $1`, accountID).Scan(&conversationID))
+	require.NoError(t, svc.CloseConversation(ctx, accountID, userID, conversationID, types.RoleManager))
+
+	var status string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM conversations WHERE id = $1`, conversationID).Scan(&status))
+	require.Equal(t, "closed", status)
+
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerCreatedEvent(channelID, "evt-"+uuid.NewString(), "2", "cust-2", now.Add(time.Second))))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM conversations WHERE id = $1`, conversationID).Scan(&status))
+	require.Equal(t, "open", status)
+}
+
+func TestIngestProviderEvent_MissingTargetIsRetryable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	svc, pool, _ := testService(t)
+	ctx := context.Background()
+	accountID, _ := setupTestTenant(t, pool, "missing-target")
+	channelID := newTelegramChannel(t, pool, accountID, "missing bot")
+	cleanupProviderEvents(t, pool, channelID)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	base := func(kind messaging.EventKind) messaging.Event {
+		return messaging.Event{
+			SchemaVersion: messaging.SchemaVersion, ID: "evt-" + uuid.NewString(), Kind: kind,
+			Provider: messaging.ProviderTelegram, ChannelID: channelID.String(), OccurredAt: now,
+		}
+	}
+	edit := base(messaging.EventMessageEdited)
+	edit.Message = &messaging.Message{ProviderMessageID: "404", ExternalThreadID: "x", Direction: messaging.DirectionInbound, ContentType: messaging.ContentText, Text: "edited", ProviderTimestamp: now, Sender: messaging.Sender{ExternalID: "x"}}
+	del := base(messaging.EventMessageDeleted)
+	del.Message = &messaging.Message{ProviderMessageID: "404", ExternalThreadID: "x", ProviderTimestamp: now}
+	reaction := base(messaging.EventReactionChanged)
+	reaction.Reaction = &messaging.Reaction{ProviderMessageID: "404", SenderExternalID: "x", Emoji: "👍", ProviderTimestamp: now}
+	receipt := base(messaging.EventReceiptChanged)
+	receipt.Receipt = &messaging.Receipt{ProviderMessageID: "404", Status: messaging.ReceiptDelivered, ProviderTimestamp: now}
+
+	for name, event := range map[string]messaging.Event{"edit": edit, "delete": del, "reaction": reaction, "receipt": receipt} {
+		require.NoError(t, event.Validate(), name)
+		err := svc.IngestProviderEvent(ctx, event)
+		require.Error(t, err, name)
+		require.True(t, errors.Is(err, service.ErrProviderTargetNotFound), "%s: %v", name, err)
+		require.False(t, service.IsTerminalIngestError(err), name)
+
+		// The marker rolled back with the transaction, so a redelivery
+		// after the target arrives can still be applied.
+		var processed int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM processed_adapter_events WHERE event_id = $1`, event.ID).Scan(&processed))
+		require.Equal(t, 0, processed, name)
+	}
+
+	// Once the target exists, the redelivered event applies.
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerCreatedEvent(channelID, "evt-"+uuid.NewString(), "404", "x", now)))
+	require.NoError(t, svc.IngestProviderEvent(ctx, receipt))
 }

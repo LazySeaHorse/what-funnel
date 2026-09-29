@@ -19,6 +19,17 @@ type providerEventResult struct {
 	messageID      uuid.UUID
 }
 
+// ErrProviderTargetNotFound means an edit, delete, reaction or receipt refers
+// to a message this service has not stored (yet). It is deliberately NOT a
+// terminal ingest error: the target's own created/confirmation event can still
+// be in flight, and dropping the event would lose the update for good. The
+// transaction rolls back (including the processed-event marker) so the stream
+// redelivers it. Redelivery is bounded by pubsub.DefaultMaxDeliveries, after
+// which the event moves to the dead-letter stream. That bound is also what
+// keeps events for messages that were never tracked here (for example receipts
+// for messages sent outside this app) from retrying forever.
+var ErrProviderTargetNotFound = errors.New("provider event target message not found")
+
 // IsTerminalIngestError determines whether an ingestion failure is permanent
 // (e.g. non-existent channel, invalid schema) and should not be retried.
 func IsTerminalIngestError(err error) bool {
@@ -202,19 +213,30 @@ func upsertProviderMessage(
 			delivery_status, provider_timestamp, created_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, 'sent', $9, $9)
+		ON CONFLICT (conversation_id, provider_message_id) WHERE provider_message_id IS NOT NULL
+		DO NOTHING
 		RETURNING id
 	`, accountID, conversationID, message.Direction, senderType, message.ContentType, content,
 		message.ProviderMessageID, replyToMessageID, message.ProviderTimestamp).Scan(&messageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The provider redelivered a message we already stored under a
+		// different event ID. Nothing to add; commit the marker and move on.
+		return providerEventResult{accountID: accountID}, nil
+	}
 	if err != nil {
 		return providerEventResult{}, fmt.Errorf("insert provider message: %w", err)
 	}
 	if err := insertProviderMedia(ctx, tx, accountID, channelID, messageID, message); err != nil {
 		return providerEventResult{}, err
 	}
+	// A customer message reopens a closed conversation. Only genuinely new
+	// inbound messages do: duplicates returned above.
 	if _, err := tx.Exec(ctx, `
-		UPDATE conversations SET last_message_at = GREATEST(COALESCE(last_message_at, $1), $1)
+		UPDATE conversations
+		SET last_message_at = GREATEST(COALESCE(last_message_at, $1), $1),
+		    status = CASE WHEN $3 THEN 'open' ELSE status END
 		WHERE id = $2
-	`, message.ProviderTimestamp, conversationID); err != nil {
+	`, message.ProviderTimestamp, conversationID, message.Direction == messaging.DirectionInbound); err != nil {
 		return providerEventResult{}, fmt.Errorf("update provider conversation: %w", err)
 	}
 	if message.Direction == messaging.DirectionOutbound {
@@ -339,7 +361,7 @@ func editProviderMessage(ctx context.Context, tx pgx.Tx, accountID, channelID uu
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return providerEventResult{accountID: accountID}, nil
+			return providerEventResult{}, fmt.Errorf("%w: edit of %q", ErrProviderTargetNotFound, event.Message.ProviderMessageID)
 		}
 		return providerEventResult{}, fmt.Errorf("edit provider message: %w", err)
 	}
@@ -362,7 +384,7 @@ func deleteProviderMessage(ctx context.Context, tx pgx.Tx, accountID, channelID 
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return providerEventResult{accountID: accountID}, nil
+			return providerEventResult{}, fmt.Errorf("%w: delete of %q", ErrProviderTargetNotFound, event.Message.ProviderMessageID)
 		}
 		return providerEventResult{}, fmt.Errorf("delete provider message: %w", err)
 	}
@@ -381,7 +403,7 @@ func changeProviderReaction(ctx context.Context, tx pgx.Tx, accountID, channelID
 	`, event.Reaction.ProviderMessageID, accountID, channelID).Scan(&result.messageID, &result.conversationID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return providerEventResult{accountID: accountID}, nil
+			return providerEventResult{}, fmt.Errorf("%w: reaction on %q", ErrProviderTargetNotFound, event.Reaction.ProviderMessageID)
 		}
 		return providerEventResult{}, fmt.Errorf("resolve reaction message: %w", err)
 	}
@@ -441,7 +463,7 @@ func applyProviderReceipt(ctx context.Context, tx pgx.Tx, accountID, channelID u
 		Scan(&result.messageID, &result.conversationID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return providerEventResult{accountID: accountID}, nil
+			return providerEventResult{}, fmt.Errorf("%w: receipt for %q", ErrProviderTargetNotFound, event.Receipt.ProviderMessageID)
 		}
 		return providerEventResult{}, fmt.Errorf("apply provider receipt: %w", err)
 	}

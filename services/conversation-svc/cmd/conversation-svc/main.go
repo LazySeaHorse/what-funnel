@@ -155,6 +155,12 @@ func run(logger *slog.Logger) error {
 					)
 					return nil
 				}
+				if errors.Is(err, service.ErrProviderTargetNotFound) {
+					// Expected while the target's own event is still in flight;
+					// redelivery is bounded by the stream's dead-letter limit.
+					logger.Warn("provider event target not stored yet, will retry", "event_id", event.ID, "kind", event.Kind, "error", err)
+					return err
+				}
 				logger.Error("failed to ingest provider event", "event_id", event.ID, "error", err)
 				return err
 			}

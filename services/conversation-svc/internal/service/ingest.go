@@ -102,7 +102,8 @@ func (s *IngestionService) IngestInbound(ctx context.Context, event types.Inboun
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (contact_id, channel_id)
 		DO UPDATE SET
-			last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at)
+			last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at),
+			status = 'open'
 		RETURNING id, (xmax = 0) AS is_new
 	`, accountID, contactID, channelID, timestamp).Scan(&conversationID, &isNew)
 	if err != nil {
