@@ -28,7 +28,13 @@ test('new inbox UI: textarea composer, no note tab, AI toggle switch, cluster ra
   const simInput = page.locator('input[placeholder="Send message as customer..."]');
   await expect(simInput).toBeVisible({ timeout: 10000 });
   await simInput.fill('Hi there, I wanted to ask about your services.');
+  // Wait for the inbound message to be accepted before navigating away,
+  // otherwise the page can unload before the request is sent.
+  const simulated = page.waitForResponse(
+    (response) => response.url().endsWith('/simulate-inbound') && response.request().method() === 'POST',
+  );
   await simInput.press('Enter');
+  expect((await simulated).ok()).toBe(true);
 
   await page.goto('/inbox');
   await page.waitForLoadState('networkidle');
