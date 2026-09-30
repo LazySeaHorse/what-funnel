@@ -110,9 +110,9 @@ func TestConcurrentScaleMultiAgentMixedAI_E2E(t *testing.T) {
 	t.Log("Scale E2E Step 2: Configure Workspace Settings")
 	putResp, putBody := put(t, adminClient, gatewayURL+"/workspace/account/settings", map[string]any{
 		"unassigned_conversations_visible_to_members": true,
-		"ai_enabled":                                 true,
-		"ai_reply_mode_default":                      "auto_send",
-		"lead_tracking_enabled":                      true,
+		"ai_enabled":            true,
+		"ai_reply_mode_default": "auto_send",
+		"lead_tracking_enabled": true,
 	})
 	require.Equal(t, http.StatusOK, putResp.StatusCode, "settings update: %v", putBody)
 
@@ -642,4 +642,3 @@ func TestConcurrentScale100Users_E2E(t *testing.T) {
 
 	t.Logf("Scale E2E: Successfully processed %d concurrent users without data loss or race conditions", totalUsers)
 }
-

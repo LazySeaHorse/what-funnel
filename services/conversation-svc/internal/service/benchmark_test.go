@@ -46,11 +46,11 @@ func BenchmarkOutboxSerialization(b *testing.B) {
 		CreatedAt:     time.Now().UTC(),
 		MessageID:     uuid.NewString(),
 		Message: &messaging.Message{
-			ExternalThreadID: "+15551234567",
-			Direction:        messaging.DirectionOutbound,
-			Sender:           messaging.Sender{ExternalID: "agent-1", DisplayName: "Agent"},
-			ContentType:      messaging.ContentText,
-			Text:             "High-performance outbox message payload for testing throughput",
+			ExternalThreadID:  "+15551234567",
+			Direction:         messaging.DirectionOutbound,
+			Sender:            messaging.Sender{ExternalID: "agent-1", DisplayName: "Agent"},
+			ContentType:       messaging.ContentText,
+			Text:              "High-performance outbox message payload for testing throughput",
 			ProviderTimestamp: time.Now().UTC(),
 		},
 	}

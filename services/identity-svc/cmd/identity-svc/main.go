@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"golang.org/x/sync/errgroup"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
@@ -20,6 +19,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/service"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/session"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {

@@ -223,4 +223,3 @@ func (d *directIdentityProvisioner) ChangeUserRole(ctx context.Context, accountI
 
 	return tx.Commit(ctx)
 }
-

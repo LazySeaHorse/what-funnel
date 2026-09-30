@@ -137,4 +137,3 @@ func (s *Store) RevokeAccountSessions(ctx context.Context, accountID uuid.UUID) 
 		accountID.String())
 	return err
 }
-

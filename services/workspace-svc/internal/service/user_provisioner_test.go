@@ -203,5 +203,3 @@ func TestHTTPIdentityProvisioner_AuthEnforcementWithMiddleware(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unauthenticated")
 }
-
-

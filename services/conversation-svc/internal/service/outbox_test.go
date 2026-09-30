@@ -67,4 +67,3 @@ func TestDispatchOutbox_CanceledContext(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
-

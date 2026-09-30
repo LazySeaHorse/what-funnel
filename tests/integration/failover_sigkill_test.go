@@ -106,11 +106,11 @@ func TestOutboxClaimSIGKILLRecovery(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 		MessageID:     messageID.String(),
 		Message: &messaging.Message{
-			ExternalThreadID: "+15559876543",
-			Direction:        messaging.DirectionOutbound,
-			Sender:           messaging.Sender{ExternalID: "agent-kill"},
-			ContentType:      messaging.ContentText,
-			Text:             "SIGKILL failover test payload",
+			ExternalThreadID:  "+15559876543",
+			Direction:         messaging.DirectionOutbound,
+			Sender:            messaging.Sender{ExternalID: "agent-kill"},
+			ContentType:       messaging.ContentText,
+			Text:              "SIGKILL failover test payload",
 			ProviderTimestamp: time.Now().UTC(),
 		},
 	}

@@ -170,7 +170,9 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
 					return
 				}
-				if uStore, ok := m.store.(interface{ GetUsername(r *http.Request) (string, bool) }); ok {
+				if uStore, ok := m.store.(interface {
+					GetUsername(r *http.Request) (string, bool)
+				}); ok {
 					username, _ = uStore.GetUsername(r)
 				}
 			}

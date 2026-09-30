@@ -158,4 +158,3 @@ func TestJanitor_DatabasePurge(t *testing.T) {
 	err = pool.QueryRow(ctx, `SELECT 1 FROM sessions WHERE token = $1`, validToken).Scan(&dummy)
 	assert.NoError(t, err)
 }
-

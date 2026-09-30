@@ -390,8 +390,6 @@ func TestIsAuthorizedInternalCall_Matrix(t *testing.T) {
 	}
 }
 
-
-
 func TestValidateInternalServiceToken(t *testing.T) {
 	const valid = "secure-random-internal-token-32-chars"
 	tests := []struct {
@@ -429,9 +427,11 @@ func (c *countingSessionStore) GetSession(*http.Request) (map[string]string, err
 	c.calls++
 	return c.data, nil
 }
-func (c *countingSessionStore) GetUserID(*http.Request) (uuid.UUID, bool)    { panic("per-field lookup") }
-func (c *countingSessionStore) GetAccountID(*http.Request) (uuid.UUID, bool) { panic("per-field lookup") }
-func (c *countingSessionStore) GetRole(*http.Request) (string, bool)         { panic("per-field lookup") }
+func (c *countingSessionStore) GetUserID(*http.Request) (uuid.UUID, bool) { panic("per-field lookup") }
+func (c *countingSessionStore) GetAccountID(*http.Request) (uuid.UUID, bool) {
+	panic("per-field lookup")
+}
+func (c *countingSessionStore) GetRole(*http.Request) (string, bool) { panic("per-field lookup") }
 
 func TestRequireAuthenticated_FetchesSessionOnce(t *testing.T) {
 	uid, aid := uuid.New(), uuid.New()

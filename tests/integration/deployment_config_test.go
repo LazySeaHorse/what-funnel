@@ -191,7 +191,6 @@ func TestDevDockerComposeSecurityInvariants(t *testing.T) {
 	})
 }
 
-
 func TestFrontendProductionBuildSetup(t *testing.T) {
 	root := findRepoRoot(t)
 
@@ -276,10 +275,10 @@ func TestEnvironmentVariableCompleteness(t *testing.T) {
 
 	// Ignore standard system / toolchain / CI variables
 	ignoredVars := map[string]bool{
-		"PATH":              true,
-		"HOME":              true,
-		"CI":                true,
-		"PLAYWRIGHT_PORT":   true,
+		"PATH":                                true,
+		"HOME":                                true,
+		"CI":                                  true,
+		"PLAYWRIGHT_PORT":                     true,
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": true,
 	}
 
@@ -391,5 +390,3 @@ func TestMultiArchCIConfiguration(t *testing.T) {
 	assert.Contains(t, content, "docker/setup-buildx-action", "CI must configure Docker Buildx")
 	assert.Contains(t, content, "platforms: linux/amd64,linux/arm64", "CI must build both linux/amd64 and linux/arm64")
 }
-
-

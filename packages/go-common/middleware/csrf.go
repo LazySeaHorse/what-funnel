@@ -1,11 +1,11 @@
 package middleware
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"log/slog"
 	"strings"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"

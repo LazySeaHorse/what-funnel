@@ -135,4 +135,3 @@ func TestProviderMessageMutationOwnershipAndPermissions(t *testing.T) {
 	err = svc.DeleteProviderMessage(ctx, accountID, managerID, types.RoleManager, conversationID, messageID)
 	require.NoError(t, err)
 }
-

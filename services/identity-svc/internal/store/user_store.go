@@ -140,7 +140,6 @@ func (s *Store) LoadByIdentifier(ctx context.Context, identifier string) (*User,
 	}, nil
 }
 
-
 // Save updates a user's mutable fields (only password_hash in our case,
 // since authboss may update it during password change).
 func (s *Store) Save(ctx context.Context, user ab.User) error {

@@ -8,7 +8,6 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
-
 // KBPrompt is a knowledge-base question shown during onboarding.
 type KBPrompt struct {
 	ID          string `json:"id"`

@@ -125,4 +125,3 @@ func TestConfig_EnvAndCookieSecure(t *testing.T) {
 		assert.Equal(t, time.Hour, cfg2.SessionPurgeInterval)
 	})
 }
-

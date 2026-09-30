@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	sessionName     = "whatfunnel_session"
+	sessionName         = "whatfunnel_session"
 	sessionKeyUserID    = "user_id"
 	sessionKeyAccountID = "account_id"
 	sessionKeyRole      = "role"

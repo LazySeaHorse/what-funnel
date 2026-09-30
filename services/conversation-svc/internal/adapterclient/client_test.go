@@ -216,4 +216,3 @@ func TestClientCreateSurfacesAdapterErrorMessage(t *testing.T) {
 		t.Fatalf("adapter error = %+v", adapterErr)
 	}
 }
-

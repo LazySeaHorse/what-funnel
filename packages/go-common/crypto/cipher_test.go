@@ -152,4 +152,3 @@ func TestNewCipherFromHex(t *testing.T) {
 		}
 	})
 }
-

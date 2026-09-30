@@ -1,9 +1,10 @@
 // Package handler implements the HTTP API for the identity service.
 // Routes:
-//   POST /auth/signup   — create account + admin user
-//   POST /auth/login    — authenticate
-//   POST /auth/logout   — invalidate session
-//   GET  /auth/me       — return current user info (requires auth)
+//
+//	POST /auth/signup   — create account + admin user
+//	POST /auth/login    — authenticate
+//	POST /auth/logout   — invalidate session
+//	GET  /auth/me       — return current user info (requires auth)
 package handler
 
 import (

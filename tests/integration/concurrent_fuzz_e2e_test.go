@@ -141,9 +141,9 @@ func TestConcurrentScaleMultiAgentFuzz_E2E(t *testing.T) {
 	t.Log("Fuzz Step 2: Configure Workspace Settings")
 	putResp, putBody := put(t, adminClient, gatewayURL+"/workspace/account/settings", map[string]any{
 		"unassigned_conversations_visible_to_members": true,
-		"ai_enabled":                                 true,
-		"ai_reply_mode_default":                      "auto_send",
-		"lead_tracking_enabled":                      true,
+		"ai_enabled":            true,
+		"ai_reply_mode_default": "auto_send",
+		"lead_tracking_enabled": true,
 	})
 	require.Equal(t, http.StatusOK, putResp.StatusCode, "settings update: %v", putBody)
 

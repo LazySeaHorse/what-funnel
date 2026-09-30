@@ -17,6 +17,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/whatfunnel/whatfunnel/adapters/whatsapp-whatsmeow/internal/normalize"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -24,7 +25,6 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
@@ -277,10 +277,10 @@ func (m *Manager) newSession(channelID string, device *store.Device) *clientSess
 	client := whatsmeow.NewClient(device, waLog.Stdout("whatsmeow", "WARN", false))
 	client.BackgroundEventCtx = sessionCtx
 	session := &clientSession{
-		client:   client,
-		ctx:      sessionCtx,
-		cancel:   sessionCancel,
-		qrReady:  make(chan struct{}),
+		client:  client,
+		ctx:     sessionCtx,
+		cancel:  sessionCancel,
+		qrReady: make(chan struct{}),
 		snapshot: Snapshot{
 			ChannelID: channelID,
 			State:     messaging.ConnectionPending,
