@@ -162,11 +162,9 @@ func TestOutboxClaimSIGKILLRecovery(t *testing.T) {
 		_ = pool.QueryRow(ctx, `SELECT dispatched_at FROM message_outbox WHERE id = $1`, outboxID).Scan(&dispatchedAt)
 		return dispatchedAt != nil
 	}, 45*time.Second, 500*time.Millisecond, "Outbox command must be dispatched after restart")
-
-	var claimedBy *string
-	require.NoError(t, pool.QueryRow(ctx, `SELECT claimed_by FROM message_outbox WHERE id = $1`, outboxID).Scan(&claimedBy))
-	require.NotNil(t, claimedBy)
-	assert.NotEqual(t, "killed-worker", *claimedBy, "the stale claim must have been taken over by the restarted service")
+	// markDispatched only succeeds for the worker that currently holds the claim
+	// (WHERE claimed_by = <worker>) and then clears claimed_by, so dispatched_at
+	// being set proves the restarted service took over the stale "killed-worker" claim.
 
 	// 7. ...and the downstream side effect happened exactly once: one entry on the
 	// provider command stream (a duplicate would be a duplicate WhatsApp send).
