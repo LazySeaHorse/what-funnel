@@ -44,8 +44,14 @@ func (c SendMessageParams) validate() error {
 	if c.ai() && c.GenerationEpoch == nil {
 		return invalidf("generation_epoch is required for AI messages")
 	}
+	if len(c.IdempotencyKey) > maxIdempotencyKeyLength {
+		return invalidf("idempotency_key must be at most %d characters", maxIdempotencyKeyLength)
+	}
 	return nil
 }
+
+// maxIdempotencyKeyLength bounds client-supplied keys (the column is unbounded TEXT).
+const maxIdempotencyKeyLength = 128
 
 type outboundDestination struct {
 	channelID uuid.UUID

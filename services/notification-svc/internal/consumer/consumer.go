@@ -172,6 +172,7 @@ func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, pay
 		ContentType:       rawMsg.ContentType,
 		Content:           rawMsg.Content,
 		ExternalMessageID: rawMsg.ExternalMessageID,
+		IdempotencyKey:    rawMsg.IdempotencyKey,
 		CreatedAt:         rawMsg.CreatedAt,
 	}
 

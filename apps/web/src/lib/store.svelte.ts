@@ -13,8 +13,13 @@ export interface AIReplyDraft {
 	updated_at: string;
 }
 
-// crypto.randomUUID is unavailable in insecure (plain-http, non-localhost) contexts.
-let optimisticSeq = 0;
+// The optimistic id doubles as the server-side idempotency key, so it must be
+// globally unique. crypto.randomUUID is unavailable in insecure (plain-http,
+// non-localhost) contexts, but crypto.getRandomValues works everywhere.
+function newOptimisticID(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	return `__optimistic__${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
 
 export class InboxState {
 	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; replyToMessageID: string | null; sending: boolean; error: string }>>({});
@@ -335,7 +340,7 @@ export class InboxState {
 		const pendingDraftID = this.replyDrafts[convoID]?.id;
 
 		// Optimistic update: append message immediately, clear composer for instant feedback
-		const optimisticID = `__optimistic__${Date.now()}_${++optimisticSeq}`;
+		const optimisticID = newOptimisticID();
 		if (this.activeConvoID === convoID) {
 			this.messages = [...this.messages, {
 				id: optimisticID,
@@ -361,7 +366,10 @@ export class InboxState {
 			const body: any = {
 				content_type: media?.contentType || 'text',
 				text: text,
-				sender_type: 'human'
+				sender_type: 'human',
+				// Lets the WebSocket echo be matched to this exact optimistic bubble,
+				// and makes a retried request idempotent server-side.
+				idempotency_key: optimisticID
 			};
 			if (media) body.media_id = media.id;
 			if (submittedReplyTo) body.reply_to_message_id = submittedReplyTo;
@@ -512,7 +520,18 @@ export class InboxState {
 					case 'message.received':
 					case 'message.sent':
 						if (event.conversation_id === this.activeConvoID) {
-							if (!this.messages.some((m: any) => m.id === event.message.id)) {
+							const echoKey = event.message.idempotency_key;
+							const optimisticIndex = echoKey
+								? this.messages.findIndex((m: any) => m._optimistic && m.id === echoKey)
+								: -1;
+							if (this.messages.some((m: any) => m.id === event.message.id)) {
+								// Already have it (e.g. the send response won the race).
+							} else if (optimisticIndex !== -1) {
+								// Echo of our own send: swap the pending bubble in place.
+								this.messages = this.messages.map((m: any, i: number) =>
+									i === optimisticIndex ? event.message : m
+								);
+							} else {
 								this.messages = [...this.messages, event.message];
 							}
 							if (event.type === 'message.received') {

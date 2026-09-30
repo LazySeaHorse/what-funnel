@@ -14,7 +14,7 @@ import (
 )
 
 const getMessageForNotification = `-- name: GetMessageForNotification :one
-SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, created_at
+SELECT id, account_id, conversation_id, direction, sender_type, sender_user_id, content_type, content, external_message_id, idempotency_key, created_at
 FROM messages
 WHERE id = $1 AND account_id = $2
 `
@@ -34,6 +34,7 @@ type GetMessageForNotificationRow struct {
 	ContentType       string          `json:"content_type"`
 	Content           json.RawMessage `json:"content"`
 	ExternalMessageID *string         `json:"external_message_id"`
+	IdempotencyKey    *string         `json:"idempotency_key"`
 	CreatedAt         time.Time       `json:"created_at"`
 }
 
@@ -50,6 +51,7 @@ func (q *Queries) GetMessageForNotification(ctx context.Context, arg GetMessageF
 		&i.ContentType,
 		&i.Content,
 		&i.ExternalMessageID,
+		&i.IdempotencyKey,
 		&i.CreatedAt,
 	)
 	return i, err

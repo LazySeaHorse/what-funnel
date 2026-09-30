@@ -218,7 +218,7 @@ type Message struct {
 	EditedAt          *time.Time        `json:"edited_at,omitempty" db:"edited_at"`
 	DeletedAt         *time.Time        `json:"deleted_at,omitempty" db:"deleted_at"`
 	Reactions         []MessageReaction `json:"reactions"`
-	IdempotencyKey    *string           `json:"-" db:"idempotency_key"`
+	IdempotencyKey    *string           `json:"idempotency_key,omitempty" db:"idempotency_key"`
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
 }
 

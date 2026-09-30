@@ -276,17 +276,19 @@ type LeadStateHistory struct {
 }
 
 type MediaObject struct {
-	ID          uuid.UUID  `json:"id"`
-	AccountID   uuid.UUID  `json:"account_id"`
-	MessageID   *uuid.UUID `json:"message_id"`
-	ChannelID   uuid.UUID  `json:"channel_id"`
-	ProviderRef *string    `json:"provider_ref"`
-	Filename    *string    `json:"filename"`
-	MimeType    string     `json:"mime_type"`
-	SizeBytes   int64      `json:"size_bytes"`
-	StorageKey  *string    `json:"storage_key"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID               uuid.UUID  `json:"id"`
+	AccountID        uuid.UUID  `json:"account_id"`
+	MessageID        *uuid.UUID `json:"message_id"`
+	ChannelID        uuid.UUID  `json:"channel_id"`
+	ProviderRef      *string    `json:"provider_ref"`
+	Filename         *string    `json:"filename"`
+	MimeType         string     `json:"mime_type"`
+	SizeBytes        int64      `json:"size_bytes"`
+	StorageKey       *string    `json:"storage_key"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ConversationID   *uuid.UUID `json:"conversation_id"`
+	UploadedByUserID *uuid.UUID `json:"uploaded_by_user_id"`
 }
 
 type Message struct {
