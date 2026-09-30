@@ -337,6 +337,40 @@ test.describe("in-app settings safety net", () => {
     );
   });
 
+  test("a rejected Telegram token keeps the failed connection so it can be reconnected", async ({
+    page,
+  }) => {
+    await openMockedSettings(page);
+    await page.getByRole("tab", { name: "Channels", exact: true }).click();
+    await page.route("**/api-gateway/channel-connections", (route) => {
+      if (route.request().method() === "POST") {
+        return route.fulfill({
+          status: 422,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "Invalid Telegram bot token.",
+            connection: {
+              channel_id: "channel-tg-failed",
+              provider: "telegram",
+              label: "Support bot",
+              state: "error",
+              detail: "Invalid Telegram bot token.",
+            },
+          }),
+        });
+      }
+      return route.fallback();
+    });
+    await page.getByRole("button", { name: "Connect Telegram" }).click();
+    const dialog = page.getByRole("dialog", { name: "Connect Telegram" });
+    await dialog.getByLabel("Account label").fill("Support bot");
+    await dialog.getByLabel("Bot token").fill("123:bad");
+    await dialog.getByRole("button", { name: "Connect bot" }).click();
+
+    await expect(dialog.getByRole("button", { name: "Reconnect" })).toBeVisible();
+    await expect(dialog.getByLabel("Telegram Bot Token")).toBeVisible();
+  });
+
   test("workspace type changes hide lead-pipeline controls when lead tracking is unavailable", async ({
     page,
   }) => {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { apiRequest } from "$lib/api";
+  import { apiRequest, ApiError } from "$lib/api";
   import { Modal, Button, Input } from "$lib/components/ui";
 
   export interface ConnectionCapabilities {
@@ -89,6 +89,15 @@
     }
   }
 
+  // Adapter failures come back as a non-2xx response whose body still carries the
+  // stored connection (in error state), so the Retry affordance stays available.
+  function adoptFailedConnection(reason: unknown) {
+    const connection = reason instanceof ApiError ? (reason.data?.connection as Connection | undefined) : undefined;
+    if (!connection?.channel_id) return;
+    activeConnection = connection;
+    onchange?.(connection);
+  }
+
   async function startConnection() {
     if (!label.trim() || (selectedProvider === "telegram" && !credential.trim())) return;
     busy = true;
@@ -107,6 +116,7 @@
       }
     } catch (reason: any) {
       credential = "";
+      adoptFailedConnection(reason);
       error = reason?.message || `Failed to connect ${selectedProvider === "telegram" ? "Telegram" : "WhatsApp"}.`;
     } finally {
       busy = false;
@@ -132,6 +142,7 @@
       }
     } catch (reason: any) {
       credential = "";
+      adoptFailedConnection(reason);
       error = reason?.message || "Failed to retry this connection.";
     } finally {
       busy = false;
