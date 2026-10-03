@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { mockWorkspaceApi } from '../support/mock-api';
+import { mockIdleWebSocket, mockWorkspaceApi } from '../support/mock-api';
 import { DeterministicMonkeyFuzzer } from './monkey';
 
 test.describe('Auth UI Monkey Fuzzing', () => {
 	test.beforeEach(async ({ page }) => {
 		test.setTimeout(60000);
 		await page.setViewportSize({ width: 1440, height: 900 });
+		await mockIdleWebSocket(page);
 		await mockWorkspaceApi(page);
 	});
 

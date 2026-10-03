@@ -1,16 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { mockWorkspaceApi } from '../support/mock-api';
+import { mockIdleWebSocket, mockWorkspaceApi } from '../support/mock-api';
 
 test.describe('visual regression', () => {
 	test('login page remains visually stable', async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await page.goto('/login');
+		await page.waitForLoadState('networkidle');
 		await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
 		await expect(page).toHaveScreenshot('login-desktop.png');
 	});
 
 	test('settings desktop layout remains visually stable', async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
+		await mockIdleWebSocket(page);
 		await mockWorkspaceApi(page);
 		await page.goto('/inbox?tab=settings');
 		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 15000 });
@@ -19,6 +21,7 @@ test.describe('visual regression', () => {
 
 	test('settings mobile layout remains visually stable', async ({ page }) => {
 		await page.setViewportSize({ width: 375, height: 812 });
+		await mockIdleWebSocket(page);
 		await mockWorkspaceApi(page);
 		await page.goto('/inbox?tab=settings');
 		await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 15000 });
@@ -34,6 +37,7 @@ test.describe('visual regression', () => {
 		});
 		const page = await context.newPage();
 		try {
+			await mockIdleWebSocket(page);
 			await mockWorkspaceApi(page, {
 				role: 'manager',
 				productMode: 'full_workspace',
