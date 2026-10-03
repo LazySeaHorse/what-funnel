@@ -35,6 +35,11 @@ from debounce import (
     requeue_in_flight,
 )
 
+# DEPRECATED: the Tier 1 pattern stages (rapidfuzz trigger match and pattern-embedding match)
+# are bypassed. Every non-escalated message goes straight to LLM + RAG. This system will be
+# replaced with a decision model. Flip to True only to restore the old behaviour.
+LEGACY_PATTERN_STAGES_ENABLED = False
+
 # Set up logging
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger("ai-answer-svc")
@@ -564,7 +569,13 @@ async def execute_conversation_cascade(
             logger.info("Escalation signal detected for conversation %s; flagging for human review", convo_uuid)
 
         # Step 1: Rapidfuzz trigger match using clause segmentation and filler stripping
-        patterns = [] if escalated else await get_cached_patterns(db, account_uuid)
+        # DEPRECATED (see LEGACY_PATTERN_STAGES_ENABLED): pattern stages 1 and 2 are bypassed and
+        # will be replaced with a decision model. LLM + RAG below handles every call.
+        patterns = (
+            await get_cached_patterns(db, account_uuid)
+            if LEGACY_PATTERN_STAGES_ENABLED and not escalated
+            else []
+        )
         matched_pattern, match_score = (
             await asyncio.to_thread(match_tier1_patterns, patterns, bubble_texts)
             if patterns else (None, 0.0)
