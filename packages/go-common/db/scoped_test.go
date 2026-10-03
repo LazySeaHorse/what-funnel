@@ -19,6 +19,9 @@ import (
 // if DATABASE_URL is not set. Integration tests require `make up` first.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		dsn = "postgres://whatfunnel:whatfunnel@localhost:5432/whatfunnel?sslmode=disable"

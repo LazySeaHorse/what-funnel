@@ -50,6 +50,10 @@ func TestPerformanceIndexesMigrationFile(t *testing.T) {
 
 // TestPerformanceIndexesExistInDatabase verifies that all 9 performance indexes exist in Postgres schema.
 func TestPerformanceIndexesExistInDatabase(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
 	pool := testPool(t)
 	ctx := context.Background()
 
