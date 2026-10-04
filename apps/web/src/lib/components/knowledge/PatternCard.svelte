@@ -8,6 +8,7 @@
 		answer_text: string;
 		trigger_phrases?: string[];
 		not_for?: string;
+		status?: 'active' | 'excluded_over_limit' | 'unapproved';
 	}
 
 	let {
@@ -28,8 +29,17 @@
 		<!-- Header: Badge & Actions -->
 		<div class="flex items-start justify-between gap-3">
 			<div class="space-y-1 min-w-0 flex-1">
-				<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-sky-50 text-sky-700 border border-sky-200/70 tracking-wide uppercase">
-					<span>Deterministic Q&A</span>
+				<div class="flex flex-wrap items-center gap-1.5">
+					<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-sky-50 text-sky-700 border border-sky-200/70 tracking-wide uppercase">
+						<span>Deterministic Q&A</span>
+					</div>
+					{#if pattern.status === 'excluded_over_limit'}
+						<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200 tracking-wide uppercase" title="Only the 10 oldest approved FAQs are used by the AI">Not used (limit reached)</span>
+					{:else if pattern.status === 'unapproved'}
+						<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 tracking-wide uppercase">Not approved</span>
+					{:else if pattern.status === 'active'}
+						<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/70 tracking-wide uppercase">Active</span>
+					{/if}
 				</div>
 				<h3 class="text-sm font-medium text-slate-900 leading-snug tracking-tight pt-0.5">{pattern.canonical_question}</h3>
 			</div>

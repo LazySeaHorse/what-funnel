@@ -150,3 +150,56 @@ async def test_no_code_path_inserts_patterns_without_approval_marker():
         text = path.read_text()
         for match in re.finditer(r"INSERT INTO patterns\s*\((.*?)\)", text, re.S):
             assert "approved_at" in match.group(1), f"{path.name}: pattern insert without approved_at"
+
+
+# --- FAQ cap visibility ------------------------------------------------------------
+
+def _row(i, approved=True):
+    from datetime import datetime, timedelta, timezone
+
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+    return {"id": uuid.UUID(int=i + 1), "created_at": created, "approved_at": created if approved else None}
+
+
+def test_annotate_marks_oldest_approved_faqs_active_and_the_rest_excluded():
+    rows = [_row(i) for i in range(12)] + [_row(99, approved=False)]
+    rows.reverse()  # the API lists newest first; selection must not depend on list order
+    summary = kb_service.annotate_faq_activity(rows)
+    assert summary == {"max_active": 10, "active": 10, "excluded": 2}
+    by_index = {r["id"].int - 1: r["status"] for r in rows}
+    assert [by_index[i] for i in range(10)] == ["active"] * 10
+    assert by_index[10] == by_index[11] == "excluded_over_limit"
+    assert by_index[99] == "unapproved"
+
+
+def test_under_the_cap_everything_approved_is_active():
+    rows = [_row(i) for i in range(3)]
+    assert kb_service.annotate_faq_activity(rows) == {"max_active": 10, "active": 3, "excluded": 0}
+    assert {r["status"] for r in rows} == {"active"}
+
+
+def test_cap_matches_the_router_menu_cap():
+    import pathlib
+    import re
+
+    router = pathlib.Path(__file__).resolve().parents[2] / "ai-answer-svc" / "router.py"
+    match = re.search(r"^MAX_MENU_FAQS\s*=\s*(\d+)", router.read_text(), re.M)
+    assert match and int(match.group(1)) == kb_service.MAX_ACTIVE_FAQS
+
+
+@pytest.mark.asyncio
+async def test_list_patterns_reports_which_faqs_are_excluded(pool_and_account):
+    pool, account_id = pool_and_account
+    db = ScopedDB(pool, account_id)
+    for i in range(11):
+        await pool.execute(
+            """
+            INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, approved_at, created_at)
+            VALUES ($1, $2, 'a', ARRAY['x'], NOW(), NOW() + make_interval(secs => $3))
+            """,
+            account_id, f"Question {i}?", float(i),
+        )
+    result = await kb_service.list_patterns(db)
+    assert result["limit"] == {"max_active": 10, "active": 10, "excluded": 1}
+    excluded = [p for p in result["patterns"] if p["status"] == "excluded_over_limit"]
+    assert [p["canonical_question"] for p in excluded] == ["Question 10?"]  # newest is the one left out

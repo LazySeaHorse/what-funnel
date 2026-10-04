@@ -546,7 +546,35 @@ async def update_concept(
 # Pattern Management
 # ===========================================================================
 
-async def list_patterns(db: ScopedDB) -> List[dict[str, Any]]:
+# The AI router shows at most this many approved FAQs (oldest first). It must equal
+# MAX_MENU_FAQS in services/ai-answer-svc/router.py; FAQs beyond it are never used for replies, so
+# the knowledge panel reports which ones are active and which are excluded instead of hiding it.
+MAX_ACTIVE_FAQS = 10
+
+
+def annotate_faq_activity(rows: List[dict[str, Any]]) -> dict[str, Any]:
+    """Add `status` ("active" | "excluded_over_limit" | "unapproved") to each FAQ row, in place.
+
+    Mirrors the ai-answer-svc selection: approved FAQs ordered by created_at then id, first
+    MAX_ACTIVE_FAQS are active. Returns the summary shown in the panel.
+    """
+    approved = sorted(
+        (r for r in rows if r.get("approved_at") is not None),
+        key=lambda r: (r["created_at"], str(r["id"])),
+    )
+    active_ids = {r["id"] for r in approved[:MAX_ACTIVE_FAQS]}
+    for row in rows:
+        if row.get("approved_at") is None:
+            row["status"] = "unapproved"
+        elif row["id"] in active_ids:
+            row["status"] = "active"
+        else:
+            row["status"] = "excluded_over_limit"
+    excluded = sum(1 for r in rows if r["status"] == "excluded_over_limit")
+    return {"max_active": MAX_ACTIVE_FAQS, "active": len(active_ids), "excluded": excluded}
+
+
+async def list_patterns(db: ScopedDB) -> dict[str, Any]:
     rows = await db.fetch(
         """
         SELECT id, canonical_question, answer_text, trigger_phrases, not_for, approved_at, created_at, updated_at
@@ -556,7 +584,9 @@ async def list_patterns(db: ScopedDB) -> List[dict[str, Any]]:
         """,
         db.account_id,
     )
-    return [dict(r) for r in rows]
+    patterns = [dict(r) for r in rows]
+    limit = annotate_faq_activity(patterns)
+    return {"patterns": patterns, "limit": limit}
 
 
 async def delete_pattern(

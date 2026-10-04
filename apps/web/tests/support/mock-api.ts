@@ -294,7 +294,18 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		}
 		if (/^\/leads\/[^/]+\/(notes|history)$/.test(path)) return json([]);
 		if (path === '/api/kb/concepts') return json({ concepts: knowledgeConcepts });
-		if (path === '/api/kb/patterns') return json({ patterns: knowledgePatterns });
+		if (path === '/api/kb/patterns') {
+			// Mirrors the server: patterns carry a `status` (default active) and a summary of the 10-FAQ cap.
+			const status = (p: { status?: string }) => p.status ?? 'active';
+			return json({
+				patterns: knowledgePatterns,
+				limit: {
+					max_active: 10,
+					active: knowledgePatterns.filter((p) => status(p) === 'active').length,
+					excluded: knowledgePatterns.filter((p) => status(p) === 'excluded_over_limit').length
+				}
+			});
+		}
 		if (path.startsWith('/api/kb/concepts/') && request.method() === 'PUT') {
 			const id = path.split('/')[4];
 			const index = knowledgeConcepts.findIndex((c) => c.id === id);

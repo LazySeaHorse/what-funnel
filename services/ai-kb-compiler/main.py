@@ -260,8 +260,7 @@ async def reject_suggestion(
 
 @app.get("/internal/kb/patterns")
 async def list_patterns(db: ScopedDB = Depends(get_db)):
-    patterns = await kb_service.list_patterns(db)
-    return {"patterns": patterns}
+    return await kb_service.list_patterns(db)
 
 
 @app.delete("/internal/kb/patterns/{pattern_id}")

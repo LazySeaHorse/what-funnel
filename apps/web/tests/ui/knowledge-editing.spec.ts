@@ -193,3 +193,39 @@ test('capture redesigned knowledge tab screenshots', async ({ page }) => {
 	await page.getByRole('button', { name: /KB Concepts/ }).click();
 	await page.screenshot({ path: 'test-results/redesigned-knowledge-mobile.png', fullPage: false });
 });
+
+
+test('Knowledge tab shows which FAQs are excluded by the 10-FAQ limit', async ({ page }) => {
+	await mockWorkspaceApi(page, {
+		role: 'manager',
+		productMode: 'full_workspace',
+		knowledge: {
+			concepts: [],
+			patterns: [
+				{ id: 'p-a', canonical_question: 'When are you open?', answer_text: '9 to 5', trigger_phrases: ['hours'], status: 'active' },
+				{ id: 'p-b', canonical_question: 'Do you ship abroad?', answer_text: 'Yes', trigger_phrases: ['abroad'], status: 'excluded_over_limit' }
+			]
+		}
+	});
+
+	await page.goto('/inbox?tab=knowledge');
+	await page.getByRole('button', { name: /Patterns/ }).click();
+	await expect(page.getByRole('status')).toContainText('The AI uses at most 10 approved FAQs. 1 newer FAQ is not being used.');
+	await expect(page.getByText('Not used (limit reached)')).toHaveCount(1);
+	await expect(page.getByText('Active', { exact: true })).toHaveCount(1);
+});
+
+test('Knowledge tab shows no limit warning when every FAQ is active', async ({ page }) => {
+	await mockWorkspaceApi(page, {
+		role: 'manager',
+		productMode: 'full_workspace',
+		knowledge: {
+			concepts: [],
+			patterns: [{ id: 'p-a', canonical_question: 'When are you open?', answer_text: '9 to 5', trigger_phrases: ['hours'] }]
+		}
+	});
+	await page.goto('/inbox?tab=knowledge');
+	await page.getByRole('button', { name: /Patterns/ }).click();
+	await expect(page.getByText('When are you open?')).toBeVisible();
+	await expect(page.getByText('newer FAQ')).toHaveCount(0);
+});

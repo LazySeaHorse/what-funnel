@@ -40,6 +40,7 @@
 
 	let concepts = $state<any[]>([]);
 	let patterns = $state<any[]>([]);
+	let faqLimit = $state<{ max_active: number; active: number; excluded: number } | null>(null);
 	let suggestions = $state<any[]>([]);
 	let lastRun = $state<any>(null);
 	let loading = $state(true);
@@ -107,7 +108,10 @@
 				apiRequest('/api/kb/mining-runs/latest')
 			]);
 			if (conceptsRes.status === 'fulfilled') concepts = conceptsRes.value?.concepts ?? [];
-			if (patternsRes.status === 'fulfilled') patterns = patternsRes.value?.patterns ?? [];
+			if (patternsRes.status === 'fulfilled') {
+				patterns = patternsRes.value?.patterns ?? [];
+				faqLimit = patternsRes.value?.limit ?? null;
+			}
 			if (suggestionsRes.status === 'fulfilled') {
 				suggestions = (suggestionsRes.value?.suggestions ?? []).map((suggestion: any) => {
 					let payload = suggestion.proposed_payload ?? {};
@@ -163,6 +167,8 @@
 			await apiRequest(`/api/kb/patterns/${id}`, { method: 'DELETE' });
 			patterns = patterns.filter((pattern) => pattern.id !== id);
 			if (editingPatternId === id) editingPatternId = null;
+			// Deleting an active FAQ lets an excluded one become active: refresh the statuses.
+			await load(true);
 		} catch (err) {
 			console.error('Failed to delete pattern', err);
 			actionError = errorMessage(err, 'Failed to delete the pattern.');
@@ -494,6 +500,12 @@
 		</div>
 	{:else if activeTab === 'patterns'}
 		<div class="flex-1 overflow-y-auto px-6 py-4">
+			{#if faqLimit && faqLimit.excluded > 0}
+				<div role="status" class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+					The AI uses at most {faqLimit.max_active} approved FAQs. {faqLimit.excluded} newer FAQ{faqLimit.excluded !== 1 ? 's are' : ' is'}
+					not being used. Delete or merge FAQs to make room; the ones marked "Not used" below are the ones left out.
+				</div>
+			{/if}
 			{#if filteredPatterns.length === 0}
 				<div class="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
 					<div class="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 mb-3 shadow-2xs">
