@@ -156,14 +156,16 @@ Core application services handle domain logic, contact state, and AI orchestrati
 ### AI Answer Engine & RAG Cascade
 
 - Located in [`services/ai-answer-svc`](services/ai-answer-svc).
-- **Inbound Debouncing**: Intelligently aggregates rapid successive customer messages into a coherent prompt before answering.
-- **RAG & Vector Grounding**: Queries pgvector embeddings compiled by `ai-kb-compiler` for semantic relevance.
-- **Confidence Gating**: Evaluates response quality and confidence. High-confidence answers can be dispatched automatically, while marginal answers are presented as suggestions or handed over to human agents.
+- **Inbound Debouncing**: Aggregates rapid successive customer messages of one conversation into a single batch (first bubble waits 4 s).
+- **Structured LLM Router**: One schema-constrained call per batch decides between an approved FAQ reply, a grounded knowledge-base answer, a human handoff or nothing. Customer text is treated as untrusted data; the router returns enums only and cannot write to the customer.
+- **Deterministic Gates**: A canned FAQ is sent verbatim only if the FAQ is valid, fully covers the message and no handoff reason is set. KB answers must cite retrieved concepts and pass a groundedness check. Failures fall back to a human; a tiny legal/medical backstop always hands off.
+- **First-message Greeting**: A configurable per-account greeting answers a conversation's first message when it is only "hi" or similar.
+- **Evaluation**: `make eval-router` scores the router against a labelled set (see [`services/ai-answer-svc/README.md`](services/ai-answer-svc/README.md)).
 
 ### Knowledge Base Compiler & Conversation Mining
 
 - Located in [`services/ai-kb-compiler`](services/ai-kb-compiler).
-- **Document & Paste Ingestion**: Ingests raw text, documentation, and FAQs, generating semantic chunks and vector embeddings.
+- **Document & Paste Ingestion**: Ingests raw text, documentation, and FAQs. Concepts are embedded for retrieval; FAQs (with example questions and a not-for note) are only used by the AI after a human approves them in the knowledge panel.
 - **Conversation Mining**: Periodically analyzes unresolved or answered conversation histories to extract candidate FAQ items and propose knowledge additions.
 
 ### Transactional Outbox & Delivery Guarantees

@@ -4,11 +4,10 @@ import logging
 import os
 import signal
 import socket
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 import httpx
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError

@@ -37,7 +37,7 @@ import math
 import os
 import sys
 import uuid
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
