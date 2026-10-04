@@ -297,24 +297,43 @@ def apply_gates(result: RouterResult, menu: list[FaqEntry]) -> Outcome:
 
 
 # ---------------------------------------------------------------------------
-# Tiny safety backstop: legal threats and acute medical emergencies only.
-# A hit means handoff, whatever the model says. Deliberately no cancel/refund/urgent/complaint words.
+# Safety backstop: legal threats and acute emergencies, nothing else.
+# A hit means handoff whatever the model says. Patterns require THREAT or EMERGENCY context, not a
+# bare topic word: "my lawyer will contact you" hits, "my lawyer friend recommends you" does not;
+# "I smell gas" hits, "do you sell gas grills" does not. No cancel/urgent/refund/complaint words.
 # ---------------------------------------------------------------------------
 
-_BACKSTOP_RE = re.compile(
-    r"\b(?:"
-    r"lawyers?|attorneys?|lawsuits?|legal action|sue (?:you|us|your|the|this)|suing (?:you|us|your|the)|"
-    r"see you in court|small claims|"
-    r"can(?:'|’)?t breathe|cannot breathe|chest pain|heart attack|overdos(?:e|ed|ing)|anaphyla\w*|"
-    r"unconscious|not breathing|won(?:'|’)?t stop bleeding|bleeding heavily|call(?:ing)? (?:911|999|an ambulance)|"
-    r"suicid\w*|having a stroke|seizure"
-    r")\b",
-    re.I,
+_APOS = r"['\u2019]?"
+_LEGAL_THREAT = (
+    r"legal action|legal proceedings|legal team|legal counsel|see you in court|small claims|class action",
+    # "sue" is also a name, so the verb needs a subject or "to"/modal before it (or be "suing")
+    r"(?:i|we|will|would|can|could|should|may|might|must|gonna|to|ll)\s+sue\s+(?:you|us|your|the|this|them|over)\b",
+    r"suing\s+(?:you|us|your|the|this|them|over)\b",
+    r"(?:file|filing|filed|bring|bringing|start|starting)\s+(?:a\s+)?(?:lawsuit|law suit|legal)",
+    r"(?:my|our|the)\s+(?:lawyers?|attorneys?|solicitors?)\s+(?:will|would|is|are|has|have|had|can|should|to|says?|said|advised|"
+    + _APOS + r"ll|wants?|needs?)\b",
+    r"(?:call|calling|contact|contacting|hire|hired|hiring|get|getting|involve|involving|speak(?:ing)?\s+to|talk(?:ing)?\s+to)\s+"
+    r"(?:a|my|an|our)\s+(?:lawyers?|attorneys?|solicitors?)\b(?!\s+(?:friend|referral|number|directory))",
+    r"lawyer(?:ed)?\s+up",
 )
+_EMERGENCY = (
+    # breathing, heart, stroke, consciousness, seizures, choking, bleeding
+    r"can" + _APOS + r"t\s+breathe|cannot\s+breathe|not\s+breathing|stopped\s+breathing|trouble\s+breathing|difficulty\s+breathing",
+    r"chest\s+(?:pain|tightness)|heart\s+attack|having\s+a\s+stroke|(?:is|are|was)\s+unconscious|unresponsive",
+    r"(?:having|had)\s+a\s+seizure|(?:is|are|was|am)\s+choking|choking\s+on",
+    r"overdos(?:e|ed|ing)|(?:went|going|gone)\s+into\s+anaphyla\w*|(?:having|in)\s+(?:an?\s+)?anaphyla\w*(?:\s+shock)?|anaphylactic\s+shock",
+    r"won" + _APOS + r"t\s+stop\s+bleeding|bleeding\s+(?:heavily|badly|profusely)|losing\s+(?:a\s+lot\s+of\s+)?blood",
+    r"call(?:ing|ed)?\s+(?:911|999|112|an\s+ambulance|the\s+ambulance)|need\s+an\s+ambulance",
+    r"suicid\w*|kill\s+myself|end\s+my\s+life|want\s+to\s+die",
+    # gas, carbon monoxide, fire
+    r"gas\s+leak|leaking\s+gas|smell(?:s|ed|ing)?\s+(?:of\s+|like\s+)?gas|gas\s+smell|carbon\s+monoxide",
+    r"(?:on|caught|catching)\s+fire|fire\s+(?:broke\s+out|started)|(?:is|are)\s+(?:smoking|burning)\s+(?:and|now|badly)|started\s+(?:to\s+)?smok(?:e|ing)",
+)
+_BACKSTOP_RE = re.compile(r"\b(?:" + "|".join(_LEGAL_THREAT + _EMERGENCY) + r")\b", re.I)
 
 
 def backstop_hit(bubbles: list[str]) -> bool:
-    return any(_BACKSTOP_RE.search(b) for b in bubbles)
+    return any(_BACKSTOP_RE.search(normalize_text(b)) for b in bubbles)
 
 
 # ---------------------------------------------------------------------------

@@ -180,22 +180,60 @@ def test_gate_with_empty_menu_never_canned():
 
 # --- backstop -----------------------------------------------------------------
 
-@pytest.mark.parametrize("text", [
-    "I will call my lawyer", "my attorney will be in touch", "I'm going to sue you", "this is a lawsuit",
-    "see you in court", "I can't breathe", "I have chest pain", "he took an overdose",
-    "she is unconscious", "it won't stop bleeding", "please call 911",
-])
-def test_backstop_hits_legal_and_medical(text):
-    assert backstop_hit([text])
+LEGAL_POSITIVES = [
+    "I will call my lawyer about this", "my attorney will be in touch", "my lawyer says you owe me",
+    "I'm going to sue you", "I will sue the shop", "we are suing you", "I'll sue your company", "I WILL SUE YOU",
+    "I'm filing a lawsuit", "I'll take legal action",
+    "see you in court", "I'm taking you to small claims", "talking to a solicitor tomorrow",
+    "I have hired a lawyer", "getting my lawyer involved", "time to lawyer up", "my legal team will contact you",
+    "contact an attorney and sue",
+]
+EMERGENCY_POSITIVES = [
+    "I can't breathe", "I cannot breathe after using it", "he is not breathing", "she stopped breathing",
+    "I have chest pain after the procedure", "I think I'm having a heart attack", "he took an overdose",
+    "she is unconscious", "my son is choking", "he is choking on a crumb", "it won't stop bleeding",
+    "he's bleeding heavily", "please call 911", "I'm calling an ambulance", "she is having a seizure",
+    "went into anaphylaxis after the cake", "he's in anaphylactic shock", "I want to kill myself",
+    "I smell gas in the shop", "there is a gas leak", "it smells like gas", "carbon monoxide alarm is going off",
+    "the battery is on fire", "my bike caught fire", "a fire broke out in the garage", "the charger started smoking",
+    "I can\u2019t breathe",  # typographic apostrophe
+    "i CAN'T BREATHE",
+]
+BENIGN_NEGATIVES = [
+    # legal words without a threat
+    "my lawyer friend recommended you", "do you have an attorney referral", "can I speak to an attorney referral",
+    "Sue is my name", "ask Sue the manager", "is the lawyer discount real", "I work for a law firm, do you do corporate orders",
+    "is there a legal age for the gym", "what is your legal name for the invoice", "pursue the order", "is a legal receipt provided",
+    "I need a lawyer-friendly invoice", "do you take legal tender coins",
+    # emergency-ish words without an emergency
+    "anaphylaxis-safe cakes?", "do you make nut free cakes for anaphylaxis allergies", "do you sell gas grills",
+    "is the gas fireplace included", "gas station nearby?", "do you have a fire exit", "fire sale prices?",
+    "the cake is fire lol", "do you do fire-grilled pizza", "I was fired today, need a cheap cake", "smoke detector sold here?",
+    "heart shaped cakes?", "heartburn after the pastry, is that normal", "do you have a first aid kit",
+    "chest of drawers delivery", "I passed out flyers for you", "blood orange cake?", "is the bleeding heart plant in stock",
+    "seizure alert dog friendly?", "I'm dying to try the cake", "the fireworks cake", "carbon neutral delivery?",
+    # old regex false-positive words
+    "how do I cancel my order", "can I get a refund if I cancel", "this is urgent, are you open", "emergency cake service?",
+    "I have a complaint about the colour", "worst service ever", "is the unconscious bias training a thing",
+    "what are your hours", "my tooth hurts a bit",
+]
 
 
-@pytest.mark.parametrize("text", [
-    "how do I cancel my order", "I want a refund", "this is urgent", "is there an emergency service",
-    "I have a complaint", "worst service ever", "is the pursue plan available", "Sue is my name",
-    "what are your hours", "my tooth hurts a bit", "can I get a refund if I cancel",
-])
-def test_backstop_does_not_fire_on_ordinary_words(text):
-    assert not backstop_hit([text])
+@pytest.mark.parametrize("text", LEGAL_POSITIVES + EMERGENCY_POSITIVES)
+def test_backstop_hits_legal_threats_and_acute_emergencies(text):
+    assert backstop_hit([text]), text
+
+
+@pytest.mark.parametrize("text", BENIGN_NEGATIVES)
+def test_backstop_ignores_benign_mentions(text):
+    assert not backstop_hit([text]), text
+
+
+def test_backstop_checks_every_bubble_and_sees_through_invisible_characters():
+    assert backstop_hit(["hi", "my lawyer will call you"])
+    assert backstop_hit(["I can\u200b't breathe"])
+    assert backstop_hit(["Ｉ ｃａｎ＇ｔ ｂｒｅａｔｈｅ"])  # full-width forms
+    assert not backstop_hit([])
 
 
 # --- greetings ----------------------------------------------------------------
