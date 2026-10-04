@@ -2,10 +2,11 @@ from datetime import timedelta
 from typing import Iterable, Literal
 
 
-HUMAN_REVIEW_REPLY = (
-    "This is an automated reply. We received your message and sent it to our "
-    "support team. A team member will answer you soon."
-)
+# The single acknowledgement sent (auto_send mode only) whenever a message is handed to a human:
+# escalations (needs human, prompt injection, legal/medical backstop) and failed or unanswerable
+# messages alike. Plain text, never customised by the model.
+HANDOFF_ACK_REPLY = "Your message has been transferred to a human agent."
+HUMAN_REVIEW_REPLY = HANDOFF_ACK_REPLY
 NON_TEXT_HUMAN_REVIEW_REPLY = (
     "This is an automated reply. We received your attachment and sent it to our "
     "support team. A team member will answer you soon."
@@ -47,7 +48,7 @@ def transcript_within_byte_budget(
     selected: list[str] = []
     remaining = byte_budget
     for role, text in reversed(list(messages)):
-        if text == HUMAN_REVIEW_REPLY or text == NON_TEXT_HUMAN_REVIEW_REPLY:
+        if text in (HANDOFF_ACK_REPLY, NON_TEXT_HUMAN_REVIEW_REPLY):
             continue
         line = f"{role}: {text.strip()}"
         encoded = line.encode("utf-8")

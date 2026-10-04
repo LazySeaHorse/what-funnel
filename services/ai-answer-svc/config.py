@@ -28,6 +28,12 @@ class Config:
             + 30.0
         )
     )
+    # Router and KB answer output budgets (tokens). The router emits four enum fields.
+    AI_ROUTER_MAX_TOKENS: int = max(16, int(os.getenv("AI_ROUTER_MAX_TOKENS", "150")))
+    AI_KB_MAX_TOKENS: int = max(64, int(os.getenv("AI_KB_MAX_TOKENS", "400")))
+    # Minimum cosine similarity for a kb_concept to be shown to the KB answer step. Not calibrated
+    # against any specific embedding model: tune it with the eval harness.
+    AI_KB_MIN_SIMILARITY: float = float(os.getenv("AI_KB_MIN_SIMILARITY", "0.30"))
     AI_CASCADE_CONCURRENCY: int = max(1, int(os.getenv("AI_CASCADE_CONCURRENCY", "8")))
     AI_DEBOUNCE_MAX_ATTEMPTS: int = max(1, int(os.getenv("AI_DEBOUNCE_MAX_ATTEMPTS", "3")))
     STREAM_MAX_DELIVERIES: int = max(1, int(os.getenv("STREAM_MAX_DELIVERIES", "5")))

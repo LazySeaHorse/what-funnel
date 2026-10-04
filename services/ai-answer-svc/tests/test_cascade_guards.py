@@ -1,4 +1,4 @@
-"""Escalation guard, send-failure handling and DB-backed draft storage tests."""
+"""Send-failure handling, run-lock release and DB-backed draft storage tests."""
 
 import json
 import os
@@ -10,145 +10,52 @@ import pytest
 import pytest_asyncio
 
 from db import ScopedDB
-from main import execute_conversation_cascade, insert_pending_draft
+from cascade_fakes import FakeClient, executed, faq_row, make_db, router_reply, run_cascade
+from main import insert_pending_draft
 
 
-class MockRecord(dict):
-    def __getattr__(self, name):
-        try:
-            return self[name]
-        except KeyError:
-            raise AttributeError(name)
+FAQ_HOURS = lambda: faq_row("What are your shipping times?", "Shipping takes 3 days.")  # noqa: E731
 
 
-@pytest.fixture(autouse=True)
-def disable_debounce(monkeypatch):
-    monkeypatch.setattr("main.config.AI_DEBOUNCE_ENABLED", False)
-
-
-def _cascade_db(mode: str, text: str, patterns=None):
-    conversation = MockRecord({
-        "assigned_user_ids": [], "state": "active", "state_reason": None,
-        "reply_override": "inherit", "run_state": "idle", "generation_epoch": 0,
-        "cooldown_level": 0, "unanswered_count": 0, "unanswered_window_started_at": None,
-    })
-    account = MockRecord({"settings": json.dumps({"ai_enabled": True, "ai_reply_mode_default": mode})})
-    message = MockRecord({"content": json.dumps({"text": text})})
-
-    async def fetchrow(query, *args):
-        if "SELECT c.assigned_user_ids" in query:
-            return conversation
-        if "SELECT settings FROM accounts" in query:
-            return account
-        if "SET run_state = 'replying'" in query:
-            return MockRecord({"generation_epoch": 1})
-        if "SELECT content FROM messages" in query:
-            return message
-        return None
-
-    async def fetch(query, *args):
-        if "FROM patterns" in query:
-            return patterns or []
-        if "FROM messages" in query:
-            return [MockRecord({"id": uuid.uuid4(), "content": message["content"], "created_at": None})]
-        return []
-
-    db = MagicMock()
-    db.fetchrow = fetchrow
-    db.fetch = fetch
-    db.execute = AsyncMock()
-    db.fetchval = AsyncMock(return_value=None)
-    return db
-
-
-def _executed(db, needle: str):
-    return [c for c in db.execute.await_args_list if needle in c.args[0]]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["auto_send", "draft_only"])
-async def test_escalation_blocks_pattern_embedding_and_rag_stages(mode):
-    """A refund demand matching a FAQ pattern must never be auto-answered or embedded."""
-    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    patterns = [MockRecord({"trigger_phrases": ["shipping times"], "answer_text": "Shipping takes 3 days."})]
-    redis_client = AsyncMock()
-
-    with patch("main.ScopedDB") as MockScopedDB, \
-         patch("main.get_ai_config", AsyncMock()) as get_cfg, \
-         patch("main.insert_pending_draft", AsyncMock()) as insert_draft, \
-         patch("main.send_ai_message", AsyncMock()) as send:
-        db = _cascade_db(mode, "I demand a full refund, the shipping times are unacceptable", patterns)
-        db.account_id = account_id
-        MockScopedDB.return_value = db
-
-        await execute_conversation_cascade(convo_id, account_id, msg_id, MagicMock(), redis_client)
-
-    get_cfg.assert_not_awaited()  # no embedding / RAG stage ran
-    send.assert_not_awaited()
-    insert_draft.assert_not_awaited()
-    review = _executed(db, "state = 'review_required'")
-    assert len(review) == 1
-    assert review[0].args[3] == "escalation"
-    events = _executed(db, "INSERT INTO ai_answer_events")
-    assert len(events) == 1
-    assert events[0].args[4] == "none"
-    assert events[0].args[6] == "flagged_human"
+def _canned_client():
+    return FakeClient(router=router_reply("faq", "F1", True, "none"))
 
 
 @pytest.mark.asyncio
 async def test_send_failure_flags_human_and_records_event():
-    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    patterns = [MockRecord({"trigger_phrases": ["shipping times"], "answer_text": "Shipping takes 3 days."})]
-    redis_client = AsyncMock()
+    db = make_db("auto_send", ("what are your shipping times",), faqs=[FAQ_HOURS()])
+    run = await run_cascade(db, _canned_client(), extra_patches=[
+        patch("main.send_ai_message", AsyncMock(side_effect=RuntimeError("conversation-svc down")))
+    ])
 
-    with patch("main.ScopedDB") as MockScopedDB, \
-         patch("main.send_ai_message", AsyncMock(side_effect=RuntimeError("conversation-svc down"))):
-        db = _cascade_db("auto_send", "what are your shipping times", patterns)
-        db.account_id = account_id
-        MockScopedDB.return_value = db
-
-        await execute_conversation_cascade(convo_id, account_id, msg_id, MagicMock(), redis_client)
-
-    review = _executed(db, "state = 'review_required'")
+    review = executed(db, "state = 'review_required'")
     assert len(review) == 1
     assert review[0].args[3] == "auto_send_failed"
-    events = _executed(db, "INSERT INTO ai_answer_events")
+    events = run.events()
     assert len(events) == 1
-    assert events[0].args[4] == "pattern"
+    assert events[0].args[4] == "canned"
     assert events[0].args[6] == "flagged_human"
     assert events[0].args[7] is None
-    control = [
-        json.loads(c.args[1]["payload"]) for c in redis_client.xadd.call_args_list
-        if c.args[0] == "ai.control.updated"
-    ]
-    assert control[-1]["state"] == "review_required"
+    assert run.control_states()[-1] == "review_required"
 
 
 @pytest.mark.asyncio
 async def test_event_insert_failure_after_successful_send_is_not_reported_as_send_failure(caplog):
-    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     reply_id = uuid.uuid4()
-    patterns = [MockRecord({"trigger_phrases": ["shipping times"], "answer_text": "Shipping takes 3 days."})]
-    redis_client = AsyncMock()
+    db = make_db("auto_send", ("what are your shipping times",), faqs=[FAQ_HOURS()])
 
     async def execute(query, *args):
         if "INSERT INTO ai_answer_events" in query:
             raise RuntimeError("db down")
 
-    with patch("main.ScopedDB") as MockScopedDB, \
-         patch("main.send_ai_message", AsyncMock(return_value={"id": str(reply_id)})):
-        db = _cascade_db("auto_send", "what are your shipping times", patterns)
-        db.execute = AsyncMock(side_effect=execute)
-        db.account_id = account_id
-        MockScopedDB.return_value = db
+    db.execute = AsyncMock(side_effect=execute)
+    run = await run_cascade(db, _canned_client(), send_result={"id": str(reply_id)})
 
-        await execute_conversation_cascade(convo_id, account_id, msg_id, MagicMock(), redis_client)
-
-    assert not _executed(db, "state = 'review_required'")
+    assert not executed(db, "state = 'review_required'")
     assert "Failed to record ai_answer_events" in caplog.text
     assert "Failed to auto-send" not in caplog.text
     ready = [
-        json.loads(c.args[1]["payload"]) for c in redis_client.xadd.call_args_list
+        json.loads(c.args[1]["payload"]) for c in run.redis.xadd.call_args_list
         if c.args[0] == "ai.reply_ready"
     ]
     assert ready and ready[0]["action"] == "auto_sent"
@@ -156,20 +63,14 @@ async def test_event_insert_failure_after_successful_send_is_not_reported_as_sen
 
 @pytest.mark.asyncio
 async def test_unexpected_cascade_error_releases_run_lock_and_propagates():
-    account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    patterns = [MockRecord({"trigger_phrases": ["shipping times"], "answer_text": "Shipping takes 3 days."})]
+    db = make_db("auto_send", ("what are your shipping times",), faqs=[FAQ_HOURS()])
 
-    with patch("main.ScopedDB") as MockScopedDB, \
-         patch("main.send_ai_message", AsyncMock(return_value={"id": str(uuid.uuid4())})), \
-         patch("main.publish_redis_stream", AsyncMock(side_effect=[None, RuntimeError("redis down")])):
-        db = _cascade_db("auto_send", "what are your shipping times", patterns)
-        db.account_id = account_id
-        MockScopedDB.return_value = db
+    with pytest.raises(RuntimeError, match="redis down"):
+        await run_cascade(db, _canned_client(), extra_patches=[
+            patch("main.publish_redis_stream", AsyncMock(side_effect=[None, RuntimeError("redis down")]))
+        ])
 
-        with pytest.raises(RuntimeError, match="redis down"):
-            await execute_conversation_cascade(convo_id, account_id, msg_id, MagicMock(), AsyncMock())
-
-    assert _executed(db, "SET run_state = 'idle'")
+    assert executed(db, "SET run_state = 'idle'")
 
 
 def test_run_reclaim_window_exceeds_request_timeout():
