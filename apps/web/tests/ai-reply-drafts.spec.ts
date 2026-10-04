@@ -26,7 +26,7 @@ test('loads an AI reply draft and only sends it after agent review', async ({ pa
 		conversation_id: conversation.id,
 		source_message_id: 'message-1',
 		draft_text: 'Yes, we are open until 8 PM today.',
-		stage_matched: 'pattern',
+		stage_matched: 'canned',
 		confidence: 1,
 		status: 'pending',
 		created_at: '2026-08-27T12:01:01Z',

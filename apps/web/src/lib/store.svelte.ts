@@ -6,7 +6,7 @@ export interface AIReplyDraft {
 	conversation_id: string;
 	source_message_id: string;
 	draft_text: string;
-	stage_matched: 'pattern' | 'embedding' | 'llm_grounded';
+	stage_matched: 'greeting' | 'canned' | 'rag';
 	confidence?: number;
 	status: 'pending';
 	created_at: string;

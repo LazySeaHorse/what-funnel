@@ -162,16 +162,14 @@ export class SimulatorController {
         },
       });
       this.lastStatus = "success";
+      // The real stage (greeting / canned / rag / handoff) is decided server-side after the
+      // debounce window; it is shown once the draft or reply arrives. Only a greeting is
+      // recognised locally, mirroring the server's deterministic first-message check.
       const stageMatched = inferStage(textToSend);
       this.currentTelemetry = {
         stageMatched,
-        confidence:
-          stageMatched === "pattern"
-            ? 0.98
-            : stageMatched === "llm_grounded"
-              ? 0.92
-              : 0.45,
-        action: stageMatched === "none" ? "flagged_human" : "auto_sent",
+        confidence: null,
+        action: "none",
         lastInboundText: textToSend,
         lastPayload: nativePayload,
         channelID,
@@ -379,18 +377,13 @@ function findConversation(conversations: any[], contact: TestContact) {
 }
 
 function inferStage(text: string): CascadeTelemetry["stageMatched"] {
-  const lower = text.toLowerCase();
-  if (
-    ["weekend", "hour", "located", "cancel", "open"].some((word) =>
-      lower.includes(word),
-    )
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^a-z' ]+/g, " ")
+    .trim();
+  return /^(hi|hello|hey|hiya|good (morning|afternoon|evening)|anyone there)( there| team)?$/.test(
+    normalized,
   )
-    return "pattern";
-  if (
-    ["pricing", "package", "concierge", "quote", "hair"].some((word) =>
-      lower.includes(word),
-    )
-  )
-    return "llm_grounded";
-  return "none";
+    ? "greeting"
+    : "none";
 }

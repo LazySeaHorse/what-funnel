@@ -24,7 +24,7 @@ const replyDraft = {
 	conversation_id: conversation.id,
 	source_message_id: 'message-1',
 	draft_text: 'Here is the prepared response.',
-	stage_matched: 'pattern',
+	stage_matched: 'canned',
 	status: 'pending',
 	created_at: '2026-01-01T12:00:00Z',
 	updated_at: '2026-01-01T12:00:00Z'

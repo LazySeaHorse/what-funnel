@@ -21,4 +21,5 @@ export interface WorkspaceSettingsForm {
   productMode: string;
   leadTracking: boolean;
   unassignedVisible: boolean;
+  aiGreetingText: string;
 }

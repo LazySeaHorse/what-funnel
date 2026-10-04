@@ -9,46 +9,47 @@
   let showPayloadJSON = $state(false);
   const stages = [
     {
-      key: "pattern",
-      code: "L1",
-      name: "Fast-Path Trigger Match",
-      detail: "rapidfuzz regex / exact phrases",
+      key: "greeting",
+      code: "G",
+      name: "First-message Greeting",
+      detail: "deterministic, account greeting text",
+      activeClass: "bg-emerald-50/80 border-emerald-300 text-emerald-900",
+      badgeClass: "bg-emerald-600 text-white",
+      status: "SENT",
+    },
+    {
+      key: "canned",
+      code: "FAQ",
+      name: "Approved FAQ Reply",
+      detail: "router decision + deterministic gates",
       activeClass: "bg-emerald-50/80 border-emerald-300 text-emerald-900",
       badgeClass: "bg-emerald-600 text-white",
       status: "MATCHED",
     },
     {
-      key: "embedding",
-      code: "L2",
-      name: "Semantic Vector Match",
-      detail: "pgvector cosine distance",
-      activeClass: "bg-emerald-50/80 border-emerald-300 text-emerald-900",
-      badgeClass: "bg-emerald-600 text-white",
-      status: "MATCHED",
-    },
-    {
-      key: "llm_grounded",
-      code: "L3",
-      name: "Knowledge Base RAG",
-      detail: "kb_concepts + grounded LLM",
+      key: "rag",
+      code: "KB",
+      name: "Knowledge Base Answer",
+      detail: "cited concepts + groundedness check",
       activeClass: "bg-blue-50/80 border-blue-300 text-blue-900",
       badgeClass: "bg-blue-600 text-white",
       status: "MATCHED",
     },
     {
-      key: "human",
-      code: "L4",
-      name: "Human Queue Escalation",
-      detail: "Confidence below threshold",
+      key: "handoff",
+      code: "H",
+      name: "Human Handoff",
+      detail: "escalation, spam, or failed closed",
       activeClass: "bg-orange-50/80 border-orange-300 text-orange-900",
       badgeClass: "bg-orange-600 text-white",
       status: "ESCALATED",
     },
   ];
   function isActive(key: string) {
-    return key === "human"
-      ? controller.currentTelemetry.stageMatched === "none" &&
-          controller.currentTelemetry.action === "flagged_human"
+    return key === "handoff"
+      ? controller.currentTelemetry.stageMatched === "handoff" ||
+          (controller.currentTelemetry.stageMatched === "none" &&
+            controller.currentTelemetry.action === "flagged_human")
       : controller.currentTelemetry.stageMatched === key;
   }
 </script>

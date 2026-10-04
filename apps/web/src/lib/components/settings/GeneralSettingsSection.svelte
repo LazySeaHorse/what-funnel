@@ -122,6 +122,24 @@
         >
       </div>
     </div>
+    <div class="space-y-1.5 border-t border-slate-100 pt-5">
+      <label for="textAiGreeting" class="block font-medium text-slate-700"
+        >AI greeting message</label
+      >
+      <textarea
+        id="textAiGreeting"
+        bind:value={form.aiGreetingText}
+        rows="2"
+        maxlength="500"
+        placeholder="Hi! Thanks for reaching out. How can we help you today?"
+        class="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 leading-relaxed transition shadow-2xs"
+      ></textarea>
+      <p class="text-slate-400">
+        Sent when a customer's first message is only a greeting such as "hi" or
+        "anyone there?". Leave empty to use the default shown above. In
+        draft-only mode it is suggested instead of sent.
+      </p>
+    </div>
     <div class="space-y-2 border-t border-slate-100 pt-5">
       <span class="block font-medium text-slate-700">Workspace type</span>
       <WorkspaceTypeSelector

@@ -12,10 +12,11 @@
 	let { pattern, onSave, onCancel }: Props = $props();
 
 	// svelte-ignore state_referenced_locally
-	let draft = $state<{ canonical_question: string; answer_text: string; trigger_phrases: string[] }>({
+	let draft = $state<{ canonical_question: string; answer_text: string; trigger_phrases: string[]; not_for: string }>({
 		canonical_question: pattern.canonical_question || '',
 		answer_text: pattern.answer_text || '',
-		trigger_phrases: Array.isArray(pattern.trigger_phrases) ? [...pattern.trigger_phrases] : []
+		trigger_phrases: Array.isArray(pattern.trigger_phrases) ? [...pattern.trigger_phrases] : [],
+		not_for: pattern.not_for || ''
 	});
 	let triggerInput = $state('');
 	let saving = $state(false);
@@ -80,7 +81,7 @@
 		/>
 	</div>
 	<div>
-		<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Trigger Phrases</label>
+		<label for={`edit-pattern-triggers-input-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Example customer questions</label>
 		<div class="flex flex-wrap items-center gap-1.5 mb-2">
 			{#each draft.trigger_phrases as phrase}
 				<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-700 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg font-medium shadow-2xs">
@@ -94,11 +95,21 @@
 				id={`edit-pattern-triggers-input-${pattern.id}`}
 				bind:value={triggerInput}
 				onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTrigger())}
-				placeholder="Add trigger phrase and press Enter"
+				placeholder="Add an example question and press Enter"
 				class="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition shadow-2xs"
 			/>
 			<Button variant="secondary" size="xs" onclick={addTrigger} class="shadow-2xs">Add</Button>
 		</div>
+	</div>
+	<div>
+		<label for={`edit-pattern-not-for-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Not for <span class="font-normal text-slate-400">(optional: similar questions this answer must not be used for)</span></label>
+		<input
+			id={`edit-pattern-not-for-${pattern.id}`}
+			bind:value={draft.not_for}
+			maxlength="300"
+			placeholder="e.g. price of custom orders, delivery to other countries"
+			class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition shadow-2xs"
+		/>
 	</div>
 	<div>
 		<label for={`edit-pattern-answer-${pattern.id}`} class="block text-[11px] font-medium text-slate-600 mb-1">Deterministic Answer</label>

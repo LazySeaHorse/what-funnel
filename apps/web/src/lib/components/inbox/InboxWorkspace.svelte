@@ -181,9 +181,9 @@
   // ── Cascade stage label ──────────────────────────────────────────────────────
   function stageBadge(stageMatched?: string): string {
     if (!stageMatched) return "";
-    if (stageMatched.includes("pattern")) return "L1 Fast-Path";
-    if (stageMatched.includes("embed")) return "L2 Semantic";
-    if (stageMatched.includes("llm") || stageMatched.includes("grounded")) return "L3 RAG";
+    if (stageMatched === "greeting") return "Greeting";
+    if (stageMatched === "canned") return "FAQ";
+    if (stageMatched === "rag") return "KB answer";
     return "L4";
   }
 

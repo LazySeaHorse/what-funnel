@@ -82,7 +82,7 @@ test('an old simulator refresh cannot replace the selected contact snapshot', as
 			contentType: 'application/json',
 			body: JSON.stringify({
 				draft: {
-					stage_matched: isAlice ? 'pattern' : 'llm_grounded',
+					stage_matched: isAlice ? 'canned' : 'rag',
 					confidence: 0.9,
 					draft_text: isAlice ? 'Alice stale draft' : 'Bob current draft',
 					status: 'pending'

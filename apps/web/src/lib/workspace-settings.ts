@@ -14,6 +14,7 @@ export interface WorkspaceSettings {
 	unassigned_conversations_visible_to_members?: boolean;
 	ai_enabled?: boolean;
 	ai_reply_mode_default?: 'auto_send' | 'draft_only';
+	ai_greeting_text?: string;
 	[key: string]: unknown;
 }
 
@@ -52,7 +53,8 @@ function sanitizeSettings(obj: Record<string, unknown>): WorkspaceSettings {
 		lead_tracking_enabled: asBoolean(obj.lead_tracking_enabled),
 		unassigned_conversations_visible_to_members: asBoolean(obj.unassigned_conversations_visible_to_members),
 		ai_enabled: asBoolean(obj.ai_enabled),
-		ai_reply_mode_default: asReplyMode(obj.ai_reply_mode_default)
+		ai_reply_mode_default: asReplyMode(obj.ai_reply_mode_default),
+		ai_greeting_text: asString(obj.ai_greeting_text)
 	};
 	// Start from the raw object, then overwrite known keys with their validated
 	// value, or drop them entirely when invalid (never leave an explicit undefined).

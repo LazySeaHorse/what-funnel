@@ -2,7 +2,7 @@
 	import { typeColor } from '$lib/knowledge/ingestion';
 
 	type Concept = { id: string; title: string; type: string; tags: string[]; body_text: string; approved: boolean };
-	type Pattern = { id: string; canonical_question: string; answer_text: string; trigger_phrases: string[]; approved: boolean };
+	type Pattern = { id: string; canonical_question: string; answer_text: string; trigger_phrases: string[]; not_for?: string; approved: boolean };
 
 	let { concepts = $bindable(), patterns = $bindable() }: { concepts: Concept[]; patterns: Pattern[] } = $props();
 
@@ -81,9 +81,15 @@
 					<textarea bind:value={pattern.answer_text} disabled={!pattern.approved} aria-label="Pattern answer" rows="3" class="w-full resize-y bg-slate-50/50 focus:bg-white border border-slate-200/80 rounded-xl p-3 text-xs text-slate-600 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 disabled:bg-slate-100/70 disabled:text-slate-400 leading-relaxed transition"></textarea>
 					<div class="space-y-1.5 pt-0.5">
 						<label class="block text-[10px] font-medium uppercase tracking-wider text-slate-400" for={`triggers-${pattern.id}`}>
-							Trigger Phrases ({pattern.trigger_phrases.length}) <span class="font-normal lowercase text-slate-400">· one trigger per line</span>
+							Example questions ({pattern.trigger_phrases.length}) <span class="font-normal lowercase text-slate-400">· one per line, shown to the AI as examples</span>
 						</label>
 						<textarea id={`triggers-${pattern.id}`} disabled={!pattern.approved} value={pattern.trigger_phrases.join('\n')} oninput={(event) => updateTriggers(pattern, event.currentTarget.value)} rows="2" class="w-full resize-y bg-slate-50/50 focus:bg-white border border-slate-200/80 rounded-xl p-2.5 text-xs text-slate-700 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 disabled:bg-slate-100/70 disabled:text-slate-400 leading-relaxed transition"></textarea>
+					</div>
+					<div class="space-y-1">
+						<label class="block text-[10px] font-medium uppercase tracking-wider text-slate-400" for={`not-for-${pattern.id}`}>
+							Not for <span class="font-normal lowercase text-slate-400">· optional, similar questions this answer must not be used for</span>
+						</label>
+						<input id={`not-for-${pattern.id}`} disabled={!pattern.approved} bind:value={pattern.not_for} maxlength="300" class="w-full bg-slate-50/50 focus:bg-white border border-slate-200/80 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 disabled:bg-slate-100/70 disabled:text-slate-400 transition" />
 					</div>
 				</div>
 			{/each}

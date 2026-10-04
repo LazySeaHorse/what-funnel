@@ -7,6 +7,7 @@
 		canonical_question: string;
 		answer_text: string;
 		trigger_phrases?: string[];
+		not_for?: string;
 	}
 
 	let {
@@ -66,13 +67,17 @@
 		<!-- Trigger Phrases -->
 		{#if pattern.trigger_phrases?.length}
 			<div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-				<span class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mr-0.5">Triggers:</span>
+				<span class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mr-0.5">Examples:</span>
 				{#each pattern.trigger_phrases as phrase}
 					<span class="inline-flex items-center text-xs text-slate-700 bg-slate-50 border border-slate-200/70 px-2 py-0.5 rounded-lg font-medium">
 						{phrase}
 					</span>
 				{/each}
 			</div>
+		{/if}
+
+		{#if pattern.not_for}
+			<div class="text-xs text-slate-500"><span class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mr-1">Not for:</span>{pattern.not_for}</div>
 		{/if}
 
 		<!-- Deterministic Answer Box -->

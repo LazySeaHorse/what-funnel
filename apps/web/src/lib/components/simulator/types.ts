@@ -20,7 +20,7 @@ export interface PresetCategory {
 }
 
 export interface CascadeTelemetry {
-  stageMatched: "pattern" | "embedding" | "llm_grounded" | "none";
+  stageMatched: "greeting" | "canned" | "rag" | "handoff" | "ignored" | "none";
   confidence: number | null;
   action: "auto_sent" | "drafted" | "flagged_human" | "none";
   draftText?: string;
