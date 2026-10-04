@@ -269,7 +269,7 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 	err = pool.QueryRow(context.Background(), `
 		INSERT INTO ai_reply_drafts (
 			account_id, conversation_id, source_message_id, draft_text, stage_matched, confidence
-		) VALUES ($1, $2, $3, 'Yes, we are open.', 'pattern', 1.0)
+		) VALUES ($1, $2, $3, 'Yes, we are open.', 'canned', NULL)
 		RETURNING id
 	`, accountID, convoID, sourceMessageID).Scan(&draftID)
 	require.NoError(t, err)

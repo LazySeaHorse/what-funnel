@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 // ErrInvalidSettings is returned when an account settings payload contains a
@@ -21,6 +22,9 @@ const (
 // knownSettings lists the account settings keys that other services read with
 // a fixed type (for example SQL ::boolean casts). Unknown keys are preserved
 // as-is so feature-specific keys (onboarding, business profile) keep working.
+// maxGreetingTextRunes bounds the account's canned first-message greeting.
+const maxGreetingTextRunes = 500
+
 var knownSettings = map[string]settingKind{
 	"ai_enabled":                                  settingBool,
 	"lead_tracking_enabled":                       settingBool,
@@ -28,6 +32,7 @@ var knownSettings = map[string]settingKind{
 	"ai_may_auto_answer_mixed_conversations":      settingBool,
 	"unassigned_conversations_visible_to_members": settingBool,
 	"ai_reply_mode_default":                       settingString,
+	"ai_greeting_text":                            settingString,
 	"time_format":                                 settingString,
 	"timezone":                                    settingString,
 	"language":                                    settingString,
@@ -71,6 +76,9 @@ func validateSettings(settings map[string]any) error {
 	}
 	if v, ok := settings["ai_reply_mode_default"].(string); ok && v != "auto_send" && v != "draft_only" {
 		return fmt.Errorf("%w: ai_reply_mode_default must be auto_send or draft_only", ErrInvalidSettings)
+	}
+	if v, ok := settings["ai_greeting_text"].(string); ok && utf8.RuneCountInString(v) > maxGreetingTextRunes {
+		return fmt.Errorf("%w: ai_greeting_text must be at most %d characters", ErrInvalidSettings, maxGreetingTextRunes)
 	}
 	if v, ok := settings["time_format"].(string); ok && v != "12" && v != "24" {
 		return fmt.Errorf("%w: time_format must be 12 or 24", ErrInvalidSettings)

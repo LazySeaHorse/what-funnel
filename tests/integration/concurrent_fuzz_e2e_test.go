@@ -156,15 +156,15 @@ func TestConcurrentScaleMultiAgentFuzz_E2E(t *testing.T) {
 	t.Log("Fuzz Step 4: Seed AI trigger patterns in database")
 	pattern1ID := uuid.New()
 	_, err := pool.Exec(ctx, `
-		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at, approved_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
 	`, pattern1ID, accountID, []string{"Do you offer house calls?"}, "Yes, we offer house calls anytime.", "Do you offer house calls?")
 	require.NoError(t, err)
 
 	pattern2ID := uuid.New()
 	_, err = pool.Exec(ctx, `
-		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at, approved_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
 	`, pattern2ID, accountID, []string{"What are your working hours?"}, "We are open Monday to Friday 9am-6pm.", "What are your working hours?")
 	require.NoError(t, err)
 

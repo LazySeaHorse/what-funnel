@@ -81,8 +81,8 @@ func TestAIAnswerE2E(t *testing.T) {
 	// 4. Create a trigger phrase pattern in database
 	patternID := uuid.New()
 	_, err = pool.Exec(ctx, `
-		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO patterns (id, account_id, trigger_phrases, answer_text, canonical_question, created_at, updated_at, approved_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
 	`, patternID, accountID, []string{"Do you offer house calls?"}, "Yes, we offer house calls.", "Do you offer house calls?")
 	require.NoError(t, err)
 
