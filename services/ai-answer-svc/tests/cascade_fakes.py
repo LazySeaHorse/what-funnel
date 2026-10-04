@@ -36,8 +36,13 @@ def faq_row(question, answer, examples=(), not_for="", faq_id=None):
     })
 
 
-def router_reply(route="handoff", faq_id="none", covers=False, reason="none"):
-    return {"route": route, "faq_id": faq_id, "faq_covers_everything": covers, "handoff_reason": reason}
+def router_reply(route="handoff", faq_id="none", coverage="none", reason="none"):
+    """coverage: "full" | "partial" | "none" (True/False are accepted as full/partial for brevity)."""
+    if coverage is True:
+        coverage = "full"
+    elif coverage is False:
+        coverage = "none"
+    return {"route": route, "faq_id": faq_id, "faq_coverage": coverage, "handoff_reason": reason}
 
 
 class FakeClient:
@@ -132,6 +137,8 @@ def make_db(
             return has_concepts
         if "RETURNING generation_epoch" in query:
             return 2
+        if "review_flag_reason" in query:
+            return 1
         return None
 
     db = MagicMock()

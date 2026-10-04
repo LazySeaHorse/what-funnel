@@ -11,7 +11,7 @@ import pytest_asyncio
 
 from db import ScopedDB
 from cascade_fakes import FakeClient, executed, faq_row, make_db, router_reply, run_cascade
-from main import insert_pending_draft
+from main import insert_pending_draft, set_review_flag
 
 
 FAQ_HOURS = lambda: faq_row("What are your shipping times?", "Shipping takes 3 days.")  # noqa: E731
@@ -192,3 +192,28 @@ async def test_insert_pending_draft_discarded_when_conversation_not_active(convo
         "UPDATE conversation_ai_state SET state = 'review_required' WHERE conversation_id = $1", convo_id
     )
     assert await insert_pending_draft(db, convo_id, msg_id, "x", "canned", None, epoch) is None
+
+
+@pytest.mark.asyncio
+async def test_set_review_flag_keeps_the_ai_active_and_ignores_stale_generations(convo_env):
+    db, pool, convo_id, msg_id = convo_env
+    epoch = await _epoch(pool, convo_id)
+    await pool.execute("UPDATE conversation_ai_state SET run_state = 'replying' WHERE conversation_id = $1", convo_id)
+
+    assert await set_review_flag(db, convo_id, epoch + 9, "prompt_injection", "normal", msg_id) is False  # stale
+    row = await pool.fetchrow("SELECT review_flag_reason FROM conversation_ai_state WHERE conversation_id = $1", convo_id)
+    assert row["review_flag_reason"] is None
+
+    assert await set_review_flag(db, convo_id, epoch, "ignore_rejected", "low", msg_id) is True
+    row = await pool.fetchrow(
+        """
+        SELECT state, run_state, generation_epoch, review_flag_reason, review_flag_priority,
+               review_flag_message_id, review_flagged_at
+        FROM conversation_ai_state WHERE conversation_id = $1
+        """,
+        convo_id,
+    )
+    assert row["state"] == "active" and row["run_state"] == "idle"  # AI stays on, run lock released
+    assert row["generation_epoch"] == epoch  # in-flight state is not invalidated
+    assert (row["review_flag_reason"], row["review_flag_priority"], row["review_flag_message_id"]) == ("ignore_rejected", "low", msg_id)
+    assert row["review_flagged_at"] is not None

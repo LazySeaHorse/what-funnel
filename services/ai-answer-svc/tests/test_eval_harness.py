@@ -136,9 +136,9 @@ async def test_oracle_scores_perfectly_and_reports_cost():
     for route, m in metrics["per_route"].items():
         assert m["precision"] == 1.0 and m["recall"] == 1.0, route
     greeting_cases = [c for c in CASES if c.expected_route == "greeting"]
-    assert client.calls == len(CASES) - len(greeting_cases) - sum(
-        1 for r in results if r.prediction.detail == "backstop"
-    )
+    local = sum(1 for r in results if r.prediction.detail in ("backstop", "fragment_without_context"))
+    assert local >= 5  # the local pre-checks answered these without a model call
+    assert client.calls == len(CASES) - len(greeting_cases) - local
     assert metrics["tokens"]["prompt"] == 1000 * client.calls
     expected_cost = (1000 * client.calls) / 1e6 * 0.10 + (30 * client.calls) / 1e6 * 0.40
     assert metrics["estimated_cost_usd"] == pytest.approx(expected_cost)

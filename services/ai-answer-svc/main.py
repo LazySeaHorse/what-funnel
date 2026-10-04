@@ -16,7 +16,7 @@ from pydantic import BaseModel, create_model
 from config import config, internal_service_token
 from db import ScopedDB, create_db_pool
 from llm import get_ai_config, provider_client
-from kb_rag import KB_TOP_K, answer_from_concepts
+from kb_rag import KB_TOP_K, answer_from_sources, concept_sources, faq_sources
 from router import (
     DEFAULT_GREETING_REPLY,
     PROMPT_VERSION,
@@ -352,9 +352,18 @@ class CascadeDecision:
 
     stage: str = "none"  # greeting | canned | rag | handoff | ignored | none
     answer_text: str = ""
-    handoff_kind: Optional[str] = None  # escalation | spam | unanswerable
+    handoff_kind: Optional[str] = None  # escalation | spam | unanswerable | flag
     detail: str = ""
     log: dict = field(default_factory=dict)
+    flag_reason: str = ""  # for handoff_kind == "flag"
+    flag_priority: str = "normal"
+    force_draft: bool = False  # generated answers are drafts unless the account opted in to auto-send
+
+
+def rag_auto_send_enabled(settings: dict) -> bool:
+    """Account setting ai_rag_auto_send overrides the AI_RAG_AUTO_SEND environment default."""
+    configured = settings.get("ai_rag_auto_send")
+    return configured if isinstance(configured, bool) else config.AI_RAG_AUTO_SEND
 
 
 def greeting_text_from_settings(settings: dict) -> str:
@@ -372,13 +381,13 @@ async def record_router_decision(db: ScopedDB, conversation_id, message_id, deci
             """
             INSERT INTO ai_router_decisions (
                 account_id, conversation_id, message_id, prompt_version, model, bubble_count,
-                route, faq_id, faq_covers_everything, handoff_reason, outcome, outcome_detail,
+                route, faq_id, faq_coverage, handoff_reason, outcome, outcome_detail,
                 latency_ms, prompt_tokens, completion_tokens, cached_tokens, error
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             """,
             db.account_id, conversation_id, message_id, PROMPT_VERSION, log.get("model", ""), bubble_count,
-            log.get("route"), log.get("faq_id"), log.get("faq_covers_everything"), log.get("handoff_reason"),
+            log.get("route"), log.get("faq_id"), log.get("faq_coverage"), log.get("handoff_reason"),
             decision.stage, decision.detail[:200],
             log.get("latency_ms"), log.get("prompt_tokens"), log.get("completion_tokens"),
             log.get("cached_tokens"), log.get("error"),
@@ -394,36 +403,11 @@ async def decide_reply(
     bubble_texts: list[str],
     settings: dict,
 ) -> CascadeDecision:
-    """Backstop / greeting / router + gates / KB. Provider problems never raise: they fail closed."""
-    # 1. Local pre-checks without a model call: safety backstop, then the first-message greeting
-    # (only when nothing was ever sent in this conversation).
-    first_message = False
-    if is_greeting_batch(bubble_texts):
-        has_outbound = await db.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM messages WHERE conversation_id = $1 AND account_id = $2 AND direction = 'outbound')",
-            convo_uuid, db.account_id,
-        )
-        first_message = not has_outbound
-    pre = local_precheck(bubble_texts, first_message)
-    if pre is not None and pre.kind == "greeting":
-        return CascadeDecision("greeting", answer_text=greeting_text_from_settings(settings), detail=pre.detail)
-    if pre is not None:
-        return CascadeDecision("handoff", handoff_kind=pre.handoff_kind, detail=pre.detail)
-
+    """Pre-checks / router + gates / grounded answer. Provider problems never raise: they fail closed."""
     if not bubble_texts:
         return CascadeDecision("handoff", handoff_kind="unanswerable", detail="empty_message")
 
-    # 3. Router (one structured call), then deterministic gates.
-    try:
-        ai_cfg = await get_ai_config(db)
-        client = provider_client(ai_cfg)
-    except Exception as error:
-        logger.error("AI provider unavailable for conversation %s: %s", convo_uuid, error)
-        return CascadeDecision("handoff", handoff_kind="unanswerable", detail="ai_not_configured")
-
-    faq_rows = await db.fetch(APPROVED_FAQ_QUERY, db.account_id)
-    menu = build_menu(list(faq_rows))
-
+    # Recent turns (also tells the pre-checks whether a short fragment has any context).
     history_rows = await db.fetch(
         """
         SELECT sender_type, content
@@ -445,10 +429,36 @@ async def decide_reply(
         history_messages.append(("customer" if row["sender_type"] == "contact" else "agent", body))
     history_text = transcript_within_byte_budget(history_messages, 1500)
 
+    # 1. Local pre-checks without a model call: safety backstop, first-message greeting (only when
+    # nothing was ever sent in this conversation), context-less fragment.
+    first_message = False
+    if is_greeting_batch(bubble_texts):
+        has_outbound = await db.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM messages WHERE conversation_id = $1 AND account_id = $2 AND direction = 'outbound')",
+            convo_uuid, db.account_id,
+        )
+        first_message = not has_outbound
+    pre = local_precheck(bubble_texts, first_message, has_history=bool(history_text.strip()))
+    if pre is not None and pre.kind == "greeting":
+        return CascadeDecision("greeting", answer_text=greeting_text_from_settings(settings), detail=pre.detail)
+    if pre is not None:
+        return CascadeDecision("handoff", handoff_kind=pre.handoff_kind, detail=pre.detail)
+
+    # 2. Router (one structured call), then deterministic gates.
+    try:
+        ai_cfg = await get_ai_config(db)
+        client = provider_client(ai_cfg)
+    except Exception as error:
+        logger.error("AI provider unavailable for conversation %s: %s", convo_uuid, error)
+        return CascadeDecision("handoff", handoff_kind="unanswerable", detail="ai_not_configured")
+
+    faq_rows = await db.fetch(APPROVED_FAQ_QUERY, db.account_id)
+    menu = build_menu(list(faq_rows))
+
     result = await run_router(
         client, ai_cfg.reply_model, menu, history_text, bubble_texts, max_tokens=config.AI_ROUTER_MAX_TOKENS
     )
-    outcome = apply_gates(result, menu)
+    outcome = apply_gates(result, menu, bubble_texts)
     log = {
         "model": ai_cfg.reply_model,
         "latency_ms": result.latency_ms,
@@ -461,7 +471,7 @@ async def decide_reply(
         d = result.decision
         by_code = {f.code: f.id for f in menu}
         log.update(
-            route=d.route, faq_id=by_code.get(d.faq_id), faq_covers_everything=d.faq_covers_everything,
+            route=d.route, faq_id=by_code.get(d.faq_id), faq_coverage=d.faq_coverage,
             handoff_reason=d.handoff_reason,
         )
 
@@ -470,40 +480,77 @@ async def decide_reply(
     if outcome.kind == "ignore":
         return CascadeDecision("ignored", detail=outcome.detail, log=log)
     if outcome.kind == "handoff":
-        return CascadeDecision("handoff", handoff_kind=outcome.handoff_kind, detail=outcome.detail, log=log)
+        return CascadeDecision(
+            "handoff", handoff_kind=outcome.handoff_kind, detail=outcome.detail, log=log,
+            flag_reason=outcome.flag_reason, flag_priority=outcome.flag_priority,
+        )
 
-    # 4. KB (RAG): contextual query, relevance floor, cited and grounded answer.
+    # 3. Grounded answer. Sources: every approved FAQ answer (so partial-cover and two-question
+    # messages can be answered from FAQs even when the account has no knowledge concepts) plus the
+    # retrieved concepts above the relevance floor.
+    sources = faq_sources(menu)
     previous_customer = [text for role, text in history_messages if role == "customer"]
     query = build_retrieval_query(bubble_texts, previous_customer)
-    has_concepts = await db.fetchval(
+    has_concepts = query and await db.fetchval(
         "SELECT EXISTS (SELECT 1 FROM kb_concepts WHERE account_id = $1 AND embedding IS NOT NULL)", db.account_id
     )
-    if not has_concepts or not query:
+    if has_concepts:
+        try:
+            embedding = await client.embed(ai_cfg.embedding_model, query)
+            rows = await db.fetch(
+                """
+                SELECT title, body_text, 1 - (embedding <=> $1::vector) AS similarity
+                FROM kb_concepts
+                WHERE account_id = $2 AND embedding IS NOT NULL
+                ORDER BY embedding <=> $1::vector
+                LIMIT $3
+                """,
+                str(embedding), db.account_id, KB_TOP_K,
+            )
+            sources += concept_sources(
+                [r for r in rows if r["similarity"] is not None and float(r["similarity"]) >= config.AI_KB_MIN_SIMILARITY]
+            )
+        except Exception as error:
+            # FAQ answers are still usable; without retrieval the answer may simply be incomplete.
+            logger.error("KB retrieval failed for conversation %s: %s", convo_uuid, error)
+    if not sources:
         return CascadeDecision("handoff", handoff_kind="unanswerable", detail="kb_empty", log=log)
-    try:
-        embedding = await client.embed(ai_cfg.embedding_model, query)
-        rows = await db.fetch(
-            """
-            SELECT title, body_text, 1 - (embedding <=> $1::vector) AS similarity
-            FROM kb_concepts
-            WHERE account_id = $2 AND embedding IS NOT NULL
-            ORDER BY embedding <=> $1::vector
-            LIMIT $3
-            """,
-            str(embedding), db.account_id, KB_TOP_K,
-        )
-    except Exception as error:
-        logger.error("KB retrieval failed for conversation %s: %s", convo_uuid, error)
-        return CascadeDecision("handoff", handoff_kind="unanswerable", detail="kb_retrieval_error", log=log)
-    concepts = [r for r in rows if r["similarity"] is not None and float(r["similarity"]) >= config.AI_KB_MIN_SIMILARITY]
-    if not concepts:
-        return CascadeDecision("handoff", handoff_kind="unanswerable", detail="kb_below_relevance_floor", log=log)
-    kb = await answer_from_concepts(
-        client, ai_cfg.reply_model, concepts, history_text, bubble_texts, max_tokens=config.AI_KB_MAX_TOKENS
+    kb = await answer_from_sources(
+        client, ai_cfg.reply_model, sources, history_text, bubble_texts, max_tokens=config.AI_KB_MAX_TOKENS
     )
     if kb.answer is None:
         return CascadeDecision("handoff", handoff_kind="unanswerable", detail=f"kb:{kb.reason}", log=log)
-    return CascadeDecision("rag", answer_text=kb.answer, detail=f"{outcome.detail}:{kb.reason}", log=log)
+    return CascadeDecision(
+        "rag", answer_text=kb.answer, detail=f"{outcome.detail}:{kb.reason}", log=log,
+        force_draft=not rag_auto_send_enabled(settings),
+    )
+
+
+async def set_review_flag(
+    db: ScopedDB,
+    conversation_id: uuid.UUID,
+    generation_epoch: int,
+    reason: str,
+    priority: str,
+    message_id: uuid.UUID,
+) -> bool:
+    """Soft review flag: mark the conversation for a human without changing the AI state.
+
+    Releases the run lock (the AI stays active). Returns False if the generation went stale.
+    """
+    row = await db.fetchval(
+        """
+        UPDATE conversation_ai_state
+        SET review_flag_reason = $3, review_flag_priority = $4, review_flag_message_id = $5,
+            review_flagged_at = NOW(), run_state = 'idle', run_started_at = NULL,
+            version = version + 1, updated_at = NOW()
+        WHERE conversation_id = $1 AND account_id = $2
+          AND generation_epoch = $6 AND state = 'active'
+        RETURNING 1
+        """,
+        conversation_id, db.account_id, reason, priority, message_id, generation_epoch,
+    )
+    return row is not None
 
 
 async def enter_handoff(db: ScopedDB, conversation_id: uuid.UUID, reason: str) -> int:
@@ -715,13 +762,16 @@ async def execute_conversation_cascade(
         flag_reason = "unanswerable"
         reply_message_id = None
         draft_id = None
+        soft_flag = decision.handoff_kind == "flag"
         if answer_text:
-            action = "auto_sent" if effective_mode == "auto_send" else "drafted"
+            action = "auto_sent" if effective_mode == "auto_send" and not decision.force_draft else "drafted"
         elif decision.stage == "ignored":
             action = "no_reply"
         else:
             action = "flagged_human"
             flag_reason = {"escalation": "escalation", "spam": "spam"}.get(decision.handoff_kind or "", "unanswerable")
+            if soft_flag:
+                flag_reason = decision.flag_reason
         if decision.log:
             await record_router_decision(db, convo_uuid, msg_uuid, decision, max(1, len(bubble_texts)))
         logger.info(
@@ -768,6 +818,14 @@ async def execute_conversation_cascade(
         elif action == "no_reply":
             # Pure acknowledgement ("thanks"): nothing to answer and nothing for a human to do.
             await release_generation(db, convo_uuid, generation_epoch)
+            await record_answer_event(
+                db, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
+            )
+        elif soft_flag:
+            # One suspicious or undroppable message: flag it for a human, send nothing to the customer
+            # and keep the conversation active. Later messages are gated independently.
+            await supersede_pending_draft(db, redis_client, account_uuid, convo_uuid)
+            await set_review_flag(db, convo_uuid, generation_epoch, flag_reason, decision.flag_priority, msg_uuid)
             await record_answer_event(
                 db, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
             )
@@ -825,18 +883,21 @@ async def execute_conversation_cascade(
 
             await publish_redis_stream(redis_client, "ai.reply_ready", ws_payload)
         final_state = "active"
-        if action == "flagged_human":
+        if action == "flagged_human" and not soft_flag:
             final_state = (
                 "cooldown"
                 if flag_reason == "unanswerable" and effective_mode == "auto_send"
                 else "review_required"
             )
-        await publish_redis_stream(redis_client, "ai.control.updated", {
+        control_event = {
             "account_id": str(account_uuid),
             "conversation_id": str(convo_uuid),
             "state": final_state,
             "run_state": "idle",
-        })
+        }
+        if soft_flag:
+            control_event["review_flag"] = flag_reason
+        await publish_redis_stream(redis_client, "ai.control.updated", control_event)
     except Exception:
         # Never leave the run lock held after a failure: a retry must be admitted
         # immediately instead of waiting for the stale-run reclaim window.

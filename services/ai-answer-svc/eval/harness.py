@@ -169,17 +169,17 @@ class CaseResult:
 async def predict(case: Case, client: Any, model: str, menus: dict[str, dict]) -> Prediction:
     """Run the production routing path for one case (no database)."""
     menu, key_by_code = menu_entries(menus, case.menu)
-    pre = local_precheck(case.bubbles, case.first_message)
+    pre = local_precheck(case.bubbles, case.first_message, has_history=bool(case.history))
     if pre is not None:
         if pre.kind == "greeting":
             return Prediction(route="greeting", detail=pre.detail)
-        return Prediction(route="handoff", handoff_reason="needs_human", detail=pre.detail)
+        return Prediction(route="handoff", handoff_reason="needs_human" if pre.handoff_kind == "escalation" else "other", detail=pre.detail)
 
     history = transcript_within_byte_budget(
         [(t["role"], t["text"]) for t in case.history], 1500
     )
     result: RouterResult = await run_router(client, model, menu, history, case.bubbles, max_tokens=150)
-    outcome = apply_gates(result, menu)
+    outcome = apply_gates(result, menu, case.bubbles)
     prediction = Prediction(
         latency_ms=result.latency_ms,
         prompt_tokens=result.usage.get("prompt_tokens", 0),

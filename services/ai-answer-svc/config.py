@@ -25,6 +25,10 @@ class Config:
     AI_RUN_RECLAIM_SECONDS: float = float(
         os.getenv("AI_RUN_RECLAIM_SECONDS") or (float(os.getenv("AI_CASCADE_DEADLINE_SECONDS", "45")) + 60.0)
     )
+    # Generated (RAG) answers are only drafted for a human to approve until the KB stage is measured.
+    # Canned FAQ and greeting replies follow the normal reply-mode rules. The account setting
+    # ai_rag_auto_send (true/false) overrides this default per workspace.
+    AI_RAG_AUTO_SEND: bool = os.getenv("AI_RAG_AUTO_SEND", "false").lower() in ("true", "1", "yes")
     # Router and KB answer output budgets (tokens). The router emits four enum fields.
     AI_ROUTER_MAX_TOKENS: int = max(16, int(os.getenv("AI_ROUTER_MAX_TOKENS", "150")))
     AI_KB_MAX_TOKENS: int = max(64, int(os.getenv("AI_KB_MAX_TOKENS", "400")))
