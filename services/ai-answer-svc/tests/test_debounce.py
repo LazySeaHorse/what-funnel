@@ -20,10 +20,10 @@ from config import config
 
 
 def test_calculate_debounce_delay():
-    assert calculate_debounce_delay(1) == 10.0
-    assert calculate_debounce_delay(2) == 5.0
-    assert calculate_debounce_delay(3) == 10.0
-    assert calculate_debounce_delay(4) == 10.0
+    assert calculate_debounce_delay(1) == 4.0
+    assert calculate_debounce_delay(2) == 4.0
+    assert calculate_debounce_delay(3) == 6.0
+    assert calculate_debounce_delay(4) == 6.0
 
 
 @pytest_asyncio.fixture

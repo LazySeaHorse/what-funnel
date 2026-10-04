@@ -1,7 +1,8 @@
 import asyncio
 import json
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -18,11 +19,21 @@ def _clean_json_content(content: str) -> str:
 
 
 @dataclass(frozen=True)
+class CompletionResult:
+    """A validated structured completion plus call metadata (for decision logging)."""
+
+    data: dict[str, Any]
+    usage: dict[str, int] = field(default_factory=dict)
+    latency_ms: int = 0
+
+
+@dataclass(frozen=True)
 class ProviderClient:
     api_key: str
     base_url: str
-    timeout_seconds: float = 1000.0
-    max_attempts: int = 3
+    timeout_seconds: float = 20.0
+    max_attempts: int = 2
+    retry_backoff_seconds: float = 0.5
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -48,7 +59,7 @@ class ProviderClient:
                 last_error = error
 
             if attempt + 1 < self.max_attempts:
-                await asyncio.sleep(2.0 * (attempt + 1))
+                await asyncio.sleep(self.retry_backoff_seconds * (attempt + 1))
 
         raise ProviderError(
             f"AI provider request failed for model {payload.get('model', '')}"
@@ -59,7 +70,17 @@ class ProviderClient:
         model: str,
         messages: list[dict[str, str]],
         response_schema: Any,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
+        return (await self.complete_detailed(model, messages, response_schema, max_tokens)).data
+
+    async def complete_detailed(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        response_schema: Any,
+        max_tokens: int | None = None,
+    ) -> CompletionResult:
         schema = response_schema.model_json_schema()
         payload = {
             "model": model,
@@ -80,20 +101,34 @@ class ProviderClient:
             },
             "temperature": 0.0,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
 
         timeout = httpx.Timeout(self.timeout_seconds)
+        started = time.monotonic()
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await self._post(client, "/chat/completions", payload)
+        latency_ms = int((time.monotonic() - started) * 1000)
 
         try:
-            content = response.json()["choices"][0]["message"]["content"]
+            body = response.json()
+            content = body["choices"][0]["message"]["content"]
             parsed = json.loads(_clean_json_content(content))
             validated = response_schema.model_validate(parsed)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
             raise ProviderError("AI provider returned an invalid completion response") from error
         except Exception as error:
             raise ProviderError("AI provider response failed schema validation") from error
-        return validated.model_dump()
+        raw_usage = body.get("usage") if isinstance(body, dict) else None
+        usage: dict[str, int] = {}
+        if isinstance(raw_usage, dict):
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                if isinstance(raw_usage.get(key), int):
+                    usage[key] = raw_usage[key]
+            details = raw_usage.get("prompt_tokens_details")
+            if isinstance(details, dict) and isinstance(details.get("cached_tokens"), int):
+                usage["cached_tokens"] = details["cached_tokens"]
+        return CompletionResult(validated.model_dump(), usage, latency_ms)
 
     async def embed(self, model: str, text: str, dimensions: int = 1536) -> list[float]:
         payload = {"input": text, "model": model, "dimensions": dimensions}

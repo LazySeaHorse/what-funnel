@@ -307,7 +307,7 @@ services:
       SESSION_SECRET: change-me-in-production-at-least-32-chars
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token-secret-32ch}
       LOG_LEVEL: info
-      AI_REQUEST_TIMEOUT_SECONDS: "1000"
+      AI_REQUEST_TIMEOUT_SECONDS: "20"
       APP_ENV: ${APP_ENV:-development}
     depends_on:
       postgres:
@@ -336,7 +336,7 @@ services:
       PORT: "8085"
       LOG_LEVEL: info
       MINING_INTERVAL_HOURS: "6"
-      AI_REQUEST_TIMEOUT_SECONDS: "1000"
+      AI_REQUEST_TIMEOUT_SECONDS: "120"
       APP_ENV: ${APP_ENV:-development}
     expose:
       - "8085"

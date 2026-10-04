@@ -175,7 +175,9 @@ async def test_unexpected_cascade_error_releases_run_lock_and_propagates():
 def test_run_reclaim_window_exceeds_request_timeout():
     from main import config
 
-    assert config.AI_RUN_RECLAIM_SECONDS > config.AI_REQUEST_TIMEOUT_SECONDS
+    worst_case = 3 * config.AI_PROVIDER_MAX_ATTEMPTS * config.AI_REQUEST_TIMEOUT_SECONDS
+    assert config.AI_RUN_RECLAIM_SECONDS > worst_case
+    assert config.AI_REQUEST_TIMEOUT_SECONDS <= 30
 
 
 # ---------------------------------------------------------------------------

@@ -13,20 +13,30 @@ class Config:
     # Dev-only escape hatch: allow inter-service calls without a token.
     ALLOW_INSECURE_INTERNAL_AUTH: bool = os.getenv("ALLOW_INSECURE_INTERNAL_AUTH", "").lower() in ("true", "1", "yes")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "1000"))
+    # Per-attempt timeout for each provider call (router, RAG completion, embedding).
+    AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "20"))
+    # Attempts per provider call (1 = no retry). Retries sleep 0.5 s * attempt.
+    AI_PROVIDER_MAX_ATTEMPTS: int = max(1, int(os.getenv("AI_PROVIDER_MAX_ATTEMPTS", "2")))
     # A run still marked 'replying' after this long is considered dead and may be reclaimed.
-    # It must exceed the worst case of one embedding call plus one completion call, otherwise a slow
-    # (but alive) generation gets duplicated by a second worker.
+    # Worst case of one cascade is three sequential provider calls (embedding, router, RAG answer),
+    # each with AI_PROVIDER_MAX_ATTEMPTS attempts of AI_REQUEST_TIMEOUT_SECONDS, so the reclaim window
+    # must exceed that or a slow-but-alive generation gets duplicated by a second worker.
     AI_RUN_RECLAIM_SECONDS: float = float(
-        os.getenv("AI_RUN_RECLAIM_SECONDS") or max(120.0, 2 * float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "1000")) + 60.0)
+        os.getenv("AI_RUN_RECLAIM_SECONDS")
+        or (
+            3 * max(1, int(os.getenv("AI_PROVIDER_MAX_ATTEMPTS", "2"))) * float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "20"))
+            + 30.0
+        )
     )
     AI_CASCADE_CONCURRENCY: int = max(1, int(os.getenv("AI_CASCADE_CONCURRENCY", "8")))
     AI_DEBOUNCE_MAX_ATTEMPTS: int = max(1, int(os.getenv("AI_DEBOUNCE_MAX_ATTEMPTS", "3")))
     STREAM_MAX_DELIVERIES: int = max(1, int(os.getenv("STREAM_MAX_DELIVERIES", "5")))
     AI_DEBOUNCE_ENABLED: bool = os.getenv("AI_DEBOUNCE_ENABLED", "true").lower() in ("true", "1", "yes")
-    AI_DEBOUNCE_FIRST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_FIRST_SECONDS", "10.0"))
-    AI_DEBOUNCE_SUBSEQUENT_SECONDS: float = float(os.getenv("AI_DEBOUNCE_SUBSEQUENT_SECONDS", "5.0"))
-    AI_DEBOUNCE_BURST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_BURST_SECONDS", "10.0"))
+    # Sliding window after the 1st / 2nd / 3rd+ bubble of a batch. The first is short so a single
+    # complete question is answered in seconds; later bubbles wait slightly longer for a burst to finish.
+    AI_DEBOUNCE_FIRST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_FIRST_SECONDS", "4.0"))
+    AI_DEBOUNCE_SUBSEQUENT_SECONDS: float = float(os.getenv("AI_DEBOUNCE_SUBSEQUENT_SECONDS", "4.0"))
+    AI_DEBOUNCE_BURST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_BURST_SECONDS", "6.0"))
 
 config = Config()
 

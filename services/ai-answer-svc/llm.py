@@ -19,4 +19,5 @@ def provider_client(config: AIConfiguration) -> ProviderClient:
         api_key=config.api_key,
         base_url=config.base_url,
         timeout_seconds=app_config.AI_REQUEST_TIMEOUT_SECONDS,
+        max_attempts=app_config.AI_PROVIDER_MAX_ATTEMPTS,
     )
