@@ -17,6 +17,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import ConfigDict, create_model
 
+from untrusted import MAX_BUBBLE_CHARS, normalize_text, sanitize_untrusted  # noqa: F401  (re-exported)
+
 logger = logging.getLogger("ai-answer-svc.router")
 
 PROMPT_VERSION = "router-v1"
@@ -30,7 +32,6 @@ HANDOFF_REASONS = ("none", "spam", "needs_human", "prompt_injection", "other")
 NO_FAQ = "none"
 
 MAX_BUBBLES = 5
-MAX_BUBBLE_CHARS = 600
 MAX_EXAMPLES = 5
 MAX_ANSWER_CHARS_IN_MENU = 500
 
@@ -152,19 +153,6 @@ def render_menu(menu: list[FaqEntry]) -> str:
 # ---------------------------------------------------------------------------
 # Prompt and schema
 # ---------------------------------------------------------------------------
-
-_MARKER_RE = re.compile(r"UNTRUSTED[ _A-Z]*(?:START|END)|(?:CUSTOMER|CONVERSATION)[ _A-Z]*(?:START|END)|<<<|>>>|\[\[|\]\]", re.I)
-
-
-def sanitize_untrusted(text: str, max_chars: int = MAX_BUBBLE_CHARS) -> str:
-    """Neutralise delimiter look-alikes and cap length. The content stays readable."""
-    text = _MARKER_RE.sub(" ", str(text))
-    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
-    text = text.strip()
-    if len(text) > max_chars:
-        text = text[:max_chars] + "..."
-    return text
-
 
 def build_router_model(menu: list[FaqEntry]):
     """Schema-constrained output: enums only, no free text."""
@@ -364,7 +352,7 @@ _MAX_GREETING_TOKENS = 8
 
 
 def _normalize_greeting(text: str) -> str:
-    text = text.lower().replace("’", "'")
+    text = normalize_text(text).lower().replace("’", "'")
     text = re.sub(r"(.)\1{2,}", r"\1", text)  # heyyyy -> hey
     text = re.sub(r"[^a-z0-9' ]+", " ", text)  # punctuation, emoji
     return " ".join(text.split())

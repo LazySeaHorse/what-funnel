@@ -15,7 +15,8 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 from plain_text import normalize_plain_text
-from router import MAX_BUBBLES, sanitize_untrusted
+from router import MAX_BUBBLES
+from untrusted import sanitize_untrusted
 
 logger = logging.getLogger("ai-answer-svc.kb")
 
