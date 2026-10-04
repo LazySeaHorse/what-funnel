@@ -701,7 +701,14 @@ async def execute_conversation_cascade(
             bubble_texts = [inbound_text] if inbound_text else []
 
         # Run the cascade: safety backstop / greeting / router + gates / grounded KB answer.
-        decision = await decide_reply(db, convo_uuid, [r["id"] for r in unreplied_rows], bubble_texts, settings)
+        try:
+            decision = await asyncio.wait_for(
+                decide_reply(db, convo_uuid, [r["id"] for r in unreplied_rows], bubble_texts, settings),
+                timeout=config.AI_CASCADE_DEADLINE_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Cascade deadline exceeded for conversation %s; failing closed to a human", convo_uuid)
+            decision = CascadeDecision("handoff", handoff_kind="unanswerable", detail="cascade_deadline")
         stage_matched = decision.stage
         confidence = None
         answer_text = decision.answer_text

@@ -73,12 +73,30 @@ async def test_unexpected_cascade_error_releases_run_lock_and_propagates():
     assert executed(db, "SET run_state = 'idle'")
 
 
-def test_run_reclaim_window_exceeds_request_timeout():
+def test_run_reclaim_window_exceeds_cascade_deadline():
     from main import config
 
-    worst_case = 3 * config.AI_PROVIDER_MAX_ATTEMPTS * config.AI_REQUEST_TIMEOUT_SECONDS
-    assert config.AI_RUN_RECLAIM_SECONDS > worst_case
+    assert config.AI_RUN_RECLAIM_SECONDS > config.AI_CASCADE_DEADLINE_SECONDS
+    assert config.AI_CASCADE_DEADLINE_SECONDS <= 60
     assert config.AI_REQUEST_TIMEOUT_SECONDS <= 30
+    assert config.AI_PROVIDER_MAX_ATTEMPTS == 2
+
+
+@pytest.mark.asyncio
+async def test_cascade_deadline_fails_closed_without_customer_message(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr("main.config.AI_CASCADE_DEADLINE_SECONDS", 0.05)
+
+    async def slow_decide(*args, **kwargs):
+        await asyncio.sleep(5)
+
+    db = make_db("draft_only", ("where is my parcel",), faqs=[FAQ_HOURS()])
+    run = await run_cascade(db, _canned_client(), extra_patches=[patch("main.decide_reply", slow_decide)])
+    run.send.assert_not_awaited()
+    run.insert_draft.assert_not_awaited()
+    assert executed(db, "state = 'review_required'")[0].args[3] == "unanswerable"
+    assert run.events()[0].args[4] == "handoff"
 
 
 # ---------------------------------------------------------------------------

@@ -17,16 +17,13 @@ class Config:
     AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "20"))
     # Attempts per provider call (1 = no retry). Retries sleep 0.5 s * attempt.
     AI_PROVIDER_MAX_ATTEMPTS: int = max(1, int(os.getenv("AI_PROVIDER_MAX_ATTEMPTS", "2")))
-    # A run still marked 'replying' after this long is considered dead and may be reclaimed.
-    # Worst case of one cascade is three sequential provider calls (embedding, router, RAG answer),
-    # each with AI_PROVIDER_MAX_ATTEMPTS attempts of AI_REQUEST_TIMEOUT_SECONDS, so the reclaim window
-    # must exceed that or a slow-but-alive generation gets duplicated by a second worker.
+    # Hard deadline for the whole decision (router + KB retrieval + KB answer). On expiry the cascade
+    # fails closed to a human handoff, so a customer gets a reply within seconds or a handoff.
+    AI_CASCADE_DEADLINE_SECONDS: float = float(os.getenv("AI_CASCADE_DEADLINE_SECONDS", "45"))
+    # A run still marked 'replying' after this long is considered dead and may be reclaimed. It must
+    # exceed the cascade deadline, otherwise a slow (but alive) generation gets duplicated by a second worker.
     AI_RUN_RECLAIM_SECONDS: float = float(
-        os.getenv("AI_RUN_RECLAIM_SECONDS")
-        or (
-            3 * max(1, int(os.getenv("AI_PROVIDER_MAX_ATTEMPTS", "2"))) * float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "20"))
-            + 30.0
-        )
+        os.getenv("AI_RUN_RECLAIM_SECONDS") or (float(os.getenv("AI_CASCADE_DEADLINE_SECONDS", "45")) + 60.0)
     )
     # Router and KB answer output budgets (tokens). The router emits four enum fields.
     AI_ROUTER_MAX_TOKENS: int = max(16, int(os.getenv("AI_ROUTER_MAX_TOKENS", "150")))
