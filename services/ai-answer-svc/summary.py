@@ -52,6 +52,7 @@ FAILURE_MESSAGES = {
     "ai_not_configured": "AI provider is not configured for this workspace.",
     "provider_error": "The AI provider could not produce a summary. Try again shortly.",
     "no_messages": "There are no text messages to summarize yet.",
+    "rate_limited": "A summary was just requested for this conversation. Try again in a few seconds.",
     "internal_error": "Could not generate a summary. Try again shortly.",
 }
 
@@ -338,6 +339,8 @@ async def generate_summary(
     ``requested_by`` (user id) only labels ``conversation.summary_failed`` so it reaches the requester alone."""
     cooldown_key = f"{COOLDOWN_PREFIX}{conversation_id}"
     if trigger == "requested" and await redis_client.exists(cooldown_key):
+        # Say so instead of leaving the requester waiting for an event that will never come.
+        await _announce_failed(redis_client, account_id, conversation_id, "rate_limited", requested_by)
         return SummaryOutcome("throttled")
 
     lock_key = f"{LOCK_PREFIX}{conversation_id}"

@@ -66,7 +66,7 @@ capped at `SUMMARY_FIELD_MAX_CHARS`, `N/A` when missing. One row per conversatio
 
 Events published: `conversation.summary_updated` (`account_id`, `conversation_id`, `summary_fields`, `generated_at`,
 `message_count_at_generation`) and, for on-demand requests only, `conversation.summary_failed` (`error_code`:
-`ai_not_configured | provider_error | no_messages | internal_error`, plus a client-safe `message`).
+`ai_not_configured | provider_error | no_messages | rate_limited | internal_error`, plus a client-safe `message`).
 
 ## Evaluation harness
 

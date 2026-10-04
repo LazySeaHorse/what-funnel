@@ -256,8 +256,12 @@ async def test_requested_regenerates_with_new_messages_bypassing_60s(env):
 async def test_requested_cooldown_throttles_spam(env):
     assert (await run(env, "requested")).status == "generated"
     env.state["count"] = 9  # even with new messages
+    env.redis.streams.clear()
     assert (await run(env, "requested")).status == "throttled"
     assert len(env.client.calls) == 1
+    (stream, payload), = env.redis.streams
+    assert stream == "conversation.summary_failed" and payload["error_code"] == "rate_limited"
+    assert payload["requested_by"] == "user-1"
     env.redis.kv.pop(f"summary:cooldown:{CONVO}")
     assert (await run(env, "requested")).status == "generated"
 
