@@ -33,6 +33,7 @@ var knownSettings = map[string]settingKind{
 	"unassigned_conversations_visible_to_members": settingBool,
 	"ai_reply_mode_default":                       settingString,
 	"ai_greeting_text":                            settingString,
+	"ai_rag_auto_send":                            settingBool,
 	"time_format":                                 settingString,
 	"timezone":                                    settingString,
 	"language":                                    settingString,

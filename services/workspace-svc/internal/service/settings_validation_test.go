@@ -25,3 +25,16 @@ func TestValidateSettingsAIGreetingText(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateSettingsAIRagAutoSend(t *testing.T) {
+	for _, ok := range []any{true, false, nil} {
+		if err := validateSettings(map[string]any{"ai_rag_auto_send": ok}); err != nil {
+			t.Fatalf("%v rejected: %v", ok, err)
+		}
+	}
+	for _, bad := range []any{"true", 1, map[string]any{}} {
+		if err := validateSettings(map[string]any{"ai_rag_auto_send": bad}); !errors.Is(err, ErrInvalidSettings) {
+			t.Fatalf("%v: expected ErrInvalidSettings, got %v", bad, err)
+		}
+	}
+}

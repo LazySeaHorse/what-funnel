@@ -140,6 +140,23 @@
         draft-only mode it is suggested instead of sent.
       </p>
     </div>
+    <div class="space-y-1.5">
+      <label class="flex items-start gap-2 cursor-pointer select-none"
+        ><input
+          id="checkAiRagAutoSend"
+          type="checkbox"
+          bind:checked={form.aiRagAutoSend}
+          class="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 accent-blue-600"
+        /><span class="text-slate-700"
+          ><span class="font-medium">Send AI-written answers automatically</span>
+          <span class="block text-slate-400"
+            >By default, answers the AI composes from your knowledge base are
+            only suggested as drafts. Approved FAQ replies and the greeting are
+            sent according to your auto-reply mode either way.</span
+          ></span
+        ></label
+      >
+    </div>
     <div class="space-y-2 border-t border-slate-100 pt-5">
       <span class="block font-medium text-slate-700">Workspace type</span>
       <WorkspaceTypeSelector

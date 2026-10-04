@@ -115,12 +115,16 @@ func applyAIControlTransition(
 		    unanswered_count = CASE WHEN $2 = 'manual_resume' THEN 0 ELSE unanswered_count END,
 		    unanswered_window_started_at = CASE WHEN $2 = 'manual_resume' THEN NULL ELSE unanswered_window_started_at END,
 		    blocked_at = CASE WHEN $1 IN ('blocked_spam', 'blocked_manual') THEN NOW() ELSE NULL END,
+		    review_flag_reason = CASE WHEN $2 = '' THEN review_flag_reason ELSE NULL END,
+		    review_flag_priority = CASE WHEN $2 = '' THEN review_flag_priority ELSE NULL END,
+		    review_flag_message_id = CASE WHEN $2 = '' THEN review_flag_message_id ELSE NULL END,
+		    review_flagged_at = CASE WHEN $2 = '' THEN review_flagged_at ELSE NULL END,
 		    version = version + 1,
 		    updated_at = NOW()
 		WHERE conversation_id = $4 AND account_id = $5
-		RETURNING state, state_reason, reply_override, run_state, next_review_at
+		RETURNING state, state_reason, reply_override, run_state, next_review_at, review_flag_reason
 	`, transition.state, reason, replyOverride, conversationID, accountID).Scan(
-		&state.State, &state.StateReason, &state.ReplyOverride, &state.RunState, &state.NextReviewAt,
+		&state.State, &state.StateReason, &state.ReplyOverride, &state.RunState, &state.NextReviewAt, &state.ReviewFlag,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update conversation AI state: %w", err)
@@ -162,6 +166,8 @@ func pauseAIAfterHumanMessage(
 			    run_state = 'idle',
 			    run_started_at = NULL,
 			    generation_epoch = generation_epoch + 1, next_review_at = NULL,
+			    review_flag_reason = NULL, review_flag_priority = NULL,
+			    review_flag_message_id = NULL, review_flagged_at = NULL,
 			    version = version + 1, updated_at = NOW()
 			WHERE conversation_id = $1 AND account_id = $2
 			RETURNING state

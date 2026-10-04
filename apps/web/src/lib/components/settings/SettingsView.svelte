@@ -56,6 +56,7 @@
     leadTracking: true,
     unassignedVisible: true,
     aiGreetingText: "",
+    aiRagAutoSend: false,
   });
 
   let canManageTeam = $derived(workspace?.capabilities.manageTeam ?? false);
@@ -118,6 +119,7 @@
     form.businessWebsite = settings.business_website || "";
     form.businessHours = settings.business_hours || "";
     form.aiGreetingText = settings.ai_greeting_text || "";
+    form.aiRagAutoSend = settings.ai_rag_auto_send === true;
     form.leadTracking = settings.lead_tracking_enabled !== false;
     form.unassignedVisible =
       settings.unassigned_conversations_visible_to_members !== false;
@@ -148,6 +150,7 @@
           business_website: form.businessWebsite,
           business_hours: form.businessHours,
           ai_greeting_text: form.aiGreetingText.trim(),
+          ai_rag_auto_send: form.aiRagAutoSend,
           ...(form.productMode === "full_workspace"
             ? {
                 lead_tracking_enabled: form.leadTracking,

@@ -451,8 +451,19 @@ func TestIngestExternalOutbound(t *testing.T) {
 		Timestamp:         time.Now(),
 	}
 
+	// A soft review flag set by the AI must be cleared once a human takes over.
+	_, err = pool.Exec(ctx, `
+		UPDATE conversation_ai_state
+		SET review_flag_reason = 'prompt_injection', review_flag_priority = 'normal', review_flagged_at = NOW()
+		WHERE conversation_id = $1`, convoID)
+	require.NoError(t, err)
+
 	err = svc.IngestExternalOutbound(ctx, event)
 	require.NoError(t, err)
+
+	var flag *string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT review_flag_reason FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&flag))
+	assert.Nil(t, flag, "a human message clears the AI review flag")
 
 	// Verify message in DB
 	var direction, senderType string

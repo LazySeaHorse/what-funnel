@@ -114,6 +114,7 @@ func scanConversationRow(scanner interface {
 		&d.item.Conversation.AIControl.ReplyOverride,
 		&d.item.Conversation.AIControl.RunState,
 		&d.item.Conversation.AIControl.NextReviewAt,
+		&d.item.Conversation.AIControl.ReviewFlag,
 		&d.item.Conversation.CreatedAt,
 		&d.item.ContactName,
 		&d.item.ContactAvatarURL,
@@ -179,7 +180,7 @@ func scanConversationRow(scanner interface {
 // ListConversations and GetConversation. Callers append their own WHERE clause.
 const sharedConversationSQL = `
 	SELECT c.id, c.account_id, c.contact_id, c.channel_id, c.status, c.assigned_user_ids, c.last_message_at,
-	       ais.state, ais.state_reason, ais.reply_override, ais.run_state, ais.next_review_at, c.created_at,
+	       ais.state, ais.state_reason, ais.reply_override, ais.run_state, ais.next_review_at, ais.review_flag_reason, c.created_at,
 	       co.display_name, co.avatar_url,
 	       cr.last_read_at,
 	       ch.type as channel_type,

@@ -22,4 +22,5 @@ export interface WorkspaceSettingsForm {
   leadTracking: boolean;
   unassignedVisible: boolean;
   aiGreetingText: string;
+  aiRagAutoSend: boolean;
 }

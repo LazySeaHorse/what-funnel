@@ -186,6 +186,8 @@ type ConversationAIState struct {
 	ReplyOverride AIReplyOverride `json:"reply_override" db:"reply_override"`
 	RunState      AIRunState      `json:"run_state" db:"run_state"`
 	NextReviewAt  *time.Time      `json:"next_review_at,omitempty" db:"next_review_at"`
+	// ReviewFlag is a soft flag (for example "prompt_injection") set by the AI without changing State.
+	ReviewFlag *string `json:"review_flag,omitempty" db:"review_flag_reason"`
 }
 
 // ConversationListItem is a list item representing a conversation with unread status and last message preview.

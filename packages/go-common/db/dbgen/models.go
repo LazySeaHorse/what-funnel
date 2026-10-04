@@ -61,25 +61,25 @@ type AiReplyDraft struct {
 }
 
 type AiRouterDecision struct {
-	ID                  uuid.UUID   `json:"id"`
-	AccountID           uuid.UUID   `json:"account_id"`
-	ConversationID      uuid.UUID   `json:"conversation_id"`
-	MessageID           uuid.UUID   `json:"message_id"`
-	PromptVersion       string      `json:"prompt_version"`
-	Model               string      `json:"model"`
-	BubbleCount         int32       `json:"bubble_count"`
-	Route               *string     `json:"route"`
-	FaqID               *uuid.UUID  `json:"faq_id"`
-	FaqCoversEverything pgtype.Bool `json:"faq_covers_everything"`
-	HandoffReason       *string     `json:"handoff_reason"`
-	Outcome             string      `json:"outcome"`
-	OutcomeDetail       string      `json:"outcome_detail"`
-	LatencyMs           pgtype.Int4 `json:"latency_ms"`
-	PromptTokens        pgtype.Int4 `json:"prompt_tokens"`
-	CompletionTokens    pgtype.Int4 `json:"completion_tokens"`
-	CachedTokens        pgtype.Int4 `json:"cached_tokens"`
-	Error               *string     `json:"error"`
-	CreatedAt           time.Time   `json:"created_at"`
+	ID               uuid.UUID   `json:"id"`
+	AccountID        uuid.UUID   `json:"account_id"`
+	ConversationID   uuid.UUID   `json:"conversation_id"`
+	MessageID        uuid.UUID   `json:"message_id"`
+	PromptVersion    string      `json:"prompt_version"`
+	Model            string      `json:"model"`
+	BubbleCount      int32       `json:"bubble_count"`
+	Route            *string     `json:"route"`
+	FaqID            *uuid.UUID  `json:"faq_id"`
+	HandoffReason    *string     `json:"handoff_reason"`
+	Outcome          string      `json:"outcome"`
+	OutcomeDetail    string      `json:"outcome_detail"`
+	LatencyMs        pgtype.Int4 `json:"latency_ms"`
+	PromptTokens     pgtype.Int4 `json:"prompt_tokens"`
+	CompletionTokens pgtype.Int4 `json:"completion_tokens"`
+	CachedTokens     pgtype.Int4 `json:"cached_tokens"`
+	Error            *string     `json:"error"`
+	CreatedAt        time.Time   `json:"created_at"`
+	FaqCoverage      *string     `json:"faq_coverage"`
 }
 
 type AuditLog struct {
@@ -161,6 +161,10 @@ type ConversationAiState struct {
 	Version                   int64              `json:"version"`
 	CreatedAt                 time.Time          `json:"created_at"`
 	UpdatedAt                 time.Time          `json:"updated_at"`
+	ReviewFlagReason          *string            `json:"review_flag_reason"`
+	ReviewFlagPriority        *string            `json:"review_flag_priority"`
+	ReviewFlagMessageID       *uuid.UUID         `json:"review_flag_message_id"`
+	ReviewFlaggedAt           pgtype.Timestamptz `json:"review_flagged_at"`
 }
 
 type ConversationAiStateEvent struct {
