@@ -203,7 +203,9 @@ async def test_compile_paste_three_or_fewer():
                 res_json = response.json()
                 assert "added_concepts" in res_json
                 assert len(res_json["added_concepts"]) == 2
-                assert len(res_json["added_patterns"]) == 1
+                # FAQs are never stored directly: the pattern is a pending suggestion for a human.
+                assert res_json["added_patterns"] is None
+                assert len(res_json["suggestion_ids"]) == 1
                 
                 # Verify they are stored in DB
                 async with pool.acquire() as conn:
@@ -211,12 +213,12 @@ async def test_compile_paste_three_or_fewer():
                     assert len(rows) == 2
                     for r in rows:
                         assert r["source"] == "owner_pasted"
-                    pattern_rows = await conn.fetch(
-                        "SELECT canonical_question, trigger_phrases FROM patterns WHERE account_id = $1",
+                    assert await conn.fetchval("SELECT COUNT(*) FROM patterns WHERE account_id = $1", account_id) == 0
+                    suggestion = await conn.fetchrow(
+                        "SELECT type, status, proposed_payload FROM automation_suggestions WHERE account_id = $1",
                         account_id,
                     )
-                    assert len(pattern_rows) == 1
-                    assert "when are you open?" in pattern_rows[0]["trigger_phrases"]
+                    assert suggestion["type"] == "new_pattern" and suggestion["status"] == "pending"
                     
                     # Check audit logs
                     audit_rows = await conn.fetch("SELECT action FROM audit_logs WHERE account_id = $1", account_id)

@@ -140,8 +140,8 @@ async def test_insert_pending_draft_supersedes_existing_pending_draft(convo_env)
     db, pool, convo_id, msg_id = convo_env
     epoch = await _epoch(pool, convo_id)
 
-    first = await insert_pending_draft(db, convo_id, msg_id, "first", "pattern", 1.0, epoch)
-    second = await insert_pending_draft(db, convo_id, msg_id, "second", "embedding", 0.9, epoch)
+    first = await insert_pending_draft(db, convo_id, msg_id, "first", "canned", None, epoch)
+    second = await insert_pending_draft(db, convo_id, msg_id, "second", "rag", None, epoch)
 
     assert first is not None and second is not None and first != second
     rows = await pool.fetch(
@@ -160,7 +160,7 @@ async def test_insert_pending_draft_discards_stale_generation(convo_env):
     db, pool, convo_id, msg_id = convo_env
     epoch = await _epoch(pool, convo_id)
 
-    assert await insert_pending_draft(db, convo_id, msg_id, "stale", "pattern", 1.0, epoch + 5) is None
+    assert await insert_pending_draft(db, convo_id, msg_id, "stale", "canned", None, epoch + 5) is None
 
     assert await pool.fetchval("SELECT COUNT(*) FROM ai_reply_drafts WHERE conversation_id = $1", convo_id) == 0
     assert await pool.fetchval("SELECT COUNT(*) FROM ai_answer_events WHERE conversation_id = $1", convo_id) == 0
@@ -173,4 +173,4 @@ async def test_insert_pending_draft_discarded_when_conversation_not_active(convo
     await pool.execute(
         "UPDATE conversation_ai_state SET state = 'review_required' WHERE conversation_id = $1", convo_id
     )
-    assert await insert_pending_draft(db, convo_id, msg_id, "x", "pattern", 1.0, epoch) is None
+    assert await insert_pending_draft(db, convo_id, msg_id, "x", "canned", None, epoch) is None

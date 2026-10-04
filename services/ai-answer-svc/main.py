@@ -337,6 +337,16 @@ async def process_conversation_updated(data: dict, db_pool, redis_client):
         )
 
 
+# Only FAQs a human approved (approved_at is set by the knowledge-panel approval flows) can be
+# shown to the router and therefore sent to customers.
+APPROVED_FAQ_QUERY = """
+SELECT id, canonical_question, answer_text, trigger_phrases, not_for
+FROM patterns
+WHERE account_id = $1 AND approved_at IS NOT NULL
+ORDER BY created_at ASC, id ASC
+"""
+
+
 @dataclass
 class CascadeDecision:
     """What the cascade decided for one debounced batch, before it is applied."""
@@ -410,15 +420,7 @@ async def decide_reply(
         logger.error("AI provider unavailable for conversation %s: %s", convo_uuid, error)
         return CascadeDecision("handoff", handoff_kind="unanswerable", detail="ai_not_configured")
 
-    faq_rows = await db.fetch(
-        """
-        SELECT id, canonical_question, answer_text, trigger_phrases, not_for
-        FROM patterns
-        WHERE account_id = $1 AND approved_at IS NOT NULL
-        ORDER BY created_at ASC, id ASC
-        """,
-        db.account_id,
-    )
+    faq_rows = await db.fetch(APPROVED_FAQ_QUERY, db.account_id)
     menu = build_menu(list(faq_rows))
 
     history_rows = await db.fetch(

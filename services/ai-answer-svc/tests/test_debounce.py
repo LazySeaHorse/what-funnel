@@ -67,14 +67,14 @@ async def test_record_inbound_message_first_bubble(redis_client):
     scheduled, delay = await record_inbound_message(redis_client, account_id, convo_id, msg_id, is_text=True)
 
     assert scheduled is True
-    assert delay == 10.0
+    assert delay == 4.0
     meta = await redis_client.hgetall(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
     assert meta[b"account_id"] == str(account_id).encode()
     assert meta[b"latest_message_id"] == str(msg_id).encode()
     assert meta[b"bubble_count"] == b"1"
     assert b"has_non_text" not in meta
     deadline = await redis_client.zscore(debounce.DEBOUNCE_QUEUE_KEY, str(convo_id))
-    assert before + 10.0 <= deadline <= time.time() + 10.0
+    assert before + 4.0 <= deadline <= time.time() + 4.0
 
 
 @pytest.mark.asyncio
@@ -85,7 +85,7 @@ async def test_record_inbound_message_bubble_delays(redis_client):
         scheduled, delay = await record_inbound_message(redis_client, account_id, convo_id, uuid.uuid4())
         assert scheduled is True
         delays.append(delay)
-    assert delays == [10.0, 5.0, 10.0, 10.0]
+    assert delays == [4.0, 4.0, 6.0, 6.0]
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_record_inbound_message_duplicate_webhook_ignored(redis_client):
     import debounce
 
     account_id, convo_id, msg_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    assert await record_inbound_message(redis_client, account_id, convo_id, msg_id) == (True, 10.0)
+    assert await record_inbound_message(redis_client, account_id, convo_id, msg_id) == (True, 4.0)
     assert await record_inbound_message(redis_client, account_id, convo_id, msg_id) == (False, 0.0)
     meta = await redis_client.hgetall(f"{debounce.DEBOUNCE_META_PREFIX}{convo_id}")
     assert meta[b"bubble_count"] == b"1"
@@ -157,7 +157,7 @@ async def test_message_recorded_after_pop_starts_a_fresh_cycle(redis_client, mon
     monkeypatch.undo()
 
     newer = uuid.uuid4()
-    assert await record_inbound_message(redis_client, account_id, convo_id, newer) == (True, 10.0)
+    assert await record_inbound_message(redis_client, account_id, convo_id, newer) == (True, 4.0)
     monkeypatch.setattr("debounce.time.time", lambda: real_time() + 60)
     due = await pop_due_conversations(redis_client)
     assert [d["latest_message_id"] for d in due] == [newer]

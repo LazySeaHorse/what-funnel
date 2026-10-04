@@ -30,6 +30,29 @@ class MineClusterDraft(BaseModel):
         return normalize_plain_text(value)
 
 # NumPy-accelerated vector helpers
+MAX_EXAMPLE_PHRASES = 6
+MAX_EXAMPLE_WORDS = 15
+
+
+def example_phrases(texts: Sequence[str]) -> List[str]:
+    """Pick up to six short, distinct customer messages as router examples (shortest first).
+
+    Raw cluster text can be long, multi-clause and contain personal data, so messages over
+    15 words are dropped. PII masking is a known follow-up; the owner reviews every example
+    before the FAQ is approved.
+    """
+    seen: set[str] = set()
+    candidates: List[str] = []
+    for text in texts:
+        cleaned = " ".join(str(text).split())
+        key = cleaned.lower()
+        if cleaned and key not in seen and len(cleaned.split()) <= MAX_EXAMPLE_WORDS:
+            seen.add(key)
+            candidates.append(cleaned)
+    candidates.sort(key=lambda t: (len(t), t))
+    return candidates[:MAX_EXAMPLE_PHRASES]
+
+
 def dot_product(v1: Sequence[float] | np.ndarray, v2: Sequence[float] | np.ndarray) -> float:
     return float(np.dot(np.asarray(v1, dtype=np.float64), np.asarray(v2, dtype=np.float64)))
 
@@ -296,7 +319,8 @@ async def run_mining(db: ScopedDB) -> dict:
         proposed_payload = {
             "canonical_question": draft_result["canonical_question"],
             "answer_text": draft_result["answer_text"],
-            "trigger_phrases": cluster.texts
+            "trigger_phrases": example_phrases(cluster.texts),
+            "not_for": "",
         }
 
         await db.execute(

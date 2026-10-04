@@ -12,7 +12,7 @@ from audit import write_audit_log
 from db import ScopedDB
 from ingestions import compilation_prompt
 from llm import get_ai_config, provider_client
-from phrases import normalize_trigger_phrases
+from phrases import normalize_not_for, normalize_trigger_phrases
 from redis_client import publish_suggestion_created
 from schemas import (
     CompilePasteResponse,
@@ -103,7 +103,7 @@ async def get_latest_ingestion(db: ScopedDB) -> Optional[dict[str, Any]]:
     )
     patterns = await db.fetch(
         """
-        SELECT id, position, canonical_question, answer_text, trigger_phrases, status, pattern_id
+        SELECT id, position, canonical_question, answer_text, trigger_phrases, not_for, status, pattern_id
         FROM kb_ingestion_patterns
         WHERE ingestion_id = $1
         ORDER BY position
@@ -137,7 +137,7 @@ async def get_ingestion(db: ScopedDB, ingestion_id: uuid.UUID) -> dict[str, Any]
     )
     patterns = await db.fetch(
         """
-        SELECT id, position, canonical_question, answer_text, trigger_phrases, status, pattern_id
+        SELECT id, position, canonical_question, answer_text, trigger_phrases, not_for, status, pattern_id
         FROM kb_ingestion_patterns
         WHERE ingestion_id = $1
         ORDER BY position
@@ -224,7 +224,7 @@ async def publish_ingestion(
                     """
                     UPDATE kb_ingestion_patterns
                     SET canonical_question = $2, answer_text = $3, trigger_phrases = $4,
-                        status = $5, updated_at = NOW()
+                        status = $5, not_for = $7, updated_at = NOW()
                     WHERE id = $1 AND ingestion_id = $6
                     """,
                     pattern.id,
@@ -233,6 +233,7 @@ async def publish_ingestion(
                     triggers,
                     "approved" if pattern.approved else "rejected",
                     ingestion_id,
+                    normalize_not_for(pattern.not_for),
                 )
             ingestion = await conn.fetchrow(
                 """
@@ -271,81 +272,55 @@ async def compile_paste(
     if not concepts and not patterns:
         return CompilePasteResponse(added_concepts=[], added_patterns=[])
 
-    if len(concepts) + len(patterns) <= 3:
-        # Provider calls happen before the transaction so no locks are held over the network.
-        concept_vectors = await asyncio.gather(*[
-            client.embed(config.embedding_model, f"{c['title']}\n{c['body_text']}") for c in concepts
-        ])
-        pattern_vectors = await asyncio.gather(*[
-            client.embed(config.embedding_model, p["canonical_question"].strip()) for p in patterns
-        ])
+    # FAQs (patterns) are answered verbatim to customers, so they are NEVER stored directly:
+    # every pattern becomes a pending suggestion that a human approves in the knowledge panel.
+    # Concepts (retrieval material for grounded answers) are stored directly when there are few.
+    queue_concepts = len(concepts) > 3
+    direct_concepts = [] if queue_concepts else concepts
 
-        added_concepts = []
-        added_patterns = []
-        async with db.transaction() as tx:
-            await lock_concept_slugs(tx)
-            for c, vector in zip(concepts, concept_vectors):
-                unique_slug = await get_unique_slug(tx, concept_base_slug(c["title"]))
-                row = await tx.fetchrow(
-                    """
-                    INSERT INTO kb_concepts (account_id, slug, type, title, tags, body_text, embedding, source)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7::vector, 'owner_pasted')
-                    RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
-                    """,
-                    tx.account_id,
-                    unique_slug,
-                    c["type"],
-                    c["title"],
-                    c["tags"],
-                    c["body_text"],
-                    str(vector),
-                )
-                record = dict(row)
-                added_concepts.append(record)
-                await write_audit_log(
-                    db=tx,
-                    actor_user_id=actor_user_id,
-                    action="kb_concept.created",
-                    target_type="kb_concept",
-                    target_id=record["id"],
-                    metadata={"title": c["title"], "slug": unique_slug, "source": "owner_pasted"},
-                )
+    # Provider calls happen before the transaction so no locks are held over the network.
+    concept_vectors = await asyncio.gather(*[
+        client.embed(config.embedding_model, f"{c['title']}\n{c['body_text']}") for c in direct_concepts
+    ])
 
-            for p, vector in zip(patterns, pattern_vectors):
-                canonical_question = p["canonical_question"].strip()
-                answer_text = p["answer_text"].strip()
-                trigger_phrases = normalize_trigger_phrases(p.get("trigger_phrases", []), canonical_question)
-                row = await tx.fetchrow(
-                    """
-                    INSERT INTO patterns (account_id, canonical_question, answer_text, trigger_phrases, embedding)
-                    VALUES ($1, $2, $3, $4, $5::vector)
-                    RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
-                    """,
-                    tx.account_id,
-                    canonical_question,
-                    answer_text,
-                    trigger_phrases,
-                    str(vector),
-                )
-                record = dict(row)
-                added_patterns.append(record)
-                await write_audit_log(
-                    db=tx,
-                    actor_user_id=actor_user_id,
-                    action="pattern.created",
-                    target_type="pattern",
-                    target_id=record["id"],
-                    metadata={"canonical_question": canonical_question, "source": "owner_pasted"},
-                )
-
-        return CompilePasteResponse(added_concepts=added_concepts, added_patterns=added_patterns)
-
-    # More than 3 concepts/patterns -> suggestion queue (all-or-nothing)
-    proposals = [("new_kb_concept", c, {"title": c["title"]}) for c in concepts] + [
-        ("new_pattern", p, {"canonical_question": p["canonical_question"]}) for p in patterns
+    proposals = [
+        ("new_pattern", {**p, "not_for": normalize_not_for(p.get("not_for", ""))}, {"canonical_question": p["canonical_question"]})
+        for p in patterns
     ]
+    if queue_concepts:
+        proposals += [("new_kb_concept", c, {"title": c["title"]}) for c in concepts]
+
+    added_concepts = []
     created: list[tuple[uuid.UUID, str, dict]] = []
     async with db.transaction() as tx:
+        await lock_concept_slugs(tx)
+        for c, vector in zip(direct_concepts, concept_vectors):
+            unique_slug = await get_unique_slug(tx, concept_base_slug(c["title"]))
+            row = await tx.fetchrow(
+                """
+                INSERT INTO kb_concepts (account_id, slug, type, title, tags, body_text, embedding, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::vector, 'owner_pasted')
+                RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
+                """,
+                tx.account_id,
+                unique_slug,
+                c["type"],
+                c["title"],
+                c["tags"],
+                c["body_text"],
+                str(vector),
+            )
+            record = dict(row)
+            added_concepts.append(record)
+            await write_audit_log(
+                db=tx,
+                actor_user_id=actor_user_id,
+                action="kb_concept.created",
+                target_type="kb_concept",
+                target_id=record["id"],
+                metadata={"title": c["title"], "slug": unique_slug, "source": "owner_pasted"},
+            )
+
         for sugg_type, payload, audit_extra in proposals:
             sugg_id = uuid.uuid4()
             await tx.execute(
@@ -372,7 +347,11 @@ async def compile_paste(
     for sugg_id, sugg_type, payload in created:
         await publish_suggestion_created(db.account_id, sugg_id, sugg_type, payload)
 
-    return CompilePasteResponse(suggestion_ids=[str(sugg_id) for sugg_id, _, _ in created])
+    return CompilePasteResponse(
+        added_concepts=added_concepts or None,
+        added_patterns=None,
+        suggestion_ids=[str(sugg_id) for sugg_id, _, _ in created] or None,
+    )
 
 
 # ===========================================================================
@@ -570,7 +549,7 @@ async def update_concept(
 async def list_patterns(db: ScopedDB) -> List[dict[str, Any]]:
     rows = await db.fetch(
         """
-        SELECT id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
+        SELECT id, canonical_question, answer_text, trigger_phrases, not_for, approved_at, created_at, updated_at
         FROM patterns
         WHERE account_id = $1
         ORDER BY created_at DESC
@@ -614,8 +593,9 @@ async def update_pattern(
     actor_user_id: Optional[uuid.UUID] = None,
     client_factory: Callable = provider_client,
 ) -> dict[str, Any]:
+    """Owner edit of an approved FAQ. FAQs are no longer embedded, so no provider call is needed."""
     row = await db.fetchrow(
-        "SELECT id, canonical_question, answer_text, trigger_phrases FROM patterns WHERE id = $1 AND account_id = $2",
+        "SELECT id, canonical_question, answer_text, trigger_phrases, not_for FROM patterns WHERE id = $1 AND account_id = $2",
         pattern_uuid, db.account_id
     )
     if not row:
@@ -628,30 +608,17 @@ async def update_pattern(
         if req.trigger_phrases is not None
         else row["trigger_phrases"]
     )
+    new_not_for = normalize_not_for(req.not_for) if req.not_for is not None else row["not_for"]
 
-    if new_question != row["canonical_question"] or new_answer != row["answer_text"]:
-        vector_str = await _embed_or_fail(
-            db, client_factory, f"{new_question}\n{new_answer}", "pattern", pattern_uuid
-        )
-        updated = await db.fetchrow(
-            """
-            UPDATE patterns
-            SET canonical_question = $1, answer_text = $2, trigger_phrases = $3, embedding = $4::vector, updated_at = NOW()
-            WHERE id = $5 AND account_id = $6
-            RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
-            """,
-            new_question, new_answer, new_triggers, vector_str, pattern_uuid, db.account_id
-        )
-    else:
-        updated = await db.fetchrow(
-            """
-            UPDATE patterns
-            SET canonical_question = $1, answer_text = $2, trigger_phrases = $3, updated_at = NOW()
-            WHERE id = $4 AND account_id = $5
-            RETURNING id, canonical_question, answer_text, trigger_phrases, created_at, updated_at
-            """,
-            new_question, new_answer, new_triggers, pattern_uuid, db.account_id
-        )
+    updated = await db.fetchrow(
+        """
+        UPDATE patterns
+        SET canonical_question = $1, answer_text = $2, trigger_phrases = $3, not_for = $4, updated_at = NOW()
+        WHERE id = $5 AND account_id = $6
+        RETURNING id, canonical_question, answer_text, trigger_phrases, not_for, approved_at, created_at, updated_at
+        """,
+        new_question, new_answer, new_triggers, new_not_for, pattern_uuid, db.account_id
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Pattern not found")
 
@@ -736,25 +703,19 @@ async def approve_suggestion(
     # Suggestions mined from conversations reference their messages; pasted ones do not.
     concept_source = "ai_compiled" if row["source_message_ids"] else "owner_pasted"
 
-    config = await get_ai_config(db)
-    client = client_factory(config)
-
-    # Everything that needs the network happens before the transaction.
+    # Only concepts are embedded (retrieval for grounded answers). FAQs are shown to the router as text.
     vector = None
     if sugg_type == "new_kb_concept":
+        config = await get_ai_config(db)
+        client = client_factory(config)
         vector = await client.embed(config.embedding_model, f"{payload.title}\n{payload.body_text}")
-    elif sugg_type == "new_pattern":
-        vector = await client.embed(config.embedding_model, f"{payload.canonical_question}\n{payload.answer_text}")
-    else:
+    elif sugg_type == "edited_answer":
         pattern_row = await db.fetchrow(
             "SELECT canonical_question FROM patterns WHERE id = $1 AND account_id = $2",
             payload.pattern_id, db.account_id
         )
         if not pattern_row:
             raise HTTPException(status_code=404, detail="Pattern to edit not found")
-        vector = await client.embed(
-            config.embedding_model, f"{pattern_row['canonical_question']}\n{payload.answer_text}"
-        )
 
     async with db.transaction() as tx:
         # Claim the suggestion: a concurrent approval waits here, then sees it is no longer pending.
@@ -799,15 +760,19 @@ async def approve_suggestion(
             pattern_id = uuid.uuid4()
             await tx.execute(
                 """
-                INSERT INTO patterns (id, account_id, trigger_phrases, canonical_question, answer_text, embedding)
-                VALUES ($1, $2, $3, $4, $5, $6::vector)
+                INSERT INTO patterns (
+                    id, account_id, trigger_phrases, canonical_question, answer_text, not_for,
+                    approved_at, approved_by
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
                 """,
                 pattern_id,
                 tx.account_id,
                 normalize_trigger_phrases(payload.trigger_phrases, payload.canonical_question),
                 payload.canonical_question,
                 payload.answer_text,
-                str(vector),
+                normalize_not_for(payload.not_for),
+                reviewed_by_uuid,
             )
             await write_audit_log(
                 db=tx,
@@ -822,12 +787,11 @@ async def approve_suggestion(
             updated_pattern = await tx.fetchrow(
                 """
                 UPDATE patterns
-                SET answer_text = $1, embedding = $2::vector, updated_at = NOW()
-                WHERE id = $3 AND account_id = $4
+                SET answer_text = $1, updated_at = NOW()
+                WHERE id = $2 AND account_id = $3
                 RETURNING canonical_question
                 """,
                 payload.answer_text,
-                str(vector),
                 payload.pattern_id,
                 tx.account_id,
             )

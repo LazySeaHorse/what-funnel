@@ -23,3 +23,12 @@ def normalize_trigger_phrases(
             seen.add(normalized)
             result.append(normalized)
     return result
+
+
+MAX_NOT_FOR_CHARS = 300
+
+
+def normalize_not_for(value: Optional[str]) -> str:
+    """Whitespace-normalise the optional 'not for' boundary note shown to the router."""
+    text = " ".join(str(value or "").split())
+    return text[:MAX_NOT_FOR_CHARS]

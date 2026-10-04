@@ -68,30 +68,26 @@ async def test_update_concept_fails_and_changes_nothing_when_embedding_fails():
 
 
 @pytest.mark.asyncio
-async def test_update_pattern_fails_when_embedding_fails_and_normalizes_triggers():
+async def test_update_pattern_needs_no_provider_and_normalizes_fields():
     pool, db, account_id, user_id = await setup_test_data()
     try:
         pattern_id = uuid.uuid4()
         await db.execute(
             """
-            INSERT INTO patterns (id, account_id, canonical_question, answer_text, trigger_phrases)
-            VALUES ($1, $2, 'When?', 'At 9', ARRAY['when'])
+            INSERT INTO patterns (id, account_id, canonical_question, answer_text, trigger_phrases, approved_at)
+            VALUES ($1, $2, 'When?', 'At 9', ARRAY['when'], NOW())
             """,
             pattern_id, account_id,
         )
-        with pytest.raises(HTTPException) as exc:
-            await kb_service.update_pattern(
-                db, pattern_id, UpdatePatternRequest(answer_text="At 10"),
-                client_factory=lambda _: failing_provider(),
-            )
-        assert exc.value.status_code == 502
-        assert (await db.fetchval("SELECT answer_text FROM patterns WHERE id = $1", pattern_id)) == "At 9"
-
         updated = await kb_service.update_pattern(
-            db, pattern_id, UpdatePatternRequest(trigger_phrases=["  Open  Hours ", "open hours", ""]),
-            client_factory=lambda _: failing_provider(),  # not called: no embedded text changed
+            db, pattern_id,
+            UpdatePatternRequest(answer_text="At 10", trigger_phrases=["  Open  Hours ", "open hours", ""], not_for="  holiday   hours "),
+            client_factory=lambda _: failing_provider(),  # FAQs are not embedded: never called
         )
+        assert updated["answer_text"] == "At 10"
         assert updated["trigger_phrases"] == ["open hours"]
+        assert updated["not_for"] == "holiday hours"
+        assert updated["approved_at"] is not None  # an owner edit keeps the FAQ approved
     finally:
         await teardown_test_data(pool, account_id)
 

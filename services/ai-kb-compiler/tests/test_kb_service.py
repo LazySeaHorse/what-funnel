@@ -229,11 +229,10 @@ async def test_kb_service_suggestion_edited_answer():
 
         # Verify pattern is updated
         updated_pattern = await db.fetchrow(
-            "SELECT answer_text, embedding FROM patterns WHERE id = $1",
+            "SELECT answer_text FROM patterns WHERE id = $1",
             pattern_id
         )
         assert updated_pattern["answer_text"] == "Updated new hours: 9am-6pm"
-        assert updated_pattern["embedding"] is not None
 
         # Verify suggestion status
         sugg_row = await db.fetchrow(

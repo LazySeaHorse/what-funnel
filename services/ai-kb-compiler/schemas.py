@@ -26,12 +26,24 @@ class OKFPatternDraft(BaseModel):
     answer_text: str = Field(description="The exact definitive answer in plain text; never Markdown or HTML")
     trigger_phrases: List[str] = Field(
         default_factory=list,
-        description="Four to eight realistic lowercase customer query variations"
+        description=(
+            "Six to eight example customer messages this answer fully resolves, varying register "
+            "(formal, casual, a typo, with a greeting, with extra context, a short fragment)"
+        ),
+    )
+    not_for: str = Field(
+        default="",
+        description="One short sentence naming near-miss questions that look similar but need another answer",
     )
 
     @field_validator("canonical_question", "answer_text")
     @classmethod
     def plain_fields(cls, value: str) -> str:
+        return normalize_plain_text(value)
+
+    @field_validator("not_for")
+    @classmethod
+    def plain_not_for(cls, value: str) -> str:
         return normalize_plain_text(value)
 
     @field_validator("trigger_phrases")
@@ -74,6 +86,7 @@ class PublishIngestionPattern(BaseModel):
     canonical_question: str = Field(min_length=1, max_length=1000)
     answer_text: str = Field(min_length=1, max_length=100_000)
     trigger_phrases: List[str] = Field(default_factory=list, max_length=50)
+    not_for: str = Field(default="", max_length=1000)
 
 
 class PublishIngestionRequest(BaseModel):
@@ -101,6 +114,7 @@ class UpdatePatternRequest(BaseModel):
     canonical_question: Optional[str] = Field(default=None, min_length=1, max_length=1000)
     answer_text: Optional[str] = Field(default=None, min_length=1, max_length=100_000)
     trigger_phrases: Optional[List[str]] = Field(default=None, max_length=50)
+    not_for: Optional[str] = Field(default=None, max_length=1000)
 
 
 # Payloads of automation suggestions (stored by mining / compile-paste, or edited by the reviewer).
@@ -121,6 +135,7 @@ class SuggestionPatternPayload(BaseModel):
     canonical_question: str = Field(min_length=1, max_length=1000)
     answer_text: str = Field(min_length=1, max_length=100_000)
     trigger_phrases: List[str] = Field(default_factory=list, max_length=50)
+    not_for: str = Field(default="", max_length=1000)
 
 
 class SuggestionEditedAnswerPayload(BaseModel):
