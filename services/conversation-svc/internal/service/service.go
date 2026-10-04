@@ -12,6 +12,7 @@ import (
 //   - LeadService         – lead lifecycle, notes, history
 //   - OutboxService       – transactional outbox command dispatch
 //   - AIDraftService      – AI controls and reply draft lifecycle
+//   - SummaryService      – conversation summary reads and on-demand requests
 //   - ConversationService – conversation queries, RBAC, outbound messaging, edits, deletes
 //   - IngestionService    – inbound and external outbound message ingestion
 type Service struct {
@@ -23,6 +24,7 @@ type Service struct {
 	*LeadService
 	*OutboxService
 	*AIDraftService
+	*SummaryService
 	*ConversationService
 	*IngestionService
 }
@@ -34,6 +36,7 @@ func New(pool *pgxpool.Pool, pubsub *pubsub.Client) *Service {
 	outboxSvc := NewOutboxService(pool, pubsub)
 	leadSvc := NewLeadService(pool, pubsub, pipelineResolver)
 	aiDraftSvc := NewAIDraftService(pool, pubsub)
+	summarySvc := NewSummaryService(pool, pubsub)
 	convoSvc := NewConversationService(pool, pubsub, outboxSvc)
 	ingestSvc := NewIngestionService(pool, pubsub, pipelineResolver)
 
@@ -45,6 +48,7 @@ func New(pool *pgxpool.Pool, pubsub *pubsub.Client) *Service {
 		LeadService:         leadSvc,
 		OutboxService:       outboxSvc,
 		AIDraftService:      aiDraftSvc,
+		SummaryService:      summarySvc,
 		ConversationService: convoSvc,
 		IngestionService:    ingestSvc,
 	}

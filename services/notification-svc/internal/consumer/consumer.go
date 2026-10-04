@@ -53,7 +53,8 @@ func (c *Consumer) Run(ctx context.Context, groupName, consumerName string) erro
 		{"ai.reply_draft.updated", c.handleAIReplyDraftUpdated},
 		{"ai.control.updated", c.handleAIControlUpdated},
 		{"automation_suggestion.created", c.handleAutomationSuggestionCreated},
-		{"conversation.summary_updated", c.handleConversationSummaryUpdated},
+		{types.SummaryStreamUpdated, c.handleConversationSummaryUpdated},
+		{types.SummaryStreamFailed, c.handleConversationSummaryFailed},
 	}
 
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -108,6 +109,14 @@ func (c *Consumer) handleAIControlUpdated(ctx context.Context, id string, payloa
 		return types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes))
 	})
 	return nil
+}
+
+func (c *Consumer) HandleConversationSummaryFailedForTest(ctx context.Context, id string, payload []byte) error {
+	return c.handleConversationSummaryFailed(ctx, id, payload)
+}
+
+func (c *Consumer) HandleConversationSummaryUpdatedForTest(ctx context.Context, id string, payload []byte) error {
+	return c.handleConversationSummaryUpdated(ctx, id, payload)
 }
 
 func (c *Consumer) HandleConversationUpdatedForTest(ctx context.Context, id string, payload []byte) error {
@@ -423,18 +432,65 @@ func (c *Consumer) handleAutomationSuggestionCreated(ctx context.Context, id str
 
 func (c *Consumer) handleConversationSummaryUpdated(ctx context.Context, id string, payload []byte) error {
 	var ev struct {
-		AccountID      uuid.UUID       `json:"account_id"`
-		ConversationID uuid.UUID       `json:"conversation_id"`
-		SummaryFields  json.RawMessage `json:"summary_fields"`
+		AccountID                uuid.UUID       `json:"account_id"`
+		ConversationID           uuid.UUID       `json:"conversation_id"`
+		SummaryFields            json.RawMessage `json:"summary_fields"`
+		GeneratedAt              string          `json:"generated_at"`
+		MessageCountAtGeneration *int            `json:"message_count_at_generation"`
 	}
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		c.logger.Error("failed to unmarshal conversation.summary_updated event", "error", err)
 		return nil
 	}
 
+	wsEvent := map[string]any{
+		"type":            types.SummaryStreamUpdated,
+		"conversation_id": ev.ConversationID.String(),
+		"summary_fields":  ev.SummaryFields,
+	}
+	if ev.GeneratedAt != "" {
+		wsEvent["generated_at"] = ev.GeneratedAt
+	}
+	if ev.MessageCountAtGeneration != nil {
+		wsEvent["message_count_at_generation"] = *ev.MessageCountAtGeneration
+	}
+	return c.broadcastToConversationViewers(ctx, ev.AccountID, ev.ConversationID, wsEvent, nil)
+}
+
+// handleConversationSummaryFailed tells only the user who asked for the
+// summary that generation failed. Nobody else is waiting on the result.
+func (c *Consumer) handleConversationSummaryFailed(ctx context.Context, id string, payload []byte) error {
+	var ev struct {
+		AccountID      uuid.UUID `json:"account_id"`
+		ConversationID uuid.UUID `json:"conversation_id"`
+		RequestedBy    uuid.UUID `json:"requested_by"`
+		ErrorCode      string    `json:"error_code"`
+		Message        string    `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		c.logger.Error("failed to unmarshal conversation.summary_failed event", "error", err)
+		return nil
+	}
+	if ev.RequestedBy == uuid.Nil {
+		return nil
+	}
+
+	wsEvent := map[string]any{
+		"type":            types.SummaryStreamFailed,
+		"conversation_id": ev.ConversationID.String(),
+		"error_code":      ev.ErrorCode,
+		"message":         ev.Message,
+	}
+	requester := ev.RequestedBy
+	return c.broadcastToConversationViewers(ctx, ev.AccountID, ev.ConversationID, wsEvent, &requester)
+}
+
+// broadcastToConversationViewers sends wsEvent to the account's connected
+// users who may see the conversation, optionally narrowed to a single user.
+func (c *Consumer) broadcastToConversationViewers(ctx context.Context, accountID, conversationID uuid.UUID, wsEvent map[string]any, onlyUser *uuid.UUID) error {
 	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
-		ID:        ev.ConversationID,
-		AccountID: ev.AccountID,
+		ID:        conversationID,
+		AccountID: accountID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -443,21 +499,17 @@ func (c *Consumer) handleConversationSummaryUpdated(ctx context.Context, id stri
 		return err
 	}
 
-	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
+	settingsBytes, err := c.queries.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return err
 	}
 	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
 
-	wsEvent := map[string]any{
-		"type":            "conversation.summary_updated",
-		"conversation_id": ev.ConversationID.String(),
-		"summary_fields":  ev.SummaryFields,
-	}
-
-	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
+	c.hub.BroadcastToAccount(accountID, wsEvent, func(userID uuid.UUID, role string) bool {
+		if onlyUser != nil && userID != *onlyUser {
+			return false
+		}
 		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
 	})
-
 	return nil
 }

@@ -32,7 +32,7 @@ func (c *blockingStreamConsumer) Consume(ctx context.Context, stream, _, _ strin
 }
 
 func TestConsumer_RunWaitsForAllStreams(t *testing.T) {
-	streamClient := &blockingStreamConsumer{started: make(chan string, 9)}
+	streamClient := &blockingStreamConsumer{started: make(chan string, 10)}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	c := consumer.NewConsumer(nil, streamClient, nil, logger)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -42,8 +42,8 @@ func TestConsumer_RunWaitsForAllStreams(t *testing.T) {
 		done <- c.Run(ctx, "test-notification-group", "test-consumer")
 	}()
 
-	started := make(map[string]struct{}, 9)
-	for range 9 {
+	started := make(map[string]struct{}, 10)
+	for range 10 {
 		select {
 		case stream := <-streamClient.started:
 			started[stream] = struct{}{}
@@ -51,8 +51,8 @@ func TestConsumer_RunWaitsForAllStreams(t *testing.T) {
 			t.Fatal("timed out waiting for stream consumers to start")
 		}
 	}
-	if len(started) != 9 {
-		t.Fatalf("started %d distinct stream consumers, want 9", len(started))
+	if len(started) != 10 {
+		t.Fatalf("started %d distinct stream consumers, want 10", len(started))
 	}
 
 	select {
@@ -226,4 +226,78 @@ func TestConsumer_PrivacyFilter(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		// Success! Client B did not receive the event.
 	}
+}
+
+func TestConsumer_SummaryEvents_PrivacyAndTargeting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	pool := testPool(t)
+	accountID, managerID := setupTestTenant(t, pool, "ws-summary")
+	ctx := context.Background()
+
+	var assignedID, otherID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'h', 'agent') RETURNING id`, accountID, fmt.Sprintf("a_%s@example.com", uuid.New())).Scan(&assignedID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'h', 'agent') RETURNING id`, accountID, fmt.Sprintf("o_%s@example.com", uuid.New())).Scan(&otherID))
+	var channelID, contactID, convoID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO contacts (account_id, channel_id, external_identity) VALUES ($1, $2, 'cs') RETURNING id`, accountID, channelID).Scan(&contactID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO conversations (account_id, contact_id, channel_id, assigned_user_ids) VALUES ($1, $2, $3, $4) RETURNING id`, accountID, contactID, channelID, []uuid.UUID{assignedID}).Scan(&convoID))
+
+	logger := slog.Default()
+	hub := server.NewHub(logger)
+	defer hub.Close()
+	clients := map[string]*server.Client{
+		"manager":  {UserID: managerID, AccountID: accountID, Role: types.RoleManager, Send: make(chan []byte, 10)},
+		"assigned": {UserID: assignedID, AccountID: accountID, Role: types.RoleAgent, Send: make(chan []byte, 10)},
+		"other":    {UserID: otherID, AccountID: accountID, Role: types.RoleAgent, Send: make(chan []byte, 10)},
+	}
+	for _, c := range clients {
+		require.NoError(t, hub.RegisterClient(c))
+	}
+	c := consumer.NewConsumer(pool, nil, hub, logger)
+
+	received := func(name string) map[string]any {
+		select {
+		case data := <-clients[name].Send:
+			var ev map[string]any
+			require.NoError(t, json.Unmarshal(data, &ev))
+			return ev
+		case <-time.After(300 * time.Millisecond):
+			return nil
+		}
+	}
+
+	updated, _ := json.Marshal(map[string]any{
+		"account_id": accountID, "conversation_id": convoID,
+		"summary_fields": map[string]string{"a": "b"}, "generated_at": "2026-01-02T03:04:05+00:00", "message_count_at_generation": 4,
+	})
+	require.NoError(t, c.HandleConversationSummaryUpdatedForTest(ctx, "1", updated))
+	for _, name := range []string{"manager", "assigned"} {
+		ev := received(name)
+		require.NotNil(t, ev, name)
+		assert.Equal(t, "conversation.summary_updated", ev["type"])
+		assert.Equal(t, convoID.String(), ev["conversation_id"])
+		assert.Equal(t, map[string]any{"a": "b"}, ev["summary_fields"])
+		assert.Equal(t, "2026-01-02T03:04:05+00:00", ev["generated_at"])
+		assert.EqualValues(t, 4, ev["message_count_at_generation"])
+	}
+	assert.Nil(t, received("other"), "unassigned agent must not see the summary")
+
+	failed, _ := json.Marshal(map[string]any{
+		"account_id": accountID, "conversation_id": convoID, "requested_by": assignedID,
+		"error_code": "ai_not_configured", "message": "AI provider is not configured for this workspace.",
+	})
+	require.NoError(t, c.HandleConversationSummaryFailedForTest(ctx, "2", failed))
+	ev := received("assigned")
+	require.NotNil(t, ev)
+	assert.Equal(t, "conversation.summary_failed", ev["type"])
+	assert.Equal(t, "ai_not_configured", ev["error_code"])
+	assert.NotEmpty(t, ev["message"])
+	assert.Nil(t, received("manager"), "only the requester is told about a failure")
+	assert.Nil(t, received("other"))
+
+	noRequester, _ := json.Marshal(map[string]any{"account_id": accountID, "conversation_id": convoID, "error_code": "x"})
+	require.NoError(t, c.HandleConversationSummaryFailedForTest(ctx, "3", noRequester))
+	assert.Nil(t, received("assigned"))
 }

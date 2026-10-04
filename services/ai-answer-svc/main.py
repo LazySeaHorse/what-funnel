@@ -1139,7 +1139,11 @@ async def process_summary_requested(data: dict, db_pool, redis_client):
     ids = _parse_summary_ids(data, "conversation.summary_requested")
     if ids is None:
         return
-    await generate_summary(db_pool, redis_client, *ids, trigger="requested")
+    requested_by = data.get("requested_by")
+    await generate_summary(
+        db_pool, redis_client, *ids, trigger="requested",
+        requested_by=str(requested_by) if requested_by else None,
+    )
 
 async def _delivery_count(redis_client, stream_name: str, group_name: str, msg_id) -> int:
     """How many times Redis has delivered this pending entry (1 on lookup failure)."""

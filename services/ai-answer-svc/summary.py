@@ -217,11 +217,12 @@ async def _announce_updated(redis_client, account_id, conversation_id, fields, g
         logger.exception("Failed to publish %s for conversation %s", SUMMARY_UPDATED_STREAM, conversation_id)
 
 
-async def _announce_failed(redis_client, account_id, conversation_id, code: str) -> None:
+async def _announce_failed(redis_client, account_id, conversation_id, code: str, requested_by: Optional[str]) -> None:
     try:
         await _publish(redis_client, SUMMARY_FAILED_STREAM, {
             "account_id": str(account_id),
             "conversation_id": str(conversation_id),
+            "requested_by": requested_by,
             "error_code": code,
             "message": FAILURE_MESSAGES[code],
         })
@@ -329,9 +330,12 @@ async def _run(db: ScopedDB, redis_client, account_id, conversation_id, trigger:
 
 
 async def generate_summary(
-    db_pool, redis_client, account_id: uuid.UUID, conversation_id: uuid.UUID, trigger: Trigger
+    db_pool, redis_client, account_id: uuid.UUID, conversation_id: uuid.UUID, trigger: Trigger,
+    requested_by: Optional[str] = None,
 ) -> SummaryOutcome:
-    """Generate (or reuse) the summary for one conversation. Never raises for expected failures."""
+    """Generate (or reuse) the summary for one conversation. Never raises for expected failures.
+
+    ``requested_by`` (user id) only labels ``conversation.summary_failed`` so it reaches the requester alone."""
     cooldown_key = f"{COOLDOWN_PREFIX}{conversation_id}"
     if trigger == "requested" and await redis_client.exists(cooldown_key):
         return SummaryOutcome("throttled")
@@ -358,7 +362,7 @@ async def generate_summary(
 
     if trigger == "requested":
         if outcome.status == "failed":
-            await _announce_failed(redis_client, account_id, conversation_id, outcome.error_code or "internal_error")
+            await _announce_failed(redis_client, account_id, conversation_id, outcome.error_code or "internal_error", requested_by)
         elif outcome.status == "cached" and outcome.generated_at is not None:
             # The requester may have raced a concurrent generation; re-announce so it converges.
             await _announce_updated(

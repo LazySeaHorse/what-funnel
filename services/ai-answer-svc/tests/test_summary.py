@@ -122,7 +122,7 @@ def row(count, age_seconds, fields=None):
 
 
 async def run(env, trigger):
-    return await generate_summary(object(), env.redis, ACCOUNT, CONVO, trigger)
+    return await generate_summary(object(), env.redis, ACCOUNT, CONVO, trigger, requested_by="user-1")
 
 
 # ---- schema / normalisation ------------------------------------------------
@@ -269,6 +269,7 @@ async def test_requested_no_messages_fails_and_announces(env):
     assert out.status == "failed" and out.error_code == "no_messages"
     (stream, payload), = env.redis.streams
     assert stream == "conversation.summary_failed" and payload["error_code"] == "no_messages"
+    assert payload["requested_by"] == "user-1"
     assert payload["message"] == summary.FAILURE_MESSAGES["no_messages"]
 
 

@@ -28,7 +28,7 @@ async def test_requested_handler_uses_requested_trigger():
     a, c = uuid.uuid4(), uuid.uuid4()
     with patch("main.generate_summary", AsyncMock()) as gen:
         await main.process_summary_requested({"account_id": str(a), "conversation_id": str(c), "requested_by": "x"}, "p", "r")
-    gen.assert_awaited_once_with("p", "r", a, c, trigger="requested")
+    gen.assert_awaited_once_with("p", "r", a, c, trigger="requested", requested_by="x")
 
 
 @pytest.mark.asyncio

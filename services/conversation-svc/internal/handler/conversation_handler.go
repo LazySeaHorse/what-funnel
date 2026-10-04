@@ -249,6 +249,52 @@ func (h *Handler) DismissReplyDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "dismissed"})
 }
 
+// GetConversationSummary serves the stored summary (or {"summary": null}).
+func (h *Handler) GetConversationSummary(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
+
+	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+	summary, err := h.svc.GetConversationSummary(r.Context(), accountID, userID, conversationID, role)
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"summary": summary})
+}
+
+// RequestConversationSummary asks ai-answer-svc to generate a summary. It
+// answers 202 {"status":"queued"} once the request is on the stream, or 200
+// {"status":"up_to_date"} when the stored summary already covers every
+// message. The current summary (if any) is always included; the new one
+// arrives as a conversation.summary_updated websocket event.
+func (h *Handler) RequestConversationSummary(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := middleware.AccountIDFromContext(r)
+	userID, _ := middleware.UserIDFromContext(r)
+	role, _ := middleware.RoleFromContext(r)
+
+	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+		return
+	}
+	status, summary, err := h.svc.RequestConversationSummary(r.Context(), accountID, userID, conversationID, role)
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+	code := http.StatusAccepted
+	if status == types.SummaryStatusUpToDate {
+		code = http.StatusOK
+	}
+	writeJSON(w, code, map[string]any{"status": status, "summary": summary})
+}
+
 func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
 	accountID, ok := middleware.AccountIDFromContext(r)
 	if !ok {
