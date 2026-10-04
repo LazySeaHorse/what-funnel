@@ -1,0 +1,94 @@
+{
+  "dental": [
+    {
+      "title": "Payment options",
+      "body_text": "We accept cash and all major credit cards. Payment plans of 6 or 12 months are available for treatments over $500 through CareCredit."
+    },
+    {
+      "title": "Dental emergencies",
+      "body_text": "For dental emergencies during opening hours call 555-0100 and we will fit you in the same day. Out of hours call the emergency line 555-0199."
+    },
+    {
+      "title": "Children",
+      "body_text": "We see children from age 3. The first visit for a child is a 30 minute check-up costing $60."
+    },
+    {
+      "title": "Services and prices",
+      "body_text": "Check-up $90, cleaning $120, fillings from $150, root canal from $800. Invisalign consultations are free."
+    }
+  ],
+  "bakery": [
+    {
+      "title": "Allergen information",
+      "body_text": "Our cakes may contain milk, eggs, wheat, soy and tree nuts. The brownies contain walnuts. The vegan cake is made with oat milk and contains no eggs or dairy, but it is baked in a kitchen that also handles nuts."
+    },
+    {
+      "title": "Custom cake pricing",
+      "body_text": "Custom cakes start at $45 for a 6 inch cake serving 8 people. A 3 tier wedding cake starts at $350."
+    },
+    {
+      "title": "Payment and deposits",
+      "body_text": "We accept cash, cards and Apple Pay. A 50% deposit is required for custom orders."
+    },
+    {
+      "title": "Pickup",
+      "body_text": "Orders can be picked up during opening hours. Please bring your order number."
+    }
+  ],
+  "bikes": [
+    {
+      "title": "Models",
+      "body_text": "The Model X has a range of 80 km and costs $2,400. The Model Y has a range of 60 km and costs $1,900. Both come in sizes S, M and L."
+    },
+    {
+      "title": "Financing",
+      "body_text": "We offer 0% financing over 12 months at checkout for orders above $1,000."
+    },
+    {
+      "title": "Battery care",
+      "body_text": "Charge the battery at room temperature and do not leave it fully empty for more than a week. A battery replacement outside warranty costs $450."
+    }
+  ],
+  "salon": [
+    {
+      "title": "Services and prices",
+      "body_text": "Balayage from $180, keratin treatment $220, blow dry $40. Colour starts at $95."
+    },
+    {
+      "title": "Stylists",
+      "body_text": "Our senior stylists are Mia and Jonas. Mia specialises in colour and Jonas in men's cuts."
+    },
+    {
+      "title": "Products",
+      "body_text": "We use and sell Olaplex and Redken products. Gift cards are available in any amount at the front desk."
+    }
+  ],
+  "gym": [
+    {
+      "title": "Facilities",
+      "body_text": "We have a 25 metre pool, a sauna, free weights and 40 cardio machines. Towels are free."
+    },
+    {
+      "title": "Personal training",
+      "body_text": "Personal training sessions cost $60 for one hour or $500 for ten sessions. Book at the front desk."
+    },
+    {
+      "title": "Guests",
+      "body_text": "Members may bring a guest for $5 per visit. Guests must be 16 or older."
+    }
+  ],
+  "plumber": [
+    {
+      "title": "Services",
+      "body_text": "We fix leaks, blocked drains, water heaters, toilets and taps. We also install dishwashers and washing machines."
+    },
+    {
+      "title": "Water heaters",
+      "body_text": "A standard water heater replacement takes about 3 hours. Prices depend on the unit, and a written quote is given before work starts."
+    },
+    {
+      "title": "Working hours",
+      "body_text": "Standard jobs are booked Monday to Saturday 8am to 6pm. Sunday work is only for emergencies."
+    }
+  ]
+}

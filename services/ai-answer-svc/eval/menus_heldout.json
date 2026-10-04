@@ -1,0 +1,182 @@
+{
+  "salon": {
+    "business": "Luna Hair Studio (fictional, held-out)",
+    "faqs": [
+      {
+        "key": "hours",
+        "question": "When are you open?",
+        "answer": "We are open Tuesday to Saturday 9am to 7pm. Closed Sunday and Monday.",
+        "examples": [
+          "opening hours",
+          "what time do you close",
+          "are you open on saturday"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "booking",
+        "question": "How do I book an appointment?",
+        "answer": "Book online at luna-hair.test/book or call 555-0142. A $15 deposit is taken at booking.",
+        "examples": [
+          "book a haircut",
+          "can i make an appointment",
+          "do you take walk ins"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "prices",
+        "question": "How much does a haircut cost?",
+        "answer": "Women's cut $55, men's cut $35, kids under 12 $25. Colour starts at $95.",
+        "examples": [
+          "price list",
+          "how much for a trim",
+          "cost of colouring"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "cancel_policy",
+        "question": "What is your cancellation policy?",
+        "answer": "Please give 24 hours notice. Late cancellations lose the $15 deposit.",
+        "examples": [
+          "can i cancel my appointment",
+          "cancellation fee",
+          "reschedule policy"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "patch",
+        "question": "Do I need a patch test for colour?",
+        "answer": "Yes, we do a free patch test at least 48 hours before any colour service.",
+        "examples": [
+          "patch test",
+          "allergy test before colour"
+        ],
+        "not_for": ""
+      }
+    ]
+  },
+  "gym": {
+    "business": "Ironworks Gym (fictional, held-out)",
+    "faqs": [
+      {
+        "key": "hours",
+        "question": "What are your opening hours?",
+        "answer": "Open 5am to 11pm Monday to Friday and 7am to 8pm on weekends.",
+        "examples": [
+          "gym hours",
+          "are you open 24 hours",
+          "open on public holidays"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "pricing",
+        "question": "How much is a membership?",
+        "answer": "Monthly membership is $39, annual is $390. There is a $25 joining fee.",
+        "examples": [
+          "membership cost",
+          "how much per month",
+          "joining fee"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "cancel",
+        "question": "How do I cancel my membership?",
+        "answer": "Memberships can be cancelled with 30 days written notice at the front desk or by emailing frontdesk@ironworks.test.",
+        "examples": [
+          "cancel membership",
+          "quit the gym",
+          "stop my subscription",
+          "freeze my membership"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "daypass",
+        "question": "Do you offer day passes or trials?",
+        "answer": "A day pass is $12. New visitors get a free 3-day trial pass at the front desk.",
+        "examples": [
+          "day pass",
+          "free trial",
+          "can i try before joining"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "classes",
+        "question": "What classes do you run?",
+        "answer": "We run yoga, spin and HIIT classes daily. The timetable is at ironworks.test/classes and is included in membership.",
+        "examples": [
+          "class schedule",
+          "do you have yoga",
+          "spin class times"
+        ],
+        "not_for": ""
+      }
+    ]
+  },
+  "plumber": {
+    "business": "FlowFix Plumbing (fictional, held-out)",
+    "faqs": [
+      {
+        "key": "emergency",
+        "question": "Do you do emergency call-outs?",
+        "answer": "Yes, 24/7. Call our emergency line on 555-0199. The call-out fee is $120 plus parts and labour.",
+        "examples": [
+          "burst pipe",
+          "emergency plumber",
+          "out of hours service"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "area",
+        "question": "Which areas do you cover?",
+        "answer": "We cover the whole metro area and up to 30 km beyond the city limits.",
+        "examples": [
+          "do you come to my suburb",
+          "service area",
+          "do you travel"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "quote",
+        "question": "Do you give free quotes?",
+        "answer": "Yes, quotes are free. Send photos and a description at flowfix.test/quote and we reply within one business day.",
+        "examples": [
+          "how much will it cost",
+          "free estimate",
+          "get a quote"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "payment",
+        "question": "How can I pay?",
+        "answer": "We accept cards, bank transfer and cash. Payment is due on completion of the job.",
+        "examples": [
+          "do you take card",
+          "payment methods",
+          "can i pay later"
+        ],
+        "not_for": ""
+      },
+      {
+        "key": "licence",
+        "question": "Are you licensed and insured?",
+        "answer": "Yes, all plumbers are licensed and we carry full liability insurance.",
+        "examples": [
+          "are you insured",
+          "licensed plumber",
+          "certified"
+        ],
+        "not_for": ""
+      }
+    ]
+  }
+}
