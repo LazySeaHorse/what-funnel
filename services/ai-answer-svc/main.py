@@ -22,10 +22,10 @@ from router import (
     DEFAULT_GREETING_REPLY,
     PROMPT_VERSION,
     apply_gates,
-    backstop_hit,
     build_menu,
     build_retrieval_query,
     is_greeting_batch,
+    local_precheck,
     run_router,
 )
 from plain_text import normalize_plain_text
@@ -396,18 +396,20 @@ async def decide_reply(
     settings: dict,
 ) -> CascadeDecision:
     """Backstop / greeting / router + gates / KB. Provider problems never raise: they fail closed."""
-    # 1. Safety backstop (legal threats, acute medical emergencies): always a human, no model call.
-    if backstop_hit(bubble_texts):
-        return CascadeDecision("handoff", handoff_kind="escalation", detail="backstop")
-
-    # 2. First-message greeting: only when nothing was ever sent in this conversation.
+    # 1. Local pre-checks without a model call: safety backstop, then the first-message greeting
+    # (only when nothing was ever sent in this conversation).
+    first_message = False
     if is_greeting_batch(bubble_texts):
         has_outbound = await db.fetchval(
             "SELECT EXISTS (SELECT 1 FROM messages WHERE conversation_id = $1 AND account_id = $2 AND direction = 'outbound')",
             convo_uuid, db.account_id,
         )
-        if not has_outbound:
-            return CascadeDecision("greeting", answer_text=greeting_text_from_settings(settings), detail="greeting")
+        first_message = not has_outbound
+    pre = local_precheck(bubble_texts, first_message)
+    if pre is not None and pre.kind == "greeting":
+        return CascadeDecision("greeting", answer_text=greeting_text_from_settings(settings), detail=pre.detail)
+    if pre is not None:
+        return CascadeDecision("handoff", handoff_kind=pre.handoff_kind, detail=pre.detail)
 
     if not bubble_texts:
         return CascadeDecision("handoff", handoff_kind="unanswerable", detail="empty_message")

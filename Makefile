@@ -130,6 +130,9 @@ sqlc-compile: ## Compile and type-check SQL queries and schema with sqlc
 	sqlc compile
 
 
+eval-router: ## Evaluate the AI cascade router against a live OpenAI-compatible endpoint (needs EVAL_BASE_URL, EVAL_API_KEY, optional EVAL_MODEL)
+	cd services/ai-answer-svc && PYTHONPATH=.:../../packages/python python -m eval.harness $(EVAL_ARGS)
+
 pw: ## Run the Playwright E2E test suite (requires `make up` and `cd apps/web && npm install` first)
 	cd apps/web && npx playwright test --reporter=list
 

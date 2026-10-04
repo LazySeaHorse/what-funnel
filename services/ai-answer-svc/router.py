@@ -259,7 +259,7 @@ async def run_router(
 # Deterministic gates
 # ---------------------------------------------------------------------------
 
-Kind = Literal["canned", "kb", "ignore", "handoff"]
+Kind = Literal["canned", "kb", "ignore", "handoff", "greeting"]
 HandoffKind = Literal["escalation", "spam", "unanswerable"]
 
 
@@ -409,3 +409,21 @@ def build_retrieval_query(bubbles: list[str], previous_customer_texts: list[str]
         if previous:
             return f"{previous[-1]} {current}".strip()[:1000]
     return current[:1000]
+
+
+# ---------------------------------------------------------------------------
+# Local pre-check (no model call): safety backstop, then first-message greeting
+# ---------------------------------------------------------------------------
+
+def local_precheck(bubbles: list[str], first_message: bool) -> Optional[Outcome]:
+    """Deterministic checks that run before the router. Returns None to continue to the router.
+
+    The backstop (legal threat / acute medical emergency) always means handoff. A greeting only
+    counts as such on the conversation's first message: nothing was sent before and every bubble
+    in the batch is a greeting or common starter.
+    """
+    if backstop_hit(bubbles):
+        return Outcome("handoff", handoff_kind="escalation", detail="backstop")
+    if first_message and is_greeting_batch(bubbles):
+        return Outcome("greeting", detail="greeting")
+    return None

@@ -1,0 +1,206 @@
+{
+  "dental": {
+    "business": "Bright Smile Dental (fictional)",
+    "faqs": [
+      {
+        "key": "hours",
+        "question": "What are your clinic hours?",
+        "answer": "We are open Monday to Friday 8am to 6pm and Saturday 9am to 1pm. We are closed on Sundays.",
+        "examples": [
+          "clinic hours",
+          "opening hours",
+          "when are you open",
+          "are you open on saturdays",
+          "what time do you close"
+        ],
+        "not_for": "appointment times for a specific patient, holiday hours, emergency extractions"
+      },
+      {
+        "key": "insurance",
+        "question": "Which dental insurance plans do you accept?",
+        "answer": "We accept Delta Dental, Cigna, Aetna and Bupa. For any other plan please call us on 555-0100 and we will check your coverage.",
+        "examples": [
+          "which insurance do you accept",
+          "do you accept insurance",
+          "what insurance plans do you take",
+          "do you take delta dental",
+          "accepted insurance providers"
+        ],
+        "not_for": "what a plan covers for a specific treatment, payment plans or financing"
+      },
+      {
+        "key": "whitening",
+        "question": "Do you offer teeth whitening?",
+        "answer": "Yes. Professional whitening costs $350 for an in-office session and $180 for take-home trays.",
+        "examples": [
+          "teeth whitening cost",
+          "how much is teeth whitening",
+          "professional whitening price",
+          "whitening"
+        ],
+        "not_for": "side effects, whitening on crowns or veneers, insurance coverage of whitening"
+      },
+      {
+        "key": "newpatient",
+        "question": "How do I book a new patient appointment?",
+        "answer": "New patients can book online at example-dental.test/book or call 555-0100. Please bring photo ID and your insurance card to the first visit.",
+        "examples": [
+          "how do i book an appointment",
+          "book a new patient appointment",
+          "i want to make an appointment",
+          "how can i schedule a visit",
+          "new patient booking"
+        ],
+        "not_for": "rescheduling or cancelling an existing appointment, job applications"
+      },
+      {
+        "key": "parking",
+        "question": "Is there parking at the clinic?",
+        "answer": "Yes, free parking is available behind the clinic with the entrance on Oak Street.",
+        "examples": [
+          "is there parking",
+          "where can i park",
+          "parking options",
+          "do you have a parking lot",
+          "parking available"
+        ],
+        "not_for": "public transport directions"
+      }
+    ]
+  },
+  "bakery": {
+    "business": "Bella's Bakery (fictional)",
+    "faqs": [
+      {
+        "key": "hours",
+        "question": "What are your opening hours?",
+        "answer": "We are open daily 7am to 6pm, and on Sundays 8am to 2pm.",
+        "examples": [
+          "what time do you open",
+          "are you open on sunday",
+          "store hours",
+          "when do you close"
+        ],
+        "not_for": "order pickup times for a specific order, holiday hours"
+      },
+      {
+        "key": "custom",
+        "question": "Do you make custom cakes?",
+        "answer": "Yes, we make custom birthday and wedding cakes. Send your design idea and number of guests through bella-bakery.test/custom and we will confirm the price by email.",
+        "examples": [
+          "custom cake order",
+          "birthday cake order",
+          "can i order a wedding cake",
+          "how do i order a custom cake",
+          "cake ordering"
+        ],
+        "not_for": "price quotes for a specific cake, cake ordering deadlines"
+      },
+      {
+        "key": "delivery",
+        "question": "Do you deliver?",
+        "answer": "We deliver within 10 km of the bakery for a flat fee of $8. We do not ship to other cities.",
+        "examples": [
+          "delivery options",
+          "do you offer delivery",
+          "delivery fee",
+          "can you deliver to my address"
+        ],
+        "not_for": "changing the address or time of an existing delivery, late deliveries"
+      },
+      {
+        "key": "allergy",
+        "question": "Do you have gluten-free or vegan options?",
+        "answer": "We have gluten-free and vegan cakes and cookies. All items are made in a kitchen that also handles nuts, wheat and dairy.",
+        "examples": [
+          "do you have gluten free options",
+          "vegan cakes",
+          "gluten free",
+          "dairy free options",
+          "do you have vegan treats"
+        ],
+        "not_for": "ingredients of a specific item, severe allergy guarantees"
+      },
+      {
+        "key": "lead",
+        "question": "How far in advance should I order?",
+        "answer": "Please order custom cakes at least 3 days in advance, and wedding or multi-tier cakes at least 2 weeks in advance.",
+        "examples": [
+          "how long does a custom cake take",
+          "lead time for cake orders",
+          "how many days notice do you need",
+          "how early do i need to order"
+        ],
+        "not_for": "whether a specific date is still available"
+      }
+    ]
+  },
+  "bikes": {
+    "business": "Ride Electric Bikes (fictional)",
+    "faqs": [
+      {
+        "key": "returns",
+        "question": "What is your return policy?",
+        "answer": "You can return a bike within 30 days of delivery if it is unused and in its original packaging. Refunds go back to the original payment method within 5 business days of us receiving it.",
+        "examples": [
+          "can i return my bike",
+          "how do i return an item",
+          "refund policy",
+          "return window"
+        ],
+        "not_for": "damaged or defective items, returns of parts or helmets, return after a test ride"
+      },
+      {
+        "key": "shipping",
+        "question": "How long does shipping take?",
+        "answer": "Standard shipping takes 3 to 5 business days within the US. We also ship to Canada in 7 to 10 business days. Tracking is emailed when your order ships.",
+        "examples": [
+          "shipping time",
+          "delivery time",
+          "when will my order arrive",
+          "do you ship internationally"
+        ],
+        "not_for": "status of an existing order, shipping a bike for repair"
+      },
+      {
+        "key": "warranty",
+        "question": "What warranty do your e-bikes have?",
+        "answer": "E-bike frames have a 5 year warranty, and motors and batteries have a 2 year warranty. Normal wear items such as tires and brake pads are not covered.",
+        "examples": [
+          "what is the warranty",
+          "ebike warranty",
+          "how long is the battery warranty",
+          "is there a warranty",
+          "warranty coverage"
+        ],
+        "not_for": "water damage, damage from self-repair, comparing models"
+      },
+      {
+        "key": "repair",
+        "question": "Do you service and repair bikes?",
+        "answer": "Yes, we service and repair all bike brands. A basic tune-up is $80 and most repairs are done within 3 business days. Book through bike-shop.test/service.",
+        "examples": [
+          "do you repair bikes",
+          "bike service",
+          "can you fix my bike",
+          "tune up price",
+          "do you do repairs"
+        ],
+        "not_for": "repair prices other than a basic tune-up, return address for repairs, shipping repaired bikes"
+      },
+      {
+        "key": "testride",
+        "question": "Can I book a test ride?",
+        "answer": "Yes, test rides are free. Book a 30 minute slot at bike-shop.test/testride and bring photo ID.",
+        "examples": [
+          "can i test ride",
+          "book a test ride",
+          "do you offer test rides",
+          "try before i buy",
+          "demo ride"
+        ],
+        "not_for": "returning a bike after a test ride, shipping a test bike"
+      }
+    ]
+  }
+}

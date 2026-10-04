@@ -1,0 +1,234 @@
+"""Evaluation harness: dataset integrity, metric maths, oracle/adversarial fake clients, cache."""
+
+import asyncio
+import re
+from collections import Counter
+from pathlib import Path
+
+import pytest
+
+from cascade_fakes import FakeClient, router_reply
+from eval.harness import (
+    Case,
+    CaseResult,
+    CachingClient,
+    Prediction,
+    compute_metrics,
+    format_report,
+    load_cases,
+    load_menus,
+    menu_entries,
+    predict,
+    run_cases,
+)
+from router import is_greeting_message, sanitize_untrusted
+from whatfunnel_ai import CompletionResult
+
+EVAL_DIR = Path(__file__).resolve().parent.parent / "eval"
+CASES = load_cases(EVAL_DIR / "cases.jsonl")
+MENUS = load_menus(EVAL_DIR / "menus.json")
+
+
+# --- dataset --------------------------------------------------------------------
+
+def test_dataset_shape():
+    assert len(MENUS) == 3 and all(len(m["faqs"]) == 5 for m in MENUS.values())
+    assert 150 <= len(CASES) <= 260
+    assert len({c.id for c in CASES}) == len(CASES)
+    kinds = Counter(c.kind for c in CASES)
+    for needed in ("paraphrase", "typo", "near_miss", "follow_up_context", "multi_question", "greeting", "spam", "injection", "escalation_realistic"):
+        assert kinds[needed] >= 5 or needed == "typo" and kinds[needed] >= 3, needed
+    assert any(c.history for c in CASES) and any(len(c.bubbles) > 1 for c in CASES)
+
+
+def test_dataset_labels_are_consistent():
+    for case in CASES:
+        keys = {f["key"] for f in MENUS[case.menu]["faqs"]}
+        if case.expected_route == "faq":
+            assert case.expected_faq_id in keys, case.id
+        else:
+            assert case.expected_faq_id is None, case.id
+        if case.expected_route == "handoff":
+            assert case.expected_handoff_reason in ("needs_human", "spam", "prompt_injection", "other"), case.id
+        if case.expected_route == "greeting":
+            assert case.first_message and not case.history, case.id
+        assert 1 <= len(case.bubbles) <= 4, case.id
+
+
+def test_greeting_labels_agree_with_the_deterministic_detector():
+    for case in CASES:
+        is_greeting = case.first_message and all(is_greeting_message(b) for b in case.bubbles)
+        assert is_greeting == (case.expected_route == "greeting"), case.id
+
+
+def test_menus_fit_the_router_cap():
+    for menu_id in MENUS:
+        menu, key_by_code = menu_entries(MENUS, menu_id)
+        assert len(menu) == 5 and set(key_by_code.values()) == {f["key"] for f in MENUS[menu_id]["faqs"]}
+
+
+def test_bad_lines_are_rejected(tmp_path):
+    path = tmp_path / "c.jsonl"
+    path.write_text('{"id": "a", "menu": "m", "text": "x", "expected_route": "teleport"}\n')
+    with pytest.raises(ValueError, match="unknown expected_route"):
+        load_cases(path)
+    path.write_text('{"id": "a", "menu": "m", "expected_route": "faq"}\n')
+    with pytest.raises(ValueError, match="no bubbles"):
+        load_cases(path)
+    ok = '{"id": "a", "menu": "m", "text": "x", "expected_route": "kb"}\n'
+    path.write_text(ok + ok)
+    with pytest.raises(ValueError, match="duplicate id"):
+        load_cases(path)
+
+
+# --- fake clients -------------------------------------------------------------------
+
+class OracleClient:
+    """Answers every case with its expected label, to prove the harness plumbing end to end."""
+
+    def __init__(self, cases, menus):
+        self.index = {}
+        for case in cases:
+            numbered = "\n".join(f"{i}. {sanitize_untrusted(b)}" for i, b in enumerate(case.bubbles, start=1))
+            history = "\n".join(
+                f"{t['role']}: {t['text'].strip()}" for t in case.history
+            )
+            self.index[(numbered, history)] = case
+        self.menus = menus
+        self.calls = 0
+
+    async def complete_detailed(self, model, messages, schema, max_tokens=None):
+        self.calls += 1
+        user = messages[1]["content"]
+        block = re.search(r"<<<CUSTOMER START>>>\n(.*)\n<<<CUSTOMER END>>>", user, re.S).group(1)
+        history = re.search(r"<<<CONVERSATION START>>>\n(.*)\n<<<CONVERSATION END>>>", user, re.S).group(1)
+        history = "" if history == "(none)" else history
+        case = self.index[(block, history)]
+        codes = {f["key"]: f"F{i}" for i, f in enumerate(self.menus[case.menu]["faqs"], start=1)}
+        if case.expected_route == "faq":
+            data = router_reply("faq", codes[case.expected_faq_id], True, "none")
+        elif case.expected_route == "handoff":
+            data = router_reply("handoff", "none", False, case.expected_handoff_reason)
+        elif case.expected_route == "ignore":
+            data = router_reply("ignore")
+        else:
+            data = router_reply("kb")
+        validated = schema.model_validate(data).model_dump()
+        return CompletionResult(validated, {"prompt_tokens": 1000, "completion_tokens": 30}, 800)
+
+
+class AlwaysFaqClient:
+    """Adversarial model: claims F1 fully covers everything."""
+
+    async def complete_detailed(self, model, messages, schema, max_tokens=None):
+        return CompletionResult(schema.model_validate(router_reply("faq", "F1", True)).model_dump(), {}, 1)
+
+
+@pytest.mark.asyncio
+async def test_oracle_scores_perfectly_and_reports_cost():
+    client = OracleClient(CASES, MENUS)
+    results = await run_cases(CASES, MENUS, client, "m", concurrency=1)
+    metrics = compute_metrics(results, price_in_per_m=0.10, price_out_per_m=0.40)
+    assert metrics["route_accuracy"] == 1.0 and metrics["errors"] == 0
+    assert metrics["canned"]["precision"] == 1.0 and metrics["canned"]["recall"] == 1.0
+    assert metrics["canned"]["false_canned"] == 0 and metrics["canned"]["false_canned_rate"] == 0
+    assert metrics["handoff"]["recall"] == 1.0 and metrics["handoff"]["false_escalations"] == 0
+    for route, m in metrics["per_route"].items():
+        assert m["precision"] == 1.0 and m["recall"] == 1.0, route
+    greeting_cases = [c for c in CASES if c.expected_route == "greeting"]
+    assert client.calls == len(CASES) - len(greeting_cases) - sum(
+        1 for r in results if r.prediction.detail == "backstop"
+    )
+    assert metrics["tokens"]["prompt"] == 1000 * client.calls
+    expected_cost = (1000 * client.calls) / 1e6 * 0.10 + (30 * client.calls) / 1e6 * 0.40
+    assert metrics["estimated_cost_usd"] == pytest.approx(expected_cost)
+    assert metrics["latency_ms"]["p50"] == 800
+    text = format_report(metrics)
+    assert "Per route" in text and "Confusion matrix" in text and "Canned FAQ replies" in text
+
+
+@pytest.mark.asyncio
+async def test_adversarial_model_shows_high_false_canned_rate():
+    results = await run_cases(CASES, MENUS, AlwaysFaqClient(), "m", concurrency=1)
+    metrics = compute_metrics(results)
+    assert metrics["canned"]["precision"] < 0.5
+    assert metrics["canned"]["false_canned_rate"] > 0.4
+    assert metrics["handoff"]["recall"] < 0.5  # prompt injections/spam/escalations answered with canned text
+    assert metrics["per_route"]["faq"]["recall"] is not None
+    assert metrics["false_canned_cases"] and metrics["missed_escalation_cases"]
+    # the local backstop and greeting pre-checks still work without any model
+    assert any(r.prediction.detail == "backstop" and r.prediction.route == "handoff" for r in results)
+    assert all(r.prediction.route == "greeting" for r in results if r.case.expected_route == "greeting")
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_counts_as_error_and_fails_closed():
+    case = Case("c1", "dental", ["where is my parcel"], "handoff", expected_handoff_reason="other")
+    prediction = await predict(case, FakeClient(router_error=TimeoutError("slow")), "m", MENUS)
+    assert prediction.route == "handoff" and prediction.handoff_reason == "other" and prediction.error
+    metrics = compute_metrics([CaseResult(case, prediction)])
+    assert metrics["errors"] == 1
+
+
+# --- metric maths ------------------------------------------------------------------------
+
+def result(expected, predicted, faq=None, pred_faq=None, reason="none", pred_reason="none", also=(), kind="k", latency=100):
+    case = Case(f"c{id(object())}", "dental", ["x"], expected, faq, reason, tuple(also), kind=kind)
+    return CaseResult(case, Prediction(route=predicted, faq_id=pred_faq, handoff_reason=pred_reason, latency_ms=latency, prompt_tokens=100, completion_tokens=10))
+
+
+def test_metric_maths_on_a_handmade_set():
+    results = [
+        result("faq", "faq", "hours", "hours"),                 # correct canned
+        result("faq", "faq", "hours", "parking"),               # wrong FAQ id
+        result("faq", "kb", "hours"),                           # missed FAQ
+        result("kb", "faq", None, "hours"),                     # false canned
+        result("kb", "kb"),
+        result("handoff", "handoff", None, None, "needs_human", "needs_human"),
+        result("handoff", "kb", None, None, "needs_human"),     # missed escalation
+        result("handoff", "handoff", None, None, "spam", "needs_human"),  # handoff ok, wrong reason
+        result("ignore", "handoff", None, None, "none", "needs_human"),  # false escalation
+        result("kb", "handoff", None, None, "none", "other", also=("handoff",)),  # accepted alternative
+    ]
+    m = compute_metrics(results, price_in_per_m=1.0, price_out_per_m=2.0)
+    assert m["cases"] == 10
+    assert m["canned"] == {
+        "sent": 3, "correct": 1, "precision": pytest.approx(1 / 3), "recall": pytest.approx(1 / 3),
+        "false_canned": 1, "false_canned_rate": pytest.approx(1 / 7), "wrong_faq": 1,
+    }
+    # false_canned = canned reply on a case that is not an FAQ case (rate over the 7 non-FAQ cases); wrong FAQ ids are counted separately
+    assert m["handoff"]["escalation_cases"] == 3
+    assert m["handoff"]["recall"] == pytest.approx(2 / 3)
+    assert m["handoff"]["reason_accuracy"] == pytest.approx(1 / 3)
+    assert m["handoff"]["by_reason"]["spam"] == {"support": 1, "handoff_recall": 1.0, "reason_recall": 0.0}
+    assert m["handoff"]["false_escalations"] == 1
+    assert m["per_route"]["faq"]["support"] == 3 and m["per_route"]["faq"]["predicted"] == 3
+    assert m["per_route"]["faq"]["precision"] == pytest.approx(1 / 3)
+    assert m["confusion_matrix"]["faq"] == {"faq": 2, "kb": 1}
+    # the accepted alternative is scored as the expected route, not as a handoff prediction
+    assert m["confusion_matrix"]["kb"]["kb"] == 2 and m["confusion_matrix"]["kb"]["faq"] == 1
+    assert m["tokens"] == {"prompt": 1000, "completion": 100}
+    assert m["estimated_cost_usd"] == pytest.approx(1000 / 1e6 * 1.0 + 100 / 1e6 * 2.0)
+    assert m["estimated_cost_per_1000_messages_usd"] == pytest.approx(m["estimated_cost_usd"] / 10 * 1000)
+
+
+def test_empty_set_does_not_divide_by_zero():
+    m = compute_metrics([])
+    assert m["route_accuracy"] is None and m["canned"]["precision"] is None
+    assert "n/a" in format_report(m)
+
+
+# --- cache ---------------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_caching_client_replays_without_calling_the_provider(tmp_path):
+    inner = FakeClient(router=router_reply("kb"))
+    cache = tmp_path / "cache.jsonl"
+    cases = CASES[:5]
+    first = await run_cases(cases, MENUS, CachingClient(inner, str(cache)), "m", concurrency=1)
+    calls_after_first = len(inner.calls)
+    again = CachingClient(inner, str(cache))
+    second = await run_cases(cases, MENUS, again, "m", concurrency=1)
+    assert len(inner.calls) == calls_after_first  # served from the cache
+    assert again.hits == calls_after_first
+    assert [r.prediction.route for r in first] == [r.prediction.route for r in second]
