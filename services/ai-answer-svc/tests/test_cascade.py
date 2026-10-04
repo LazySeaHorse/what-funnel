@@ -206,7 +206,7 @@ async def test_summary_debounce():
     }
 
     # Case 1: Elapsed < 60s -> should skip
-    with patch("main.ScopedDB") as MockScopedDB:
+    with patch("summary.ScopedDB") as MockScopedDB:
         db_instance = MockScopedDB.return_value
         db_instance.fetchval = AsyncMock(return_value=10) # 10 messages now
         
@@ -223,7 +223,7 @@ async def test_summary_debounce():
         db_instance.execute.assert_not_called()
 
     # Case 2: Elapsed >= 60s but count has not increased -> should skip
-    with patch("main.ScopedDB") as MockScopedDB:
+    with patch("summary.ScopedDB") as MockScopedDB:
         db_instance = MockScopedDB.return_value
         db_instance.fetchval = AsyncMock(return_value=5) # still 5 messages
         db_instance.fetchrow = AsyncMock(return_value=MockRecord({
@@ -236,12 +236,15 @@ async def test_summary_debounce():
         db_instance.execute.assert_not_called()
 
     # Case 3: Elapsed >= 60s and message count increased -> should regenerate!
-    with patch("main.ScopedDB") as MockScopedDB:
+    with patch("summary.ScopedDB") as MockScopedDB:
         db_instance = MockScopedDB.return_value
         db_instance.fetchval = AsyncMock(side_effect=lambda query, *args: 10 if "messages" in query else None)
         
         # Return mock records for fetchrow queries
         async def custom_fetchrow(query, *args):
+            if "INSERT INTO conversation_summaries" in query:
+                writes.append(args)
+                return MockRecord({"generated_at": datetime.now(timezone.utc)})
             if "summaries" in query:
                 return MockRecord({
                     "generated_at": datetime.now(timezone.utc) - timedelta(seconds=70),
@@ -257,6 +260,7 @@ async def test_summary_debounce():
                 })
             return None
 
+        writes = []
         db_instance.fetchrow = custom_fetchrow
         db_instance.fetch = AsyncMock(return_value=[
             MockRecord({"direction": "inbound", "sender_type": "contact", "content": json.dumps({"text": "Hello"})})
@@ -268,17 +272,15 @@ async def test_summary_debounce():
         client = MagicMock()
         client.complete = AsyncMock(return_value=mock_summary)
 
-        with patch("main.get_ai_config", AsyncMock(return_value=ai_config())), \
-             patch("main.provider_client", return_value=client):
+        with patch("summary.get_ai_config", AsyncMock(return_value=ai_config())), \
+             patch("summary.provider_client", return_value=client):
 
             await process_conversation_closed(data, db_pool, redis_client)
 
             assert client.complete.await_args.args[0] == "analysis-model"
-            assert db_instance.execute.call_count == 1
-            summary_call_args = db_instance.execute.call_args_list[0][0]
-            assert "INSERT INTO conversation_summaries" in summary_call_args[0]
-            assert summary_call_args[3] == json.dumps(mock_summary)
-            assert summary_call_args[4] == 10 # current count
+            assert len(writes) == 1
+            assert writes[0][2] == json.dumps(mock_summary)
+            assert writes[0][3] == 10 # current count
 
 
 @pytest.mark.asyncio

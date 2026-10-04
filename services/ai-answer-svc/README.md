@@ -45,6 +45,29 @@ Reply modes (workspace default, per-user override, per-chat override) are resolv
 Every router decision is logged to `ai_router_decisions` (route, FAQ, handoff reason, outcome, latency, token usage,
 prompt version, error). Answer events and drafts use the stages `greeting | canned | rag | handoff | ignored | none`.
 
+## Conversation summaries
+
+`summary.py` generates the per-conversation summary shown in the inbox ("Summarize conversation"). One function,
+`generate_summary(..., trigger)`, serves two Redis streams (consumer group `ai-answer-svc-group`):
+
+| stream | trigger | policy |
+|---|---|---|
+| `conversation.closed` | `closed` | debounced: first summary needs a message; later ones need `SUMMARY_MIN_INTERVAL_SECONDS` since the last and new messages |
+| `conversation.summary_requested` (published by conversation-svc `POST /conversations/{id}/summary`) | `requested` | bypasses the 60 s rule: unchanged conversation returns the cached row, new messages regenerate |
+
+Both take a per-conversation Redis lock (`summary:lock:<id>`, released by token) so concurrent runs never duplicate an LLM call;
+requests also respect a short cooldown (`summary:cooldown:<id>`, `SUMMARY_REQUEST_COOLDOWN_SECONDS`) set after every
+generated or failed attempt. The last `SUMMARY_MAX_MESSAGES` text messages are sanitised with `untrusted.sanitize_untrusted`,
+flattened to one line each and passed between `<<<CONVERSATION START/END>>>` markers. Fields come from the account setting
+`summary_schema` (a list of `{key,label,description}` or a `{key: description}` map; invalid keys are dropped, default is
+customer_wants / preferred_timeframe / objections / next_action) and are validated: exactly the schema keys, plain text,
+capped at `SUMMARY_FIELD_MAX_CHARS`, `N/A` when missing. One row per conversation in `conversation_summaries`
+(`message_count_at_generation` marks staleness). Nothing is written on failure.
+
+Events published: `conversation.summary_updated` (`account_id`, `conversation_id`, `summary_fields`, `generated_at`,
+`message_count_at_generation`) and, for on-demand requests only, `conversation.summary_failed` (`error_code`:
+`ai_not_configured | provider_error | no_messages | internal_error`, plus a client-safe `message`).
+
 ## Evaluation harness
 
 `eval/` holds three labelled slices and `eval/harness.py`, which runs the real path (pre-checks, prompt, schema, gates and
@@ -87,4 +110,5 @@ Redis- and Postgres-backed tests skip when `REDIS_URL` / `DATABASE_URL` are not 
 `AI_REQUEST_TIMEOUT_SECONDS` (20), `AI_PROVIDER_MAX_ATTEMPTS` (2), `AI_CASCADE_DEADLINE_SECONDS` (45, hard cap on router + KB, fails closed to a handoff), `AI_RUN_RECLAIM_SECONDS` (deadline + 60),
 `AI_DEBOUNCE_FIRST_SECONDS` (4), `AI_DEBOUNCE_SUBSEQUENT_SECONDS` (4), `AI_DEBOUNCE_BURST_SECONDS` (6),
 `AI_ROUTER_MAX_TOKENS` (150), `AI_KB_MAX_TOKENS` (400), `AI_KB_MIN_SIMILARITY` (0.30, uncalibrated),
-`AI_CASCADE_CONCURRENCY` (8), `AI_DEBOUNCE_MAX_ATTEMPTS` (3).
+`AI_CASCADE_CONCURRENCY` (8), `AI_DEBOUNCE_MAX_ATTEMPTS` (3),
+`SUMMARY_MIN_INTERVAL_SECONDS` (60), `SUMMARY_REQUEST_COOLDOWN_SECONDS` (10), `SUMMARY_MAX_MESSAGES` (50), `SUMMARY_FIELD_MAX_CHARS` (600).

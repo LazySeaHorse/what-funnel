@@ -44,6 +44,13 @@ class Config:
     AI_DEBOUNCE_FIRST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_FIRST_SECONDS", "4.0"))
     AI_DEBOUNCE_SUBSEQUENT_SECONDS: float = float(os.getenv("AI_DEBOUNCE_SUBSEQUENT_SECONDS", "4.0"))
     AI_DEBOUNCE_BURST_SECONDS: float = float(os.getenv("AI_DEBOUNCE_BURST_SECONDS", "6.0"))
+    # Conversation summaries. Close-triggered runs are debounced (this many seconds since the last
+    # summary and new messages). A user request bypasses that, but each conversation has a short
+    # cooldown after any attempt and a lock so concurrent/spammed requests do not duplicate LLM calls.
+    SUMMARY_MIN_INTERVAL_SECONDS: float = float(os.getenv("SUMMARY_MIN_INTERVAL_SECONDS", "60"))
+    SUMMARY_REQUEST_COOLDOWN_SECONDS: int = max(1, int(os.getenv("SUMMARY_REQUEST_COOLDOWN_SECONDS", "10")))
+    SUMMARY_MAX_MESSAGES: int = max(1, int(os.getenv("SUMMARY_MAX_MESSAGES", "50")))
+    SUMMARY_FIELD_MAX_CHARS: int = max(40, int(os.getenv("SUMMARY_FIELD_MAX_CHARS", "600")))
 
 config = Config()
 
