@@ -1,7 +1,10 @@
 import asyncio
 import json
+import random
 import re
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,6 +19,26 @@ def _clean_json_content(content: str) -> str:
     content = re.sub(r"<thought>.*?</thought>", "", content, flags=re.DOTALL).strip()
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
     return match.group(1).strip() if match else content
+
+
+def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
+    """Seconds to wait from a Retry-After header (delta-seconds or HTTP-date), or None."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        seconds = (when - (now or datetime.now(timezone.utc))).total_seconds()
+    if seconds != seconds:  # NaN
+        return None
+    return max(0.0, seconds)
 
 
 @dataclass(frozen=True)
@@ -33,7 +56,17 @@ class ProviderClient:
     base_url: str
     timeout_seconds: float = 20.0
     max_attempts: int = 2
-    retry_backoff_seconds: float = 0.5
+    # Exponential backoff base for 429/5xx retries: base * 2**retry, with jitter.
+    retry_backoff_seconds: float = 1.0
+    # Longest single wait before a retry. A Retry-After beyond this is not waited out: the call
+    # fails (fast) instead of outliving the caller's own deadline.
+    max_retry_wait_seconds: float = 10.0
+
+    def _retry_delay(self, retry: int, retry_after: float | None) -> float:
+        if retry_after is not None:
+            return retry_after + random.uniform(0.0, min(1.0, retry_after * 0.1))
+        ceiling = min(self.max_retry_wait_seconds, self.retry_backoff_seconds * (2 ** retry))
+        return random.uniform(ceiling / 2, ceiling)  # equal jitter
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -42,28 +75,35 @@ class ProviderClient:
         }
 
     async def _post(self, client: httpx.AsyncClient, path: str, payload: dict[str, Any]) -> httpx.Response:
+        """POST with bounded retries for rate limiting (429) and server errors (5xx) only.
+
+        Other 4xx responses, timeouts and connection errors are not retried: they fail at once so
+        the caller can fail closed within its deadline instead of waiting out another attempt.
+        """
         url = f"{self.base_url.rstrip('/')}{path}"
+        model = payload.get("model", "")
         last_error: Exception | None = None
         for attempt in range(self.max_attempts):
+            retry_after: float | None = None
             try:
                 response = await client.post(url, json=payload, headers=self._headers())
                 response.raise_for_status()
                 return response
             except httpx.HTTPStatusError as error:
-                if error.response.status_code != 429 and error.response.status_code < 500:
-                    raise ProviderError(
-                        f"AI provider rejected model {payload.get('model', '')}"
-                    ) from error
+                status = error.response.status_code
+                if status != 429 and status < 500:
+                    raise ProviderError(f"AI provider rejected model {model}") from error
                 last_error = error
+                retry_after = parse_retry_after(error.response.headers.get("Retry-After"))
             except (httpx.TimeoutException, httpx.NetworkError) as error:
-                last_error = error
+                raise ProviderError(f"AI provider request failed for model {model}") from error
 
             if attempt + 1 < self.max_attempts:
-                await asyncio.sleep(self.retry_backoff_seconds * (attempt + 1))
+                if retry_after is not None and retry_after > self.max_retry_wait_seconds:
+                    break
+                await asyncio.sleep(self._retry_delay(attempt, retry_after))
 
-        raise ProviderError(
-            f"AI provider request failed for model {payload.get('model', '')}"
-        ) from last_error
+        raise ProviderError(f"AI provider request failed for model {model}") from last_error
 
     async def complete(
         self,

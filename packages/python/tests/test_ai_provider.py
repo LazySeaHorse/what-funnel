@@ -134,3 +134,74 @@ async def test_key_bytes_parsing_edge_cases():
         with pytest.raises(AIConfigurationError, match="64 hex characters or 32 raw bytes"):
             _key_bytes("a" * bad_len)
 
+
+
+# --- retry policy ---------------------------------------------------------------
+
+def _status_error(status, headers=None):
+    request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
+    response = httpx.Response(status, request=request, headers=headers or {})
+    return httpx.HTTPStatusError("err", request=request, response=response)
+
+
+def _ok():
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {"choices": [{"message": {"content": '{"answer":"hi"}'}}]}
+    return response
+
+
+async def _complete(client, side_effect):
+    with patch("httpx.AsyncClient.post", AsyncMock(side_effect=side_effect)) as post, \
+         patch("whatfunnel_ai.client.asyncio.sleep", AsyncMock()) as sleep:
+        try:
+            result = await client.complete("m", [{"role": "user", "content": "x"}], Reply)
+        except ProviderError as error:
+            result = error
+    return result, post.await_count, [c.args[0] for c in sleep.await_args_list]
+
+
+def test_parse_retry_after_seconds_date_and_garbage():
+    from datetime import datetime, timezone
+    from whatfunnel_ai.client import parse_retry_after
+
+    assert parse_retry_after("7") == 7.0
+    assert parse_retry_after(" 2.5 ") == 2.5
+    assert parse_retry_after("-3") == 0.0
+    assert parse_retry_after(None) is None and parse_retry_after("soon") is None
+    now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    assert parse_retry_after("Thu, 01 Jan 2026 12:00:09 GMT", now=now) == 9.0
+    assert parse_retry_after("Thu, 01 Jan 2026 11:00:00 GMT", now=now) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_429_honours_retry_after_then_succeeds():
+    client = ProviderClient("k", "https://provider.test/v1", max_attempts=2)
+    result, calls, sleeps = await _complete(client, [_status_error(429, {"Retry-After": "3"}), _ok()])
+    assert result == {"answer": "hi"} and calls == 2
+    assert len(sleeps) == 1 and 3.0 <= sleeps[0] <= 3.4
+
+
+@pytest.mark.asyncio
+async def test_retry_after_longer_than_cap_fails_without_waiting():
+    client = ProviderClient("k", "https://provider.test/v1", max_attempts=3, max_retry_wait_seconds=10)
+    result, calls, sleeps = await _complete(client, [_status_error(429, {"Retry-After": "120"}), _ok()])
+    assert isinstance(result, ProviderError) and calls == 1 and sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_5xx_uses_exponential_backoff_with_jitter_within_bounds():
+    client = ProviderClient("k", "https://provider.test/v1", max_attempts=4, retry_backoff_seconds=1.0, max_retry_wait_seconds=3.0)
+    result, calls, sleeps = await _complete(client, [_status_error(503)] * 4)
+    assert isinstance(result, ProviderError) and calls == 4 and len(sleeps) == 3
+    # equal jitter: delay in [ceiling/2, ceiling] with ceiling = min(cap, base * 2**retry)
+    for sleep, ceiling in zip(sleeps, (1.0, 2.0, 3.0)):
+        assert ceiling / 2 <= sleep <= ceiling
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout("slow"), httpx.ConnectError("down"), _status_error(400), _status_error(401), _status_error(404)])
+async def test_only_429_and_5xx_are_retried(failure):
+    client = ProviderClient("k", "https://provider.test/v1", max_attempts=3)
+    result, calls, sleeps = await _complete(client, [failure, _ok()])
+    assert isinstance(result, ProviderError) and calls == 1 and sleeps == []
