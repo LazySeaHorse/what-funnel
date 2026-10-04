@@ -60,6 +60,28 @@ type AiReplyDraft struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
+type AiRouterDecision struct {
+	ID                  uuid.UUID   `json:"id"`
+	AccountID           uuid.UUID   `json:"account_id"`
+	ConversationID      uuid.UUID   `json:"conversation_id"`
+	MessageID           uuid.UUID   `json:"message_id"`
+	PromptVersion       string      `json:"prompt_version"`
+	Model               string      `json:"model"`
+	BubbleCount         int32       `json:"bubble_count"`
+	Route               *string     `json:"route"`
+	FaqID               *uuid.UUID  `json:"faq_id"`
+	FaqCoversEverything pgtype.Bool `json:"faq_covers_everything"`
+	HandoffReason       *string     `json:"handoff_reason"`
+	Outcome             string      `json:"outcome"`
+	OutcomeDetail       string      `json:"outcome_detail"`
+	LatencyMs           pgtype.Int4 `json:"latency_ms"`
+	PromptTokens        pgtype.Int4 `json:"prompt_tokens"`
+	CompletionTokens    pgtype.Int4 `json:"completion_tokens"`
+	CachedTokens        pgtype.Int4 `json:"cached_tokens"`
+	Error               *string     `json:"error"`
+	CreatedAt           time.Time   `json:"created_at"`
+}
+
 type AuditLog struct {
 	ID          uuid.UUID       `json:"id"`
 	AccountID   uuid.UUID       `json:"account_id"`
@@ -223,6 +245,7 @@ type KbIngestionPattern struct {
 	PatternID         *uuid.UUID `json:"pattern_id"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+	NotFor            string     `json:"not_for"`
 }
 
 type KbMiningRun struct {
@@ -340,14 +363,16 @@ type MessageReaction struct {
 }
 
 type Pattern struct {
-	ID                uuid.UUID       `json:"id"`
-	AccountID         uuid.UUID       `json:"account_id"`
-	TriggerPhrases    []string        `json:"trigger_phrases"`
-	CanonicalQuestion string          `json:"canonical_question"`
-	AnswerText        string          `json:"answer_text"`
-	Embedding         pgvector.Vector `json:"embedding"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID                uuid.UUID          `json:"id"`
+	AccountID         uuid.UUID          `json:"account_id"`
+	TriggerPhrases    []string           `json:"trigger_phrases"`
+	CanonicalQuestion string             `json:"canonical_question"`
+	AnswerText        string             `json:"answer_text"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	NotFor            string             `json:"not_for"`
+	ApprovedAt        pgtype.Timestamptz `json:"approved_at"`
+	ApprovedBy        *uuid.UUID         `json:"approved_by"`
 }
 
 type ProcessedAdapterEvent struct {
