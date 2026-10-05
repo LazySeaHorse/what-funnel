@@ -15,7 +15,12 @@
     SparklesIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import { fade } from "svelte/transition";
-  import { Tabs } from "$lib/components/ui";
+  import { Button, Tabs } from "$lib/components/ui";
+  import {
+    EMPTY_SUMMARY_STATE,
+    formatSummaryTimestamp,
+    isMissingSummaryValue,
+  } from "$lib/inbox/summary";
 
   let {
     inbox,
@@ -31,6 +36,12 @@
     onSimulate: () => void;
   } = $props();
   let tab = $state<"lead" | "details" | "activity">("lead");
+
+  const summaryID = $derived(inbox.activeConvo?.id ?? null);
+  const summary = $derived(summaryID ? (inbox.summaries[summaryID] ?? null) : null);
+  const summaryState = $derived(
+    (summaryID ? inbox.summaryStates[summaryID] : null) ?? EMPTY_SUMMARY_STATE,
+  );
 
   $effect(() => {
     const conversation = capabilities.leadTracking ? inbox.activeConvo : null;
@@ -75,16 +86,47 @@
         {/if}
         <LeadTagsEditor tags={editor.lead?.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
         <LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />
+        {#if capabilities.useConversationSummary}
         <div class="space-y-2">
           <div class="flex items-center gap-1.5 text-xs">
             <SparklesIcon class="w-3.5 h-3.5 text-purple-600" />AI assist
             <span class="text-slate-400">(Beta)</span>
           </div>
-          <button
-            class="w-full py-2 rounded-xl border border-blue-200 text-blue-600 text-xs"
-            >Summarize conversation</button
-          >
+            <div class="space-y-2" data-testid="conversation-summary">
+              {#if summary}
+                <div class="rounded-xl bg-slate-50 p-3 space-y-2" aria-busy={summaryState.generating}>
+                  <dl class="space-y-2">
+                    {#each summary.fields as field (field.key)}
+                      <div data-testid="summary-field-{field.key}">
+                        <dt class="text-[11px] font-medium text-slate-500">{field.label}</dt>
+                        <dd class="text-xs whitespace-pre-line break-words {isMissingSummaryValue(field.value) ? 'text-slate-400' : 'text-slate-800'}">{field.value}</dd>
+                      </div>
+                    {/each}
+                  </dl>
+                  <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                    <span data-testid="summary-generated-at">Generated {formatSummaryTimestamp(summary.generated_at)}</span>
+                    {#if summary.stale}
+                      <span class="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 border border-amber-200" data-testid="summary-stale">Out of date</span>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+              {#if summaryState.error}
+                <p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert" data-testid="summary-error">{summaryState.error}</p>
+              {/if}
+              <Button
+                variant="secondary"
+                size="md"
+                class="w-full"
+                busy={summaryState.generating}
+                disabled={summaryState.loading}
+                onclick={() => inbox.requestSummary(summaryID)}
+              >
+                {summaryState.generating ? "Summarizing…" : summary ? "Regenerate summary" : "Summarize conversation"}
+              </Button>
+            </div>
         </div>
+        {/if}
       </div>
     {:else if tab === "details"}<div
         in:fade={{ duration: 120 }}

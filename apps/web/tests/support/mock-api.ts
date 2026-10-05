@@ -33,6 +33,10 @@ export interface MockWorkspaceOptions {
 	/** Per-conversation message lists; falls back to `messages` for unlisted conversations. */
 	messagesByConversation?: Record<string, any[]>;
 	replyDraft?: any | null;
+	/** Stored conversation summaries keyed by conversation id (GET /conversations/:id/summary). */
+	summaries?: Record<string, any>;
+	/** How POST /conversations/:id/summary answers. Defaults to 202 {status: "queued"}. */
+	summaryRequest?: { status?: number; body?: unknown; delayMs?: number };
 	knowledge?: { concepts?: any[]; patterns?: any[] };
 	activeIngestion?: any;
 	aiConfigured?: boolean;
@@ -86,6 +90,7 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 	let providerConnections: Array<{ channel_id: string; provider: string; label: string; state: string; detail: string; capabilities: Record<string, boolean> }> = [];
 	let pipeline = { id: 'pipeline-1', name: 'Default pipeline', states: [{ key: 'new', label: 'New lead', color: '#0B6E99' }] };
 	let aiConfigured = options.aiConfigured ?? false;
+	const summaries: Record<string, any> = { ...(options.summaries ?? {}) };
 	if (options.autoReplyEnabled !== undefined) {
 		accountSettings = encodeSettings({
 			...decodeSettings(accountSettings),
@@ -262,6 +267,19 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		}
 		if (/^\/conversations\/[^/]+\/messages$/.test(path)) return json({ messages: options.messagesByConversation?.[path.split('/')[2]] ?? options.messages ?? [], next_cursor: null });
 		if (/^\/conversations\/[^/]+\/reply-draft$/.test(path)) return json({ draft: options.replyDraft ?? null });
+		if (/^\/conversations\/[^/]+\/summary$/.test(path)) {
+			const conversationID = path.split('/')[2];
+			if (request.method() === 'POST') {
+				if (options.summaryRequest?.delayMs) await new Promise((resolve) => setTimeout(resolve, options.summaryRequest!.delayMs));
+				const status = options.summaryRequest?.status ?? 202;
+				return route.fulfill({
+					status,
+					contentType: 'application/json',
+					body: JSON.stringify(options.summaryRequest?.body ?? { status: 'queued', summary: summaries[conversationID] ?? null })
+				});
+			}
+			return json({ summary: summaries[conversationID] ?? null });
+		}
 		if (/^\/conversations\/[^/]+\/assign$/.test(path) && request.method() === 'PATCH') {
 			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);
 			if (conversation) conversation.assigned_user_ids = (body?.user_ids as string[]) ?? [];
@@ -366,7 +384,11 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		return json({});
 	});
 
-	return { requests };
+	return {
+		requests,
+		/** Changes what GET /conversations/:id/summary returns from now on. */
+		setSummary: (conversationID: string, summary: any) => { summaries[conversationID] = summary; }
+	};
 }
 
 export async function mockOnboardingApi(
