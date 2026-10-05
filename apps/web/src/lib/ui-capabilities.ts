@@ -10,6 +10,7 @@ export interface UICapabilities {
 	manageAssignments: boolean;
 	useReplyDrafts: boolean;
 	showConversationSidePanel: boolean;
+	useConversationSummary: boolean;
 	manageWorkspace: boolean;
 	manageTeam: boolean;
 	manageChannels: boolean;
@@ -41,6 +42,8 @@ export function getUICapabilities(account?: any, user?: any): UICapabilities {
 		manageAssignments,
 		useReplyDrafts: leadTracking,
 		showConversationSidePanel: leadTracking,
+		// The summary lives in the conversation side panel's AI assist block.
+		useConversationSummary: leadTracking,
 		manageWorkspace: isManager,
 		manageTeam: manageAssignments,
 		manageChannels: isManager,

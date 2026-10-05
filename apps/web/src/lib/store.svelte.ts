@@ -1,5 +1,15 @@
 import { apiRequest } from '$lib/api';
 import type { UICapabilities } from '$lib/ui-capabilities';
+import {
+	EMPTY_SUMMARY_STATE,
+	SUMMARY_LOAD_FAILED_MESSAGE,
+	SUMMARY_REQUEST_FAILED_MESSAGE,
+	SUMMARY_TIMEOUT_MESSAGE,
+	SUMMARY_TIMEOUT_MS,
+	parseSummary,
+	type ConversationSummary,
+	type SummaryUIState
+} from '$lib/inbox/summary';
 
 export interface AIReplyDraft {
 	id: string;
@@ -32,6 +42,8 @@ export class InboxState {
 	activeConvo = $state<any | null>(null);
 	messages = $state<any[]>([]);
 	replyDrafts = $state<Record<string, AIReplyDraft>>({});
+	summaries = $state<Record<string, ConversationSummary>>({});
+	summaryStates = $state<Record<string, SummaryUIState>>({});
 	nextCursor = $state<string | null>(null);
 	filter = $state<'all' | 'mine' | 'unassigned'>('mine');
 	stateFilter = $state<string>('');
@@ -44,6 +56,8 @@ export class InboxState {
 	private conversationRequest: AbortController | null = null;
 	private conversationRequestVersion = 0;
 	private replyDraftsEnabled = false;
+	private summariesEnabled = false;
+	private summaryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private running = false;
 	private conversationRefreshPending = false;
@@ -61,6 +75,12 @@ export class InboxState {
 	configureCapabilities(capabilities: UICapabilities) {
 		this.replyDraftsEnabled = capabilities.useReplyDrafts;
 		if (!this.replyDraftsEnabled) this.replyDrafts = {};
+		this.summariesEnabled = capabilities.useConversationSummary;
+		if (!this.summariesEnabled) {
+			this.clearSummaryTimers();
+			this.summaries = {};
+			this.summaryStates = {};
+		}
 	}
 	
 	async init() {
@@ -164,6 +184,8 @@ export class InboxState {
 			}
 		}
 
+		this.clearSummaryTimers();
+
 		const socket = this.ws;
 		this.ws = null;
 		if (socket) {
@@ -260,6 +282,7 @@ export class InboxState {
 			this.messages = (messageResponse?.messages ?? []).reverse();
 			this.nextCursor = messageResponse?.next_cursor ?? null;
 			this.setReplyDraft(convoID, draftResponse?.draft ?? null);
+			if (this.summariesEnabled) void this.loadSummary(convoID);
 
 			void apiRequest(`/conversations/${convoID}/read`, { method: 'POST' }).catch((err) => console.error(err));
 			const index = this.conversations.findIndex(c => c.id === convoID);
@@ -304,6 +327,103 @@ export class InboxState {
 		}
 	}
 	
+	private summaryState(conversationID: string): SummaryUIState {
+		return this.summaryStates[conversationID] ?? EMPTY_SUMMARY_STATE;
+	}
+
+	private patchSummaryState(conversationID: string, patch: Partial<SummaryUIState>) {
+		this.summaryStates = { ...this.summaryStates, [conversationID]: { ...this.summaryState(conversationID), ...patch } };
+	}
+
+	private clearSummaryTimer(conversationID: string) {
+		const timer = this.summaryTimers.get(conversationID);
+		if (timer) clearTimeout(timer);
+		this.summaryTimers.delete(conversationID);
+	}
+
+	private clearSummaryTimers() {
+		for (const timer of this.summaryTimers.values()) clearTimeout(timer);
+		this.summaryTimers.clear();
+	}
+
+	/** Ends a pending generation, optionally with an error for the panel to show. */
+	private settleSummary(conversationID: string, error = '') {
+		this.clearSummaryTimer(conversationID);
+		this.patchSummaryState(conversationID, { generating: false, error });
+	}
+
+	/** Fetches the stored summary. Resolves true when the request succeeded. */
+	async loadSummary(conversationID = this.activeConvoID): Promise<boolean> {
+		if (!conversationID || !this.summariesEnabled) return false;
+		this.patchSummaryState(conversationID, { loading: true });
+		try {
+			const response = await apiRequest(`/conversations/${conversationID}/summary`);
+			const summary = parseSummary(response?.summary);
+			if (summary) {
+				this.summaries = { ...this.summaries, [conversationID]: summary };
+			} else {
+				const { [conversationID]: _removed, ...remaining } = this.summaries;
+				this.summaries = remaining;
+			}
+			return true;
+		} catch (err) {
+			console.error('Failed to load conversation summary', err);
+			if (!this.summaries[conversationID]) this.patchSummaryState(conversationID, { error: SUMMARY_LOAD_FAILED_MESSAGE });
+			return false;
+		} finally {
+			this.patchSummaryState(conversationID, { loading: false });
+		}
+	}
+
+	/**
+	 * Asks the backend to generate a summary. The answer is asynchronous: the
+	 * POST only queues it, and conversation.summary_updated / _failed settle it.
+	 */
+	async requestSummary(conversationID = this.activeConvoID) {
+		if (!conversationID || !this.summariesEnabled || this.summaryState(conversationID).generating) return;
+		this.clearSummaryTimer(conversationID);
+		this.patchSummaryState(conversationID, { generating: true, error: '' });
+		try {
+			const response = await apiRequest(`/conversations/${conversationID}/summary`, { method: 'POST' });
+			// The websocket result may already have settled this request while the POST was in flight.
+			if (!this.summaryState(conversationID).generating) return;
+			const summary = parseSummary(response?.summary);
+			if (response?.status === 'up_to_date') {
+				if (summary) this.summaries = { ...this.summaries, [conversationID]: summary };
+				this.settleSummary(conversationID);
+				return;
+			}
+			if (summary && !this.summaries[conversationID]) this.summaries = { ...this.summaries, [conversationID]: summary };
+			this.summaryTimers.set(conversationID, setTimeout(() => {
+				this.summaryTimers.delete(conversationID);
+				if (this.summaryState(conversationID).generating) this.settleSummary(conversationID, SUMMARY_TIMEOUT_MESSAGE);
+			}, SUMMARY_TIMEOUT_MS));
+		} catch (err) {
+			console.error('Failed to request conversation summary', err);
+			this.settleSummary(conversationID, SUMMARY_REQUEST_FAILED_MESSAGE);
+		}
+	}
+
+	/** conversation.summary_updated: refetch (the event has no labels) when this client cares. */
+	private async handleSummaryUpdated(conversationID: string) {
+		if (!this.summariesEnabled) return;
+		const waiting = this.summaryState(conversationID).generating;
+		if (!waiting && conversationID !== this.activeConvoID && !this.summaries[conversationID]) return;
+		const loaded = await this.loadSummary(conversationID);
+		if (waiting) this.settleSummary(conversationID, loaded ? '' : SUMMARY_LOAD_FAILED_MESSAGE);
+	}
+
+	private handleSummaryFailed(conversationID: string, message: unknown) {
+		if (!this.summaryState(conversationID).generating) return;
+		this.settleSummary(conversationID, typeof message === 'string' && message ? message : SUMMARY_REQUEST_FAILED_MESSAGE);
+	}
+
+	/** A new message makes any stored summary out of date. */
+	private markSummaryStale(conversationID: string) {
+		const summary = this.summaries[conversationID];
+		if (summary && !summary.stale) this.summaries = { ...this.summaries, [conversationID]: { ...summary, stale: true } };
+	}
+
 	async loadMessages(reset = false) {
 		if (!this.activeConvoID) return;
 		const conversationID = this.activeConvoID;
@@ -508,6 +628,8 @@ export class InboxState {
 				void this.loadMessages(true);
 			}
 			if (this.replyDraftsEnabled) void this.loadReplyDraft();
+			// Summary events missed while disconnected: refresh what the user is looking at.
+			if (this.summariesEnabled && this.activeConvoID) void this.handleSummaryUpdated(this.activeConvoID);
 		};
 		
 		socket.onmessage = async (e) => {
@@ -519,6 +641,7 @@ export class InboxState {
 				switch (event.type) {
 					case 'message.received':
 					case 'message.sent':
+						this.markSummaryStale(event.conversation_id);
 						if (event.conversation_id === this.activeConvoID) {
 							const echoKey = event.message.idempotency_key;
 							const optimisticIndex = echoKey
@@ -595,6 +718,14 @@ export class InboxState {
 						if (event.draft_id && this.replyDrafts[event.conversation_id]?.id === event.draft_id) {
 							this.setReplyDraft(event.conversation_id, null);
 						}
+						break;
+
+					case 'conversation.summary_updated':
+						await this.handleSummaryUpdated(event.conversation_id);
+						break;
+
+					case 'conversation.summary_failed':
+						this.handleSummaryFailed(event.conversation_id, event.message);
 						break;
 
 					case 'ai.control.updated': {
