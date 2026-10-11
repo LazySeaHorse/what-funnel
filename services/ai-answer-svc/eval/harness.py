@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from config import config
 from control import transcript_within_byte_budget
 from kb_rag import answer_from_sources, concept_sources, faq_sources
 from router import (
@@ -244,7 +245,7 @@ async def predict(
         )
 
     history = transcript_within_byte_budget([(t["role"], t["text"]) for t in case.history], 1500)
-    result: RouterResult = await run_router(client, model, menu, history, case.bubbles, max_tokens=150)
+    result: RouterResult = await run_router(client, model, menu, history, case.bubbles, max_tokens=config.AI_ROUTER_MAX_TOKENS)
     outcome = apply_gates(result, menu, case.bubbles)
     prediction = Prediction(
         latency_ms=result.latency_ms,
@@ -265,7 +266,7 @@ async def predict(
         prediction.route = "kb"
         if kb is not None:
             sources = faq_sources(menu) + concept_sources(kb.get(case.menu, []))
-            answer = await answer_from_sources(client, model, sources, history, case.bubbles, max_tokens=400)
+            answer = await answer_from_sources(client, model, sources, history, case.bubbles, max_tokens=config.AI_KB_MAX_TOKENS)
             prediction.kb_reason = answer.reason
             prediction.kb_latency_ms = answer.latency_ms
             prediction.prompt_tokens += answer.usage.get("prompt_tokens", 0)

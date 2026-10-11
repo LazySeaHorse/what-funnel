@@ -7,7 +7,6 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from debounce import (
-    calculate_debounce_delay,
     record_inbound_message,
     cancel_debounce,
     pop_due_conversations,
@@ -17,13 +16,6 @@ from debounce import (
     DEBOUNCE_SEEN_PREFIX,
 )
 from config import config
-
-
-def test_calculate_debounce_delay():
-    assert calculate_debounce_delay(1) == 4.0
-    assert calculate_debounce_delay(2) == 4.0
-    assert calculate_debounce_delay(3) == 6.0
-    assert calculate_debounce_delay(4) == 6.0
 
 
 @pytest_asyncio.fixture

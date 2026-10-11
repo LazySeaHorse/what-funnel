@@ -25,6 +25,7 @@ from local_checks import (  # noqa: F401  (re-exported for callers and tests)
     is_greeting_message,
 )
 from untrusted import MAX_BUBBLE_CHARS, normalize_text, sanitize_untrusted  # noqa: F401  (re-exported)
+from whatfunnel_ai.limits import MAX_ACTIVE_FAQS
 
 logger = logging.getLogger("ai-answer-svc.router")
 
@@ -32,7 +33,7 @@ PROMPT_VERSION = "router-v2"
 
 # Hard cap on the FAQs shown to the router (and therefore on canned replies). Extra approved FAQs
 # are excluded, oldest first kept, with a logged warning.
-MAX_MENU_FAQS = 10
+MAX_MENU_FAQS = MAX_ACTIVE_FAQS
 
 ROUTES = ("faq", "kb", "handoff", "ignore")
 COVERAGE = ("full", "partial", "none")

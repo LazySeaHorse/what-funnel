@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from audit import write_audit_log
 from db import ScopedDB
+from whatfunnel_ai.limits import MAX_ACTIVE_FAQS
 from ingestions import compilation_prompt
 from llm import get_ai_config, provider_client
 from phrases import normalize_not_for, normalize_trigger_phrases
@@ -506,10 +507,8 @@ async def update_concept(
 # Pattern Management
 # ===========================================================================
 
-# The AI router shows at most this many approved FAQs (oldest first). It must equal
-# MAX_MENU_FAQS in services/ai-answer-svc/router.py; FAQs beyond it are never used for replies, so
-# the knowledge panel reports which ones are active and which are excluded instead of hiding it.
-MAX_ACTIVE_FAQS = 10
+# FAQs beyond MAX_ACTIVE_FAQS are never used for replies, so the knowledge panel reports which
+# ones are active and which are excluded instead of hiding it.
 
 
 def annotate_faq_activity(rows: List[dict[str, Any]]) -> dict[str, Any]:

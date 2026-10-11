@@ -54,20 +54,6 @@ return result
 """
 
 
-def calculate_debounce_delay(bubble_count: int) -> float:
-    """Calculate the sliding debounce window based on bubble count.
-    - 1st bubble: AI_DEBOUNCE_FIRST_SECONDS (default 10s)
-    - 2nd bubble: AI_DEBOUNCE_SUBSEQUENT_SECONDS (default 5s)
-    - 3rd+ bubbles: AI_DEBOUNCE_BURST_SECONDS (default 10s)
-    """
-    if bubble_count <= 1:
-        return config.AI_DEBOUNCE_FIRST_SECONDS
-    elif bubble_count == 2:
-        return config.AI_DEBOUNCE_SUBSEQUENT_SECONDS
-    else:
-        return config.AI_DEBOUNCE_BURST_SECONDS
-
-
 async def record_inbound_message(
     redis_client,
     account_id: uuid.UUID,

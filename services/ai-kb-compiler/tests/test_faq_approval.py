@@ -178,15 +178,6 @@ def test_under_the_cap_everything_approved_is_active():
     assert {r["status"] for r in rows} == {"active"}
 
 
-def test_cap_matches_the_router_menu_cap():
-    import pathlib
-    import re
-
-    router = pathlib.Path(__file__).resolve().parents[2] / "ai-answer-svc" / "router.py"
-    match = re.search(r"^MAX_MENU_FAQS\s*=\s*(\d+)", router.read_text(), re.M)
-    assert match and int(match.group(1)) == kb_service.MAX_ACTIVE_FAQS
-
-
 @pytest.mark.asyncio
 async def test_list_patterns_reports_which_faqs_are_excluded(pool_and_account):
     pool, account_id = pool_and_account
