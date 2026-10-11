@@ -88,27 +88,10 @@ func (c *Consumer) handleAIControlUpdated(ctx context.Context, id string, payloa
 		return nil
 	}
 
-	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
-		ID:        ev.ConversationID,
-		AccountID: ev.AccountID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
-	if err != nil {
-		return err
-	}
-	c.hub.BroadcastToAccount(ev.AccountID, map[string]any{
+	return c.broadcastToConversationViewers(ctx, ev.AccountID, ev.ConversationID, map[string]any{
 		"type": "ai.control.updated", "conversation_id": ev.ConversationID.String(),
 		"state": ev.State, "state_reason": ev.StateReason, "run_state": ev.RunState,
-	}, func(userID uuid.UUID, role string) bool {
-		return types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes))
-	})
-	return nil
+	}, nil)
 }
 
 func (c *Consumer) HandleConversationSummaryFailedForTest(ctx context.Context, id string, payload []byte) error {
@@ -138,27 +121,6 @@ func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, pay
 		return nil
 	}
 
-	// 1. Fetch conversation details (specifically assigned_user_ids)
-	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
-		ID:        ev.ConversationID,
-		AccountID: ev.AccountID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			c.logger.Warn("conversation not found for update event", "convo_id", ev.ConversationID)
-			return nil
-		}
-		return err
-	}
-
-	// 2. Fetch account settings
-	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
-	if err != nil {
-		return err
-	}
-	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
-
-	// 3. Fetch full message details
 	rawMsg, err := c.queries.GetMessageForNotification(ctx, dbgen.GetMessageForNotificationParams{
 		ID:        ev.MessageID,
 		AccountID: ev.AccountID,
@@ -196,13 +158,7 @@ func (c *Consumer) handleConversationUpdated(ctx context.Context, id string, pay
 		ConversationID: ev.ConversationID.String(),
 		Message:        msg,
 	}
-
-	// 4. Broadcast to users in the same account with visibility filtering
-	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
-		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
-	})
-
-	return nil
+	return c.broadcastToConversationViewers(ctx, ev.AccountID, ev.ConversationID, wsEvent, nil)
 }
 
 func (c *Consumer) handleConversationAssigned(ctx context.Context, id string, payload []byte) error {
@@ -332,23 +288,6 @@ func (c *Consumer) handleAIReplyReady(ctx context.Context, id string, payload []
 		return nil
 	}
 
-	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
-		ID:        ev.ConversationID,
-		AccountID: ev.AccountID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-
-	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
-	if err != nil {
-		return err
-	}
-	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
-
 	wsEvent := map[string]any{
 		"type":            "ai.reply_ready",
 		"conversation_id": ev.ConversationID.String(),
@@ -359,12 +298,7 @@ func (c *Consumer) handleAIReplyReady(ctx context.Context, id string, payload []
 		"stage_matched":   ev.StageMatched,
 		"confidence":      ev.Confidence,
 	}
-
-	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
-		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
-	})
-
-	return nil
+	return c.broadcastToConversationViewers(ctx, ev.AccountID, ev.ConversationID, wsEvent, nil)
 }
 
 func (c *Consumer) handleAIReplyDraftUpdated(ctx context.Context, id string, payload []byte) error {
@@ -379,29 +313,10 @@ func (c *Consumer) handleAIReplyDraftUpdated(ctx context.Context, id string, pay
 		return nil
 	}
 
-	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
-		ID:        ev.ConversationID,
-		AccountID: ev.AccountID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	settingsBytes, err := c.queries.GetAccountSettings(ctx, ev.AccountID)
-	if err != nil {
-		return err
-	}
-
-	wsEvent := map[string]any{
+	return c.broadcastToConversationViewers(ctx, ev.AccountID, ev.ConversationID, map[string]any{
 		"type": "ai.reply_draft.updated", "conversation_id": ev.ConversationID.String(),
 		"draft_id": ev.DraftID, "action": ev.Action,
-	}
-	c.hub.BroadcastToAccount(ev.AccountID, wsEvent, func(userID uuid.UUID, role string) bool {
-		return types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes))
-	})
-	return nil
+	}, nil)
 }
 
 func (c *Consumer) handleAutomationSuggestionCreated(ctx context.Context, id string, payload []byte) error {
@@ -487,29 +402,26 @@ func (c *Consumer) handleConversationSummaryFailed(ctx context.Context, id strin
 
 // broadcastToConversationViewers sends wsEvent to the account's connected
 // users who may see the conversation, optionally narrowed to a single user.
-func (c *Consumer) broadcastToConversationViewers(ctx context.Context, accountID, conversationID uuid.UUID, wsEvent map[string]any, onlyUser *uuid.UUID) error {
-	assignedUserIDs, err := c.queries.GetConversationAssignedUsers(ctx, dbgen.GetConversationAssignedUsersParams{
+// Events for a conversation that no longer exists are dropped.
+func (c *Consumer) broadcastToConversationViewers(ctx context.Context, accountID, conversationID uuid.UUID, wsEvent any, onlyUser *uuid.UUID) error {
+	visibility, err := c.queries.GetConversationVisibility(ctx, dbgen.GetConversationVisibilityParams{
 		ID:        conversationID,
 		AccountID: accountID,
 	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
+	if errors.Is(err, pgx.ErrNoRows) {
+		c.logger.Debug("dropping event for missing conversation", "convo_id", conversationID)
+		return nil
 	}
-
-	settingsBytes, err := c.queries.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return err
 	}
-	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+	unassignedVisible := types.IsUnassignedVisible(visibility.Settings)
 
 	c.hub.BroadcastToAccount(accountID, wsEvent, func(userID uuid.UUID, role string) bool {
 		if onlyUser != nil && userID != *onlyUser {
 			return false
 		}
-		return types.CanSeeConversation(role, userID, assignedUserIDs, unassignedVisible)
+		return types.CanSeeConversation(role, userID, visibility.AssignedUserIds, unassignedVisible)
 	})
 	return nil
 }

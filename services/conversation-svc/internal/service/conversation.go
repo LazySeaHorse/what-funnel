@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
@@ -35,21 +36,17 @@ func NewConversationService(pool *pgxpool.Pool, pubsub *pubsub.Client, outbox *O
 // ---------------------------------------------------------------------------
 
 func canSeeConversation(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, convoID uuid.UUID, role string) error {
-	var assignedUserIDs []uuid.UUID
-	var settingsBytes []byte
-	err := pool.QueryRow(ctx, `
-		SELECT c.assigned_user_ids, a.settings
-		FROM conversations c
-		JOIN accounts a ON c.account_id = a.id
-		WHERE c.id = $1 AND c.account_id = $2
-	`, convoID, accountID).Scan(&assignedUserIDs, &settingsBytes)
+	visibility, err := dbgen.New(pool).GetConversationVisibility(ctx, dbgen.GetConversationVisibilityParams{
+		ID:        convoID,
+		AccountID: accountID,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return notFoundf("conversation not found")
 	}
 	if err != nil {
 		return fmt.Errorf("check conversation visibility: %w", err)
 	}
-	if !types.CanSeeConversation(role, userID, assignedUserIDs, types.IsUnassignedVisible(settingsBytes)) {
+	if !types.CanSeeConversation(role, userID, visibility.AssignedUserIds, types.IsUnassignedVisible(visibility.Settings)) {
 		return notFoundf("conversation not found")
 	}
 	return nil

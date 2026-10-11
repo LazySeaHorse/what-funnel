@@ -7,6 +7,7 @@ package dbgen
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -45,6 +46,31 @@ func (q *Queries) GetConversationAssignedUsers(ctx context.Context, arg GetConve
 	var assigned_user_ids []uuid.UUID
 	err := row.Scan(&assigned_user_ids)
 	return assigned_user_ids, err
+}
+
+const getConversationVisibility = `-- name: GetConversationVisibility :one
+SELECT c.assigned_user_ids, a.settings
+FROM conversations c
+JOIN accounts a ON a.id = c.account_id
+WHERE c.id = $1 AND c.account_id = $2
+`
+
+type GetConversationVisibilityParams struct {
+	ID        uuid.UUID `json:"id"`
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+type GetConversationVisibilityRow struct {
+	AssignedUserIds []uuid.UUID     `json:"assigned_user_ids"`
+	Settings        json.RawMessage `json:"settings"`
+}
+
+// Everything types.CanSeeConversation needs, in one round trip.
+func (q *Queries) GetConversationVisibility(ctx context.Context, arg GetConversationVisibilityParams) (GetConversationVisibilityRow, error) {
+	row := q.db.QueryRow(ctx, getConversationVisibility, arg.ID, arg.AccountID)
+	var i GetConversationVisibilityRow
+	err := row.Scan(&i.AssignedUserIds, &i.Settings)
+	return i, err
 }
 
 const unassignUserFromConversations = `-- name: UnassignUserFromConversations :exec
