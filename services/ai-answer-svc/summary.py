@@ -20,11 +20,12 @@ from typing import Any, Literal, Optional
 from pydantic import Field, create_model
 
 from config import config
-from db import ScopedDB
+from db import ScopedDB, json_object, load_account_settings
 from llm import get_ai_config, provider_client
 from plain_text import normalize_plain_text
 from untrusted import normalize_text, sanitize_untrusted
-from whatfunnel_ai import ProviderError
+from whatfunnel_ai import AIConfigurationError, ProviderError
+from whatfunnel_ai.streams import publish_stream
 
 logger = logging.getLogger("ai-answer-svc")
 
@@ -78,10 +79,6 @@ class SummaryOutcome:
     error_code: Optional[str] = None
     generated_at: Optional[datetime] = None
     message_count: Optional[int] = None
-
-
-class ProviderNotConfigured(Exception):
-    """The workspace has no usable AI provider configuration."""
 
 
 def _clean_label(value: Any, fallback: str) -> str:
@@ -181,15 +178,11 @@ def build_prompt(schema: list[SchemaField], transcript: str) -> list[dict[str, s
 
 
 def _failure_code(error: Exception) -> str:
-    if isinstance(error, ProviderNotConfigured):
+    if isinstance(error, AIConfigurationError):
         return "ai_not_configured"
     if isinstance(error, ProviderError):
         return "provider_error"
     return "internal_error"
-
-
-async def _publish(redis_client, stream: str, payload: dict) -> None:
-    await redis_client.xadd(stream, {"payload": json.dumps(payload).encode("utf-8")})
 
 
 def _iso(value: datetime) -> str:
@@ -197,17 +190,12 @@ def _iso(value: datetime) -> str:
 
 
 def _stored_fields(raw: Any) -> dict[str, str]:
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except Exception:
-            raw = {}
-    return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+    return {str(k): str(v) for k, v in json_object(raw).items()}
 
 
 async def _announce_updated(redis_client, account_id, conversation_id, fields, generated_at, count) -> None:
     try:
-        await _publish(redis_client, SUMMARY_UPDATED_STREAM, {
+        await publish_stream(redis_client, SUMMARY_UPDATED_STREAM, {
             "account_id": str(account_id),
             "conversation_id": str(conversation_id),
             "summary_fields": fields,
@@ -220,7 +208,7 @@ async def _announce_updated(redis_client, account_id, conversation_id, fields, g
 
 async def _announce_failed(redis_client, account_id, conversation_id, code: str, requested_by: Optional[str]) -> None:
     try:
-        await _publish(redis_client, SUMMARY_FAILED_STREAM, {
+        await publish_stream(redis_client, SUMMARY_FAILED_STREAM, {
             "account_id": str(account_id),
             "conversation_id": str(conversation_id),
             "requested_by": requested_by,
@@ -266,14 +254,7 @@ async def _run(db: ScopedDB, redis_client, account_id, conversation_id, trigger:
                 generated_at=row["generated_at"], message_count=row["message_count_at_generation"],
             )
 
-    settings_row = await db.fetchrow("SELECT settings FROM accounts WHERE id = $1", account_id)
-    settings: dict = {}
-    if settings_row and settings_row["settings"]:
-        try:
-            parsed = json.loads(settings_row["settings"])
-            settings = parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            settings = {}
+    settings = await load_account_settings(db)
     schema = resolve_schema(settings.get("summary_schema"))
 
     history = await db.fetch(
@@ -298,10 +279,7 @@ async def _run(db: ScopedDB, redis_client, account_id, conversation_id, trigger:
         "DynamicSummarySchema",
         **{f.key: (str, Field(..., description=f.description)) for f in schema},
     )
-    try:
-        ai_config = await get_ai_config(db)  # raises ValueError for missing/incomplete/undecryptable config
-    except ValueError as error:
-        raise ProviderNotConfigured(str(error)) from error
+    ai_config = await get_ai_config(db)
     raw = await provider_client(ai_config).complete(
         ai_config.analysis_model, build_prompt(schema, transcript), model
     )

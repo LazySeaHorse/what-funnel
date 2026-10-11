@@ -1,9 +1,9 @@
 import asyncpg
 
-from whatfunnel_ai.db import ScopedDB
+from whatfunnel_ai.db import ScopedDB, json_object, load_account_settings
 from whatfunnel_ai.db import create_db_pool as _create_db_pool
 
-__all__ = ["ScopedDB", "create_db_pool"]
+__all__ = ["ScopedDB", "create_db_pool", "json_object", "load_account_settings"]
 
 
 async def _init_conn(conn: asyncpg.Connection) -> None:

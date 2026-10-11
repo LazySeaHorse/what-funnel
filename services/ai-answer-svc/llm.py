@@ -1,17 +1,14 @@
 from config import config as app_config
 from whatfunnel_ai import (
     AIConfiguration,
-    AIConfigurationError,
     ProviderClient,
     load_ai_configuration,
 )
 
 
 async def get_ai_config(db) -> AIConfiguration:
-    try:
-        return await load_ai_configuration(db, app_config.APP_ENCRYPTION_KEY)
-    except AIConfigurationError as error:
-        raise ValueError(str(error)) from error
+    """Raises AIConfigurationError for a missing, incomplete or undecryptable configuration."""
+    return await load_ai_configuration(db, app_config.APP_ENCRYPTION_KEY)
 
 
 def provider_client(config: AIConfiguration) -> ProviderClient:

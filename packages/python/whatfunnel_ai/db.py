@@ -1,9 +1,20 @@
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable, List, Optional
 
 import asyncpg
+
+
+def json_object(raw: Any) -> dict:
+    """Decode a JSON(B) column that should hold an object; anything else becomes {}."""
+    if isinstance(raw, (str, bytes)):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 class ScopedDB:
@@ -42,6 +53,12 @@ class ScopedDB:
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 yield ScopedDB(conn, self.account_id)
+
+
+async def load_account_settings(db: ScopedDB) -> dict:
+    """The scoped account's settings object ({} when unset or not a JSON object)."""
+    row = await db.fetchrow("SELECT settings FROM accounts WHERE id = $1", db.account_id)
+    return json_object(row["settings"] if row else None)
 
 
 async def create_db_pool(

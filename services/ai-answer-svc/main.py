@@ -14,7 +14,7 @@ from redis.exceptions import ResponseError
 from pydantic import BaseModel
 
 from config import config, internal_service_token
-from db import ScopedDB, create_db_pool
+from db import ScopedDB, create_db_pool, load_account_settings
 from llm import get_ai_config, provider_client
 from kb_rag import KB_TOP_K, answer_from_sources, concept_sources, faq_sources
 from router import (
@@ -29,6 +29,7 @@ from router import (
 )
 from plain_text import normalize_plain_text
 from summary import generate_summary
+from whatfunnel_ai.streams import publish_stream
 from control import (
     COOLDOWN_DELAYS,
     HANDOFF_ACK_REPLY,
@@ -148,11 +149,6 @@ async def enter_unanswered_cooldown(
     )
     return level, int(row["generation_epoch"])
 
-async def publish_redis_stream(redis_client, stream_name: str, payload: dict):
-    serialized = json.dumps(payload)
-    await redis_client.xadd(stream_name, {"payload": serialized.encode("utf-8")})
-    logger.debug(f"Published to stream {stream_name}: {payload}")
-
 async def supersede_pending_draft(db: ScopedDB, redis_client, account_id: uuid.UUID, conversation_id: uuid.UUID):
     """Invalidate a stale draft and tell connected clients to remove it."""
     draft = await db.fetchrow(
@@ -166,7 +162,7 @@ async def supersede_pending_draft(db: ScopedDB, redis_client, account_id: uuid.U
     )
     if not draft:
         return
-    await publish_redis_stream(redis_client, "ai.reply_draft.updated", {
+    await publish_stream(redis_client, "ai.reply_draft.updated", {
         "account_id": str(account_id),
         "conversation_id": str(conversation_id),
         "draft_id": str(draft["id"]),
@@ -612,17 +608,7 @@ async def execute_conversation_cascade(
         )
         return
 
-    # Fetch account settings
-    account_row = await db.fetchrow(
-        "SELECT settings FROM accounts WHERE id = $1",
-        account_uuid
-    )
-    settings = {}
-    if account_row and account_row["settings"]:
-        try:
-            settings = json.loads(account_row["settings"])
-        except Exception:
-            pass
+    settings = await load_account_settings(db)
 
     ai_reply_mode_default = settings.get("ai_reply_mode_default", "draft_only")
     ai_enabled = settings.get("ai_enabled", True)
@@ -663,7 +649,7 @@ async def execute_conversation_cascade(
         await requeue_in_flight(redis_client, convo_uuid, account_uuid, msg_uuid, has_non_text=has_non_text, delay=2.0)
         return
     generation_epoch = int(generation_row["generation_epoch"])
-    await publish_redis_stream(redis_client, "ai.control.updated", {
+    await publish_stream(redis_client, "ai.control.updated", {
         "account_id": str(account_uuid),
         "conversation_id": str(convo_uuid),
         "state": "active",
@@ -701,7 +687,7 @@ async def execute_conversation_cascade(
                 db, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
             )
             final_state = "cooldown" if effective_mode == "auto_send" else "review_required"
-            await publish_redis_stream(redis_client, "ai.control.updated", {
+            await publish_stream(redis_client, "ai.control.updated", {
                 "account_id": str(account_uuid),
                 "conversation_id": str(convo_uuid),
                 "state": final_state,
@@ -882,7 +868,7 @@ async def execute_conversation_cascade(
                 ws_payload["draft_id"] = str(draft_id)
                 ws_payload["draft_text"] = answer_text
 
-            await publish_redis_stream(redis_client, "ai.reply_ready", ws_payload)
+            await publish_stream(redis_client, "ai.reply_ready", ws_payload)
         final_state = "active"
         if action == "flagged_human" and not soft_flag:
             final_state = (
@@ -898,7 +884,7 @@ async def execute_conversation_cascade(
         }
         if soft_flag:
             control_event["review_flag"] = flag_reason
-        await publish_redis_stream(redis_client, "ai.control.updated", control_event)
+        await publish_stream(redis_client, "ai.control.updated", control_event)
     except Exception:
         # Never leave the run lock held after a failure: a retry must be admitted
         # immediately instead of waiting for the stale-run reclaim window.
@@ -1016,7 +1002,7 @@ async def review_due_cooldown(db_pool, redis_client) -> bool:
         conversation_id, account_id, next_state, reason,
         int(row["generation_epoch"]), verdict, int(row["cooldown_level"]),
     )
-    await publish_redis_stream(redis_client, "ai.control.updated", {
+    await publish_stream(redis_client, "ai.control.updated", {
         "account_id": str(account_id),
         "conversation_id": str(conversation_id),
         "state": next_state,

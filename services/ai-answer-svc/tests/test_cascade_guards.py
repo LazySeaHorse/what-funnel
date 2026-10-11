@@ -67,7 +67,7 @@ async def test_unexpected_cascade_error_releases_run_lock_and_propagates():
 
     with pytest.raises(RuntimeError, match="redis down"):
         await run_cascade(db, _canned_client(), extra_patches=[
-            patch("main.publish_redis_stream", AsyncMock(side_effect=[None, RuntimeError("redis down")]))
+            patch("main.publish_stream", AsyncMock(side_effect=[None, RuntimeError("redis down")]))
         ])
 
     assert executed(db, "SET run_state = 'idle'")

@@ -20,7 +20,7 @@ from summary import (
     resolve_schema,
     validate_summary,
 )
-from whatfunnel_ai import ProviderError
+from whatfunnel_ai import AIConfigurationError, ProviderError
 
 ACCOUNT = uuid.uuid4()
 CONVO = uuid.uuid4()
@@ -287,7 +287,7 @@ async def test_requested_only_non_text_messages_fails(env):
 @pytest.mark.asyncio
 async def test_provider_not_configured(env, monkeypatch):
     async def missing(db):
-        raise ValueError("AI provider is not configured for this workspace")
+        raise AIConfigurationError("AI provider is not configured for this workspace")
 
     monkeypatch.setattr(summary, "get_ai_config", missing)
     out = await run(env, "requested")
