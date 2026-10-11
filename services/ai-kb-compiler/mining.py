@@ -1,7 +1,5 @@
-import os
 import uuid
 import json
-import math
 import logging
 import asyncio
 from datetime import datetime, timezone
@@ -29,7 +27,6 @@ class MineClusterDraft(BaseModel):
     def plain_fields(cls, value: str) -> str:
         return normalize_plain_text(value)
 
-# NumPy-accelerated vector helpers
 MAX_EXAMPLE_PHRASES = 6
 MAX_EXAMPLE_WORDS = 15
 
@@ -53,85 +50,56 @@ def example_phrases(texts: Sequence[str]) -> List[str]:
     return candidates[:MAX_EXAMPLE_PHRASES]
 
 
-def dot_product(v1: Sequence[float] | np.ndarray, v2: Sequence[float] | np.ndarray) -> float:
-    return float(np.dot(np.asarray(v1, dtype=np.float64), np.asarray(v2, dtype=np.float64)))
-
-def norm(v: Sequence[float] | np.ndarray) -> float:
-    return float(np.linalg.norm(np.asarray(v, dtype=np.float64)))
-
-def cosine_similarity(v1: Sequence[float] | np.ndarray, v2: Sequence[float] | np.ndarray) -> float:
-    a1 = np.asarray(v1, dtype=np.float64)
-    a2 = np.asarray(v2, dtype=np.float64)
-    n1 = float(np.linalg.norm(a1))
-    n2 = float(np.linalg.norm(a2))
-    if n1 == 0.0 or n2 == 0.0:
-        return 0.0
-    return float(np.dot(a1, a2) / (n1 * n2))
-
-def mean_vector(vectors: Sequence[Sequence[float] | np.ndarray]) -> List[float]:
-    if not vectors:
-        return []
-    return np.mean(np.asarray(vectors, dtype=np.float64), axis=0).tolist()
-
 class Cluster:
-    def __init__(self, first_msg_id: uuid.UUID, first_text: str, first_emb: List[float]):
+    """A greedy cluster; its centroid is the running mean of the members' embeddings."""
+
+    def __init__(self, first_msg_id: uuid.UUID, first_text: str, first_emb: Sequence[float]):
         self.message_ids = [first_msg_id]
         self.texts = [first_text]
-        self.embeddings = [list(first_emb)]
-        self.centroid: List[float] = list(first_emb)
+        self.embeddings = [np.asarray(first_emb, dtype=np.float64)]
+        self.centroid = self.embeddings[0].copy()
 
-    def add(self, msg_id: uuid.UUID, text: str, emb: List[float]):
+    def add(self, msg_id: uuid.UUID, text: str, emb: Sequence[float]):
+        emb_arr = np.asarray(emb, dtype=np.float64)
         self.message_ids.append(msg_id)
         self.texts.append(text)
-        self.embeddings.append(list(emb))
-        self.centroid = mean_vector(self.embeddings)
+        self.embeddings.append(emb_arr)
+        self.centroid += (emb_arr - self.centroid) / len(self.embeddings)
+
 
 def cluster_messages(messages: List[dict], threshold: float) -> List[Cluster]:
+    """Assign each message to the most similar cluster centroid (cosine >= threshold) or start a new one."""
     clusters: List[Cluster] = []
-    if not messages:
-        return clusters
-
-    centroid_arrays: List[np.ndarray] = []
-
     for msg in messages:
-        msg_id = msg["id"]
-        text = msg["text"]
-        emb = msg["embedding"]
-        emb_arr = np.asarray(emb, dtype=np.float64)
-        emb_norm = float(np.linalg.norm(emb_arr))
-
-        if not clusters:
-            c = Cluster(msg_id, text, emb)
-            clusters.append(c)
-            centroid_arrays.append(np.asarray(c.centroid, dtype=np.float64))
-            continue
-
-        if emb_norm == 0.0:
-            best_similarity = -1.0
-            best_idx = -1
-        else:
-            centroids_mat = np.stack(centroid_arrays)  # shape (k, dim)
-            c_norms = np.linalg.norm(centroids_mat, axis=1)  # shape (k,)
-            
-            valid_mask = c_norms > 0.0
+        emb = np.asarray(msg["embedding"], dtype=np.float64)
+        emb_norm = float(np.linalg.norm(emb))
+        best_idx, best_similarity = -1, -1.0
+        if clusters and emb_norm > 0.0:
+            centroids = np.stack([c.centroid for c in clusters])  # shape (k, dim)
+            c_norms = np.linalg.norm(centroids, axis=1)
             sims = np.full(len(clusters), -1.0, dtype=np.float64)
-            if np.any(valid_mask):
-                dots = np.dot(centroids_mat[valid_mask], emb_arr)
-                sims[valid_mask] = dots / (c_norms[valid_mask] * emb_norm)
-
+            valid = c_norms > 0.0
+            sims[valid] = centroids[valid] @ emb / (c_norms[valid] * emb_norm)
             best_idx = int(np.argmax(sims))
             best_similarity = float(sims[best_idx])
 
         if best_idx >= 0 and best_similarity >= threshold:
-            best_cluster = clusters[best_idx]
-            best_cluster.add(msg_id, text, emb)
-            centroid_arrays[best_idx] = np.asarray(best_cluster.centroid, dtype=np.float64)
+            clusters[best_idx].add(msg["id"], msg["text"], emb)
         else:
-            c = Cluster(msg_id, text, emb)
-            clusters.append(c)
-            centroid_arrays.append(np.asarray(c.centroid, dtype=np.float64))
-
+            clusters.append(Cluster(msg["id"], msg["text"], emb))
     return clusters
+
+
+async def _record_run(db: ScopedDB, run_at, window_start, window_end, scanned: int, clusters: int = 0, created: int = 0) -> dict:
+    await db.execute(
+        """
+        INSERT INTO kb_mining_runs (account_id, run_at, window_start, window_end, messages_scanned, clusters_found, suggestions_created)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """,
+        db.account_id, run_at, window_start, window_end, scanned, clusters, created,
+    )
+    return {"messages_scanned": scanned, "clusters_found": clusters, "suggestions_created": created}
+
 
 async def run_mining(db: ScopedDB) -> dict:
     """
@@ -183,23 +151,7 @@ async def run_mining(db: ScopedDB) -> dict:
     # 3. Minimum scanned messages cutoff
     if len(message_rows) < 5:
         logger.info(f"Account {db.account_id}: Only {len(message_rows)} messages found. Skipping mining run.")
-        # Log empty run
-        await db.execute(
-            """
-            INSERT INTO kb_mining_runs (account_id, run_at, window_start, window_end, messages_scanned, clusters_found, suggestions_created)
-            VALUES ($1, $2, $3, $4, $5, 0, 0)
-            """,
-            db.account_id,
-            run_at,
-            window_start,
-            window_end,
-            len(message_rows)
-        )
-        return {
-            "messages_scanned": len(message_rows),
-            "clusters_found": 0,
-            "suggestions_created": 0
-        }
+        return await _record_run(db, run_at, window_start, window_end, len(message_rows))
 
     # 4. Generate embeddings in parallel
     config = await get_ai_config(db)
@@ -225,23 +177,7 @@ async def run_mining(db: ScopedDB) -> dict:
     valid_messages = [r for r in embedded_results if r is not None]
 
     if not valid_messages:
-        # Log run with 0 scanned
-        await db.execute(
-            """
-            INSERT INTO kb_mining_runs (account_id, run_at, window_start, window_end, messages_scanned, clusters_found, suggestions_created)
-            VALUES ($1, $2, $3, $4, $5, 0, 0)
-            """,
-            db.account_id,
-            run_at,
-            window_start,
-            window_end,
-            len(message_rows)
-        )
-        return {
-            "messages_scanned": len(message_rows),
-            "clusters_found": 0,
-            "suggestions_created": 0
-        }
+        return await _record_run(db, run_at, window_start, window_end, len(message_rows))
 
     # 5. Cluster messages using greedy clustering
     clusters = cluster_messages(valid_messages, MINING_SIMILARITY_THRESHOLD)
@@ -254,7 +190,7 @@ async def run_mining(db: ScopedDB) -> dict:
     # 7. Process qualifying clusters
     for cluster in qualifying_clusters:
         # Retrieve top 3 similar concepts for grounding
-        centroid_str = f"[{','.join(map(str, cluster.centroid))}]"
+        centroid_str = str(cluster.centroid.tolist())
         concept_rows = await db.fetch(
             """
             SELECT title, body_text
@@ -301,8 +237,8 @@ async def run_mining(db: ScopedDB) -> dict:
             continue
 
         # Compute confidence: min(1.0, cluster_size / 10) * avg_similarity
-        cluster_embs = np.asarray(cluster.embeddings, dtype=np.float64)
-        centroid_vec = np.asarray(cluster.centroid, dtype=np.float64)
+        cluster_embs = np.stack(cluster.embeddings)
+        centroid_vec = cluster.centroid
         c_norm = float(np.linalg.norm(centroid_vec))
         e_norms = np.linalg.norm(cluster_embs, axis=1)
         denom = e_norms * c_norm
@@ -348,23 +284,4 @@ async def run_mining(db: ScopedDB) -> dict:
             json.dumps({"type": "new_pattern", "canonical_question": draft_result["canonical_question"]})
         )
 
-    # 8. Log run
-    await db.execute(
-        """
-        INSERT INTO kb_mining_runs (account_id, run_at, window_start, window_end, messages_scanned, clusters_found, suggestions_created)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        """,
-        db.account_id,
-        run_at,
-        window_start,
-        window_end,
-        len(message_rows),
-        len(clusters),
-        suggestions_created
-    )
-
-    return {
-        "messages_scanned": len(message_rows),
-        "clusters_found": len(clusters),
-        "suggestions_created": suggestions_created
-    }
+    return await _record_run(db, run_at, window_start, window_end, len(message_rows), len(clusters), suggestions_created)

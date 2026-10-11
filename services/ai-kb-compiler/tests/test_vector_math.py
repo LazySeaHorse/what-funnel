@@ -1,66 +1,7 @@
 import uuid
 import pytest
 import numpy as np
-from mining import (
-    dot_product,
-    norm,
-    cosine_similarity,
-    mean_vector,
-    Cluster,
-    cluster_messages,
-)
-
-
-def test_dot_product():
-    assert dot_product([1.0, 2.0], [3.0, 4.0]) == pytest.approx(11.0)
-    assert dot_product([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
-    # Test numpy array input
-    a1 = np.array([2.0, -1.0], dtype=np.float64)
-    a2 = np.array([3.0, 6.0], dtype=np.float64)
-    assert dot_product(a1, a2) == pytest.approx(0.0)
-
-
-def test_norm():
-    assert norm([3.0, 4.0]) == pytest.approx(5.0)
-    assert norm([0.0, 0.0, 0.0]) == pytest.approx(0.0)
-    assert norm(np.array([0.0, 5.0, 12.0])) == pytest.approx(13.0)
-
-
-def test_cosine_similarity():
-    # Identical vectors
-    v1 = [1.0, 2.0, 3.0]
-    assert cosine_similarity(v1, v1) == pytest.approx(1.0)
-
-    # Opposite vectors
-    v2 = [-1.0, -2.0, -3.0]
-    assert cosine_similarity(v1, v2) == pytest.approx(-1.0)
-
-    # Orthogonal vectors
-    v_x = [1.0, 0.0, 0.0]
-    v_y = [0.0, 1.0, 0.0]
-    assert cosine_similarity(v_x, v_y) == pytest.approx(0.0)
-
-    # Scaled vectors (magnitude invariance)
-    v_scaled = [2.0, 4.0, 6.0]
-    assert cosine_similarity(v1, v_scaled) == pytest.approx(1.0)
-
-    # Zero vectors
-    v_zero = [0.0, 0.0, 0.0]
-    assert cosine_similarity(v1, v_zero) == pytest.approx(0.0)
-    assert cosine_similarity(v_zero, v1) == pytest.approx(0.0)
-    assert cosine_similarity(v_zero, v_zero) == pytest.approx(0.0)
-
-
-def test_mean_vector():
-    assert mean_vector([]) == []
-
-    v1 = [1.0, 2.0, 3.0]
-    assert mean_vector([v1]) == pytest.approx(v1)
-
-    v2 = [3.0, 4.0, 5.0]
-    mean = mean_vector([v1, v2])
-    assert isinstance(mean, list)
-    assert mean == pytest.approx([2.0, 3.0, 4.0])
+from mining import Cluster, cluster_messages
 
 
 def test_cluster_class():
@@ -72,14 +13,23 @@ def test_cluster_class():
     cluster = Cluster(msg1_id, "Hello", emb1)
     assert cluster.message_ids == [msg1_id]
     assert cluster.texts == ["Hello"]
-    assert cluster.embeddings == [emb1]
-    assert cluster.centroid == emb1
+    assert [e.tolist() for e in cluster.embeddings] == [emb1]
+    assert cluster.centroid.tolist() == emb1
 
     cluster.add(msg2_id, "World", emb2)
     assert cluster.message_ids == [msg1_id, msg2_id]
     assert cluster.texts == ["Hello", "World"]
-    assert cluster.embeddings == [emb1, emb2]
-    assert cluster.centroid == pytest.approx([0.5, 0.5])
+    assert [e.tolist() for e in cluster.embeddings] == [emb1, emb2]
+    assert cluster.centroid.tolist() == pytest.approx([0.5, 0.5])
+
+
+def test_cluster_centroid_is_the_running_mean():
+    rng = np.random.default_rng(7)
+    embs = rng.normal(size=(50, 8))
+    cluster = Cluster(uuid.uuid4(), "t0", embs[0].tolist())
+    for i, emb in enumerate(embs[1:], start=1):
+        cluster.add(uuid.uuid4(), f"t{i}", emb.tolist())
+    assert cluster.centroid.tolist() == pytest.approx(embs.mean(axis=0).tolist())
 
 
 def test_cluster_messages_empty():
@@ -91,7 +41,7 @@ def test_cluster_messages_single():
     clusters = cluster_messages([msg], threshold=0.85)
     assert len(clusters) == 1
     assert clusters[0].texts == ["Hi"]
-    assert clusters[0].centroid == [1.0, 0.0]
+    assert clusters[0].centroid.tolist() == [1.0, 0.0]
 
 
 def test_cluster_messages_grouping():
