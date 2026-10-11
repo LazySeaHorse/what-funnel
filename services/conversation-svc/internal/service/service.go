@@ -17,7 +17,7 @@ import (
 //   - AIDraftService      – AI controls and reply draft lifecycle
 //   - SummaryService      – conversation summary reads and on-demand requests
 //   - ConversationService – conversation queries, RBAC, outbound messaging, edits, deletes
-//   - IngestionService    – inbound and external outbound message ingestion
+//   - IngestionService    – provider event ingestion (adapter.events) and the simulator
 type Service struct {
 	pool   *pgxpool.Pool
 	pubsub *pubsub.Client

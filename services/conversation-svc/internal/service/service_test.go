@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
@@ -89,7 +90,17 @@ func setupTestTenant(t *testing.T, pool *pgxpool.Pool, name string) (uuid.UUID, 
 	return accountID, userID
 }
 
-func TestIngestInbound(t *testing.T) {
+// providerMessage builds a message.created event for one provider message;
+// configure adjusts the message (sender, content) before it is sent.
+func providerMessage(channelID uuid.UUID, thread, providerMessageID string, configure func(*messaging.Message)) messaging.Event {
+	event := providerCreatedEvent(channelID, "evt-"+uuid.NewString(), providerMessageID, thread, time.Now())
+	if configure != nil {
+		configure(event.Message)
+	}
+	return event
+}
+
+func TestIngestProviderEvent_InboundMessages(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -98,39 +109,21 @@ func TestIngestInbound(t *testing.T) {
 	ctx := context.Background()
 
 	accountID, _ := setupTestTenant(t, pool, "ingest-test")
-
-	// Create a channel
-	var channelID uuid.UUID
-	err := pool.QueryRow(ctx, `
-		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'whatsapp', 'connected') RETURNING id
-	`, accountID).Scan(&channelID)
-	require.NoError(t, err)
+	channelID := newTelegramChannel(t, pool, accountID, "ingest bot")
+	cleanupProviderEvents(t, pool, channelID)
 
 	// 1. Ingest a message for a new contact (new contact + new conversation)
-	event1 := types.InboundEvent{
-		ChannelID:        channelID.String(),
-		ExternalThreadID: "whatsapp-thread-1",
-		Contact: types.ContactRef{
-			ExternalIdentity: "12345@s.whatsapp.net",
-			DisplayName:      "Bob",
-			AvatarURL:        "http://avatar.url/bob",
-		},
-		Message: types.NormalizedMessage{
-			ContentType:       "text",
-			Text:              "Hello business!",
-			ExternalMessageID: "msg-id-1",
-		},
-		Timestamp: time.Now(),
-	}
-
-	err = svc.IngestInbound(ctx, event1)
-	require.NoError(t, err)
+	event1 := providerMessage(channelID, "12345", "msg-id-1", func(m *messaging.Message) {
+		m.Sender.DisplayName = "Bob"
+		m.Sender.AvatarURL = "http://avatar.url/bob"
+		m.Text = "Hello business!"
+	})
+	require.NoError(t, svc.IngestProviderEvent(ctx, event1))
 
 	// Verify DB state
 	var contactID uuid.UUID
 	var displayName, avatarURL string
-	err = pool.QueryRow(ctx, `SELECT id, display_name, avatar_url FROM contacts WHERE channel_id = $1 AND external_identity = $2`, channelID, "12345@s.whatsapp.net").
+	err := pool.QueryRow(ctx, `SELECT id, display_name, avatar_url FROM contacts WHERE channel_id = $1 AND external_identity = $2`, channelID, "12345").
 		Scan(&contactID, &displayName, &avatarURL)
 	require.NoError(t, err)
 	assert.Equal(t, "Bob", displayName)
@@ -148,34 +141,20 @@ func TestIngestInbound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, msgCount)
 
-	// 2. Ingest duplicate message (idempotency check)
-	err = svc.IngestInbound(ctx, event1)
-	require.NoError(t, err) // Should skip without failing
+	// 2. Redelivered event (idempotency check)
+	require.NoError(t, svc.IngestProviderEvent(ctx, event1)) // Should skip without failing
 
 	err = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE conversation_id = $1`, convoID).Scan(&msgCount)
 	require.NoError(t, err)
 	assert.Equal(t, 1, msgCount, "message count should still be 1 (deduplicated)")
 
 	// 3. Second message from same contact (reuses conversation)
-	event2 := types.InboundEvent{
-		ChannelID:        channelID.String(),
-		ExternalThreadID: "whatsapp-thread-1",
-		Contact: types.ContactRef{
-			ExternalIdentity: "12345@s.whatsapp.net",
-			DisplayName:      "Bob Modified",
-			AvatarURL:        "", // empty should not overwrite
-		},
-		Message: types.NormalizedMessage{
-			ContentType:       "image",
-			Text:              "Look at this!",
-			MediaURL:          "http://media.url/image.jpg",
-			ExternalMessageID: "msg-id-2",
-		},
-		Timestamp: time.Now(),
-	}
-
-	err = svc.IngestInbound(ctx, event2)
-	require.NoError(t, err)
+	event2 := providerMessage(channelID, "12345", "msg-id-2", func(m *messaging.Message) {
+		m.Sender.DisplayName = "Bob Modified"
+		m.Sender.AvatarURL = "" // empty should not overwrite
+		m.Text = "Look at this!"
+	})
+	require.NoError(t, svc.IngestProviderEvent(ctx, event2))
 
 	err = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE conversation_id = $1`, convoID).Scan(&msgCount)
 	require.NoError(t, err)
@@ -188,24 +167,23 @@ func TestIngestInbound(t *testing.T) {
 	assert.Equal(t, "Bob Modified", displayName)
 	assert.Equal(t, "http://avatar.url/bob", avatarURL)
 
-	// 4. Test all content types normalize correctly
-	contentTypes := []string{"text", "image", "video", "audio", "document", "notice"}
-	for i, ct := range contentTypes {
-		event := types.InboundEvent{
-			ChannelID:        channelID.String(),
-			ExternalThreadID: "whatsapp-thread-1",
-			Contact: types.ContactRef{
-				ExternalIdentity: "12345@s.whatsapp.net",
-			},
-			Message: types.NormalizedMessage{
-				ContentType:       ct,
-				Text:              "test " + ct,
-				ExternalMessageID: "msg-ct-" + ct,
-			},
-			Timestamp: time.Now().Add(time.Duration(i) * time.Second),
-		}
-		err = svc.IngestInbound(ctx, event)
-		require.NoError(t, err)
+	// 4. Every content type is stored
+	contentTypes := []messaging.ContentType{
+		messaging.ContentText, messaging.ContentImage, messaging.ContentVideo,
+		messaging.ContentAudio, messaging.ContentDocument, messaging.ContentNotice,
+	}
+	for _, ct := range contentTypes {
+		event := providerMessage(channelID, "12345", "msg-ct-"+string(ct), func(m *messaging.Message) {
+			m.ContentType = ct
+			m.Text = "test " + string(ct)
+			switch ct {
+			case messaging.ContentNotice:
+				m.NoticeCode = "unsupported"
+			case messaging.ContentImage, messaging.ContentVideo, messaging.ContentAudio, messaging.ContentDocument:
+				m.Media = &messaging.Media{ProviderRef: "ref-" + string(ct), MIMEType: "application/octet-stream", SizeBytes: 10}
+			}
+		})
+		require.NoError(t, svc.IngestProviderEvent(ctx, event), ct)
 	}
 
 	// Verify count is 2 + 6 = 8.
@@ -255,29 +233,14 @@ func TestLeadManagement(t *testing.T) {
 	err := pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, $2, 'hash', 'agent') RETURNING id`, accountID, fmt.Sprintf("member_%s@example.com", uuid.New())).Scan(&memberID)
 	require.NoError(t, err)
 
-	// Create a channel
-	var channelID uuid.UUID
-	err = pool.QueryRow(ctx, `INSERT INTO channels (account_id, type, status) VALUES ($1, 'whatsapp', 'connected') RETURNING id`, accountID).Scan(&channelID)
-	require.NoError(t, err)
+	channelID := newTelegramChannel(t, pool, accountID, "lead bot")
+	cleanupProviderEvents(t, pool, channelID)
 
 	// 1. Ingest a message with lead_tracking_enabled = true (default)
-	event1 := types.InboundEvent{
-		ChannelID:        channelID.String(),
-		ExternalThreadID: "thread-lead-1",
-		Contact: types.ContactRef{
-			ExternalIdentity: "leadcontact1@s.whatsapp.net",
-			DisplayName:      "Lead Contact 1",
-		},
-		Message: types.NormalizedMessage{
-			ContentType:       "text",
-			Text:              "Hi, I want to buy something",
-			ExternalMessageID: "lead-msg-1",
-		},
-		Timestamp: time.Now(),
-	}
-
-	err = svc.IngestInbound(ctx, event1)
-	require.NoError(t, err)
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerMessage(channelID, "leadcontact1", "lead-msg-1", func(m *messaging.Message) {
+		m.Sender.DisplayName = "Lead Contact 1"
+		m.Text = "Hi, I want to buy something"
+	})))
 
 	// Verify conversation & auto-created lead
 	var convoID uuid.UUID
@@ -298,29 +261,16 @@ func TestLeadManagement(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE accounts SET settings = $1 WHERE id = $2`, settingsRaw, accountID)
 	require.NoError(t, err)
 
-	event2 := types.InboundEvent{
-		ChannelID:        channelID.String(),
-		ExternalThreadID: "thread-lead-2",
-		Contact: types.ContactRef{
-			ExternalIdentity: "leadcontact2@s.whatsapp.net",
-			DisplayName:      "Lead Contact 2",
-		},
-		Message: types.NormalizedMessage{
-			ContentType:       "text",
-			Text:              "Hi, is anyone there?",
-			ExternalMessageID: "lead-msg-2",
-		},
-		Timestamp: time.Now(),
-	}
-
-	err = svc.IngestInbound(ctx, event2)
-	require.NoError(t, err)
+	require.NoError(t, svc.IngestProviderEvent(ctx, providerMessage(channelID, "leadcontact2", "lead-msg-2", func(m *messaging.Message) {
+		m.Sender.DisplayName = "Lead Contact 2"
+		m.Text = "Hi, is anyone there?"
+	})))
 
 	var convo2ID uuid.UUID
 	err = pool.QueryRow(ctx, `
 		SELECT c.id FROM conversations c
 		JOIN contacts co ON c.contact_id = co.id
-		WHERE c.account_id = $1 AND co.external_identity = 'leadcontact2@s.whatsapp.net'
+		WHERE c.account_id = $1 AND co.external_identity = 'leadcontact2'
 	`, accountID).Scan(&convo2ID)
 	require.NoError(t, err)
 
@@ -406,7 +356,7 @@ func newBool(v bool) *bool {
 	return &v
 }
 
-func TestIngestExternalOutbound(t *testing.T) {
+func TestIngestProviderEvent_ExternalOutbound(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -416,17 +366,12 @@ func TestIngestExternalOutbound(t *testing.T) {
 
 	accountID, _ := setupTestTenant(t, pool, "external-outbound-test")
 
-	// Create channel
-	var channelID uuid.UUID
-	err := pool.QueryRow(ctx, `
-		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'whatsapp', 'connected') RETURNING id
-	`, accountID).Scan(&channelID)
-	require.NoError(t, err)
+	channelID := newTelegramChannel(t, pool, accountID, "outbound bot")
+	cleanupProviderEvents(t, pool, channelID)
 
 	// Create contact and conversation first (so that the conversation exists)
 	var contactID uuid.UUID
-	err = pool.QueryRow(ctx, `
+	err := pool.QueryRow(ctx, `
 		INSERT INTO contacts (account_id, channel_id, external_identity, display_name)
 		VALUES ($1, $2, 'bob-whatsapp', 'Bob') RETURNING id
 	`, accountID, channelID).Scan(&contactID)
@@ -439,17 +384,11 @@ func TestIngestExternalOutbound(t *testing.T) {
 	`, accountID, contactID, channelID).Scan(&convoID)
 	require.NoError(t, err)
 
-	// Ingest external outbound message
-	event := types.ExternalOutboundEvent{
-		ChannelID:        channelID.String(),
-		ExternalThreadID: "bob-whatsapp", // matches co.external_identity
-		Message: types.NormalizedMessage{
-			ContentType: "text",
-			Text:        "Reply from business phone",
-		},
-		ExternalMessageID: "msg-ext-1",
-		Timestamp:         time.Now(),
-	}
+	// A message the business sent from its own phone/app (no local correlation id).
+	event := providerMessage(channelID, "bob-whatsapp", "msg-ext-1", func(m *messaging.Message) { // thread matches co.external_identity
+		m.Direction = messaging.DirectionOutbound
+		m.Text = "Reply from business phone"
+	})
 
 	// A soft review flag set by the AI must be cleared once a human takes over.
 	_, err = pool.Exec(ctx, `
@@ -458,8 +397,7 @@ func TestIngestExternalOutbound(t *testing.T) {
 		WHERE conversation_id = $1`, convoID)
 	require.NoError(t, err)
 
-	err = svc.IngestExternalOutbound(ctx, event)
-	require.NoError(t, err)
+	require.NoError(t, svc.IngestProviderEvent(ctx, event))
 
 	var flag *string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT review_flag_reason FROM conversation_ai_state WHERE conversation_id = $1`, convoID).Scan(&flag))
@@ -485,7 +423,6 @@ func TestIngestExternalOutbound(t *testing.T) {
 	err = json.Unmarshal(contentRaw, &content)
 	require.NoError(t, err)
 	assert.Equal(t, "Reply from business phone", content["text"])
-	assert.Equal(t, true, content["external_origin"])
 
 	// Verify durable AI control moved to human ownership.
 	var aiState string
@@ -554,7 +491,7 @@ func TestCloseConversation_Workflow(t *testing.T) {
 	assert.Equal(t, 1, auditCount)
 }
 
-func TestConcurrentIngestInbound_NoUniqueViolation(t *testing.T) {
+func TestConcurrentIngestProviderEvent_NoUniqueViolation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -564,12 +501,8 @@ func TestConcurrentIngestInbound_NoUniqueViolation(t *testing.T) {
 
 	accountID, _ := setupTestTenant(t, pool, "concurrent-ingest")
 
-	var channelID uuid.UUID
-	err := pool.QueryRow(ctx, `
-		INSERT INTO channels (account_id, type, status)
-		VALUES ($1, 'whatsapp', 'connected') RETURNING id
-	`, accountID).Scan(&channelID)
-	require.NoError(t, err)
+	channelID := newTelegramChannel(t, pool, accountID, "concurrent bot")
+	cleanupProviderEvents(t, pool, channelID)
 
 	const concurrency = 10
 	errCh := make(chan error, concurrency)
@@ -580,21 +513,10 @@ func TestConcurrentIngestInbound_NoUniqueViolation(t *testing.T) {
 		msgID := fmt.Sprintf("concurrent-msg-%d", i)
 		go func(mid string) {
 			defer wg.Done()
-			event := types.InboundEvent{
-				ChannelID:        channelID.String(),
-				ExternalThreadID: "concurrent-thread",
-				Contact: types.ContactRef{
-					ExternalIdentity: "concurrent-contact",
-					DisplayName:      "Concurrent User",
-				},
-				Message: types.NormalizedMessage{
-					ContentType:       "text",
-					Text:              "Concurrent message: " + mid,
-					ExternalMessageID: mid,
-				},
-				Timestamp: time.Now(),
-			}
-			errCh <- svc.IngestInbound(ctx, event)
+			errCh <- svc.IngestProviderEvent(ctx, providerMessage(channelID, "concurrent-contact", mid, func(m *messaging.Message) {
+				m.Sender.DisplayName = "Concurrent User"
+				m.Text = "Concurrent message: " + mid
+			}))
 		}(msgID)
 	}
 
@@ -606,7 +528,7 @@ func TestConcurrentIngestInbound_NoUniqueViolation(t *testing.T) {
 	}
 
 	var convoCount int
-	err = pool.QueryRow(ctx, `
+	err := pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM conversations c
 		JOIN contacts co ON c.contact_id = co.id
 		WHERE co.channel_id = $1 AND co.external_identity = 'concurrent-contact'

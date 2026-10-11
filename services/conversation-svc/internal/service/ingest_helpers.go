@@ -11,22 +11,6 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
-type rowQuerier interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-func accountIDForChannel(ctx context.Context, q rowQuerier, channelID uuid.UUID) (uuid.UUID, error) {
-	var accountID uuid.UUID
-	err := q.QueryRow(ctx, `SELECT account_id FROM channels WHERE id = $1`, channelID).Scan(&accountID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, ErrChannelNotFound
-	}
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("lookup channel account: %w", err)
-	}
-	return accountID, nil
-}
-
 func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, resolver PipelineResolver, accountID, conversationID uuid.UUID) (*uuid.UUID, error) {
 	var settingsRaw []byte
 	var productMode string
