@@ -15,9 +15,9 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/session"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
-	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/session"
 )
 
 func main() {
@@ -41,7 +41,7 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to database")
 
-	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
+	sess := session.NewReader(pool, cfg.SessionSecret)
 	identityProvisioner, err := service.NewIdentityProvisioner(os.Getenv("IDENTITY_SVC_URL"))
 	if err != nil {
 		logger.Error("identity provisioner", "error", err)

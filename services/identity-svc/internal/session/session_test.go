@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
+	commonsession "github.com/whatfunnel/whatfunnel/packages/go-common/session"
 )
 
 func TestSession_SecureCookieOption(t *testing.T) {
@@ -24,9 +25,9 @@ func TestSession_SecureCookieOption(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		encoded, err := s.codec.Encode(sessionName, "dummy-token")
+		encoded, err := s.EncodeToken("dummy-token")
 		require.NoError(t, err)
-		r.AddCookie(&http.Cookie{Name: sessionName, Value: encoded})
+		r.AddCookie(&http.Cookie{Name: commonsession.CookieName, Value: encoded})
 
 		// Calling DestroySession to check cookie flags
 		err = s.DestroySession(w, r)
@@ -45,9 +46,9 @@ func TestSession_SecureCookieOption(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		encoded, err := s.codec.Encode(sessionName, "dummy-token")
+		encoded, err := s.EncodeToken("dummy-token")
 		require.NoError(t, err)
-		r.AddCookie(&http.Cookie{Name: sessionName, Value: encoded})
+		r.AddCookie(&http.Cookie{Name: commonsession.CookieName, Value: encoded})
 
 		err = s.DestroySession(w, r)
 		require.NoError(t, err)

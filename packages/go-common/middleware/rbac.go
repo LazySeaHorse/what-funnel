@@ -71,17 +71,9 @@ type Queryer interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// sessionStore is the interface we need from authboss / gorilla sessions.
+// sessionStore loads the whole session in one lookup (see go-common/session.Reader).
 // We keep it minimal so it can be satisfied by test fakes.
 type sessionStore interface {
-	GetUserID(r *http.Request) (uuid.UUID, bool)
-	GetAccountID(r *http.Request) (uuid.UUID, bool)
-	GetRole(r *http.Request) (string, bool)
-}
-
-// fullSessionStore is optionally implemented by stores that can return the whole
-// session in one lookup, avoiding one backing-store query per field.
-type fullSessionStore interface {
 	GetSession(r *http.Request) (map[string]string, error)
 }
 
@@ -131,51 +123,25 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 
 		var username string
 		if !authenticated {
-			// Prefer a single session lookup per request when the store supports it.
-			if full, ok := m.store.(fullSessionStore); ok {
-				data, err := full.GetSession(r)
-				if err != nil {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
-					return
-				}
-				var perr error
-				if userID, perr = uuid.Parse(data["user_id"]); perr != nil {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
-					return
-				}
-				if accountID, perr = uuid.Parse(data["account_id"]); perr != nil {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing account"})
-					return
-				}
-				var ok bool
-				if role, ok = data["role"]; !ok {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
-					return
-				}
-				username = data["username"]
-			} else {
-				var ok bool
-				userID, ok = m.store.GetUserID(r)
-				if !ok {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
-					return
-				}
-				accountID, ok = m.store.GetAccountID(r)
-				if !ok {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing account"})
-					return
-				}
-				role, ok = m.store.GetRole(r)
-				if !ok {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
-					return
-				}
-				if uStore, ok := m.store.(interface {
-					GetUsername(r *http.Request) (string, bool)
-				}); ok {
-					username, _ = uStore.GetUsername(r)
-				}
+			data, err := m.store.GetSession(r)
+			if err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
+				return
 			}
+			if userID, err = uuid.Parse(data["user_id"]); err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
+				return
+			}
+			if accountID, err = uuid.Parse(data["account_id"]); err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing account"})
+				return
+			}
+			var ok bool
+			if role, ok = data["role"]; !ok {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated: missing role"})
+				return
+			}
+			username = data["username"]
 		}
 
 		ctx := r.Context()

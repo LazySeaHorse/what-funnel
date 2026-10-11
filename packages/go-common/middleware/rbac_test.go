@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,14 +22,13 @@ type fakeStore struct {
 	loggedIn  bool
 }
 
-func (f *fakeStore) GetUserID(r *http.Request) (uuid.UUID, bool) {
-	return f.userID, f.loggedIn
-}
-func (f *fakeStore) GetAccountID(r *http.Request) (uuid.UUID, bool) {
-	return f.accountID, f.loggedIn
-}
-func (f *fakeStore) GetRole(r *http.Request) (string, bool) {
-	return f.role, f.loggedIn
+func (f *fakeStore) GetSession(r *http.Request) (map[string]string, error) {
+	if !f.loggedIn {
+		return nil, errors.New("no session")
+	}
+	return map[string]string{
+		"user_id": f.userID.String(), "account_id": f.accountID.String(), "role": f.role,
+	}, nil
 }
 
 func newRequest() *http.Request {
@@ -427,11 +427,6 @@ func (c *countingSessionStore) GetSession(*http.Request) (map[string]string, err
 	c.calls++
 	return c.data, nil
 }
-func (c *countingSessionStore) GetUserID(*http.Request) (uuid.UUID, bool) { panic("per-field lookup") }
-func (c *countingSessionStore) GetAccountID(*http.Request) (uuid.UUID, bool) {
-	panic("per-field lookup")
-}
-func (c *countingSessionStore) GetRole(*http.Request) (string, bool) { panic("per-field lookup") }
 
 func TestRequireAuthenticated_FetchesSessionOnce(t *testing.T) {
 	uid, aid := uuid.New(), uuid.New()

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -150,14 +151,8 @@ func TestHTTPIdentityProvisioner_HeadersAndAuth(t *testing.T) {
 
 type dummySessionStore struct{}
 
-func (d *dummySessionStore) GetUserID(r *http.Request) (uuid.UUID, bool) {
-	return uuid.Nil, false
-}
-func (d *dummySessionStore) GetAccountID(r *http.Request) (uuid.UUID, bool) {
-	return uuid.Nil, false
-}
-func (d *dummySessionStore) GetRole(r *http.Request) (string, bool) {
-	return "", false
+func (d *dummySessionStore) GetSession(r *http.Request) (map[string]string, error) {
+	return nil, errors.New("no session")
 }
 
 func TestHTTPIdentityProvisioner_AuthEnforcementWithMiddleware(t *testing.T) {

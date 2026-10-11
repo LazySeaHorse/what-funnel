@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -15,22 +16,19 @@ type mutableSession struct {
 	accountID uuid.UUID
 	role      string
 	valid     bool
+	lookups   int
 }
 
-func (m *mutableSession) GetUserID(*http.Request) (uuid.UUID, bool) {
+func (m *mutableSession) GetSession(*http.Request) (map[string]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.userID, m.valid
-}
-func (m *mutableSession) GetAccountID(*http.Request) (uuid.UUID, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.accountID, m.valid
-}
-func (m *mutableSession) GetRole(*http.Request) (string, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.role, m.valid
+	m.lookups++
+	if !m.valid {
+		return nil, errors.New("no session")
+	}
+	return map[string]string{
+		"user_id": m.userID.String(), "account_id": m.accountID.String(), "role": m.role,
+	}, nil
 }
 
 func TestRevalidateClients_ClosesRevokedAndUpdatesRole(t *testing.T) {
@@ -67,5 +65,23 @@ func TestRevalidateClients_ClosesRevokedAndUpdatesRole(t *testing.T) {
 	}
 	if _, ok := <-client.Send; ok {
 		t.Fatal("send channel should be closed")
+	}
+}
+
+func TestRevalidateClients_LoadsEachSessionOnce(t *testing.T) {
+	hub := newTestHub()
+	sess := &mutableSession{userID: uuid.New(), accountID: uuid.New(), role: "agent", valid: true}
+	srv := NewServer(hub, sess, hub.logger, nil, true)
+
+	client := newTestClient()
+	client.UserID, client.AccountID, client.Role = sess.userID, sess.accountID, "agent"
+	client.sessionReq = httptest.NewRequest(http.MethodGet, "/ws", nil)
+	if err := hub.RegisterClient(client); err != nil {
+		t.Fatal(err)
+	}
+
+	srv.RevalidateClients()
+	if sess.lookups != 1 {
+		t.Fatalf("session lookups = %d, want 1 per client", sess.lookups)
 	}
 }

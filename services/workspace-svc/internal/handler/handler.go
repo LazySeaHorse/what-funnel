@@ -27,19 +27,19 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/session"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
-	wsession "github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/session"
 )
 
 // Handler holds HTTP handler dependencies.
 type Handler struct {
 	svc  *service.Service
-	sess *wsession.Store
+	sess *session.Reader
 	mw   *middleware.SessionMiddleware
 }
 
 // New creates a Handler.
-func New(svc *service.Service, sess *wsession.Store) *Handler {
+func New(svc *service.Service, sess *session.Reader) *Handler {
 	mw := middleware.NewSessionMiddlewareWithDB(sess, svc.Pool())
 	return &Handler{svc: svc, sess: sess, mw: mw}
 }

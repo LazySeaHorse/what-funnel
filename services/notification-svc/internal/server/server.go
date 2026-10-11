@@ -17,10 +17,35 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
+// SessionStore loads the whole session in one lookup (see go-common/session.Reader).
 type SessionStore interface {
-	GetUserID(r *http.Request) (uuid.UUID, bool)
-	GetAccountID(r *http.Request) (uuid.UUID, bool)
-	GetRole(r *http.Request) (string, bool)
+	GetSession(r *http.Request) (map[string]string, error)
+}
+
+// sessionIdentity is who an authenticated session belongs to.
+type sessionIdentity struct {
+	userID, accountID uuid.UUID
+	role              string
+}
+
+// identify loads the session once. The error text is the client-facing 401 reason.
+func (s *Server) identify(r *http.Request) (sessionIdentity, error) {
+	data, err := s.sess.GetSession(r)
+	if err != nil {
+		return sessionIdentity{}, errors.New("unauthenticated")
+	}
+	var id sessionIdentity
+	if id.userID, err = uuid.Parse(data["user_id"]); err != nil {
+		return sessionIdentity{}, errors.New("unauthenticated")
+	}
+	if id.accountID, err = uuid.Parse(data["account_id"]); err != nil {
+		return sessionIdentity{}, errors.New("unauthenticated: missing account")
+	}
+	var ok bool
+	if id.role, ok = data["role"]; !ok {
+		return sessionIdentity{}, errors.New("unauthenticated: missing role")
+	}
+	return id, nil
 }
 
 type Client struct {
@@ -225,25 +250,11 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// 1. Session Auth
-	userID, ok := s.sess.GetUserID(r)
-	if !ok {
+	id, err := s.identify(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"unauthenticated"}`))
-		return
-	}
-	accountID, ok := s.sess.GetAccountID(r)
-	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"unauthenticated: missing account"}`))
-		return
-	}
-	role, ok := s.sess.GetRole(r)
-	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"unauthenticated: missing role"}`))
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -255,9 +266,9 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		UserID:    userID,
-		AccountID: accountID,
-		Role:      role,
+		UserID:    id.userID,
+		AccountID: id.accountID,
+		Role:      id.role,
 		Conn:      conn,
 		Send:      make(chan []byte, 256),
 		Hub:       s.hub,
@@ -304,23 +315,13 @@ func (s *Server) RevalidateClients() {
 		if client.sessionReq == nil {
 			continue
 		}
-		userID, ok := s.sess.GetUserID(client.sessionReq)
-		if !ok || userID != client.UserID {
+		id, err := s.identify(client.sessionReq)
+		if err != nil || id.userID != client.UserID || id.accountID != client.AccountID {
 			s.logger.Info("closing websocket: session no longer valid", "user_id", client.UserID)
 			s.hub.UnregisterClient(client)
 			continue
 		}
-		accountID, ok := s.sess.GetAccountID(client.sessionReq)
-		if !ok || accountID != client.AccountID {
-			s.hub.UnregisterClient(client)
-			continue
-		}
-		role, ok := s.sess.GetRole(client.sessionReq)
-		if !ok {
-			s.hub.UnregisterClient(client)
-			continue
-		}
-		s.hub.updateRole(client, role)
+		s.hub.updateRole(client, id.role)
 	}
 }
 

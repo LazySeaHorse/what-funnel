@@ -15,9 +15,9 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/session"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/consumer"
 	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/server"
-	"github.com/whatfunnel/whatfunnel/services/notification-svc/internal/session"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -54,7 +54,7 @@ func run(logger *slog.Logger) error {
 	logger.Info("connected to redis")
 
 	// 3. Initialize Session Store & Hub
-	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
+	sess := session.NewReader(pool, cfg.SessionSecret)
 	hub := server.NewHub(logger)
 	defer hub.Close()
 

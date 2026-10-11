@@ -20,11 +20,11 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/metrics"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/session"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/adapterclient"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/handler"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
-	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/session"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -62,7 +62,7 @@ func run(logger *slog.Logger) error {
 
 	// 3. Initialize Service and Session Store
 	svc := service.New(pool, psClient)
-	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
+	sess := session.NewReader(pool, cfg.SessionSecret)
 
 	// 5. Register the internal WhatsApp control plane. The adapter owns all
 	// WhatsApp session material; this service only stores domain state.

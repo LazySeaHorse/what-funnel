@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"testing"
@@ -19,14 +20,13 @@ type mockSessionStore struct {
 	loggedIn          bool
 }
 
-func (m *mockSessionStore) GetUserID(*http.Request) (uuid.UUID, bool) {
-	return m.userID, m.loggedIn
-}
-func (m *mockSessionStore) GetAccountID(*http.Request) (uuid.UUID, bool) {
-	return m.accountID, m.loggedIn
-}
-func (m *mockSessionStore) GetRole(*http.Request) (string, bool) {
-	return m.role, m.loggedIn
+func (m *mockSessionStore) GetSession(*http.Request) (map[string]string, error) {
+	if !m.loggedIn {
+		return nil, errors.New("no session")
+	}
+	return map[string]string{
+		"user_id": m.userID.String(), "account_id": m.accountID.String(), "role": m.role,
+	}, nil
 }
 
 func testPool(t *testing.T) *pgxpool.Pool {

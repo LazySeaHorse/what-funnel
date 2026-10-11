@@ -1,6 +1,6 @@
-// Package session provides a gorilla/sessions-based session store for authboss,
-// using a Postgres-backed store for server-side sessions (not cookie-only).
-// This enables trivial revocation — delete the row to log the user out.
+// Package session is identity-svc's session store: it creates and destroys
+// the server-side sessions every service reads through go-common/session.
+// Deleting a row in the sessions table logs the user out.
 package session
 
 import (
@@ -18,30 +18,21 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
+	commonsession "github.com/whatfunnel/whatfunnel/packages/go-common/session"
 )
 
-const (
-	sessionName         = "whatfunnel_session"
-	csrfCookieName      = "csrf_token"
-	sessionKeyUserID    = "user_id"
-	sessionKeyAccountID = "account_id"
-	sessionKeyUsername  = "username"
-	sessionKeyRole      = "role"
-	sessionTTL          = 30 * 24 * time.Hour // 30 days
-)
+const csrfCookieName = "csrf_token"
 
-// Store wraps gorilla/sessions and Postgres for server-side session storage.
-// The cookie holds only a random token; the session data lives in Postgres.
+// Store writes sessions; reading (GetSession) comes from the embedded shared Reader.
 type Store struct {
+	*commonsession.Reader
 	pool    *pgxpool.Pool
-	codec   *securecookie.SecureCookie
 	options *sessions.Options
 }
 
 // New creates a Store. secret must be >= 32 bytes.
 // If secure is not provided, it defaults to true in production or when COOKIE_SECURE=true.
 func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
-	codec := securecookie.New([]byte(secret), nil)
 	isSecure := false
 	if len(secure) > 0 {
 		isSecure = secure[0]
@@ -50,11 +41,11 @@ func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
 	}
 
 	return &Store{
-		pool:  pool,
-		codec: codec,
+		Reader: commonsession.NewReader(pool, secret),
+		pool:   pool,
 		options: &sessions.Options{
 			Path:     "/",
-			MaxAge:   int(sessionTTL.Seconds()),
+			MaxAge:   int(commonsession.TTL.Seconds()),
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 			Secure:   isSecure,
@@ -81,17 +72,17 @@ func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
 	}
 
 	data := map[string]string{
-		sessionKeyUserID:    userID.String(),
-		sessionKeyAccountID: accountID.String(),
-		sessionKeyUsername:  uName,
-		sessionKeyRole:      role,
+		commonsession.KeyUserID:    userID.String(),
+		commonsession.KeyAccountID: accountID.String(),
+		commonsession.KeyUsername:  uName,
+		commonsession.KeyRole:      role,
 	}
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("session: marshal: %w", err)
 	}
 
-	expiry := time.Now().Add(sessionTTL)
+	expiry := time.Now().Add(commonsession.TTL)
 	_, err = s.pool.Exec(r.Context(),
 		`INSERT INTO sessions (token, data, expiry) VALUES ($1, $2, $3)
 		 ON CONFLICT (token) DO UPDATE SET data = EXCLUDED.data, expiry = EXCLUDED.expiry`,
@@ -101,12 +92,12 @@ func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Write signed token to cookie
-	encoded2, err := s.codec.Encode(sessionName, token)
+	encoded2, err := s.EncodeToken(token)
 	if err != nil {
 		return fmt.Errorf("session: encode cookie: %w", err)
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionName,
+		Name:     commonsession.CookieName,
 		Value:    encoded2,
 		Path:     s.options.Path,
 		MaxAge:   s.options.MaxAge,
@@ -131,47 +122,11 @@ func (s *Store) SetSession(w http.ResponseWriter, r *http.Request,
 	return nil
 }
 
-// GetSession reads and validates the session from the request cookie.
-// Returns an error if the session is absent, expired, or tampered.
-func (s *Store) GetSession(r *http.Request) (map[string]string, error) {
-	cookie, err := r.Cookie(sessionName)
-	if err != nil {
-		return nil, fmt.Errorf("session: no cookie: %w", err)
-	}
-
-	var token string
-	if err := s.codec.Decode(sessionName, cookie.Value, &token); err != nil {
-		return nil, fmt.Errorf("session: invalid cookie signature: %w", err)
-	}
-
-	var raw []byte
-	var expiry time.Time
-	err = s.pool.QueryRow(r.Context(),
-		`SELECT data, expiry FROM sessions WHERE token = $1`, token).
-		Scan(&raw, &expiry)
-	if err != nil {
-		return nil, fmt.Errorf("session: not found in store: %w", err)
-	}
-	if time.Now().After(expiry) {
-		return nil, fmt.Errorf("session: expired")
-	}
-
-	var data map[string]string
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, fmt.Errorf("session: unmarshal: %w", err)
-	}
-	return data, nil
-}
-
 // DestroySession invalidates the session (logout).
 func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
-	cookie, err := r.Cookie(sessionName)
+	token, err := s.Token(r)
 	if err != nil {
-		return nil // no session to destroy
-	}
-	var token string
-	if err := s.codec.Decode(sessionName, cookie.Value, &token); err != nil {
-		return nil // can't decode — treat as already gone
+		return nil // no (valid) session cookie: nothing to destroy
 	}
 	if s.pool != nil {
 		_, err = s.pool.Exec(r.Context(), `DELETE FROM sessions WHERE token = $1`, token)
@@ -181,7 +136,7 @@ func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
 	}
 	// Expire the session cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionName,
+		Name:     commonsession.CookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
@@ -198,56 +153,6 @@ func (s *Store) DestroySession(w http.ResponseWriter, r *http.Request) error {
 		Secure:   s.options.Secure,
 	})
 	return nil
-}
-
-// -------------------------------------------------------------------------
-// Helpers used by go-common middleware (sessionStore interface)
-// -------------------------------------------------------------------------
-
-// GetUserID extracts user_id from session.
-func (s *Store) GetUserID(r *http.Request) (uuid.UUID, bool) {
-	data, err := s.GetSession(r)
-	if err != nil {
-		return uuid.Nil, false
-	}
-	id, err := uuid.Parse(data[sessionKeyUserID])
-	if err != nil {
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
-// GetAccountID extracts account_id from session.
-func (s *Store) GetAccountID(r *http.Request) (uuid.UUID, bool) {
-	data, err := s.GetSession(r)
-	if err != nil {
-		return uuid.Nil, false
-	}
-	id, err := uuid.Parse(data[sessionKeyAccountID])
-	if err != nil {
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
-// GetRole extracts the user role from session.
-func (s *Store) GetRole(r *http.Request) (string, bool) {
-	data, err := s.GetSession(r)
-	if err != nil {
-		return "", false
-	}
-	role, ok := data[sessionKeyRole]
-	return role, ok
-}
-
-// GetUsername extracts the username from session.
-func (s *Store) GetUsername(r *http.Request) (string, bool) {
-	data, err := s.GetSession(r)
-	if err != nil {
-		return "", false
-	}
-	username, ok := data[sessionKeyUsername]
-	return username, ok
 }
 
 // -------------------------------------------------------------------------
@@ -330,22 +235,6 @@ func (j *Janitor) Run(ctx context.Context) error {
 			}
 		}
 	}
-}
-
-// RevokeUserSessions deletes all active sessions for the given user.
-func (s *Store) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE session_data_json(data)->>'user_id' = $1`,
-		userID.String())
-	return err
-}
-
-// RevokeAccountSessions deletes all active sessions for the given account.
-func (s *Store) RevokeAccountSessions(ctx context.Context, accountID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE session_data_json(data)->>'account_id' = $1`,
-		accountID.String())
-	return err
 }
 
 // newToken generates a cryptographically random session token.

@@ -6,16 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 type SessionStore interface {
-	GetUserID(r *http.Request) (uuid.UUID, bool)
-	GetAccountID(r *http.Request) (uuid.UUID, bool)
-	GetRole(r *http.Request) (string, bool)
+	GetSession(r *http.Request) (map[string]string, error)
 }
 
 type Handler struct {
