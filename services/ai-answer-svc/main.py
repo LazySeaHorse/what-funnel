@@ -233,9 +233,9 @@ async def insert_pending_draft(
     statement (CTEs) the partial unique index on pending drafts would be checked
     before the old row's status change is visible and raise a unique violation.
     """
-    async with db.transaction() as conn:
-        await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", str(conversation_id))
-        guard = await conn.fetchval(
+    async with db.transaction() as tx:
+        await tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", str(conversation_id))
+        guard = await tx.fetchval(
             """
             SELECT generation_epoch
             FROM conversation_ai_state
@@ -247,7 +247,7 @@ async def insert_pending_draft(
         )
         if guard is None:
             return None
-        await conn.execute(
+        await tx.execute(
             """
             UPDATE ai_reply_drafts
             SET status = 'superseded', updated_at = NOW()
@@ -255,7 +255,7 @@ async def insert_pending_draft(
             """,
             db.account_id, conversation_id,
         )
-        draft_id = await conn.fetchval(
+        draft_id = await tx.fetchval(
             """
             INSERT INTO ai_reply_drafts (
                 account_id, conversation_id, source_message_id, draft_text,
@@ -266,7 +266,7 @@ async def insert_pending_draft(
             """,
             db.account_id, conversation_id, message_id, draft_text, stage_matched, confidence,
         )
-        await conn.execute(
+        await tx.execute(
             """
             INSERT INTO ai_answer_events (
                 account_id, conversation_id, message_id, stage_matched,
