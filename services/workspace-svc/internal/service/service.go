@@ -5,7 +5,6 @@
 package service
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -93,15 +92,6 @@ func generateToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// pgxExecer adapts pgxpool.Pool to the audit.Writer's Exec interface.
-type pgxExecer struct {
-	pool *pgxpool.Pool
-}
-
-func (e *pgxExecer) Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error) {
-	return e.pool.Exec(ctx, sql, args...)
 }
 
 // parseSettings safely unmarshals an accounts.settings JSONB blob into a

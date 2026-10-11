@@ -319,7 +319,7 @@ func (svc *Service) Login(ctx context.Context, req LoginRequest) (*store.User, e
 }
 
 func (svc *Service) writeLoginAudit(ctx context.Context, accountID, userID uuid.UUID) error {
-	aw := audit.NewWriter(&pgxExecer{pool: svc.pool})
+	aw := audit.NewWriter(svc.pool)
 	return aw.Write(ctx, audit.Entry{
 		AccountID:   accountID,
 		ActorUserID: &userID,
@@ -349,7 +349,7 @@ func (svc *Service) Logout(w http.ResponseWriter, r *http.Request) error {
 		accountID, _ := uuid.Parse(data["account_id"])
 		userID, _ := uuid.Parse(data["user_id"])
 		if accountID != uuid.Nil && userID != uuid.Nil {
-			aw := audit.NewWriter(&pgxExecer{pool: svc.pool})
+			aw := audit.NewWriter(svc.pool)
 			_ = aw.Write(r.Context(), audit.Entry{
 				AccountID:   accountID,
 				ActorUserID: &userID,
@@ -605,13 +605,4 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 	}
 
 	return tx.Commit(ctx)
-}
-
-// pgxExecer wraps pgxpool.Pool to satisfy the audit.Writer's Exec interface.
-type pgxExecer struct {
-	pool *pgxpool.Pool
-}
-
-func (e *pgxExecer) Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error) {
-	return e.pool.Exec(ctx, sql, args...)
 }

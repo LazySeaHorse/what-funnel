@@ -10,18 +10,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Querier is the subset of the DB interface needed to write audit logs.
-// Both *pgxpool.Pool and pgx.Tx satisfy this interface.
-type Querier interface {
-	Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error)
-}
-
-// TxQuerier is pgx.Tx — used when the audit log row should be part of
-// the same transaction as the mutation being audited.
-type TxQuerier interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (interface{ RowsAffected() int64 }, error)
+// Execer is what a Writer writes through: *pgxpool.Pool, *pgxpool.Conn and
+// pgx.Tx all satisfy it.
+type Execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
 // Entry represents all inputs needed to write one audit log row.
@@ -34,41 +29,25 @@ type Entry struct {
 	Metadata    map[string]any
 }
 
-// pgxTxAdapter wraps pgx.Tx to expose the Exec signature expected by Write.
-type pgxTxAdapter struct{ tx pgx.Tx }
-
-func (a *pgxTxAdapter) Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error) {
-	return a.tx.Exec(ctx, sql, args...)
-}
-
 // Writer writes audit log entries to Postgres.
 type Writer struct {
-	// db is the connection to use for writes. Can be a pool or a tx.
-	db interface {
-		Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error)
-	}
+	db Execer
 }
 
-// NewWriter creates a Writer backed by the given pool/connection.
-func NewWriter(db interface {
-	Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error)
-}) *Writer {
+// NewWriter creates a Writer backed by the given pool, connection or transaction.
+func NewWriter(db Execer) *Writer {
 	return &Writer{db: db}
 }
 
 // NewWriterFromTx creates a Writer backed by a transaction.
 // Use this to keep the audit write atomic with the mutation.
 func NewWriterFromTx(tx pgx.Tx) *Writer {
-	return &Writer{db: &pgxTxAdapter{tx: tx}}
+	return NewWriter(tx)
 }
 
-// Write persists an audit log entry. It does not return an error that would
-// abort the caller's business logic — if the write fails, it logs to stderr
-// but does not propagate the error. This is a deliberate v1 choice: a failed
-// audit write should not roll back a successful business operation.
-//
-// If you need transactional guarantees (audit row or nothing), use
-// NewWriterFromTx and manage the transaction in the caller.
+// Write persists an audit log entry and returns any marshal or database error.
+// For transactional guarantees (audit row or nothing), use NewWriterFromTx
+// and manage the transaction in the caller.
 func (w *Writer) Write(ctx context.Context, e Entry) error {
 	meta, err := json.Marshal(e.Metadata)
 	if err != nil {
