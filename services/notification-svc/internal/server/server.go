@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -161,27 +160,6 @@ func NewServer(hub *Hub, sess SessionStore, logger *slog.Logger, allowedOrigins 
 	return s
 }
 
-func (s *Server) isAllowedHost(host string) bool {
-	norm := middleware.NormalizeHost(host, "")
-	if norm == "" {
-		return false
-	}
-	for _, allowed := range s.allowedOrigins {
-		allowed = strings.TrimSpace(allowed)
-		if allowed == "" || allowed == "*" {
-			continue
-		}
-		if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
-			if middleware.IsHostMatching(host, "", parsedAllowed.Host) {
-				return true
-			}
-		} else if middleware.IsHostMatching(host, "", allowed) {
-			return true
-		}
-	}
-	return false
-}
-
 // CheckOrigin validates the incoming WebSocket upgrade request against the origin whitelist.
 func (s *Server) CheckOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
@@ -193,59 +171,7 @@ func (s *Server) CheckOrigin(r *http.Request) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-
-	// 1. Explicit whitelist check
-	for _, allowed := range s.allowedOrigins {
-		allowed = strings.TrimSpace(allowed)
-		if allowed == "" {
-			continue
-		}
-		if allowed == "*" {
-			if s.isProd {
-				continue
-			}
-			return true
-		}
-		if strings.EqualFold(allowed, origin) {
-			return true
-		}
-		if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
-			if parsedAllowed.Scheme != "" && !strings.EqualFold(parsedAllowed.Scheme, u.Scheme) {
-				continue
-			}
-			if middleware.IsHostMatching(u.Host, u.Scheme, parsedAllowed.Host) {
-				return true
-			}
-		} else if middleware.IsHostMatching(u.Host, u.Scheme, allowed) {
-			return true
-		}
-	}
-
-	// 2. In non-production (dev/testing), allow localhost and 127.0.0.1 origins
-	if !s.isProd {
-		hostOnly := strings.Split(u.Host, ":")[0]
-		if hostOnly == "localhost" || hostOnly == "127.0.0.1" || hostOnly == "0.0.0.0" || strings.HasSuffix(hostOnly, ".local") {
-			return true
-		}
-	}
-
-	// 3. Same-host check (origin matches Host or trusted X-Forwarded-Host)
-	// Never blindly trust client-supplied X-Forwarded-Host: only trust it if it matches
-	// the request host or explicit allowed origins.
-	trustedHost := r.Host
-	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-		if middleware.IsHostMatching(fwdHost, "", r.Host) {
-			trustedHost = fwdHost
-		} else if s.isAllowedHost(fwdHost) {
-			trustedHost = fwdHost
-		}
-	}
-
-	if trustedHost != "" && middleware.IsHostMatching(u.Host, u.Scheme, trustedHost) {
-		return true
-	}
-
-	return false
+	return middleware.OriginAllowed(u, r, s.allowedOrigins, s.isProd)
 }
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {

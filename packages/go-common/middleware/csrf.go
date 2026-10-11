@@ -94,7 +94,7 @@ func CSRFProtection(allowedOrigins ...string) func(http.Handler) http.Handler {
 					return
 				}
 
-				if !validateRequestOrigin(parsedOrigin, r, explicitOrigins) {
+				if !OriginAllowed(parsedOrigin, r, explicitOrigins, config.IsProduction()) {
 					writeJSON(w, http.StatusForbidden, map[string]string{
 						"error": "forbidden: cross-origin request rejected",
 					})
@@ -168,7 +168,12 @@ func IsHostMatching(originHost, originScheme, candidateHost string) bool {
 	return normOrigin != "" && normOrigin == normCandidate
 }
 
-func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigins []string) bool {
+// OriginAllowed reports whether a browser Origin may talk to this service:
+// it is explicitly allowed, a local dev origin outside production, or the
+// request's own host (X-Forwarded-Host is trusted only when it matches the
+// request host or an allowed origin). Used by CSRF protection and by the
+// websocket upgrade check.
+func OriginAllowed(parsedOrigin *url.URL, r *http.Request, explicitOrigins []string, isProd bool) bool {
 	// 1. Check explicit whitelist
 	for _, allowed := range explicitOrigins {
 		allowed = strings.TrimSpace(allowed)
@@ -176,7 +181,7 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 			continue
 		}
 		if allowed == "*" {
-			if config.IsProduction() {
+			if isProd {
 				continue
 			}
 			return true
@@ -197,7 +202,7 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 	}
 
 	// 2. In non-production, allow local dev origins
-	if !config.IsProduction() {
+	if !isProd {
 		hostOnly := strings.Split(parsedOrigin.Host, ":")[0]
 		if hostOnly == "localhost" || hostOnly == "127.0.0.1" || hostOnly == "0.0.0.0" || strings.HasSuffix(hostOnly, ".local") {
 			return true
@@ -214,6 +219,10 @@ func validateRequestOrigin(parsedOrigin *url.URL, r *http.Request, explicitOrigi
 			trustedHost = fwdHost
 		} else {
 			for _, allowed := range explicitOrigins {
+				allowed = strings.TrimSpace(allowed)
+				if allowed == "" || allowed == "*" {
+					continue
+				}
 				if parsedAllowed, err := url.Parse(allowed); err == nil && parsedAllowed.Host != "" {
 					if IsHostMatching(fwdHost, "", parsedAllowed.Host) {
 						trustedHost = fwdHost
