@@ -228,11 +228,9 @@ func (s *AIDraftService) UpdateConversationAIControl(ctx context.Context, accoun
 		return nil, fmt.Errorf("commit AI control tx: %w", err)
 	}
 
-	if _, publishErr := s.pubsub.Publish(ctx, "ai.control.updated", map[string]any{
+	publishBestEffort(ctx, s.pubsub, "ai.control.updated", map[string]any{
 		"account_id": accountID, "conversation_id": conversationID,
 		"state": state.State, "state_reason": state.StateReason, "run_state": state.RunState,
-	}); publishErr != nil {
-		fmt.Printf("failed to publish AI control update: %v\n", publishErr)
-	}
+	})
 	return state, nil
 }

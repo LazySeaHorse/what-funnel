@@ -72,11 +72,9 @@ func (s *AIDraftService) DismissReplyDraft(ctx context.Context, accountID, userI
 		return fmt.Errorf("dismiss AI reply draft: %w", err)
 	}
 
-	if _, err := s.pubsub.Publish(ctx, "ai.reply_draft.updated", AIReplyDraftUpdatedEvent{
+	publishBestEffort(ctx, s.pubsub, "ai.reply_draft.updated", AIReplyDraftUpdatedEvent{
 		AccountID: accountID, ConversationID: conversationID,
 		DraftID: &updatedID, Action: "dismissed",
-	}); err != nil {
-		fmt.Printf("failed to publish AI reply draft dismissal: %v\n", err)
-	}
+	})
 	return nil
 }

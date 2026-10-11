@@ -360,7 +360,7 @@ func (s *MediaService) RunMediaCleanup(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := s.CleanupExpiredMediaOnce(ctx); err != nil && ctx.Err() == nil {
-			fmt.Printf("failed to clean expired media: %v\n", err)
+			slog.ErrorContext(ctx, "failed to clean expired media", "error", err)
 		}
 		select {
 		case <-ctx.Done():

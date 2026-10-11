@@ -416,9 +416,7 @@ func writeMessageSentAudit(ctx context.Context, tx pgx.Tx, cmd SendMessageParams
 }
 
 func (s *ConversationService) publishOutboundMessageEvents(ctx context.Context, cmd SendMessageParams, msg *types.Message, draftID *uuid.UUID) {
-	if _, err := s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{AccountID: cmd.AccountID, ConversationID: cmd.ConversationID, MessageID: msg.ID}); err != nil {
-		fmt.Printf("failed to publish conversation.updated for outbound send: %v\n", err)
-	}
+	publishBestEffort(ctx, s.pubsub, "conversation.updated", ConversationUpdatedEvent{AccountID: cmd.AccountID, ConversationID: cmd.ConversationID, MessageID: msg.ID})
 	if !cmd.human() || draftID == nil {
 		return
 	}
@@ -426,9 +424,7 @@ func (s *ConversationService) publishOutboundMessageEvents(ctx context.Context, 
 	if cmd.AIReplyDraftID != nil {
 		action = "used"
 	}
-	if _, err := s.pubsub.Publish(ctx, "ai.reply_draft.updated", AIReplyDraftUpdatedEvent{
+	publishBestEffort(ctx, s.pubsub, "ai.reply_draft.updated", AIReplyDraftUpdatedEvent{
 		AccountID: cmd.AccountID, ConversationID: cmd.ConversationID, DraftID: draftID, Action: action,
-	}); err != nil {
-		fmt.Printf("failed to publish AI reply draft update: %v\n", err)
-	}
+	})
 }

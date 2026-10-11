@@ -147,13 +147,11 @@ func (s *IngestionService) IngestInbound(ctx context.Context, event types.Inboun
 	}
 
 	// 6. Publish (best-effort after commit).
-	if _, err = s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
+	publishBestEffort(ctx, s.pubsub, "conversation.updated", ConversationUpdatedEvent{
 		AccountID:      accountID,
 		ConversationID: conversationID,
 		MessageID:      messageID,
-	}); err != nil {
-		fmt.Printf("failed to publish conversation.updated: %v\n", err)
-	}
+	})
 	return nil
 }
 
@@ -256,13 +254,11 @@ func (s *IngestionService) IngestExternalOutbound(ctx context.Context, event typ
 		return fmt.Errorf("commit ingestion tx: %w", err)
 	}
 
-	if _, err = s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
+	publishBestEffort(ctx, s.pubsub, "conversation.updated", ConversationUpdatedEvent{
 		AccountID:      accountID,
 		ConversationID: conversationID,
 		MessageID:      messageID,
-	}); err != nil {
-		fmt.Printf("failed to publish conversation.updated: %v\n", err)
-	}
+	})
 	return nil
 }
 

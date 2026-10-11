@@ -453,14 +453,11 @@ func (s *ConversationService) AssignConversation(ctx context.Context, accountID,
 		return fmt.Errorf("commit assignment tx: %w", err)
 	}
 
-	_, err = s.pubsub.Publish(ctx, "conversation.assigned", ConversationAssignedEvent{
+	publishBestEffort(ctx, s.pubsub, "conversation.assigned", ConversationAssignedEvent{
 		AccountID:       accountID,
 		ConversationID:  conversationID,
 		AssignedUserIDs: assignedUserIDs,
 	})
-	if err != nil {
-		fmt.Printf("failed to publish conversation.assigned: %v\n", err)
-	}
 	return nil
 }
 
@@ -565,17 +562,12 @@ func (s *ConversationService) CloseConversation(ctx context.Context, accountID, 
 		"conversation_id": conversationID.String(),
 		"closed_at":       time.Now().Format(time.RFC3339),
 	}
-	if _, err := s.pubsub.Publish(ctx, "conversation.closed", event); err != nil {
-		fmt.Printf("failed to publish conversation.closed: %v\n", err)
-	}
-
+	publishBestEffort(ctx, s.pubsub, "conversation.closed", event)
 	// Publish conversation.updated event for real-time WebSocket clients
-	if _, err := s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
+	publishBestEffort(ctx, s.pubsub, "conversation.updated", ConversationUpdatedEvent{
 		AccountID:      accountID,
 		ConversationID: conversationID,
-	}); err != nil {
-		fmt.Printf("failed to publish conversation.updated on close: %v\n", err)
-	}
+	})
 
 	return nil
 }

@@ -274,15 +274,13 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 		return nil, fmt.Errorf("commit update lead state tx: %w", err)
 	}
 
-	if _, err = s.pubsub.Publish(ctx, "lead.state_changed", leadStateChangedEvent{
+	publishBestEffort(ctx, s.pubsub, "lead.state_changed", leadStateChangedEvent{
 		Type:           "lead.state_changed",
 		ConversationID: lead.ConversationID.String(),
 		LeadID:         lead.ID.String(),
 		FromState:      &fromState,
 		ToState:        targetStateKey,
-	}); err != nil {
-		fmt.Printf("failed to publish lead.state_changed: %v\n", err)
-	}
+	})
 
 	return lead, nil
 }

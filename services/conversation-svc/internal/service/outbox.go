@@ -70,7 +70,7 @@ func (s *OutboxService) DispatchOutbox(ctx context.Context) error {
 		if err != nil && ctx.Err() == nil {
 			// The row is released with backoff by dispatchOutboxOnce. Keep the
 			// worker alive so a transient Redis or database failure self-heals.
-			fmt.Printf("failed to dispatch provider command: %v\n", err)
+			slog.ErrorContext(ctx, "failed to dispatch provider command", "error", err)
 		}
 		if dispatched {
 			backoff = initialBackoff

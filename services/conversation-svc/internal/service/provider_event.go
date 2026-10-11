@@ -112,13 +112,11 @@ func (s *IngestionService) IngestProviderEvent(ctx context.Context, event messag
 	}
 
 	if result.conversationID != uuid.Nil {
-		if _, err := s.pubsub.Publish(ctx, "conversation.updated", ConversationUpdatedEvent{
+		publishBestEffort(ctx, s.pubsub, "conversation.updated", ConversationUpdatedEvent{
 			AccountID:      result.accountID,
 			ConversationID: result.conversationID,
 			MessageID:      result.messageID,
-		}); err != nil {
-			fmt.Printf("failed to publish conversation.updated for provider event: %v\n", err)
-		}
+		})
 	}
 	return nil
 }

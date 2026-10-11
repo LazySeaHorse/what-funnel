@@ -1,6 +1,9 @@
 package service
 
 import (
+	"context"
+	"log/slog"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
@@ -54,8 +57,12 @@ func New(pool *pgxpool.Pool, pubsub *pubsub.Client) *Service {
 	}
 }
 
-func (s *Service) PubSub() *pubsub.Client {
-	return s.pubsub
+// publishBestEffort announces a state change that has already been committed.
+// A failed publish is logged, not returned: the write itself succeeded.
+func publishBestEffort(ctx context.Context, ps *pubsub.Client, stream string, payload any) {
+	if _, err := ps.Publish(ctx, stream, payload); err != nil {
+		slog.WarnContext(ctx, "publish failed", "stream", stream, "error", err)
+	}
 }
 
 func (s *Service) Pool() *pgxpool.Pool {
