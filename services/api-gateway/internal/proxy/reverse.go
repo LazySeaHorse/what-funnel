@@ -14,6 +14,10 @@ const (
 	upstreamResponseHeaderTimeout = 30 * time.Second
 )
 
+// upstreamTransport is shared by every proxy so routes to the same upstream
+// reuse one keep-alive connection pool (http.Transport pools per host).
+var upstreamTransport = newTransport()
+
 // newTransport returns an upstream transport that bounds connection setup and
 // time-to-first-byte but, unlike http.Client.Timeout, never limits how long a
 // response body may stream.
@@ -44,7 +48,7 @@ func normalizeUpstream(upstream *url.URL) *url.URL {
 func newReverseProxy(upstream *url.URL, logger *slog.Logger, mutate func(*httputil.ProxyRequest)) *httputil.ReverseProxy {
 	target := normalizeUpstream(upstream)
 	return &httputil.ReverseProxy{
-		Transport: newTransport(),
+		Transport: upstreamTransport,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			for key := range pr.Out.Header {

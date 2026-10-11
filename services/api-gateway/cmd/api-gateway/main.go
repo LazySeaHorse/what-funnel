@@ -50,31 +50,19 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	identityBase, err := url.Parse(identitySvcURL)
-	if err != nil {
-		logger.Error("invalid IDENTITY_SVC_URL", "error", err)
-		os.Exit(1)
+	mustParseURL := func(name, raw string) *url.URL {
+		u, err := url.Parse(raw)
+		if err != nil {
+			logger.Error("invalid "+name, "error", err)
+			os.Exit(1)
+		}
+		return u
 	}
-	workspaceBase, err := url.Parse(workspaceSvcURL)
-	if err != nil {
-		logger.Error("invalid WORKSPACE_SVC_URL", "error", err)
-		os.Exit(1)
-	}
-	conversationBase, err := url.Parse(conversationSvcURL)
-	if err != nil {
-		logger.Error("invalid CONVERSATION_SVC_URL", "error", err)
-		os.Exit(1)
-	}
-	notificationBase, err := url.Parse(notificationSvcURL)
-	if err != nil {
-		logger.Error("invalid NOTIFICATION_SVC_URL", "error", err)
-		os.Exit(1)
-	}
-	aiKBCompilerBase, err := url.Parse(aiKBCompilerURL)
-	if err != nil {
-		logger.Error("invalid AI_KB_COMPILER_URL", "error", err)
-		os.Exit(1)
-	}
+	identityBase := mustParseURL("IDENTITY_SVC_URL", identitySvcURL)
+	workspaceBase := mustParseURL("WORKSPACE_SVC_URL", workspaceSvcURL)
+	conversationBase := mustParseURL("CONVERSATION_SVC_URL", conversationSvcURL)
+	notificationBase := mustParseURL("NOTIFICATION_SVC_URL", notificationSvcURL)
+	aiKBCompilerBase := mustParseURL("AI_KB_COMPILER_URL", aiKBCompilerURL)
 
 	handler := newRouter(aiKBCompilerBase, identityBase, workspaceBase, conversationBase, notificationBase, logger)
 
@@ -144,34 +132,32 @@ func newRouter(
 		fmt.Fprint(w, `{"status":"ok","service":"api-gateway"}`)
 	}).Methods(http.MethodGet)
 
+	identity := proxy.HTTP(identityBase, logger)
+	workspace := proxy.HTTP(workspaceBase, logger)
+	conversation := proxy.HTTP(conversationBase, logger)
+
 	// Proxy /auth/* → identity-svc
-	r.PathPrefix("/auth/").Handler(proxy.HTTP(identityBase, logger))
+	r.PathPrefix("/auth/").Handler(identity)
 
-	// Proxy /workspace/* → workspace-svc
-	r.PathPrefix("/workspace/").Handler(proxy.HTTP(workspaceBase, logger))
-	r.PathPrefix("/users").Handler(proxy.HTTP(workspaceBase, logger))
+	// Proxy /workspace/*, /users, /onboarding → workspace-svc
+	r.PathPrefix("/workspace/").Handler(workspace)
+	r.PathPrefix("/users").Handler(workspace)
+	r.PathPrefix("/onboarding").Handler(workspace)
 
-	// Proxy /onboarding/* → workspace-svc
-	r.PathPrefix("/onboarding").Handler(proxy.HTTP(workspaceBase, logger))
-
-	// Proxy /channels/* → conversation-svc
-	r.PathPrefix("/channels").Handler(proxy.HTTP(conversationBase, logger))
-	r.PathPrefix("/channel-connections").Handler(proxy.HTTP(conversationBase, logger))
-
-	// Proxy /conversations/* → conversation-svc
-	r.PathPrefix("/conversations").Handler(proxy.HTTP(conversationBase, logger))
-	r.PathPrefix("/media").Handler(proxy.HTTP(conversationBase, logger))
-
-	// Proxy /leads/* → conversation-svc
-	r.PathPrefix("/leads").Handler(proxy.HTTP(conversationBase, logger))
+	// Proxy /channels, /channel-connections, /conversations, /media, /leads → conversation-svc
+	r.PathPrefix("/channels").Handler(conversation)
+	r.PathPrefix("/channel-connections").Handler(conversation)
+	r.PathPrefix("/conversations").Handler(conversation)
+	r.PathPrefix("/media").Handler(conversation)
+	r.PathPrefix("/leads").Handler(conversation)
 
 	// Internal inter-service endpoints and simulation test harnesses are not mounted
 	// on the public gateway by default to prevent unauthorized external access.
 	// They are mounted only when ENABLE_SIMULATION_ROUTES=true is explicitly set.
 	if config.SimulationRoutesEnabled() {
-		r.PathPrefix("/internal/conversations").Handler(proxy.HTTP(conversationBase, logger))
-		r.PathPrefix("/simulate").Handler(proxy.HTTP(conversationBase, logger))
-		r.Handle("/simulate-inbound", proxy.HTTP(conversationBase, logger))
+		r.PathPrefix("/internal/conversations").Handler(conversation)
+		r.PathPrefix("/simulate").Handler(conversation)
+		r.Handle("/simulate-inbound", conversation)
 	}
 
 	// Proxy /ws → notification-svc (WebSocket)
