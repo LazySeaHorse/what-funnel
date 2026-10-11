@@ -210,6 +210,12 @@ func TestHandler_InboxEndpoints(t *testing.T) {
 		r.ServeHTTP(rr, req)
 
 		assert.Equal(t, http.StatusOK, rr.Code)
+
+		// Marking an unknown (or invisible) conversation read is a 404.
+		req, _ = http.NewRequest(http.MethodPost, "/conversations/"+uuid.New().String()+"/read", nil)
+		rr = httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusNotFound, rr.Code)
 	}
 
 	// Per-chat AI can be disabled and reset to the workspace default.

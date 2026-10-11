@@ -557,8 +557,7 @@ func (h *Handler) ReadConversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify visibility first
-	_, err = h.svc.GetConversation(r.Context(), accountID, userID, convoID, userRole)
-	if err != nil {
+	if err := h.svc.CanSeeConversation(r.Context(), accountID, userID, convoID, userRole); err != nil {
 		writeServiceError(w, r, err)
 		return
 	}
