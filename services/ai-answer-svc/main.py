@@ -7,14 +7,14 @@ import socket
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Optional
 import httpx
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from pydantic import BaseModel
 
 from config import config, internal_service_token
-from db import ScopedDB, create_db_pool, load_account_settings
+from db import ScopedDB, create_db_pool, load_account_settings, message_text
 from llm import get_ai_config, provider_client
 from kb_rag import KB_TOP_K, answer_from_sources, concept_sources, faq_sources
 from router import (
@@ -35,6 +35,7 @@ from control import (
     HANDOFF_ACK_REPLY,
     NON_TEXT_HUMAN_REVIEW_REPLY,
     UNANSWERED_WINDOW,
+    JudgeVerdict,
     next_cooldown_level,
     resolve_reply_mode,
     transcript_within_byte_budget,
@@ -86,6 +87,20 @@ async def send_ai_message(
         response = await client.post(send_url, json=body, headers=headers, timeout=10.0)
         response.raise_for_status()
         return response.json()
+
+
+async def send_acknowledgement(
+    account_id: uuid.UUID, conversation_id: uuid.UUID, text: str, generation_epoch: int, idempotency_key: str,
+) -> Optional[uuid.UUID]:
+    """Best-effort human-review acknowledgement to the customer; returns the sent message id."""
+    try:
+        response = await send_ai_message(
+            account_id, conversation_id, text, generation_epoch, "human_review_ack", idempotency_key
+        )
+        return uuid.UUID(response["id"])
+    except Exception as error:
+        logger.error("Failed to send acknowledgement %s: %s", idempotency_key, error)
+        return None
 
 
 async def release_generation(db: ScopedDB, conversation_id: uuid.UUID, generation_epoch: int):
@@ -169,19 +184,33 @@ async def supersede_pending_draft(db: ScopedDB, redis_client, account_id: uuid.U
         "action": "superseded"
     })
 
+async def publish_control_update(
+    redis_client, account_id: uuid.UUID, conversation_id: uuid.UUID, state: str, run_state: str = "idle", **extra,
+) -> None:
+    """Tell connected clients the conversation's AI control state changed."""
+    await publish_stream(redis_client, "ai.control.updated", {
+        "account_id": str(account_id),
+        "conversation_id": str(conversation_id),
+        "state": state,
+        "run_state": run_state,
+        **extra,
+    })
+
+
+# Hand the conversation to a human: state=review_required, AI run released.
+REVIEW_REQUIRED_UPDATE = """
+UPDATE conversation_ai_state
+SET state = 'review_required', state_reason = $3, run_state = 'idle',
+    run_started_at = NULL,
+    generation_epoch = generation_epoch + 1, next_review_at = NULL,
+    version = version + 1, updated_at = NOW()
+WHERE conversation_id = $1 AND account_id = $2
+RETURNING generation_epoch
+"""
+
+
 async def mark_review_required(db: ScopedDB, conversation_id: uuid.UUID, reason: str) -> None:
-    """Hand the conversation to a human: state=review_required, AI run released."""
-    await db.execute(
-        """
-        UPDATE conversation_ai_state
-        SET state = 'review_required', state_reason = $3, run_state = 'idle',
-            run_started_at = NULL,
-            generation_epoch = generation_epoch + 1, next_review_at = NULL,
-            version = version + 1, updated_at = NOW()
-        WHERE conversation_id = $1 AND account_id = $2
-        """,
-        conversation_id, db.account_id, reason,
-    )
+    await db.execute(REVIEW_REQUIRED_UPDATE, conversation_id, db.account_id, reason)
 
 
 async def record_answer_event(
@@ -417,13 +446,10 @@ async def decide_reply(
         """,
         convo_uuid, db.account_id, list(bubble_ids),
     )
-    history_messages: list[tuple[str, str]] = []
-    for row in reversed(history_rows):
-        try:
-            body = json.loads(row["content"]).get("text", "")
-        except Exception:
-            body = ""
-        history_messages.append(("customer" if row["sender_type"] == "contact" else "agent", body))
+    history_messages = [
+        ("customer" if row["sender_type"] == "contact" else "agent", message_text(row["content"]))
+        for row in reversed(history_rows)
+    ]
     history_text = transcript_within_byte_budget(history_messages, 1500)
 
     # 1. Local pre-checks without a model call: safety backstop, first-message greeting (only when
@@ -556,19 +582,7 @@ async def enter_handoff(db: ScopedDB, conversation_id: uuid.UUID, reason: str) -
     The epoch is needed to send the handoff acknowledgement, which conversation-svc only accepts
     in review_required or cooldown with the current epoch.
     """
-    epoch = await db.fetchval(
-        """
-        UPDATE conversation_ai_state
-        SET state = 'review_required', state_reason = $3, run_state = 'idle',
-            run_started_at = NULL,
-            generation_epoch = generation_epoch + 1, next_review_at = NULL,
-            version = version + 1, updated_at = NOW()
-        WHERE conversation_id = $1 AND account_id = $2
-        RETURNING generation_epoch
-        """,
-        conversation_id, db.account_id, reason,
-    )
-    return int(epoch)
+    return int(await db.fetchval(REVIEW_REQUIRED_UPDATE, conversation_id, db.account_id, reason))
 
 
 async def execute_conversation_cascade(
@@ -649,12 +663,7 @@ async def execute_conversation_cascade(
         await requeue_in_flight(redis_client, convo_uuid, account_uuid, msg_uuid, has_non_text=has_non_text, delay=2.0)
         return
     generation_epoch = int(generation_row["generation_epoch"])
-    await publish_stream(redis_client, "ai.control.updated", {
-        "account_id": str(account_uuid),
-        "conversation_id": str(convo_uuid),
-        "state": "active",
-        "run_state": "replying",
-    })
+    await publish_control_update(redis_client, account_uuid, convo_uuid, "active", run_state="replying")
 
     try:
         # Non-text media bubbles: multimodal unsupported -> mark for human review & send pre-written handoff
@@ -672,27 +681,17 @@ async def execute_conversation_cascade(
                     int(convo_row["unanswered_count"]),
                     convo_row["unanswered_window_started_at"],
                 )
-                try:
-                    response = await send_ai_message(
-                        account_uuid, convo_uuid, NON_TEXT_HUMAN_REVIEW_REPLY,
-                        acknowledgement_epoch, "human_review_ack",
-                        f"human-review-non-text:{convo_uuid}:{level}:{msg_uuid}",
-                    )
-                    reply_message_id = uuid.UUID(response["id"])
-                except Exception as error:
-                    logger.error("Failed to send non-text human-review acknowledgement: %s", error)
+                reply_message_id = await send_acknowledgement(
+                    account_uuid, convo_uuid, NON_TEXT_HUMAN_REVIEW_REPLY, acknowledgement_epoch,
+                    f"human-review-non-text:{convo_uuid}:{level}:{msg_uuid}",
+                )
             else:
                 await mark_review_required(db, convo_uuid, flag_reason)
             await record_answer_event(
                 db, convo_uuid, msg_uuid, stage_matched, confidence, action, reply_message_id
             )
             final_state = "cooldown" if effective_mode == "auto_send" else "review_required"
-            await publish_stream(redis_client, "ai.control.updated", {
-                "account_id": str(account_uuid),
-                "conversation_id": str(convo_uuid),
-                "state": final_state,
-                "run_state": "idle",
-            })
+            await publish_control_update(redis_client, account_uuid, convo_uuid, final_state)
             logger.info("Non-text message flagged for human review for convo %s", convo_uuid)
             return
 
@@ -711,27 +710,13 @@ async def execute_conversation_cascade(
             """,
             convo_uuid, account_uuid
         )
-        bubble_texts = []
-        for r in unreplied_rows:
-            try:
-                c = json.loads(r["content"])
-                t = c.get("text", "").strip()
-                if t:
-                    bubble_texts.append(t)
-            except Exception:
-                pass
-
-        if bubble_texts:
-            inbound_text = "\n".join(bubble_texts)
-        else:
+        bubble_texts = [t for t in (message_text(r["content"]).strip() for r in unreplied_rows) if t]
+        if not bubble_texts:
             msg_row = await db.fetchrow(
                 "SELECT content FROM messages WHERE id = $1 AND account_id = $2",
                 msg_uuid, account_uuid
             )
-            try:
-                inbound_text = json.loads(msg_row["content"]).get("text", "")
-            except Exception:
-                inbound_text = ""
+            inbound_text = message_text(msg_row["content"]) if msg_row else ""
             bubble_texts = [inbound_text] if inbound_text else []
 
         # Run the cascade: safety backstop / greeting / router + gates / grounded KB answer.
@@ -824,27 +809,17 @@ async def execute_conversation_cascade(
                     int(convo_row["unanswered_count"]),
                     convo_row["unanswered_window_started_at"],
                 )
-                try:
-                    response = await send_ai_message(
-                        account_uuid, convo_uuid, HANDOFF_ACK_REPLY,
-                        acknowledgement_epoch, "human_review_ack",
-                        f"human-review:{convo_uuid}:{level}:{msg_uuid}",
-                    )
-                    reply_message_id = uuid.UUID(response["id"])
-                except Exception as error:
-                    logger.error("Failed to send human-review acknowledgement: %s", error)
+                reply_message_id = await send_acknowledgement(
+                    account_uuid, convo_uuid, HANDOFF_ACK_REPLY, acknowledgement_epoch,
+                    f"human-review:{convo_uuid}:{level}:{msg_uuid}",
+                )
             elif flag_reason == "escalation" and effective_mode == "auto_send":
                 # One plain acknowledgement, then AI replies on this chat end (review_required).
                 acknowledgement_epoch = await enter_handoff(db, convo_uuid, flag_reason)
-                try:
-                    response = await send_ai_message(
-                        account_uuid, convo_uuid, HANDOFF_ACK_REPLY,
-                        acknowledgement_epoch, "human_review_ack",
-                        f"handoff-ack:{convo_uuid}:{msg_uuid}",
-                    )
-                    reply_message_id = uuid.UUID(response["id"])
-                except Exception as error:
-                    logger.error("Failed to send handoff acknowledgement: %s", error)
+                reply_message_id = await send_acknowledgement(
+                    account_uuid, convo_uuid, HANDOFF_ACK_REPLY, acknowledgement_epoch,
+                    f"handoff-ack:{convo_uuid}:{msg_uuid}",
+                )
             else:
                 # draft_only escalations, and spam in any mode: no customer message, flag for review.
                 await mark_review_required(db, convo_uuid, flag_reason)
@@ -876,15 +851,8 @@ async def execute_conversation_cascade(
                 if flag_reason == "unanswerable" and effective_mode == "auto_send"
                 else "review_required"
             )
-        control_event = {
-            "account_id": str(account_uuid),
-            "conversation_id": str(convo_uuid),
-            "state": final_state,
-            "run_state": "idle",
-        }
-        if soft_flag:
-            control_event["review_flag"] = flag_reason
-        await publish_stream(redis_client, "ai.control.updated", control_event)
+        extra = {"review_flag": flag_reason} if soft_flag else {}
+        await publish_control_update(redis_client, account_uuid, convo_uuid, final_state, **extra)
     except Exception:
         # Never leave the run lock held after a failure: a retry must be admitted
         # immediately instead of waiting for the stale-run reclaim window.
@@ -893,6 +861,10 @@ async def execute_conversation_cascade(
         except Exception:
             logger.exception("Failed to release generation after cascade error for %s", convo_uuid)
         raise
+
+
+class SpamJudgeResponse(BaseModel):
+    verdict: JudgeVerdict
 
 
 async def review_due_cooldown(db_pool, redis_client) -> bool:
@@ -936,23 +908,16 @@ async def review_due_cooldown(db_pool, redis_client) -> bool:
             """,
             conversation_id, account_id,
         )
-        messages = []
-        for item in reversed(history):
-            try:
-                body = json.loads(item["content"]).get("text", "")
-            except Exception:
-                body = ""
-            role = "customer" if item["sender_type"] == "contact" else "support"
-            messages.append((role, body))
+        messages = [
+            ("customer" if item["sender_type"] == "contact" else "support", message_text(item["content"]))
+            for item in reversed(history)
+        ]
         transcript = transcript_within_byte_budget(messages, 1000)
 
-        class SpamJudgeResponse(BaseModel):
-            verdict: Literal["real_customer", "likely_spam"]
-
-        config = await get_ai_config(db)
-        client = provider_client(config)
+        ai_cfg = await get_ai_config(db)
+        client = provider_client(ai_cfg)
         result = await client.complete(
-            config.analysis_model,
+            ai_cfg.analysis_model,
             [{
                 "role": "user",
                 "content": (
@@ -1002,13 +967,7 @@ async def review_due_cooldown(db_pool, redis_client) -> bool:
         conversation_id, account_id, next_state, reason,
         int(row["generation_epoch"]), verdict, int(row["cooldown_level"]),
     )
-    await publish_stream(redis_client, "ai.control.updated", {
-        "account_id": str(account_id),
-        "conversation_id": str(conversation_id),
-        "state": next_state,
-        "state_reason": reason,
-        "run_state": "idle",
-    })
+    await publish_control_update(redis_client, account_id, conversation_id, next_state, state_reason=reason)
     return True
 
 
@@ -1269,40 +1228,18 @@ async def main():
         except (NotImplementedError, RuntimeError):
             pass
 
+    stream_handlers = {
+        "conversation.updated": process_conversation_updated,
+        "conversation.closed": process_conversation_closed,
+        "conversation.summary_requested": process_summary_requested,
+    }
     tasks = [
-        asyncio.create_task(
-            consume_stream(
-                redis_client,
-                db_pool,
-                "conversation.updated",
-                "ai-answer-svc-group",
-                consumer_name,
-                process_conversation_updated,
-                stop_event=stop_event,
-            )
-        ),
-        asyncio.create_task(
-            consume_stream(
-                redis_client,
-                db_pool,
-                "conversation.closed",
-                "ai-answer-svc-group",
-                consumer_name,
-                process_conversation_closed,
-                stop_event=stop_event,
-            )
-        ),
-        asyncio.create_task(
-            consume_stream(
-                redis_client,
-                db_pool,
-                "conversation.summary_requested",
-                "ai-answer-svc-group",
-                consumer_name,
-                process_summary_requested,
-                stop_event=stop_event,
-            )
-        ),
+        asyncio.create_task(consume_stream(
+            redis_client, db_pool, stream, "ai-answer-svc-group", consumer_name, handler, stop_event=stop_event,
+        ))
+        for stream, handler in stream_handlers.items()
+    ]
+    tasks += [
         asyncio.create_task(cooldown_scheduler(db_pool, redis_client, stop_event=stop_event)),
         asyncio.create_task(debounce_scheduler(db_pool, redis_client, stop_event=stop_event)),
     ]

@@ -20,7 +20,7 @@ from typing import Any, Literal, Optional
 from pydantic import Field, create_model
 
 from config import config
-from db import ScopedDB, json_object, load_account_settings
+from db import ScopedDB, json_object, load_account_settings, message_text
 from llm import get_ai_config, provider_client
 from plain_text import normalize_plain_text
 from untrusted import normalize_text, sanitize_untrusted
@@ -144,12 +144,8 @@ def validate_summary(schema: list[SchemaField], data: Any) -> dict[str, str]:
 def build_transcript(rows) -> str:
     lines = []
     for row in rows:
-        try:
-            text = json.loads(row["content"]).get("text", "")
-        except Exception:
-            continue
         # One line per message so customer text cannot fabricate "Agent: ..." speaker lines.
-        text = sanitize_untrusted(text, max_chars=MAX_MESSAGE_CHARS) if isinstance(text, str) else ""
+        text = sanitize_untrusted(message_text(row["content"]), max_chars=MAX_MESSAGE_CHARS)
         text = re.sub(r"\s+", " ", text).strip()
         if not text:
             continue
