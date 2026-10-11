@@ -295,6 +295,5 @@ async def update_pattern(
         pattern_uuid=pattern_uuid,
         req=req,
         actor_user_id=actor_user_id,
-        client_factory=provider_client,
     )
     return {"success": True, "pattern": updated}

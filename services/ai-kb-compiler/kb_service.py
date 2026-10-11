@@ -78,20 +78,8 @@ async def create_ingestion(
     return ingestion_payload(row)
 
 
-async def get_latest_ingestion(db: ScopedDB) -> Optional[dict[str, Any]]:
-    row = await db.fetchrow(
-        """
-        SELECT id, status, error, created_at, updated_at, completed_at
-        FROM kb_ingestions
-        WHERE account_id = $1
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        db.account_id,
-    )
-    if not row:
-        return None
-
+async def _ingestion_with_drafts(db: ScopedDB, row) -> dict[str, Any]:
+    """The ingestion payload including its draft concepts and patterns."""
     concepts = await db.fetch(
         """
         SELECT id, position, type, title, tags, body_text, status, concept_id
@@ -111,6 +99,22 @@ async def get_latest_ingestion(db: ScopedDB) -> Optional[dict[str, Any]]:
         row["id"],
     )
     return ingestion_payload(row, concepts, patterns)
+
+
+async def get_latest_ingestion(db: ScopedDB) -> Optional[dict[str, Any]]:
+    row = await db.fetchrow(
+        """
+        SELECT id, status, error, created_at, updated_at, completed_at
+        FROM kb_ingestions
+        WHERE account_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        db.account_id,
+    )
+    if not row:
+        return None
+    return await _ingestion_with_drafts(db, row)
 
 
 async def get_ingestion(db: ScopedDB, ingestion_id: uuid.UUID) -> dict[str, Any]:
@@ -125,26 +129,7 @@ async def get_ingestion(db: ScopedDB, ingestion_id: uuid.UUID) -> dict[str, Any]
     )
     if not row:
         raise HTTPException(status_code=404, detail="Knowledge ingestion not found")
-
-    concepts = await db.fetch(
-        """
-        SELECT id, position, type, title, tags, body_text, status, concept_id
-        FROM kb_ingestion_items
-        WHERE ingestion_id = $1
-        ORDER BY position
-        """,
-        ingestion_id,
-    )
-    patterns = await db.fetch(
-        """
-        SELECT id, position, canonical_question, answer_text, trigger_phrases, not_for, status, pattern_id
-        FROM kb_ingestion_patterns
-        WHERE ingestion_id = $1
-        ORDER BY position
-        """,
-        ingestion_id,
-    )
-    return ingestion_payload(row, concepts, patterns)
+    return await _ingestion_with_drafts(db, row)
 
 
 async def publish_ingestion(
@@ -375,64 +360,46 @@ async def purge_knowledge_base(
     db: ScopedDB,
     actor_user_id: Optional[uuid.UUID] = None
 ) -> dict[str, Any]:
-    async with db.pool.acquire() as conn:
-        async with conn.transaction():
-            active_ingestion = await conn.fetchval(
-                """
-                SELECT id FROM kb_ingestions
-                WHERE account_id = $1
-                  AND status IN ('queued', 'processing', 'review_required', 'publishing')
-                ORDER BY created_at DESC
-                LIMIT 1
-                FOR UPDATE
-                """,
-                db.account_id,
+    async with db.transaction() as tx:
+        active_ingestion = await tx.fetchval(
+            """
+            SELECT id FROM kb_ingestions
+            WHERE account_id = $1
+              AND status IN ('queued', 'processing', 'review_required', 'publishing')
+            ORDER BY created_at DESC
+            LIMIT 1
+            FOR UPDATE
+            """,
+            db.account_id,
+        )
+        if active_ingestion:
+            raise HTTPException(
+                status_code=409,
+                detail="Finish the active knowledge ingestion before purging the knowledge base.",
             )
-            if active_ingestion:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Finish the active knowledge ingestion before purging the knowledge base.",
-                )
 
-            if actor_user_id:
-                user_exists = await conn.fetchval(
-                    "SELECT 1 FROM users WHERE id = $1 AND account_id = $2",
-                    actor_user_id,
-                    db.account_id,
-                )
-                if not user_exists:
-                    actor_user_id = None
-
-            cleared_concepts = await conn.fetchval(
-                """
-                WITH deleted AS (
-                    DELETE FROM kb_concepts WHERE account_id = $1 RETURNING 1
-                )
-                SELECT count(*) FROM deleted
-                """,
-                db.account_id,
+        cleared_concepts = await tx.fetchval(
+            """
+            WITH deleted AS (
+                DELETE FROM kb_concepts WHERE account_id = $1 RETURNING 1
             )
-            cleared_patterns = await conn.fetchval(
-                """
-                WITH deleted AS (
-                    DELETE FROM patterns WHERE account_id = $1 RETURNING 1
-                )
-                SELECT count(*) FROM deleted
-                """,
-                db.account_id,
+            SELECT count(*) FROM deleted
+            """,
+            db.account_id,
+        )
+        cleared_patterns = await tx.fetchval(
+            """
+            WITH deleted AS (
+                DELETE FROM patterns WHERE account_id = $1 RETURNING 1
             )
-            await conn.execute(
-                """
-                INSERT INTO audit_logs (account_id, actor_user_id, action, target_type, metadata)
-                VALUES ($1, $2, 'knowledge_base.purged', 'knowledge_base', $3)
-                """,
-                db.account_id,
-                actor_user_id,
-                json.dumps({
-                    "cleared_concepts": cleared_concepts,
-                    "cleared_patterns": cleared_patterns,
-                }),
-            )
+            SELECT count(*) FROM deleted
+            """,
+            db.account_id,
+        )
+        await write_audit_log(
+            tx, actor_user_id, "knowledge_base.purged", "knowledge_base",
+            metadata={"cleared_concepts": cleared_concepts, "cleared_patterns": cleared_patterns},
+        )
 
     return {
         "success": True,
@@ -504,29 +471,22 @@ async def update_concept(
     new_body = req.body_text if req.body_text is not None else row["body_text"]
     new_tags = req.tags if req.tags is not None else row["tags"]
 
+    # Only re-embed when the embedded text changed; a NULL vector keeps the stored embedding.
+    vector_str = None
     if new_title != row["title"] or new_body != row["body_text"]:
         vector_str = await _embed_or_fail(
             db, client_factory, f"{new_title}\n{new_body}", "concept", concept_uuid
         )
-        updated = await db.fetchrow(
-            """
-            UPDATE kb_concepts
-            SET title = $1, type = $2, body_text = $3, tags = $4, embedding = $5::vector, updated_at = NOW()
-            WHERE id = $6 AND account_id = $7
-            RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
-            """,
-            new_title, new_type, new_body, new_tags, vector_str, concept_uuid, db.account_id
-        )
-    else:
-        updated = await db.fetchrow(
-            """
-            UPDATE kb_concepts
-            SET title = $1, type = $2, body_text = $3, tags = $4, updated_at = NOW()
-            WHERE id = $5 AND account_id = $6
-            RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
-            """,
-            new_title, new_type, new_body, new_tags, concept_uuid, db.account_id
-        )
+    updated = await db.fetchrow(
+        """
+        UPDATE kb_concepts
+        SET title = $1, type = $2, body_text = $3, tags = $4,
+            embedding = COALESCE($5::vector, embedding), updated_at = NOW()
+        WHERE id = $6 AND account_id = $7
+        RETURNING id, slug, type, title, tags, body_text, source, created_at, updated_at
+        """,
+        new_title, new_type, new_body, new_tags, vector_str, concept_uuid, db.account_id
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Concept not found")
 
@@ -621,7 +581,6 @@ async def update_pattern(
     pattern_uuid: uuid.UUID,
     req: UpdatePatternRequest,
     actor_user_id: Optional[uuid.UUID] = None,
-    client_factory: Callable = provider_client,
 ) -> dict[str, Any]:
     """Owner edit of an approved FAQ. FAQs are no longer embedded, so no provider call is needed."""
     row = await db.fetchrow(

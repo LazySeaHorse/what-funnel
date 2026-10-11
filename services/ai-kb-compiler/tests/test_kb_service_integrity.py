@@ -82,7 +82,6 @@ async def test_update_pattern_needs_no_provider_and_normalizes_fields():
         updated = await kb_service.update_pattern(
             db, pattern_id,
             UpdatePatternRequest(answer_text="At 10", trigger_phrases=["  Open  Hours ", "open hours", ""], not_for="  holiday   hours "),
-            client_factory=lambda _: failing_provider(),  # FAQs are not embedded: never called
         )
         assert updated["answer_text"] == "At 10"
         assert updated["trigger_phrases"] == ["open hours"]
