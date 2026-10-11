@@ -1,3 +1,4 @@
+// Package db connects to Postgres; generated queries live in dbgen.
 package db
 
 import (

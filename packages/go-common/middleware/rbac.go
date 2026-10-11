@@ -145,11 +145,11 @@ func (m *SessionMiddleware) RequireAuthenticated(next http.Handler) http.Handler
 		}
 
 		ctx := r.Context()
-		ctx = withValue(ctx, types.ContextKeyUserID, userID)
-		ctx = withValue(ctx, types.ContextKeyAccountID, accountID)
-		ctx = withValue(ctx, types.ContextKeyUserRole, role)
+		ctx = context.WithValue(ctx, types.ContextKeyUserID, userID)
+		ctx = context.WithValue(ctx, types.ContextKeyAccountID, accountID)
+		ctx = context.WithValue(ctx, types.ContextKeyUserRole, role)
 		if username != "" {
-			ctx = withValue(ctx, types.ContextKeyUsername, username)
+			ctx = context.WithValue(ctx, types.ContextKeyUsername, username)
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -177,14 +177,9 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireManager is a convenience wrapper for RequireRole(manager).
-func RequireManager(next http.Handler) http.Handler {
-	return RequireRole(types.RoleManager)(next)
-}
-
-// RequireAdmin is an alias for RequireManager.
+// RequireAdmin allows only managers (the workspace's admin role).
 func RequireAdmin(next http.Handler) http.Handler {
-	return RequireManager(next)
+	return RequireRole(types.RoleManager)(next)
 }
 
 // RequireProductMode rejects requests if the account's product mode is not in the allowed list.

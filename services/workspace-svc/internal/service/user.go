@@ -2,12 +2,9 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
@@ -86,43 +83,4 @@ func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, t
 // ChangeUserRole updates the role of targetUserID within the given account and revokes old sessions via IdentityProvisioner.
 func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newRole string) error {
 	return svc.identity.ChangeUserRole(ctx, accountID, actorID, targetUserID, newRole)
-}
-
-// VerifyUserBelongsToAccount is a convenience helper used in tests.
-func (svc *Service) VerifyUserBelongsToAccount(ctx context.Context, accountID, userID uuid.UUID) (bool, error) {
-	count, err := dbgen.New(svc.pool).CountUserInAccount(ctx, dbgen.CountUserInAccountParams{
-		ID:        userID,
-		AccountID: accountID,
-	})
-	return count > 0, err
-}
-
-// GetUserByID retrieves a user by ID, scoped to an account.
-func (svc *Service) GetUserByID(ctx context.Context, accountID, userID uuid.UUID) (*types.User, error) {
-	row, err := dbgen.New(svc.pool).GetUserByID(ctx, dbgen.GetUserByIDParams{
-		ID:        userID,
-		AccountID: accountID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, err
-	}
-
-	u := &types.User{
-		ID:        row.ID,
-		AccountID: row.AccountID,
-		Email:     row.Email,
-		Username:  row.Username,
-		Role:      row.Role,
-		CreatedAt: row.CreatedAt,
-	}
-
-	// Verify timestamp is set
-	if u.CreatedAt.IsZero() {
-		u.CreatedAt = time.Now()
-	}
-
-	return u, nil
 }

@@ -5,8 +5,6 @@
 package service
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -83,15 +81,6 @@ func durationFromEnv(name string, fallback time.Duration) time.Duration {
 // Pool returns the underlying database connection pool.
 func (svc *Service) Pool() *pgxpool.Pool {
 	return svc.pool
-}
-
-// generateToken creates a cryptographically random URL-safe token.
-func generateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // parseSettings safely unmarshals an accounts.settings JSONB blob into a
