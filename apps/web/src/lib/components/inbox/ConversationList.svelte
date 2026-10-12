@@ -6,7 +6,7 @@
     getContactName,
     getSnippet,
   } from "$lib/inbox/presentation";
-  import { getLeadStateInfo } from "$lib/components/leads/presentation";
+  import { defaultPipelineStages, getLeadStateInfo } from "$lib/components/leads/presentation";
   import LeadStateBadge from "$lib/components/LeadStateBadge.svelte";
   import UserAvatar from "$lib/components/UserAvatar.svelte";
   import {
@@ -43,15 +43,7 @@
   } = $props();
   let showFilterMenu = $state(false);
   let availableStates = $derived(
-    pipelineStates.length
-      ? pipelineStates
-      : [
-          { key: "new", label: "New Lead" },
-          { key: "contacted", label: "Contacted" },
-          { key: "follow_up", label: "Follow-up" },
-          { key: "won", label: "Won" },
-          { key: "lost", label: "Lost" },
-        ],
+    pipelineStates.length ? pipelineStates : defaultPipelineStages,
   );
   function changeState(state: string) {
     showFilterMenu = false;
