@@ -298,9 +298,6 @@
 		<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 			<div>
 				<h1 class="text-2xl font-medium text-slate-900 tracking-tight">Knowledge base</h1>
-				<p class="text-xs text-slate-500 mt-0.5">
-					Manage business facts, policies, and deterministic answers for your AI assistant.
-				</p>
 			</div>
 
 			<div class="flex flex-wrap items-center gap-2">

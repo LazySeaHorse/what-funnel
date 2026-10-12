@@ -128,7 +128,6 @@
 	<header class="px-6 pt-5 pb-3 border-b border-slate-100 shrink-0 space-y-3.5 bg-white">
 		<div>
 			<h1 class="text-2xl font-medium text-slate-900 tracking-tight">Logs</h1>
-			<p class="text-xs text-slate-500 mt-0.5">Audit trail of who changed what in your workspace.</p>
 		</div>
 		<form
 			class="grid grid-cols-2 lg:grid-cols-5 gap-3 items-end"
