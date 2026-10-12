@@ -7,8 +7,7 @@
 		LockClosedIcon,
 		EyeIcon,
 		EyeSlashIcon,
-		ExclamationCircleIcon,
-		InformationCircleIcon
+		ExclamationCircleIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import { Button, Input } from '$lib/components/ui';
 	import WorkspaceTypeSelector from '$lib/components/WorkspaceTypeSelector.svelte';
@@ -20,7 +19,6 @@
 	let showPassword = $state(false);
 	let error = $state('');
 	let loading = $state(false);
-	let toastMessage = $state('');
 
 	async function handleSignup(e: Event) {
 		e.preventDefault();
@@ -48,14 +46,6 @@
 <svelte:head>
 	<title>Create account — What Funnel</title>
 </svelte:head>
-
-{#if toastMessage}
-	<div class="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all">
-		<InformationCircleIcon class="w-4 h-4 text-blue-400 shrink-0" />
-		<span>{toastMessage}</span>
-		<button type="button" onclick={() => toastMessage = ''} class="ml-2 text-slate-400 hover:text-white" aria-label="Close notification">×</button>
-	</div>
-{/if}
 
 <div class="wf-card w-full max-w-[460px] p-6 sm:p-9 shadow-sm sm:shadow-xs">
 					
