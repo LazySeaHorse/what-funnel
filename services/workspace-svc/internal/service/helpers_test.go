@@ -178,22 +178,6 @@ func TestParseOnboardingState(t *testing.T) {
 	}
 }
 
-func TestMarshalAny(t *testing.T) {
-	assert.Nil(t, marshalAny(nil))
-
-	m := map[string]string{"foo": "bar"}
-	b := marshalAny(m)
-	assert.NotNil(t, b)
-
-	var recovered map[string]string
-	err := json.Unmarshal(b, &recovered)
-	assert.NoError(t, err)
-	assert.Equal(t, m, recovered)
-
-	// Test with cyclic or invalid type
-	assert.Nil(t, marshalAny(make(chan int)))
-}
-
 func TestSortedTemplates(t *testing.T) {
 	// SortedTemplates must have the same count as Templates
 	assert.Equal(t, len(onboarding.Templates), len(onboarding.SortedTemplates))

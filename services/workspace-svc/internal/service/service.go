@@ -116,16 +116,3 @@ func boolSetting(settings map[string]any, key string, defaultVal bool) bool {
 	}
 	return b
 }
-
-// marshalAny round-trips an any value through JSON to produce []byte suitable
-// for parseSettings. Returns nil (which parseSettings handles gracefully) on error.
-func marshalAny(v any) []byte {
-	if v == nil {
-		return nil
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return b
-}
