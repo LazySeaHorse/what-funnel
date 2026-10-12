@@ -90,7 +90,7 @@ func (s *IngestionService) IngestProviderEvent(ctx context.Context, event messag
 	result := providerEventResult{accountID: accountID}
 	switch event.Kind {
 	case messaging.EventMessageCreated:
-		result, err = ingestProviderMessage(ctx, tx, s.pipelineResolver, accountID, channelID, event)
+		result, err = upsertProviderMessage(ctx, tx, s.pipelineResolver, accountID, channelID, event)
 	case messaging.EventMessageEdited:
 		result, err = editProviderMessage(ctx, tx, accountID, channelID, event)
 	case messaging.EventMessageDeleted:
@@ -119,19 +119,6 @@ func (s *IngestionService) IngestProviderEvent(ctx context.Context, event messag
 		})
 	}
 	return nil
-}
-
-func ingestProviderMessage(
-	ctx context.Context,
-	tx pgx.Tx,
-	resolver PipelineResolver,
-	accountID, channelID uuid.UUID,
-	event messaging.Event,
-) (providerEventResult, error) {
-	if event.Message == nil {
-		return providerEventResult{}, messaging.ErrInvalidEnvelope
-	}
-	return upsertProviderMessage(ctx, tx, resolver, accountID, channelID, event)
 }
 
 func upsertProviderMessage(
@@ -171,7 +158,7 @@ func upsertProviderMessage(
 		return providerEventResult{accountID: accountID, conversationID: conversationID, messageID: localMessageID}, nil
 	}
 
-	_, conversationID, isNew, err := upsertProviderConversation(ctx, tx, accountID, channelID, *message)
+	conversationID, isNew, err := upsertProviderConversation(ctx, tx, accountID, channelID, *message)
 	if err != nil {
 		return providerEventResult{}, err
 	}
@@ -181,7 +168,13 @@ func upsertProviderMessage(
 		}
 	}
 
-	content, err := providerMessageContent(*message, uuid.Nil)
+	// The media row is inserted after the message (it references it), but the
+	// message content must already carry its ID, so allocate it up front.
+	var mediaID uuid.UUID
+	if message.Media != nil {
+		mediaID = uuid.New()
+	}
+	content, err := providerMessageContent(*message, mediaID)
 	if err != nil {
 		return providerEventResult{}, err
 	}
@@ -224,7 +217,7 @@ func upsertProviderMessage(
 	if err != nil {
 		return providerEventResult{}, fmt.Errorf("insert provider message: %w", err)
 	}
-	if err := insertProviderMedia(ctx, tx, accountID, channelID, messageID, message); err != nil {
+	if err := insertProviderMedia(ctx, tx, accountID, channelID, messageID, mediaID, message.Media); err != nil {
 		return providerEventResult{}, err
 	}
 	// last_message_at is already advanced by the conversation upsert. A new
@@ -248,7 +241,7 @@ func upsertProviderConversation(
 	tx pgx.Tx,
 	accountID, channelID uuid.UUID,
 	message messaging.Message,
-) (uuid.UUID, uuid.UUID, bool, error) {
+) (uuid.UUID, bool, error) {
 	displayName := message.Sender.DisplayName
 	if message.Direction == messaging.DirectionOutbound {
 		displayName = ""
@@ -263,7 +256,7 @@ func upsertProviderConversation(
 		RETURNING id
 	`, accountID, channelID, message.ExternalThreadID, displayName, message.Sender.AvatarURL).Scan(&contactID)
 	if err != nil {
-		return uuid.Nil, uuid.Nil, false, fmt.Errorf("upsert provider contact: %w", err)
+		return uuid.Nil, false, fmt.Errorf("upsert provider contact: %w", err)
 	}
 
 	var conversationID uuid.UUID
@@ -278,9 +271,9 @@ func upsertProviderConversation(
 		RETURNING id, (xmax = 0) AS is_new
 	`, accountID, contactID, channelID, message.ExternalThreadID, message.ProviderTimestamp).Scan(&conversationID, &isNew)
 	if err != nil {
-		return uuid.Nil, uuid.Nil, false, fmt.Errorf("upsert provider conversation: %w", err)
+		return uuid.Nil, false, fmt.Errorf("upsert provider conversation: %w", err)
 	}
-	return contactID, conversationID, isNew, nil
+	return conversationID, isNew, nil
 }
 
 func providerMessageContent(message messaging.Message, mediaID uuid.UUID) ([]byte, error) {
@@ -298,37 +291,31 @@ func providerMessageContent(message messaging.Message, mediaID uuid.UUID) ([]byt
 	return data, nil
 }
 
+// insertProviderMedia records the media object whose ID the message content
+// already references. It does nothing for a message without media.
 func insertProviderMedia(
 	ctx context.Context,
 	tx pgx.Tx,
-	accountID, channelID, messageID uuid.UUID,
-	message *messaging.Message,
+	accountID, channelID, messageID, mediaID uuid.UUID,
+	media *messaging.Media,
 ) error {
-	if message.Media == nil {
+	if media == nil {
 		return nil
 	}
-	retention, err := messaging.RetentionForSize(message.Media.SizeBytes)
+	retention, err := messaging.RetentionForSize(media.SizeBytes)
 	if err != nil {
 		return err
 	}
-	mediaID := uuid.New()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO media_objects (
 			id, account_id, message_id, channel_id, provider_ref, filename,
 			mime_type, size_bytes, expires_at
 		)
 		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9)
-	`, mediaID, accountID, messageID, channelID, message.Media.ProviderRef,
-		message.Media.Filename, message.Media.MIMEType, message.Media.SizeBytes,
+	`, mediaID, accountID, messageID, channelID, media.ProviderRef,
+		media.Filename, media.MIMEType, media.SizeBytes,
 		time.Now().UTC().Add(retention)); err != nil {
 		return fmt.Errorf("insert provider media: %w", err)
-	}
-	content, err := providerMessageContent(*message, mediaID)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE messages SET content = $1 WHERE id = $2`, content, messageID); err != nil {
-		return fmt.Errorf("attach provider media: %w", err)
 	}
 	return nil
 }
