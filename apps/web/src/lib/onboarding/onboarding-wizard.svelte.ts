@@ -110,10 +110,7 @@ export class OnboardingWizardController {
 	}
 
 	get visibleStepItems(): StepItem[] {
-		let items = STEP_ITEMS;
-		if (this.productMode === 'chatbot_only') {
-			items = items.filter((item) => item.num !== 3 && item.num !== 4);
-		}
+		let items = STEP_ITEMS.filter((item) => !this.isWorkspaceOnlyStep(item.num));
 		if (this.aiMode === 'manual') {
 			items = items.filter((item) => item.num !== 6);
 		}
@@ -231,7 +228,7 @@ export class OnboardingWizardController {
 				}
 			}
 
-			if (this.productMode === 'chatbot_only' && (this.stepNum === 3 || this.stepNum === 4)) {
+			if (this.isWorkspaceOnlyStep(this.stepNum)) {
 				await this.skipWorkspaceOnlySteps();
 				await this.goToStep(5);
 				return;
@@ -249,7 +246,7 @@ export class OnboardingWizardController {
 	}
 
 	async goToStep(num: number): Promise<void> {
-		if (this.productMode === 'chatbot_only' && (num === 3 || num === 4)) {
+		if (this.isWorkspaceOnlyStep(num)) {
 			num = 5;
 		}
 		this.internalStepNum = num;
@@ -258,8 +255,8 @@ export class OnboardingWizardController {
 
 	async skipWorkspaceOnlySteps(): Promise<void> {
 		await Promise.all([
-			this.request('/onboarding/status', { method: 'PATCH', body: { step: 'pipeline_setup', action: 'skip' } }),
-			this.request('/onboarding/status', { method: 'PATCH', body: { step: 'team_setup', action: 'skip' } })
+			this.markStep('pipeline_setup', 'skip'),
+			this.markStep('team_setup', 'skip')
 		]);
 	}
 
@@ -304,6 +301,15 @@ export class OnboardingWizardController {
 		}
 	}
 
+	private markStep(step: string, action: 'complete' | 'skip'): Promise<unknown> {
+		return this.request('/onboarding/status', { method: 'PATCH', body: { step, action } });
+	}
+
+	// Chatbot-only workspaces have no pipeline or team steps (3 and 4).
+	private isWorkspaceOnlyStep(num: number): boolean {
+		return this.productMode === 'chatbot_only' && (num === 3 || num === 4);
+	}
+
 	private warn(message: string, cause: unknown): void {
 		console.error(message, cause);
 		this.warning = message;
@@ -341,10 +347,7 @@ export class OnboardingWizardController {
 
 	async handleKnowledgeIngestionResult(result: IngestionResult): Promise<void> {
 		if (result.status !== 'complete') return;
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'kb_setup', action: 'complete' }
-		});
+		await this.markStep('kb_setup', 'complete');
 		await this.goToStep(7);
 	}
 
@@ -359,10 +362,7 @@ export class OnboardingWizardController {
 
 	async startCompilingKB(): Promise<void> {
 		if (!this.rawText.trim()) {
-			await this.request('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: 'kb_setup', action: 'skip' }
-			});
+			await this.markStep('kb_setup', 'skip');
 			await this.goToStep(7);
 			return;
 		}
@@ -412,19 +412,13 @@ export class OnboardingWizardController {
 			this.slug = slugify(this.businessName);
 		}
 
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'business_basics', action: 'complete' }
-		});
+		await this.markStep('business_basics', 'complete');
 
 		await this.goToStep(2);
 	}
 
 	async saveChannels(): Promise<void> {
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'channel_connect', action: this.channels.some((channel) => channel.connected) ? 'complete' : 'skip' }
-		});
+		await this.markStep('channel_connect', this.channels.some((channel) => channel.connected) ? 'complete' : 'skip');
 
 		if (this.productMode === 'chatbot_only') {
 			await this.skipWorkspaceOnlySteps();
@@ -446,10 +440,7 @@ export class OnboardingWizardController {
 			}
 		});
 
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'pipeline_setup', action: 'complete' }
-		});
+		await this.markStep('pipeline_setup', 'complete');
 
 		await this.goToStep(4);
 	}
@@ -462,10 +453,7 @@ export class OnboardingWizardController {
 		});
 		this.slug = effectiveSlug;
 
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'team_setup', action: this.users.length > 0 ? 'complete' : 'skip' }
-		});
+		await this.markStep('team_setup', this.users.length > 0 ? 'complete' : 'skip');
 
 		await this.goToStep(5);
 	}
@@ -495,16 +483,10 @@ export class OnboardingWizardController {
 			body: { ai_enabled: this.aiMode !== 'manual', ai_reply_mode_default: replyMode }
 		});
 
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'reply_mode', action: 'complete' }
-		});
+		await this.markStep('reply_mode', 'complete');
 
 		if (this.aiMode === 'manual') {
-			await this.request('/onboarding/status', {
-				method: 'PATCH',
-				body: { step: 'kb_setup', action: 'skip' }
-			});
+			await this.markStep('kb_setup', 'skip');
 			await this.goToStep(7);
 		} else {
 			await this.goToStep(6);
@@ -520,15 +502,9 @@ export class OnboardingWizardController {
 	}
 
 	async finishReview(): Promise<void> {
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'review_finish', action: 'complete' }
-		});
+		await this.markStep('review_finish', 'complete');
 
-		await this.request('/onboarding/status', {
-			method: 'PATCH',
-			body: { step: 'done', action: 'complete' }
-		});
+		await this.markStep('done', 'complete');
 
 		await this.goToStep(8);
 	}
