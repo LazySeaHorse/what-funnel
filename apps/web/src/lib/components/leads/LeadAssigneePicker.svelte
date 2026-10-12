@@ -1,6 +1,7 @@
 <script lang="ts">
 	import UserAvatar from '../UserAvatar.svelte';
 	import { Popover } from '$lib/components/ui';
+	import { userDisplayName } from '$lib/workspace.svelte';
 
 	let {
 		users = [],
@@ -12,10 +13,6 @@
 		onToggle: (userID: string) => void | Promise<void>;
 	} = $props();
 	let open = $state(false);
-
-	function getUserDisplayName(user?: any): string {
-		return user?.name?.trim() || user?.username?.trim() || user?.email?.trim() || 'User';
-	}
 </script>
 
 <div class="space-y-1.5">
@@ -23,7 +20,7 @@
 	<div class="flex items-center gap-2">
 		{#each assignedUserIds as id (id)}
 			{@const user = users.find((item) => item.id === id)}
-			<UserAvatar name={getUserDisplayName(user)} avatar={user?.avatar_url || ''} size="md" class="ring-2 ring-white" />
+			<UserAvatar name={userDisplayName(user)} avatar={user?.avatar_url || ''} size="md" class="ring-2 ring-white" />
 		{/each}
 		{#if assignedUserIds.length === 0}<span class="text-xs text-slate-400">Unassigned</span>{/if}
 		<Popover bind:open width="w-52">
@@ -42,7 +39,7 @@
 			<div class="px-3 py-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider border-b border-slate-100">Assign team member</div>
 			{#each users as user (user.id)}
 				{@const assigned = assignedUserIds.includes(user.id)}
-				{@const displayName = getUserDisplayName(user)}
+				{@const displayName = userDisplayName(user)}
 				<button
 					type="button"
 					onclick={() => void onToggle(user.id)}

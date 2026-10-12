@@ -1,6 +1,15 @@
 import { apiRequest } from '$lib/api';
 import { getUICapabilities, type UICapabilities } from '$lib/ui-capabilities';
 
+/**
+ * Name to show for a user: name, then username, then email (or just its local
+ * part when `emailLocalPart` is set), then "User".
+ */
+export function userDisplayName(user?: any, { emailLocalPart = false } = {}): string {
+	const email = emailLocalPart ? user?.email?.split('@')[0] : user?.email?.trim();
+	return user?.name?.trim() || user?.username?.trim() || email || 'User';
+}
+
 function normalizeUser(user: any) {
 	if (!user || typeof user !== 'object') return user;
 	return {

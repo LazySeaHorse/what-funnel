@@ -15,6 +15,7 @@
   } from "@fvilers/heroicons-svelte/24/outline";
   import LeadsView from "./LeadsView.svelte";
   import { getLeadStateInfo } from "./presentation";
+  import { userDisplayName } from "$lib/workspace.svelte";
   import type { LeadEditor } from "$lib/leads/lead-editor.svelte";
 
   let {
@@ -73,7 +74,7 @@
           assignees: (conversation.assigned_user_ids || []).map(
             (userID: string) => {
               const user = users.find((item) => item.id === userID);
-              const displayName = user?.name?.trim() || user?.username?.trim() || user?.email?.split("@")[0] || "User";
+              const displayName = userDisplayName(user, { emailLocalPart: true });
               return {
                 id: userID,
                 name: displayName,
@@ -226,7 +227,7 @@
                   ><option value="all">All Assignees</option><option
                     value="unassigned">Unassigned</option
                   >{#each users as user}<option value={user.id}
-                      >{user.name?.trim() || user.username?.trim() || user.email || "User"}</option
+                      >{userDisplayName(user)}</option
                     >{/each}</select
                 >
               </div>{/if}
