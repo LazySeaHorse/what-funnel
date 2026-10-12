@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { TrashIcon, PlusIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import { Button, Input } from '$lib/components/ui';
-	type Stage = { key: string; label: string; color: string };
-	let { step, totalSteps, stages = $bindable() }: { step: number; totalSteps: number; stages: Stage[] } = $props();
+	import { newPipelineStage, type PipelineStage } from '$lib/pipeline';
+	let { step, totalSteps, stages = $bindable() }: { step: number; totalSteps: number; stages: PipelineStage[] } = $props();
 	function add() {
-		const colors = ['#C27AFF', '#0057D0', '#FB64B6', '#9AE600', '#7E22CE', '#0046A8'];
-		const nextKey = `stage_${Date.now()}_${stages.length + 1}`;
-		stages = [...stages, { key: nextKey, label: 'New Stage', color: colors[stages.length % colors.length] }];
+		stages = [...stages, newPipelineStage(stages)];
 	}
 	function remove(index: number) {
 		if (stages.length > 1) stages = stages.filter((_, itemIndex) => itemIndex !== index);

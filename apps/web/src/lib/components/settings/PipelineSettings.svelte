@@ -8,6 +8,7 @@
     PlusIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import { Button, Input } from "$lib/components/ui";
+  import { newPipelineStage, sanitizePipelineStages } from "$lib/pipeline";
   import type { WorkspaceState } from "$lib/workspace.svelte";
 
   let { workspace }: { workspace?: WorkspaceState } = $props();
@@ -52,47 +53,7 @@
   }
 
   function addState() {
-    const colors = [
-      "#C27AFF",
-      "#0057D0",
-      "#FB64B6",
-      "#9AE600",
-      "#7E22CE",
-      "#0046A8",
-    ];
-    const nextKey = `stage_${Date.now()}_${states.length + 1}`;
-    states = [
-      ...states,
-      {
-        key: nextKey,
-        label: "New Stage",
-        color: colors[states.length % colors.length],
-      },
-    ];
-  }
-
-  function sanitizeStates(rawStates: any[]) {
-    const usedKeys = new Set<string>();
-    return rawStates.map((s, idx) => {
-      const slug = (s.label || "")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "");
-      const baseKey = slug || s.key || `stage_${idx + 1}`;
-      let key = baseKey;
-      let counter = 1;
-      while (usedKeys.has(key)) {
-        counter++;
-        key = `${baseKey}_${counter}`;
-      }
-      usedKeys.add(key);
-      return {
-        key,
-        label: (s.label || "").trim() || "Stage",
-        color: s.color || "#3B82F6",
-      };
-    });
+    states = [...states, newPipelineStage(states)];
   }
 
   async function savePipeline() {
@@ -101,7 +62,7 @@
     error = "";
     success = "";
     try {
-      const preparedStates = sanitizeStates(states);
+      const preparedStates = sanitizePipelineStages(states);
       await apiRequest(`/workspace/pipelines/${pipeline.id}`, {
         method: "PUT",
         body: { name: pipeline.name, states: preparedStates },

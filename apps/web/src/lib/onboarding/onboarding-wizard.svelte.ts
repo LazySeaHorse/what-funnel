@@ -2,6 +2,7 @@ import { goto } from '$app/navigation';
 import { apiRequest, type ApiRequestOptions } from '$lib/api';
 import { decodeWorkspaceSettings } from '$lib/workspace-settings';
 import { normalizeSavedTimeZone } from '$lib/timezones';
+import { sanitizePipelineStages } from '$lib/pipeline';
 import { DEFAULT_AI_PROVIDER_CONFIG, applyAIProviderStatus, saveAIProviderConfig } from '$lib/ai-provider';
 import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
 import type { IngestionResult } from '$lib/knowledge/ingestion';
@@ -47,26 +48,6 @@ export function slugify(name: string): string {
 		.trim()
 		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/^-+|-+$/g, '');
-}
-
-export function sanitizePipelineStages(stages: PipelineStage[]): PipelineStage[] {
-	const usedKeys = new Set<string>();
-	return stages.map((s, idx) => {
-		const slug = (s.label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-		const baseKey = slug || s.key || `stage_${idx + 1}`;
-		let key = baseKey;
-		let counter = 1;
-		while (usedKeys.has(key)) {
-			counter++;
-			key = `${baseKey}_${counter}`;
-		}
-		usedKeys.add(key);
-		return {
-			key,
-			label: (s.label || '').trim() || 'Stage',
-			color: s.color || '#3B82F6'
-		};
-	});
 }
 
 export class OnboardingWizardController {

@@ -14,11 +14,7 @@ export interface OnboardingChannel {
 	color: string;
 }
 
-export interface PipelineStage {
-	key: string;
-	label: string;
-	color: string;
-}
+export type { PipelineStage } from '$lib/pipeline';
 
 export interface OnboardingUser {
 	id: string;
