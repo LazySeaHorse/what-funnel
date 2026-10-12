@@ -41,7 +41,6 @@ export class SimulatorController {
   private refreshTimers = new Set<ReturnType<typeof setTimeout>>();
   private polling = false;
   private conversationLoadVersion = 0;
-  private sentHandler: (() => void) | null = null;
 
   get selectedContact() {
     return (
@@ -69,9 +68,6 @@ export class SimulatorController {
       await this.refreshCurrentConversation();
       this.schedulePoll();
     })();
-
-    this.sentHandler = () => void this.refreshCurrentConversation(false);
-    window.addEventListener("dev-message-sent", this.sentHandler);
   }
 
   dispose() {
@@ -81,9 +77,6 @@ export class SimulatorController {
     this.pollTimer = null;
     for (const timer of this.refreshTimers) clearTimeout(timer);
     this.refreshTimers.clear();
-    if (this.sentHandler)
-      window.removeEventListener("dev-message-sent", this.sentHandler);
-    this.sentHandler = null;
   }
 
   async selectPlatform(platform: SimulatorPlatform) {
@@ -178,6 +171,7 @@ export class SimulatorController {
         timestamp: new Date().toISOString(),
       };
 
+      // Tells the inbox to refresh; this controller refreshes itself directly.
       window.dispatchEvent(new CustomEvent("dev-message-sent"));
       await this.refreshCurrentConversation(false);
       this.scheduleRefresh(1000, true);
