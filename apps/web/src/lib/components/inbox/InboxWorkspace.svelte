@@ -29,6 +29,7 @@
     leadEditor,
     capabilities,
     pipelineStates,
+    users,
     searchQuery = $bindable(),
     aiEnabled,
     aiProviderConfigured,
@@ -39,6 +40,7 @@
     leadEditor: LeadEditor;
     capabilities: UICapabilities;
     pipelineStates: any[];
+    users: any[];
     searchQuery: string;
     aiEnabled: boolean;
     aiProviderConfigured: boolean;
@@ -716,6 +718,7 @@
       editor={leadEditor}
       {capabilities}
       {pipelineStates}
+      {users}
       {onSimulate}
     />{/if}
 </div>

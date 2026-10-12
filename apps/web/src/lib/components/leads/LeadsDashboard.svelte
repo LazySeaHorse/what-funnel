@@ -21,6 +21,7 @@
     leadEditor,
     capabilities,
     pipelineStates,
+    users,
     searchQuery,
     onOpenChat,
   }: {
@@ -28,6 +29,7 @@
     leadEditor: LeadEditor;
     capabilities: UICapabilities;
     pipelineStates: any[];
+    users: any[];
     searchQuery: string;
     onOpenChat: (id: string) => void;
   } = $props();
@@ -73,7 +75,7 @@
           stateColor: state.color,
           assignees: (conversation.assigned_user_ids || []).map(
             (userID: string) => {
-              const user = inbox.users.find((item) => item.id === userID);
+              const user = users.find((item) => item.id === userID);
               const displayName = user?.name?.trim() || user?.username?.trim() || user?.email?.split("@")[0] || "User";
               return {
                 id: userID,
@@ -232,7 +234,7 @@
                   class="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-lg"
                   ><option value="all">All Assignees</option><option
                     value="unassigned">Unassigned</option
-                  >{#each inbox.users as user}<option value={user.id}
+                  >{#each users as user}<option value={user.id}
                       >{user.name?.trim() || user.username?.trim() || user.email || "User"}</option
                     >{/each}</select
                 >
@@ -290,7 +292,7 @@
     {activeLead}
     editor={leadEditor}
     {pipelineStates}
-    users={inbox.users}
+    users={users}
     canManageAssignments={capabilities.manageAssignments}
     onSelectFilter={(key) => (filterTab = key)}
     onSelectLead={selectLead}

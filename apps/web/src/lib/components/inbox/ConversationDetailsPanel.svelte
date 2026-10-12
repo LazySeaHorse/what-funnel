@@ -27,12 +27,14 @@
     editor,
     capabilities,
     pipelineStates,
+    users,
     onSimulate,
   }: {
     inbox: InboxState;
     editor: LeadEditor;
     capabilities: UICapabilities;
     pipelineStates: any[];
+    users: any[];
     onSimulate: () => void;
   } = $props();
   let tab = $state<"lead" | "details" | "activity">("lead");
@@ -82,7 +84,7 @@
         {#if editor.error}<p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert" data-testid="lead-editor-error">{editor.error}</p>{/if}
         <LeadStagePicker stateKey={editor.lead?.current_state_key || "new"} states={pipelineStates} onchange={(key) => editor.changeStage(key)} />
         {#if capabilities.manageAssignments}
-          <LeadAssigneePicker users={inbox.users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
+          <LeadAssigneePicker {users} assignedUserIds={editor.conversation?.assigned_user_ids ?? []} onToggle={(id) => editor.toggleAssignee(id)} />
         {/if}
         <LeadTagsEditor tags={editor.lead?.tags ?? []} onadd={(tag) => editor.addTag(tag)} onremove={(tag) => editor.removeTag(tag)} />
         <LeadNotesEditor notes={editor.notes} loading={editor.loading} expanded onadd={(body) => editor.addNote(body)} />

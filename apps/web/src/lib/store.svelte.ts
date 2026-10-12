@@ -48,7 +48,6 @@ export class InboxState {
 	filter = $state<'all' | 'mine' | 'unassigned'>('mine');
 	stateFilter = $state<string>('');
 	currentUser = $state<any | null>(null);
-	users = $state<any[]>([]);
 	
 	wsStatus = $state<'connecting' | 'connected' | 'disconnected'>('disconnected');
 	ws: WebSocket | null = null;

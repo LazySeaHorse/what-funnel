@@ -55,7 +55,6 @@
           ? "auto_send"
           : "draft_only";
     }
-    inbox.users = workspace.users;
     inbox.configureCapabilities(capabilities);
     if (!canOpen(selectedSection)) selectedSection = "inbox";
   });
@@ -98,9 +97,7 @@
     try {
       await inbox.init();
       if (!inbox.currentUser) return await goto("/login");
-      workspace.users = inbox.users;
       await workspace.loadCore(inbox.currentUser);
-      inbox.users = workspace.users;
       const requested = new URLSearchParams(window.location.search).get("tab");
       if (requested && isDashboardSection(requested) && canOpen(requested))
         selectedSection = requested;
@@ -248,6 +245,7 @@
         {leadEditor}
         {capabilities}
         {pipelineStates}
+        users={workspace.users}
         bind:searchQuery
         {aiEnabled}
         {aiProviderConfigured}
@@ -260,6 +258,7 @@
         {leadEditor}
         {capabilities}
         {pipelineStates}
+        users={workspace.users}
         {searchQuery}
         onOpenChat={(id) => {
           void inbox.selectConversation(id);
