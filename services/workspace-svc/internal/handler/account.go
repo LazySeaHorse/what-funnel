@@ -134,7 +134,7 @@ func (h *Handler) UpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.UpdateAIProviderConfig(r.Context(), accountID, actorID, config); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, service.ErrAIProviderNotConfigured) || errors.Is(err, service.ErrAIProviderKeyRequired) ||
-			strings.Contains(err.Error(), "is required") || strings.Contains(err.Error(), "base url") {
+			errors.Is(err, service.ErrInvalidAIProviderConfig) {
 			status = http.StatusBadRequest
 		}
 		writeError(w, status, err.Error())
@@ -152,29 +152,13 @@ func (h *Handler) TestAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(config.APIKey) == "" {
-		existing, err := h.svc.GetAIProviderConfig(r.Context(), accountID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if existing == nil {
-			writeError(w, http.StatusBadRequest, "ai provider api key is required")
-			return
-		}
-		// Prevent credential exfiltration: if reusing stored API key, require that BaseURL
-		// matches the stored BaseURL (cannot dispatch stored production key to an unverified target).
-		if strings.TrimSpace(config.BaseURL) != "" && strings.TrimRight(strings.TrimSpace(config.BaseURL), "/") != strings.TrimRight(strings.TrimSpace(existing.BaseURL), "/") {
-			writeError(w, http.StatusBadRequest, "cannot test new base_url without providing api_key")
-			return
-		}
-		config.BaseURL = existing.BaseURL
-		config.APIKey = existing.APIKey
-	}
-
-	result, err := h.svc.TestAIProviderConfig(r.Context(), config)
+	result, err := h.svc.TestAccountAIProviderConfig(r.Context(), accountID, config)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrInvalidAIProviderConfig) {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	if !result.OK {

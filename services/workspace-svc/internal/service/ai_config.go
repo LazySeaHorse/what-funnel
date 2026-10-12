@@ -29,6 +29,24 @@ const (
 
 var ErrAIProviderNotConfigured = errors.New("ai provider is not configured")
 
+// ErrInvalidAIProviderConfig matches (errors.Is) every validation failure of a
+// submitted AI provider configuration; the error text says what is wrong.
+var ErrInvalidAIProviderConfig = errors.New("invalid ai provider config")
+
+type invalidAIProviderConfigError struct{ msg string }
+
+func (e *invalidAIProviderConfigError) Error() string { return e.msg }
+func (e *invalidAIProviderConfigError) Is(target error) bool {
+	return target == ErrInvalidAIProviderConfig
+}
+
+func invalidAIConfig(format string, args ...any) error {
+	return &invalidAIProviderConfigError{msg: fmt.Sprintf(format, args...)}
+}
+
+// errSSRFBlocked marks a dial refused because the host resolved to an internal address.
+var errSSRFBlocked = errors.New("SSRF protection")
+
 // ErrAIProviderKeyRequired is returned when the endpoint changes without a new
 // API key: reusing the stored key against a different endpoint would let the
 // caller exfiltrate it.
@@ -85,32 +103,32 @@ func (cfg AIProviderConfig) normalized() AIProviderConfig {
 
 func (cfg AIProviderConfig) validate(requireAPIKey bool) error {
 	if requireAPIKey && cfg.APIKey == "" {
-		return fmt.Errorf("ai provider api key is required")
+		return invalidAIConfig("ai provider api key is required")
 	}
 	if cfg.BaseURL == "" {
-		return fmt.Errorf("ai provider base url is required")
+		return invalidAIConfig("ai provider base url is required")
 	}
 	parsedURL, err := url.Parse(cfg.BaseURL)
 	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-		return fmt.Errorf("ai provider base url must be a valid http or https URL")
+		return invalidAIConfig("ai provider base url must be a valid http or https URL")
 	}
 	if parsedURL.Hostname() == "" {
-		return fmt.Errorf("ai provider base url host is required")
+		return invalidAIConfig("ai provider base url host is required")
 	}
 	if config.IsProduction() && parsedURL.Scheme != "https" {
-		return fmt.Errorf("ai provider base url must use https in production")
+		return invalidAIConfig("ai provider base url must use https in production")
 	}
 	if err := validateAIProviderHost(parsedURL.Hostname(), !config.IsProduction()); err != nil {
 		return err
 	}
 	if cfg.AnalysisModel == "" {
-		return fmt.Errorf("ai provider analysis model is required")
+		return invalidAIConfig("ai provider analysis model is required")
 	}
 	if cfg.ReplyModel == "" {
-		return fmt.Errorf("ai provider reply model is required")
+		return invalidAIConfig("ai provider reply model is required")
 	}
 	if cfg.EmbeddingModel == "" {
-		return fmt.Errorf("ai provider embedding model is required")
+		return invalidAIConfig("ai provider embedding model is required")
 	}
 	return nil
 }
@@ -121,10 +139,10 @@ func (cfg AIProviderConfig) validate(requireAPIKey bool) error {
 func validateAIProviderHost(host string, allowLoopback bool) error {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	if !allowLoopback && (h == "localhost" || strings.HasSuffix(h, ".localhost")) {
-		return fmt.Errorf("ai provider base url host %q is not allowed", host)
+		return invalidAIConfig("ai provider base url host %q is not allowed", host)
 	}
 	if ip := net.ParseIP(strings.SplitN(h, "%", 2)[0]); ip != nil && isBlockedIP(ip, allowLoopback) {
-		return fmt.Errorf("ai provider base url must not point to a private, loopback or link-local address")
+		return invalidAIConfig("ai provider base url must not point to a private, loopback or link-local address")
 	}
 	return nil
 }
@@ -340,7 +358,7 @@ func isBlockedIP(ip net.IP, allowLoopback bool) bool {
 	return false
 }
 
-func (svc *Service) newSafeAIHTTPClient(cfg AIProviderConfig) *http.Client {
+func (svc *Service) newSafeAIHTTPClient() *http.Client {
 	allowLoopback := !config.IsProduction()
 
 	dialer := &net.Dialer{
@@ -361,7 +379,7 @@ func (svc *Service) newSafeAIHTTPClient(cfg AIProviderConfig) *http.Client {
 			}
 			for _, ip := range ips {
 				if isBlockedIP(ip, allowLoopback) {
-					return nil, fmt.Errorf("connection to private or internal IP %s is blocked (SSRF protection)", ip.String())
+					return nil, fmt.Errorf("connection to private or internal IP %s is blocked (%w)", ip.String(), errSSRFBlocked)
 				}
 			}
 			targetAddr := net.JoinHostPort(ips[0].String(), port)
@@ -387,6 +405,28 @@ func (svc *Service) newSafeAIHTTPClient(cfg AIProviderConfig) *http.Client {
 	}
 }
 
+// TestAccountAIProviderConfig tests cfg for an account. An empty API key
+// reuses the stored key, but only against the stored base URL: the stored key
+// must never be sent to an endpoint the caller chose.
+func (svc *Service) TestAccountAIProviderConfig(ctx context.Context, accountID uuid.UUID, cfg AIProviderConfig) (AIProviderTestResult, error) {
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		existing, err := svc.GetAIProviderConfig(ctx, accountID)
+		if err != nil {
+			return AIProviderTestResult{}, err
+		}
+		if existing == nil {
+			return AIProviderTestResult{}, invalidAIConfig("ai provider api key is required")
+		}
+		if strings.TrimSpace(cfg.BaseURL) != "" &&
+			strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/") != strings.TrimRight(strings.TrimSpace(existing.BaseURL), "/") {
+			return AIProviderTestResult{}, invalidAIConfig("cannot test new base_url without providing api_key")
+		}
+		cfg.BaseURL = existing.BaseURL
+		cfg.APIKey = existing.APIKey
+	}
+	return svc.TestAIProviderConfig(ctx, cfg)
+}
+
 // TestAIProviderConfig validates both completion roles and the embedding model.
 func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConfig) (AIProviderTestResult, error) {
 	result := AIProviderTestResult{Checks: []AIProviderTestCheck{}}
@@ -398,7 +438,7 @@ func (svc *Service) TestAIProviderConfig(ctx context.Context, cfg AIProviderConf
 		return result, err
 	}
 
-	client := svc.newSafeAIHTTPClient(cfg)
+	client := svc.newSafeAIHTTPClient()
 
 	completionModels := []struct {
 		role  string
@@ -570,7 +610,7 @@ func (svc *Service) doAIProviderRequest(
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
-			if strings.Contains(err.Error(), "SSRF protection") {
+			if errors.Is(err, errSSRFBlocked) {
 				return 0, nil, err
 			}
 			if attempt == svc.aiProviderTestMaxRetries {
@@ -651,7 +691,7 @@ func isTransientAIProviderStatus(statusCode int) bool {
 }
 
 func requestFailureKind(err error) string {
-	if strings.Contains(err.Error(), "SSRF protection") {
+	if errors.Is(err, errSSRFBlocked) {
 		return "ssrf_blocked"
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -665,11 +705,12 @@ func requestFailureKind(err error) string {
 }
 
 func requestFailureMessage(err error) string {
-	if requestFailureKind(err) == "ssrf_blocked" {
+	switch requestFailureKind(err) {
+	case "ssrf_blocked":
 		return err.Error()
-	}
-	if requestFailureKind(err) == "timeout" {
+	case "timeout":
 		return "Provider did not respond before the connection-test timeout"
+	default:
+		return "Could not connect to the provider"
 	}
-	return "Could not connect to the provider"
 }

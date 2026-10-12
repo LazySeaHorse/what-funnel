@@ -493,6 +493,7 @@ func TestAIProviderConfigValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.normalized().validate(true)
 			assert.ErrorContains(t, err, tt.expected)
+			assert.ErrorIs(t, err, ErrInvalidAIProviderConfig)
 		})
 	}
 }
@@ -527,6 +528,7 @@ func TestTestAIProviderConfig_RejectsInternalHostsAtValidation(t *testing.T) {
 				EmbeddingModel: "embed-model",
 			})
 			assert.ErrorContains(t, err, "base url")
+			assert.ErrorIs(t, err, ErrInvalidAIProviderConfig)
 		})
 	}
 }
@@ -550,12 +552,14 @@ func TestAIProviderDialGuardBlocksLoopbackInProduction(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	svc, err := New(nil, "test-key-exactly-32-bytes-padded")
 	assert.NoError(t, err)
-	client := svc.newSafeAIHTTPClient(AIProviderConfig{})
+	client := svc.newSafeAIHTTPClient()
 	resp, err := client.Get(srv.URL)
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
 	assert.ErrorContains(t, err, "SSRF protection")
+	assert.ErrorIs(t, err, errSSRFBlocked)
+	assert.Equal(t, "ssrf_blocked", requestFailureKind(err))
 }
 
 func TestTestAIProviderConfig_NoMagicKeyBypass(t *testing.T) {
