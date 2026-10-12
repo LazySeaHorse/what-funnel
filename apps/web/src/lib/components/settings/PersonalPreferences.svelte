@@ -74,6 +74,26 @@
   function modeLabel(mode: "auto_send" | "draft_only") {
     return mode === "auto_send" ? "Auto-send" : "Draft only";
   }
+
+  let replyModeOptions = $derived<
+    { value: ReplyMode; title: string; description: string }[]
+  >([
+    {
+      value: "",
+      title: "Workspace default",
+      description: `Currently ${modeLabel(workspaceDefault)}`,
+    },
+    {
+      value: "draft_only",
+      title: "Draft only",
+      description: "Review AI suggestions before sending.",
+    },
+    {
+      value: "auto_send",
+      title: "Auto-send",
+      description: "Allow eligible AI answers to send automatically.",
+    },
+  ]);
 </script>
 
 <section
@@ -164,69 +184,29 @@
 
           {#if overrideAllowed}
             <div class="mt-4 space-y-2">
-              <label
-                class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 {replyMode ===
-                ''
-                  ? 'border-blue-300 bg-blue-50/50'
-                  : 'border-slate-200'}"
-              >
-                <input
-                  type="radio"
-                  name="agent-reply-mode"
-                  value=""
-                  bind:group={replyMode}
-                  class="mt-0.5 accent-blue-600"
-                />
-                <span
-                  ><span class="block text-xs font-medium text-slate-800"
-                    >Workspace default</span
-                  ><span class="text-[11px] text-slate-500"
-                    >Currently {modeLabel(workspaceDefault)}</span
-                  ></span
+              {#each replyModeOptions as option (option.value)}
+                <label
+                  class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 {replyMode ===
+                  option.value
+                    ? 'border-blue-300 bg-blue-50/50'
+                    : 'border-slate-200'}"
                 >
-              </label>
-              <label
-                class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 {replyMode ===
-                'draft_only'
-                  ? 'border-blue-300 bg-blue-50/50'
-                  : 'border-slate-200'}"
-              >
-                <input
-                  type="radio"
-                  name="agent-reply-mode"
-                  value="draft_only"
-                  bind:group={replyMode}
-                  class="mt-0.5 accent-blue-600"
-                />
-                <span
-                  ><span class="block text-xs font-medium text-slate-800"
-                    >Draft only</span
-                  ><span class="text-[11px] text-slate-500"
-                    >Review AI suggestions before sending.</span
-                  ></span
-                >
-              </label>
-              <label
-                class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 {replyMode ===
-                'auto_send'
-                  ? 'border-blue-300 bg-blue-50/50'
-                  : 'border-slate-200'}"
-              >
-                <input
-                  type="radio"
-                  name="agent-reply-mode"
-                  value="auto_send"
-                  bind:group={replyMode}
-                  class="mt-0.5 accent-blue-600"
-                />
-                <span
-                  ><span class="block text-xs font-medium text-slate-800"
-                    >Auto-send</span
-                  ><span class="text-[11px] text-slate-500"
-                    >Allow eligible AI answers to send automatically.</span
-                  ></span
-                >
-              </label>
+                  <input
+                    type="radio"
+                    name="agent-reply-mode"
+                    value={option.value}
+                    bind:group={replyMode}
+                    class="mt-0.5 accent-blue-600"
+                  />
+                  <span
+                    ><span class="block text-xs font-medium text-slate-800"
+                      >{option.title}</span
+                    ><span class="text-[11px] text-slate-500"
+                      >{option.description}</span
+                    ></span
+                  >
+                </label>
+              {/each}
             </div>
             <div
               class="mt-4 flex items-center justify-between gap-4 border-t border-slate-100 pt-4"
