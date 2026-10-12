@@ -18,6 +18,7 @@ export interface UICapabilities {
 	manageAutomation: boolean;
 	manageKnowledge: boolean;
 	useSimulator: boolean;
+	viewAuditLogs: boolean;
 	showOperatorIdentity: boolean;
 }
 
@@ -51,6 +52,8 @@ export function getUICapabilities(account?: any, user?: any): UICapabilities {
 		manageAutomation: isManager,
 		manageKnowledge: isManager,
 		useSimulator: isManager,
+		// Same gate as the admin-only /workspace/audit-logs endpoint.
+		viewAuditLogs: isManager,
 		showOperatorIdentity: manageAssignments
 	};
 }
