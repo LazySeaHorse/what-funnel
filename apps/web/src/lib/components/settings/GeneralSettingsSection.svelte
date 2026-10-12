@@ -3,6 +3,7 @@
   import WorkspaceTypeSelector from "$lib/components/WorkspaceTypeSelector.svelte";
   import { Input, Button } from "$lib/components/ui";
   import { formatTimeZoneLabel, supportedTimeZones } from "$lib/timezones";
+  import type { AIMode } from "$lib/ai-reply-mode";
   import type { WorkspaceSettingsForm } from "./types";
 
   let {
@@ -16,6 +17,24 @@
     onSave: () => void;
     onChangeProductMode: (mode: string) => void;
   } = $props();
+
+  const aiModeOptions: { value: AIMode; title: string; description: string }[] = [
+    {
+      value: "off",
+      title: "No AI replies",
+      description: "Your team replies manually. The AI stays out of conversations.",
+    },
+    {
+      value: "suggest",
+      title: "Suggestions only",
+      description: "The AI drafts replies for your team to review before sending.",
+    },
+    {
+      value: "auto",
+      title: "Full AI",
+      description: "The AI sends eligible replies automatically.",
+    },
+  ];
 </script>
 
 <div class="space-y-6">
@@ -122,6 +141,36 @@
         >
       </div>
     </div>
+    <fieldset class="space-y-2 border-t border-slate-100 pt-5">
+      <legend class="block font-medium text-slate-700">AI replies</legend>
+      <div class="grid gap-2">
+        {#each aiModeOptions as option (option.value)}
+          <label
+            class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 {form.aiMode ===
+            option.value
+              ? 'border-blue-500 bg-blue-50/40'
+              : 'border-slate-200 bg-white hover:bg-slate-50'}"
+          >
+            <input
+              type="radio"
+              name="aiMode"
+              value={option.value}
+              bind:group={form.aiMode}
+              class="mt-0.5 w-4 h-4 border-slate-300 focus:ring-blue-500 accent-blue-600"
+            />
+            <span>
+              <span class="block font-medium text-slate-800">{option.title}</span>
+              <span class="block text-slate-500">{option.description}</span>
+            </span>
+          </label>
+        {/each}
+      </div>
+      <p class="text-slate-400">
+        New conversations inherit this setting. Members can override it in
+        their personal preferences, and you can change it per conversation in
+        the inbox.
+      </p>
+    </fieldset>
     <div class="space-y-1.5 border-t border-slate-100 pt-5">
       <label for="textAiGreeting" class="block font-medium text-slate-700"
         >AI greeting message</label

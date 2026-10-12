@@ -4,6 +4,7 @@
   import type { InboxState } from "$lib/store.svelte";
   import type { WorkspaceState } from "$lib/workspace.svelte";
   import { decodeWorkspaceSettings } from "$lib/workspace-settings";
+  import { aiModeFromSettings, aiModePatch } from "$lib/ai-reply-mode";
   import {
     CheckIcon,
     ExclamationCircleIcon,
@@ -54,6 +55,7 @@
     productMode: "full_workspace",
     leadTracking: true,
     unassignedVisible: true,
+    aiMode: "suggest",
     aiGreetingText: "",
     aiRagAutoSend: false,
   });
@@ -113,11 +115,35 @@
     form.businessAddress = settings.business_address || "";
     form.businessWebsite = settings.business_website || "";
     form.businessHours = settings.business_hours || "";
+    form.aiMode = aiModeFromSettings(settings);
     form.aiGreetingText = settings.ai_greeting_text || "";
     form.aiRagAutoSend = settings.ai_rag_auto_send === true;
     form.leadTracking = settings.lead_tracking_enabled !== false;
     form.unassignedVisible =
       settings.unassigned_conversations_visible_to_members !== false;
+  }
+
+  // Enabling AI replies without a working provider would silently do nothing,
+  // so refuse it (with the reason) instead of saving a mode that can't run.
+  async function assertAIModeAvailable() {
+    const stored = aiModeFromSettings(
+      decodeWorkspaceSettings(workspace.account?.settings),
+    );
+    if (form.aiMode === "off" || form.aiMode === stored) return;
+    let status: { configured?: boolean } | null;
+    try {
+      status = await apiRequest("/workspace/account/ai-config/status");
+    } catch (error) {
+      throw new Error(
+        `Could not verify the AI provider, so AI replies were not enabled: ${
+          error instanceof Error ? error.message : "request failed"
+        }`,
+      );
+    }
+    if (status?.configured !== true)
+      throw new Error(
+        "Configure an AI provider (Settings → AI provider) before enabling AI replies.",
+      );
   }
 
   async function saveSettings() {
@@ -127,6 +153,7 @@
     successMsg = "";
     errorMsg = "";
     try {
+      await assertAIModeAvailable();
       await apiRequest("/workspace/account", {
         method: "PATCH",
         body: { name: form.workspaceName.trim() },
@@ -144,6 +171,7 @@
           business_address: form.businessAddress,
           business_website: form.businessWebsite,
           business_hours: form.businessHours,
+          ...aiModePatch(form.aiMode),
           ai_greeting_text: form.aiGreetingText.trim(),
           ai_rag_auto_send: form.aiRagAutoSend,
           ...(form.productMode === "full_workspace"

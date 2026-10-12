@@ -1,22 +1,28 @@
-export interface GlobalAutoReplyTogglePatch {
-	ai_reply_mode_default: 'auto_send' | 'draft_only';
+export type AIMode = 'off' | 'suggest' | 'auto';
+
+export interface AIModePatch {
+	ai_enabled: boolean;
+	ai_reply_mode_default?: 'auto_send' | 'draft_only';
+}
+
+/** Derives the workspace-wide AI mode from the stored settings. */
+export function aiModeFromSettings(settings: {
 	ai_enabled?: boolean;
+	ai_reply_mode_default?: 'auto_send' | 'draft_only';
+}): AIMode {
+	if (settings.ai_enabled !== true) return 'off';
+	return settings.ai_reply_mode_default === 'auto_send' ? 'auto' : 'suggest';
 }
 
 /**
- * Computes the settings patch needed to toggle global AI auto-reply.
- * When turning auto-reply ON, explicitly includes `ai_enabled: true`
- * so workspaces that completed onboarding in manual mode (or skipped AI)
- * are properly transitioned to an enabled state.
+ * Settings patch for a mode. Turning AI off leaves ai_reply_mode_default
+ * untouched so it is not clobbered by an unrelated choice.
  */
-export function computeGlobalAutoReplyPatch(params: {
-	currentlyEnabled: boolean;
-}): GlobalAutoReplyTogglePatch {
-	const turningOn = !params.currentlyEnabled;
-	const mode = turningOn ? 'auto_send' : 'draft_only';
+export function aiModePatch(mode: AIMode): AIModePatch {
+	if (mode === 'off') return { ai_enabled: false };
 	return {
-		ai_reply_mode_default: mode,
-		...(turningOn ? { ai_enabled: true } : {})
+		ai_enabled: true,
+		ai_reply_mode_default: mode === 'auto' ? 'auto_send' : 'draft_only'
 	};
 }
 

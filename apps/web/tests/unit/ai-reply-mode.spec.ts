@@ -1,54 +1,40 @@
 import { expect, test } from '@playwright/test';
-import { computeGlobalAutoReplyPatch, isGlobalAutoReplyActive } from '../../src/lib/global-ai-toggle';
+import { aiModeFromSettings, aiModePatch, isGlobalAutoReplyActive } from '../../src/lib/ai-reply-mode';
 import { decodeWorkspaceSettings } from '../../src/lib/workspace-settings';
 
-test.describe('Global AI auto-reply toggle state machine', () => {
-	test('turning on auto-reply from skipped onboarding activates both ai_enabled and auto_send', () => {
-		// Workspace settings after onboarding where user skipped AI / knowledge
-		const initialSettings = decodeWorkspaceSettings({
-			ai_enabled: false,
-			ai_reply_mode_default: 'draft_only'
-		});
-
-		const currentlyActive = isGlobalAutoReplyActive({
-			aiEnabled: initialSettings.ai_enabled === true,
-			aiReplyModeDefault: initialSettings.ai_reply_mode_default === 'auto_send' ? 'auto_send' : 'draft_only'
-		});
-		expect(currentlyActive).toBe(false);
-
-		// Compute toggle patch
-		const patch = computeGlobalAutoReplyPatch({ currentlyEnabled: currentlyActive });
-
-		// Must include ai_enabled: true to escape the disabled/manual onboarding state
-		expect(patch.ai_reply_mode_default).toBe('auto_send');
-		expect(patch.ai_enabled).toBe(true);
-
-		// Merged settings must now evaluate isGlobalAutoReplyActive to true
-		const mergedSettings = decodeWorkspaceSettings({
-			...initialSettings,
-			...patch
-		});
-		const newActiveState = isGlobalAutoReplyActive({
-			aiEnabled: mergedSettings.ai_enabled === true,
-			aiReplyModeDefault: mergedSettings.ai_reply_mode_default === 'auto_send' ? 'auto_send' : 'draft_only'
-		});
-		expect(newActiveState).toBe(true);
+test.describe('AI mode mapping', () => {
+	test('derives the mode from stored settings', () => {
+		expect(aiModeFromSettings({ ai_enabled: false, ai_reply_mode_default: 'auto_send' })).toBe('off');
+		expect(aiModeFromSettings({})).toBe('off');
+		expect(aiModeFromSettings({ ai_enabled: true, ai_reply_mode_default: 'draft_only' })).toBe('suggest');
+		expect(aiModeFromSettings({ ai_enabled: true })).toBe('suggest');
+		expect(aiModeFromSettings({ ai_enabled: true, ai_reply_mode_default: 'auto_send' })).toBe('auto');
 	});
 
-	test('turning off auto-reply reverts to draft_only without breaking ai_enabled', () => {
-		const activeSettings = decodeWorkspaceSettings({
-			ai_enabled: true,
-			ai_reply_mode_default: 'auto_send'
-		});
+	test('every mode round-trips through its patch', () => {
+		for (const mode of ['off', 'suggest', 'auto'] as const) {
+			// Start from the opposite state so the patch has to do real work.
+			const initial = {
+				ai_enabled: mode === 'off',
+				ai_reply_mode_default: mode === 'auto' ? 'draft_only' : 'auto_send'
+			};
+			const merged = decodeWorkspaceSettings({ ...initial, ...aiModePatch(mode) });
+			expect(aiModeFromSettings(merged)).toBe(mode);
+		}
+	});
 
-		const currentlyActive = isGlobalAutoReplyActive({
-			aiEnabled: activeSettings.ai_enabled === true,
-			aiReplyModeDefault: 'auto_send'
-		});
-		expect(currentlyActive).toBe(true);
+	test('leaving manual mode re-enables AI', () => {
+		expect(aiModePatch('suggest')).toEqual({ ai_enabled: true, ai_reply_mode_default: 'draft_only' });
+		expect(aiModePatch('auto')).toEqual({ ai_enabled: true, ai_reply_mode_default: 'auto_send' });
+	});
 
-		const patch = computeGlobalAutoReplyPatch({ currentlyEnabled: currentlyActive });
-		expect(patch.ai_reply_mode_default).toBe('draft_only');
-		expect(patch.ai_enabled).toBeUndefined(); // do not disable AI workspace-wide, just switch mode
+	test('turning AI off does not touch the reply mode default', () => {
+		expect(aiModePatch('off')).toEqual({ ai_enabled: false });
+	});
+
+	test('auto-reply is only active when AI is enabled and in auto_send', () => {
+		expect(isGlobalAutoReplyActive({ aiEnabled: true, aiReplyModeDefault: 'auto_send' })).toBe(true);
+		expect(isGlobalAutoReplyActive({ aiEnabled: false, aiReplyModeDefault: 'auto_send' })).toBe(false);
+		expect(isGlobalAutoReplyActive({ aiEnabled: true, aiReplyModeDefault: 'draft_only' })).toBe(false);
 	});
 });

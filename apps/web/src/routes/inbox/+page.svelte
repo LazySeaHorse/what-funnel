@@ -5,7 +5,7 @@
   import { InboxState } from "$lib/store.svelte";
   import { WorkspaceState } from "$lib/workspace.svelte";
   import { decodeWorkspaceSettings } from "$lib/workspace-settings";
-  import { computeGlobalAutoReplyPatch, isGlobalAutoReplyActive } from "$lib/global-ai-toggle";
+  import { isGlobalAutoReplyActive } from "$lib/ai-reply-mode";
   import DashboardHeader from "$lib/components/dashboard/DashboardHeader.svelte";
   import DashboardSidebar from "$lib/components/dashboard/DashboardSidebar.svelte";
   import MobileDashboardNav from "$lib/components/dashboard/MobileDashboardNav.svelte";
@@ -36,8 +36,6 @@
   const accountSettings = $derived(
     decodeWorkspaceSettings(workspace.account?.settings),
   );
-  // Writable deriveds: reset whenever the account reloads, but the AI toggle
-  // can set them optimistically before the refresh lands.
   let aiEnabled = $derived(accountSettings.ai_enabled === true);
   let aiReplyModeDefault = $derived<"auto_send" | "draft_only">(
     accountSettings.ai_reply_mode_default === "auto_send"
@@ -47,7 +45,6 @@
   let aiProviderConfigured = $state(false);
   let aiProviderStatusLoaded = $state(false);
   let aiToggleError = $state("");
-  let togglingGlobalAI = $state(false);
   let initializing = $state(true);
   let capabilities = $derived(workspace.capabilities);
   let pipelineStates = $derived(workspace.pipeline?.states || []);
@@ -132,39 +129,6 @@
       aiProviderConfigured = false;
     } finally {
       aiProviderStatusLoaded = true;
-    }
-  }
-
-  async function toggleGlobalAutoReply() {
-    if (
-      !capabilities.manageWorkspace ||
-      togglingGlobalAI ||
-      (!aiAutoReplyEnabled && !aiProviderConfigured)
-    )
-      return;
-    togglingGlobalAI = true;
-    aiToggleError = "";
-    try {
-      const patch = computeGlobalAutoReplyPatch({
-        currentlyEnabled: aiAutoReplyEnabled,
-      });
-      try {
-        await apiRequest("/workspace/account/settings", {
-          method: "PATCH",
-          body: patch,
-        });
-      } catch (err) {
-        console.error("Failed to update global AI auto-reply:", err);
-        aiToggleError = "Could not update AI auto-reply. Please try again.";
-        // Re-sync local state with the backend, which still has the old value.
-        await refreshAccountQuietly();
-        return;
-      }
-      aiReplyModeDefault = patch.ai_reply_mode_default;
-      if (patch.ai_enabled !== undefined) aiEnabled = patch.ai_enabled;
-      await refreshAccountQuietly();
-    } finally {
-      togglingGlobalAI = false;
     }
   }
 
@@ -255,11 +219,6 @@
       <KnowledgeView
         {searchQuery}
         reviewerID={inbox.currentUserID ?? ""}
-        autoReplyEnabled={aiAutoReplyEnabled}
-        providerConfigured={aiProviderConfigured}
-        canManageAI={capabilities.manageWorkspace}
-        togglingAI={togglingGlobalAI}
-        onToggleAI={() => void toggleGlobalAutoReply()}
       />
     {:else if selectedSection === "contacts"}
       <ContactsView

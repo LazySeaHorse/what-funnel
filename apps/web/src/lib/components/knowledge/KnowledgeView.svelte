@@ -23,20 +23,10 @@
 
 	let {
 		reviewerID = '',
-		searchQuery = '',
-		autoReplyEnabled = false,
-		providerConfigured = false,
-		canManageAI = false,
-		togglingAI = false,
-		onToggleAI = () => {}
+		searchQuery = ''
 	}: {
 		reviewerID?: string;
 		searchQuery?: string;
-		autoReplyEnabled?: boolean;
-		providerConfigured?: boolean;
-		canManageAI?: boolean;
-		togglingAI?: boolean;
-		onToggleAI?: () => void;
 	} = $props();
 
 	let concepts = $state<any[]>([]);
@@ -360,29 +350,6 @@
 				{/each}
 			</nav>
 
-			<!-- Right: Global Auto-reply Switch -->
-			<div class="flex items-center gap-2.5 self-start sm:self-auto">
-				<!-- Toggle Switch Component -->
-				<button
-					type="button"
-					role="switch"
-					aria-label="Global AI auto-reply default"
-					aria-checked={autoReplyEnabled && providerConfigured}
-					onclick={onToggleAI}
-					disabled={!canManageAI || togglingAI || (!providerConfigured && !autoReplyEnabled)}
-					class="h-8 flex items-center gap-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition shadow-2xs cursor-pointer disabled:cursor-default disabled:opacity-60 active:scale-[0.98]"
-					title={!providerConfigured ? 'Configure an AI provider in Settings before enabling automatic replies' : 'New customer chats inherit this setting unless overridden in chat'}
-				>
-					<span
-						class="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out {autoReplyEnabled && providerConfigured ? 'bg-emerald-500' : 'bg-slate-300'}"
-					>
-						<span
-							class="inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200 ease-in-out {autoReplyEnabled && providerConfigured ? 'translate-x-3' : 'translate-x-0'}"
-						></span>
-					</span>
-					<span>Global AI auto-reply</span>
-				</button>
-			</div>
 		</div>
 
 		<!-- Feedback Notices -->

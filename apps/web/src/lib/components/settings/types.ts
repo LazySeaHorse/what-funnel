@@ -1,3 +1,5 @@
+import type { AIMode } from "$lib/ai-reply-mode";
+
 export type SettingsSection =
   | "general"
   | "business_profile"
@@ -21,6 +23,7 @@ export interface WorkspaceSettingsForm {
   productMode: string;
   leadTracking: boolean;
   unassignedVisible: boolean;
+  aiMode: AIMode;
   aiGreetingText: string;
   aiRagAutoSend: boolean;
 }
