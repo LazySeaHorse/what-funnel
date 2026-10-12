@@ -116,7 +116,6 @@ const (
 	ActionChannelDeleted     = "channel.deleted"
 	ActionLogin              = "user.login"
 	ActionLogout             = "user.logout"
-	ActionPipelineCreated    = "pipeline.created"
 	ActionPipelineUpdated    = "pipeline.updated"
 )
 

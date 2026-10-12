@@ -296,8 +296,8 @@ func (s *ConnectionService) DeleteProviderConnection(
 	if err := writer.Write(ctx, audit.Entry{
 		AccountID:   accountID,
 		ActorUserID: &actorID,
-		Action:      "channel.deleted",
-		TargetType:  "channel",
+		Action:      audit.ActionChannelDeleted,
+		TargetType:  audit.TargetChannel,
 		TargetID:    &channelID,
 		Metadata: map[string]any{
 			"provider": connection.Provider,
