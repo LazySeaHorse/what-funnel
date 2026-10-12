@@ -1,14 +1,12 @@
 <script lang="ts">
 	import { CpuChipIcon, SparklesIcon, PencilSquareIcon } from '@fvilers/heroicons-svelte/24/outline';
 	import { Button, Input } from '$lib/components/ui';
-	import { apiRequest } from '$lib/api';
 	import {
-		aiProviderConfigFingerprint,
-		aiProviderTestResult,
-		aiProviderTestResultFromError,
-		normalizeAIProviderConfig,
+		testAIProvider,
+		validateAIProviderConfig,
 		type AIProviderTestCheck
 	} from '$lib/ai-provider';
+	import AIProviderCheckList from '$lib/components/settings/AIProviderCheckList.svelte';
 
 	let {
 		step,
@@ -38,48 +36,58 @@
 	let testResult = $state<{ ok: boolean; message: string } | null>(null);
 	let testChecks = $state<AIProviderTestCheck[]>([]);
 
-	function currentConfig() {
-		return normalizeAIProviderConfig({
+	async function testConnection() {
+		const config = {
 			api_key: providerApiKey,
 			base_url: providerBaseURL,
 			analysis_model: analysisModel,
 			reply_model: replyModel,
 			embedding_model: embeddingModel
-		});
-	}
-
-	async function testConnection() {
-		if (!providerConfigured && !providerApiKey.trim()) {
-			testResult = { ok: false, message: 'API key is required to test the connection.' };
-			return;
-		}
-		if (!providerBaseURL.trim() || !analysisModel.trim() || !replyModel.trim() || !embeddingModel.trim()) {
-			testResult = { ok: false, message: 'Base URL and all three model names are required.' };
+		};
+		const invalid = validateAIProviderConfig(config, providerConfigured, 'API key is required to test the connection.');
+		if (invalid) {
+			testResult = { ok: false, message: invalid };
 			return;
 		}
 
 		testing = true;
 		testResult = null;
 		testChecks = [];
-		try {
-			const config = currentConfig();
-			const res = await apiRequest('/workspace/account/ai-config/test', {
-				method: 'POST',
-				body: config
-			});
-			const result = aiProviderTestResult(res);
-			if (!result?.ok) throw new Error('Provider returned an invalid connection-test result.');
-			testChecks = result.checks;
-			verifiedConfigFingerprint = aiProviderConfigFingerprint(config);
-			testResult = { ok: true, message: result.message || 'Connection verified successfully.' };
-		} catch (error: any) {
-			testChecks = aiProviderTestResultFromError(error)?.checks ?? [];
+		const outcome = await testAIProvider(config);
+		testChecks = outcome.checks;
+		if (outcome.ok) {
+			verifiedConfigFingerprint = outcome.fingerprint;
+			testResult = { ok: true, message: outcome.message || 'Connection verified successfully.' };
+		} else {
 			verifiedConfigFingerprint = '';
-			testResult = { ok: false, message: error?.message || 'Connection test failed.' };
-		} finally {
-			testing = false;
+			testResult = { ok: false, message: (outcome.error as Error)?.message || 'Connection test failed.' };
 		}
+		testing = false;
 	}
+
+	const modeOptions = [
+		{
+			mode: 'auto_answer',
+			icon: CpuChipIcon,
+			title: 'Auto answer when confident',
+			description: 'The AI answers customer questions automatically when confidence is high.',
+			recommended: true
+		},
+		{
+			mode: 'suggest_only',
+			icon: SparklesIcon,
+			title: 'Suggest replies only',
+			description: 'The AI creates draft responses. Team members review and send the responses.',
+			recommended: false
+		},
+		{
+			mode: 'manual',
+			icon: PencilSquareIcon,
+			title: 'Manual only',
+			description: 'The AI does not send messages. Team members write all replies manually.',
+			recommended: false
+		}
+	] as const;
 </script>
 
 				<div class="text-center lg:text-left mb-6">
@@ -89,74 +97,35 @@
 				</div>
 
 				<div class="space-y-3 w-full max-w-xl lg:max-w-none mx-auto lg:mx-0">
-					<!-- Option 1: Auto answer -->
-					<button
-						type="button"
-						class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {aiMode === 'auto_answer' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-						onclick={() => aiMode = 'auto_answer'}
-					>
-						<div class="flex items-start gap-3.5">
-							<div class="w-8 h-8 rounded-lg {aiMode === 'auto_answer' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
-								<CpuChipIcon class="w-5 h-5" />
-							</div>
-							<div>
-								<div class="flex items-center gap-2">
-									<span class="text-sm font-medium text-slate-900">Auto answer when confident</span>
-									<span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-medium">Recommended</span>
+					{#each modeOptions as option (option.mode)}
+						<button
+							type="button"
+							class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {aiMode === option.mode ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
+							onclick={() => aiMode = option.mode}
+						>
+							<div class="flex items-start gap-3.5">
+								<div class="w-8 h-8 rounded-lg {aiMode === option.mode ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
+									<option.icon class="w-5 h-5" />
 								</div>
-								<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">The AI answers customer questions automatically when confidence is high.</p>
+								<div>
+									{#if option.recommended}
+										<div class="flex items-center gap-2">
+											<span class="text-sm font-medium text-slate-900">{option.title}</span>
+											<span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-medium">Recommended</span>
+										</div>
+									{:else}
+										<span class="text-sm font-medium text-slate-900">{option.title}</span>
+									{/if}
+									<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">{option.description}</p>
+								</div>
 							</div>
-						</div>
-						<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {aiMode === 'auto_answer' ? 'border-blue-600' : 'border-slate-300'}">
-							{#if aiMode === 'auto_answer'}
-								<div class="w-2 h-2 rounded-full bg-blue-600"></div>
-							{/if}
-						</div>
-					</button>
-
-					<!-- Option 2: Suggest replies only -->
-					<button
-						type="button"
-						class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {aiMode === 'suggest_only' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-						onclick={() => aiMode = 'suggest_only'}
-					>
-						<div class="flex items-start gap-3.5">
-							<div class="w-8 h-8 rounded-lg {aiMode === 'suggest_only' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
-								<SparklesIcon class="w-5 h-5" />
+							<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {aiMode === option.mode ? 'border-blue-600' : 'border-slate-300'}">
+								{#if aiMode === option.mode}
+									<div class="w-2 h-2 rounded-full bg-blue-600"></div>
+								{/if}
 							</div>
-							<div>
-								<span class="text-sm font-medium text-slate-900">Suggest replies only</span>
-								<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">The AI creates draft responses. Team members review and send the responses.</p>
-							</div>
-						</div>
-						<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {aiMode === 'suggest_only' ? 'border-blue-600' : 'border-slate-300'}">
-							{#if aiMode === 'suggest_only'}
-								<div class="w-2 h-2 rounded-full bg-blue-600"></div>
-							{/if}
-						</div>
-					</button>
-
-					<!-- Option 3: Manual only -->
-					<button
-						type="button"
-						class="w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-start justify-between {aiMode === 'manual' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600' : 'border-slate-200 bg-white hover:border-slate-300'}"
-						onclick={() => aiMode = 'manual'}
-					>
-						<div class="flex items-start gap-3.5">
-							<div class="w-8 h-8 rounded-lg {aiMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'} flex items-center justify-center shrink-0 mt-0.5">
-								<PencilSquareIcon class="w-5 h-5" />
-							</div>
-							<div>
-								<span class="text-sm font-medium text-slate-900">Manual only</span>
-								<p class="text-xs text-slate-500 mt-1 leading-relaxed font-normal">The AI does not send messages. Team members write all replies manually.</p>
-							</div>
-						</div>
-						<div class="w-4 h-4 rounded-full border flex items-center justify-center mt-1 shrink-0 {aiMode === 'manual' ? 'border-blue-600' : 'border-slate-300'}">
-							{#if aiMode === 'manual'}
-								<div class="w-2 h-2 rounded-full bg-blue-600"></div>
-							{/if}
-						</div>
-					</button>
+						</button>
+					{/each}
 
 					{#if aiMode !== 'manual'}
 						<div class="mt-4 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
@@ -228,21 +197,7 @@
 									{testResult.message}
 								</div>
 							{/if}
-							{#if testChecks.length > 0}
-								<ul class="space-y-1.5" aria-label="AI provider check results">
-									{#each testChecks as check (check.role)}
-										<li class="flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs {check.ok ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800' : 'border-rose-200 bg-rose-50/70 text-rose-800'}">
-											<span>
-												<span class="font-medium capitalize">{check.role}</span> · {check.model}
-												{#if check.resolved_model && check.resolved_model !== check.model}
-													→ {check.resolved_model}
-												{/if}
-											</span>
-											<span class="text-right">{check.message}</span>
-										</li>
-									{/each}
-								</ul>
-							{/if}
+							<AIProviderCheckList checks={testChecks} class="space-y-1.5" />
 						</div>
 					{/if}
 				</div>

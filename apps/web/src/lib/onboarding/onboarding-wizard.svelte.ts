@@ -2,7 +2,7 @@ import { goto } from '$app/navigation';
 import { apiRequest, type ApiRequestOptions } from '$lib/api';
 import { decodeWorkspaceSettings } from '$lib/workspace-settings';
 import { normalizeSavedTimeZone } from '$lib/timezones';
-import { aiProviderConfigFingerprint, normalizeAIProviderConfig } from '$lib/ai-provider';
+import { DEFAULT_AI_PROVIDER_CONFIG, applyAIProviderStatus, saveAIProviderConfig } from '$lib/ai-provider';
 import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
 import type { IngestionResult } from '$lib/knowledge/ingestion';
 import type {
@@ -97,10 +97,10 @@ export class OnboardingWizardController {
 	aiMode = $state<AIMode>('auto_answer');
 	aiProviderConfigured = $state(false);
 	aiProviderApiKey = $state('');
-	aiProviderBaseURL = $state('https://generativelanguage.googleapis.com/v1beta/openai/');
-	aiAnalysisModel = $state('gemma-4-26b-a4b-it');
-	aiReplyModel = $state('gemini-flash-lite-latest');
-	aiEmbeddingModel = $state('gemini-embedding-001');
+	aiProviderBaseURL = $state(DEFAULT_AI_PROVIDER_CONFIG.base_url);
+	aiAnalysisModel = $state(DEFAULT_AI_PROVIDER_CONFIG.analysis_model);
+	aiReplyModel = $state(DEFAULT_AI_PROVIDER_CONFIG.reply_model);
+	aiEmbeddingModel = $state(DEFAULT_AI_PROVIDER_CONFIG.embedding_model);
 	aiVerifiedConfigFingerprint = $state('');
 
 	// Step 6: Knowledge Base
@@ -197,11 +197,17 @@ export class OnboardingWizardController {
 				this.productMode === 'full_workspace' ? this.request('/workspace/pipelines') : Promise.resolve([]),
 				this.request('/workspace/account/ai-config/status')
 			]);
-			this.aiProviderConfigured = aiStatus?.configured === true;
-			if (aiStatus?.base_url) this.aiProviderBaseURL = aiStatus.base_url;
-			if (aiStatus?.analysis_model) this.aiAnalysisModel = aiStatus.analysis_model;
-			if (aiStatus?.reply_model) this.aiReplyModel = aiStatus.reply_model;
-			if (aiStatus?.embedding_model) this.aiEmbeddingModel = aiStatus.embedding_model;
+			const provider = applyAIProviderStatus(aiStatus, {
+				base_url: this.aiProviderBaseURL,
+				analysis_model: this.aiAnalysisModel,
+				reply_model: this.aiReplyModel,
+				embedding_model: this.aiEmbeddingModel
+			});
+			this.aiProviderConfigured = provider.configured;
+			this.aiProviderBaseURL = provider.values.base_url;
+			this.aiAnalysisModel = provider.values.analysis_model;
+			this.aiReplyModel = provider.values.reply_model;
+			this.aiEmbeddingModel = provider.values.embedding_model;
 			if (account?.name) {
 				this.businessName = account.name;
 				if (!this.slug) this.slug = slugify(account.name);
@@ -489,24 +495,17 @@ export class OnboardingWizardController {
 			throw new Error('Add your AI provider API key, or choose Manual only.');
 		}
 		if (this.aiMode !== 'manual') {
-			const providerConfig = normalizeAIProviderConfig({
-				api_key: this.aiProviderApiKey,
-				base_url: this.aiProviderBaseURL,
-				analysis_model: this.aiAnalysisModel,
-				reply_model: this.aiReplyModel,
-				embedding_model: this.aiEmbeddingModel
-			});
-			if (this.aiVerifiedConfigFingerprint !== aiProviderConfigFingerprint(providerConfig)) {
-				await this.request('/workspace/account/ai-config/test', {
-					method: 'POST',
-					body: providerConfig
-				});
-			}
-
-			await this.request('/workspace/account/ai-config', {
-				method: 'PUT',
-				body: providerConfig
-			});
+			await saveAIProviderConfig(
+				{
+					api_key: this.aiProviderApiKey,
+					base_url: this.aiProviderBaseURL,
+					analysis_model: this.aiAnalysisModel,
+					reply_model: this.aiReplyModel,
+					embedding_model: this.aiEmbeddingModel
+				},
+				this.aiVerifiedConfigFingerprint,
+				this.request
+			);
 			this.aiProviderConfigured = true;
 			this.aiProviderApiKey = '';
 		}

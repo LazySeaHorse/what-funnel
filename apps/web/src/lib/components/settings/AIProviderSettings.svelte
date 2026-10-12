@@ -3,24 +3,24 @@
   import { apiRequest } from "$lib/api";
   import { Input, Button } from "$lib/components/ui";
   import {
-    aiProviderConfigFingerprint,
-    aiProviderTestResult,
-    aiProviderTestResultFromError,
-    normalizeAIProviderConfig,
+    DEFAULT_AI_PROVIDER_CONFIG,
+    applyAIProviderStatus,
+    saveAIProviderConfig,
+    testAIProvider,
+    validateAIProviderConfig,
     type AIProviderTestCheck,
   } from "$lib/ai-provider";
   import type { WorkspaceState } from "$lib/workspace.svelte";
+  import AIProviderCheckList from "./AIProviderCheckList.svelte";
 
   let { workspace }: { workspace?: WorkspaceState } = $props();
 
   let configured = $state(false);
   let apiKey = $state("");
-  let baseURL = $state(
-    "https://generativelanguage.googleapis.com/v1beta/openai/",
-  );
-  let analysisModel = $state("gemma-4-26b-a4b-it");
-  let replyModel = $state("gemini-flash-lite-latest");
-  let embeddingModel = $state("gemini-embedding-001");
+  let baseURL = $state(DEFAULT_AI_PROVIDER_CONFIG.base_url);
+  let analysisModel = $state(DEFAULT_AI_PROVIDER_CONFIG.analysis_model);
+  let replyModel = $state(DEFAULT_AI_PROVIDER_CONFIG.reply_model);
+  let embeddingModel = $state(DEFAULT_AI_PROVIDER_CONFIG.embedding_model);
   let showKey = $state(false);
   let loading = $state(true);
   let saving = $state(false);
@@ -32,23 +32,29 @@
   );
 
   function currentConfig() {
-    return normalizeAIProviderConfig({
+    return {
       api_key: apiKey,
       base_url: baseURL,
       analysis_model: analysisModel,
       reply_model: replyModel,
       embedding_model: embeddingModel,
-    });
+    };
   }
 
   onMount(async () => {
     try {
       const status = await apiRequest("/workspace/account/ai-config/status");
-      configured = status?.configured === true;
-      if (status?.base_url) baseURL = status.base_url;
-      if (status?.analysis_model) analysisModel = status.analysis_model;
-      if (status?.reply_model) replyModel = status.reply_model;
-      if (status?.embedding_model) embeddingModel = status.embedding_model;
+      const applied = applyAIProviderStatus(status, {
+        base_url: baseURL,
+        analysis_model: analysisModel,
+        reply_model: replyModel,
+        embedding_model: embeddingModel,
+      });
+      configured = applied.configured;
+      baseURL = applied.values.base_url;
+      analysisModel = applied.values.analysis_model;
+      replyModel = applied.values.reply_model;
+      embeddingModel = applied.values.embedding_model;
     } catch (error: any) {
       message = {
         kind: "error",
@@ -60,78 +66,53 @@
   });
 
   async function testConnection() {
-    if (!configured && !apiKey.trim()) {
-      message = {
-        kind: "error",
-        text: "API key is required to test connection.",
-      };
-      return;
-    }
-    if (!baseURL.trim() || !analysisModel.trim() || !replyModel.trim() || !embeddingModel.trim()) {
-      message = {
-        kind: "error",
-        text: "Base URL and all three model names are required.",
-      };
+    const invalid = validateAIProviderConfig(
+      currentConfig(),
+      configured,
+      "API key is required to test connection.",
+    );
+    if (invalid) {
+      message = { kind: "error", text: invalid };
       return;
     }
 
     testing = true;
     message = null;
     testChecks = [];
-    try {
-      const config = currentConfig();
-      const res = await apiRequest("/workspace/account/ai-config/test", {
-        method: "POST",
-        body: config,
-      });
-      const result = aiProviderTestResult(res);
-      if (!result?.ok) throw new Error("Provider returned an invalid connection-test result.");
-      testChecks = result.checks;
-      verifiedConfigFingerprint = aiProviderConfigFingerprint(config);
+    const outcome = await testAIProvider(currentConfig());
+    testChecks = outcome.checks;
+    if (outcome.ok) {
+      verifiedConfigFingerprint = outcome.fingerprint;
       message = {
         kind: "success",
-        text: result.message || "AI provider connection verified successfully!",
+        text:
+          outcome.message || "AI provider connection verified successfully!",
       };
-    } catch (error: any) {
-      testChecks = aiProviderTestResultFromError(error)?.checks ?? [];
+    } else {
       verifiedConfigFingerprint = "";
       message = {
         kind: "error",
-        text: error?.message || "AI provider test failed.",
+        text: (outcome.error as Error)?.message || "AI provider test failed.",
       };
-    } finally {
-      testing = false;
     }
+    testing = false;
   }
 
   async function save() {
-    if (!configured && !apiKey.trim()) {
-      message = { kind: "error", text: "API key is required." };
-      return;
-    }
-    if (!baseURL.trim() || !analysisModel.trim() || !replyModel.trim() || !embeddingModel.trim()) {
-      message = {
-        kind: "error",
-        text: "Base URL and all three model names are required.",
-      };
+    const invalid = validateAIProviderConfig(
+      currentConfig(),
+      configured,
+      "API key is required.",
+    );
+    if (invalid) {
+      message = { kind: "error", text: invalid };
       return;
     }
 
     saving = true;
     message = null;
     try {
-      const config = currentConfig();
-      if (verifiedConfigFingerprint !== aiProviderConfigFingerprint(config)) {
-        await apiRequest("/workspace/account/ai-config/test", {
-          method: "POST",
-          body: config,
-        });
-      }
-
-      await apiRequest("/workspace/account/ai-config", {
-        method: "PUT",
-        body: config,
-      });
+      await saveAIProviderConfig(currentConfig(), verifiedConfigFingerprint);
       apiKey = "";
       showKey = false;
       configured = true;
@@ -194,25 +175,7 @@
       You can update the base URL and model names without entering a new key.
     </div>
   {/if}
-  {#if testChecks.length > 0}
-    <ul class="space-y-2" aria-label="AI provider check results">
-      {#each testChecks as check (check.role)}
-        <li
-          class="flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs {check.ok
-            ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
-            : 'border-rose-200 bg-rose-50/70 text-rose-800'}"
-        >
-          <span>
-            <span class="font-medium capitalize">{check.role}</span> · {check.model}
-            {#if check.resolved_model && check.resolved_model !== check.model}
-              → {check.resolved_model}
-            {/if}
-          </span>
-          <span class="text-right">{check.message}</span>
-        </li>
-      {/each}
-    </ul>
-  {/if}
+  <AIProviderCheckList checks={testChecks} />
 
   <fieldset
     disabled={loading || saving || testing}
