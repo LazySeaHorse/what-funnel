@@ -446,23 +446,20 @@ func (m *Manager) poll(ctx context.Context, session *botSession) {
 			continue
 		}
 		failures = 0
-		var storeErr error
+		// Update IDs are monotonic, so anything below the offset is a redelivery of a stored update.
+		fresh := updates[:0:0]
 		for _, update := range updates {
-			if update.UpdateID < offset {
-				// Already stored; update IDs are monotonic, so this is a redelivery.
-				continue
+			if update.UpdateID >= offset {
+				fresh = append(fresh, update)
 			}
-			if err := m.storeUpdate(ctx, session.channelID, update); err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				m.logger.Error("store telegram update", "channel_id", session.channelID, "update_id", update.UpdateID, "error", err)
-				storeErr = err
-				break
-			}
-			offset = update.UpdateID + 1
 		}
+		next, storeErr := m.storeUpdates(ctx, session.channelID, fresh)
+		offset = max(offset, next)
 		if storeErr != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			m.logger.Error("store telegram updates", "channel_id", session.channelID, "batch_size", len(fresh), "error", storeErr)
 			// Back off instead of immediately re-fetching the same batch in a hot loop.
 			storeFailures++
 			m.setStatus(session, messaging.ConnectionError, "Could not store Telegram updates. Retrying automatically.")
@@ -509,45 +506,72 @@ func wait(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
-func (m *Manager) storeUpdate(ctx context.Context, channelID string, update botapi.Update) error {
-	event, publish := normalize.Update(channelID, update)
-	var payload []byte
-	var err error
-	if publish {
-		if err := event.Validate(); err != nil {
-			return fmt.Errorf("validate telegram event: %w", err)
-		}
-		payload, err = json.Marshal(event)
-		if err != nil {
-			return fmt.Errorf("marshal telegram event: %w", err)
-		}
+// storeUpdates durably records one getUpdates batch in a single transaction: every
+// publishable update becomes an outbox row and the offset advances past the last
+// update, so a failure leaves the whole batch to be refetched (outbox inserts are
+// idempotent on event_id). Updates that produce no event, such as unsupported
+// kinds, still advance the offset. If an update cannot be normalized, the updates
+// before it are stored and the error is returned after them, so one bad update
+// never blocks the ones that preceded it.
+//
+// It returns the offset to poll from next, or 0 if nothing was stored.
+func (m *Manager) storeUpdates(ctx context.Context, channelID string, updates []botapi.Update) (int64, error) {
+	type queued struct {
+		id      string
+		payload []byte
 	}
+	var events []queued
+	var buildErr error
+	stored := updates
+	for i, update := range updates {
+		event, publish := normalize.Update(channelID, update)
+		if !publish {
+			continue
+		}
+		if buildErr = event.Validate(); buildErr != nil {
+			buildErr = fmt.Errorf("validate telegram event for update %d: %w", update.UpdateID, buildErr)
+			stored = updates[:i]
+			break
+		}
+		payload, err := json.Marshal(event)
+		if err != nil {
+			buildErr = fmt.Errorf("marshal telegram event for update %d: %w", update.UpdateID, err)
+			stored = updates[:i]
+			break
+		}
+		events = append(events, queued{id: event.ID, payload: payload})
+	}
+	if len(stored) == 0 {
+		return 0, buildErr
+	}
+	next := stored[len(stored)-1].UpdateID + 1
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin telegram update: %w", err)
+		return 0, fmt.Errorf("begin telegram update batch: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if publish {
+	now := time.Now().UnixMilli()
+	for _, event := range events {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO adapter_event_outbox (event_id, channel_id, payload, available_at)
 			VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING
-		`, event.ID, channelID, payload, time.Now().UnixMilli()); err != nil {
-			return fmt.Errorf("enqueue telegram event: %w", err)
+		`, event.id, channelID, event.payload, now); err != nil {
+			return 0, fmt.Errorf("enqueue telegram event: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE telegram_sessions SET update_offset = MAX(update_offset, ?), updated_at = CURRENT_TIMESTAMP
 		WHERE channel_id = ?
-	`, update.UpdateID+1, channelID); err != nil {
-		return fmt.Errorf("advance telegram update offset: %w", err)
+	`, next, channelID); err != nil {
+		return 0, fmt.Errorf("advance telegram update offset: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit telegram update: %w", err)
+		return 0, fmt.Errorf("commit telegram update batch: %w", err)
 	}
-	if publish {
+	if len(events) > 0 {
 		m.wakePublisher()
 	}
-	return nil
+	return next, buildErr
 }
 
 func (m *Manager) setStatus(session *botSession, state messaging.ConnectionStatus, detail string) {
