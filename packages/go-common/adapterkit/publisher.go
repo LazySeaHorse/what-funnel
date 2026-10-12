@@ -45,3 +45,9 @@ func (p *EventPublisher) Publish(ctx context.Context, event messaging.Event) err
 	}
 	return nil
 }
+
+// Publisher is the dependency adapter session managers use to emit normalized events;
+// *EventPublisher implements it.
+type Publisher interface {
+	Publish(context.Context, messaging.Event) error
+}

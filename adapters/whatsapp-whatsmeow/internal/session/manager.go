@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -35,9 +33,7 @@ var (
 	ErrNotConnected  = adapterkit.ErrNotConnected
 )
 
-type EventPublisher interface {
-	Publish(context.Context, messaging.Event) error
-}
+type EventPublisher = adapterkit.Publisher
 
 type (
 	Snapshot  = adapterkit.Snapshot
@@ -85,17 +81,10 @@ func NewManager(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if err := prepareDatabasePath(databasePath); err != nil {
-		return nil, err
-	}
-
-	dsn := fmt.Sprintf("file:%s?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL", databasePath)
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := adapterkit.OpenSQLite(databasePath)
 	if err != nil {
 		return nil, fmt.Errorf("open session database: %w", err)
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
 
 	container := sqlstore.NewWithDB(db, "sqlite3", nil)
 	if err := container.Upgrade(parent); err != nil {
@@ -710,17 +699,6 @@ func marshalDownloadable(downloadable whatsmeow.DownloadableMessage) (string, []
 		return "", nil, fmt.Errorf("marshal whatsapp media: %w", err)
 	}
 	return kind, data, nil
-}
-
-func prepareDatabasePath(databasePath string) error {
-	directory := filepath.Dir(databasePath)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create whatsapp database directory: %w", err)
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return fmt.Errorf("secure whatsapp database directory: %w", err)
-	}
-	return nil
 }
 
 func createAdapterTables(ctx context.Context, db *sql.DB) error {

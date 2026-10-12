@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -34,9 +32,7 @@ var (
 
 var _ adapterkit.Controller = (*Manager)(nil)
 
-type EventPublisher interface {
-	Publish(context.Context, messaging.Event) error
-}
+type EventPublisher = adapterkit.Publisher
 
 type (
 	Snapshot  = adapterkit.Snapshot
@@ -102,15 +98,10 @@ func NewManager(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if err := prepareDatabasePath(databasePath); err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL", databasePath))
+	db, err := adapterkit.OpenSQLite(databasePath)
 	if err != nil {
 		return nil, fmt.Errorf("open telegram session database: %w", err)
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
 	if err := createTables(parent, db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -626,17 +617,6 @@ func (m *Manager) loadOffset(ctx context.Context, channelID string) (int64, erro
 	var offset int64
 	err := m.db.QueryRowContext(ctx, `SELECT update_offset FROM telegram_sessions WHERE channel_id = ?`, channelID).Scan(&offset)
 	return offset, err
-}
-
-func prepareDatabasePath(path string) error {
-	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create telegram data directory: %w", err)
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return fmt.Errorf("secure telegram data directory: %w", err)
-	}
-	return nil
 }
 
 func createTables(ctx context.Context, db *sql.DB) error {
