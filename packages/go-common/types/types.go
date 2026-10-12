@@ -123,6 +123,30 @@ const (
 	RoleAgent   = "agent"
 )
 
+// Product mode constants: the account-level entitlement that decides whether
+// the full workspace (leads, pipeline, conversations UI) or only the chatbot
+// is available.
+const (
+	ProductModeFullWorkspace = "full_workspace"
+	ProductModeChatbotOnly   = "chatbot_only"
+)
+
+// ValidProductMode reports whether mode is a known product mode.
+func ValidProductMode(mode string) bool {
+	return mode == ProductModeFullWorkspace || mode == ProductModeChatbotOnly
+}
+
+// Reply mode constants: whether the AI sends its replies or only drafts them.
+const (
+	ReplyModeAutoSend  = "auto_send"
+	ReplyModeDraftOnly = "draft_only"
+)
+
+// ValidReplyMode reports whether mode is a known reply mode.
+func ValidReplyMode(mode string) bool {
+	return mode == ReplyModeAutoSend || mode == ReplyModeDraftOnly
+}
+
 // Plan constants.
 const (
 	PlanSelfHosted = "self_hosted"

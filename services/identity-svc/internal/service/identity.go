@@ -153,12 +153,12 @@ func (svc *Service) Signup(ctx context.Context, req SignupRequest) (*types.User,
 	}, nil
 }
 
-// validateAndNormalizeProductMode validates the product mode and defaults to full_workspace if empty.
+// validateAndNormalizeProductMode validates the product mode and defaults to types.ProductModeFullWorkspace if empty.
 func validateAndNormalizeProductMode(mode string) (string, error) {
 	if mode == "" {
-		return "full_workspace", nil
+		return types.ProductModeFullWorkspace, nil
 	}
-	if mode != "full_workspace" && mode != "chatbot_only" {
+	if !types.ValidProductMode(mode) {
 		return "", validationErrorf("invalid product mode: %s", mode)
 	}
 	return mode, nil
@@ -168,10 +168,10 @@ func validateAndNormalizeProductMode(mode string) (string, error) {
 func buildDefaultAccountSettings(productMode string) ([]byte, error) {
 	settings := map[string]any{
 		"ai_enabled":                             true,
-		"ai_reply_mode_default":                  "draft_only",
+		"ai_reply_mode_default":                  types.ReplyModeDraftOnly,
 		"allow_member_reply_mode_override":       true,
 		"ai_may_auto_answer_mixed_conversations": false,
-		"lead_tracking_enabled":                  productMode == "full_workspace",
+		"lead_tracking_enabled":                  productMode == types.ProductModeFullWorkspace,
 		"summary_schema": []map[string]string{
 			{"key": "customer_wants", "label": "Customer Wants", "description": "What the customer is looking for"},
 			{"key": "preferred_timeframe", "label": "Preferred Timeframe", "description": "When the customer wants it"},

@@ -175,7 +175,7 @@ func (svc *Service) MergeAccountSettings(ctx context.Context, accountID, actorID
 
 // UpdateProductMode switches the product mode of the account, toggles lead_tracking_enabled, and audit logs it.
 func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uuid.UUID, newMode string) error {
-	if newMode != "full_workspace" && newMode != "chatbot_only" {
+	if !types.ValidProductMode(newMode) {
 		return fmt.Errorf("invalid product mode: %s", newMode)
 	}
 
@@ -192,7 +192,7 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 	}
 
 	leadTrackingJSON := "false"
-	if newMode == "full_workspace" {
+	if newMode == types.ProductModeFullWorkspace {
 		leadTrackingJSON = "true"
 	}
 

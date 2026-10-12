@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"unicode/utf8"
+
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
 // ErrInvalidSettings is returned when an account settings payload contains a
@@ -75,7 +77,7 @@ func validateSettings(settings map[string]any) error {
 			return fmt.Errorf("%w: %q has the wrong type", ErrInvalidSettings, key)
 		}
 	}
-	if v, ok := settings["ai_reply_mode_default"].(string); ok && v != "auto_send" && v != "draft_only" {
+	if v, ok := settings["ai_reply_mode_default"].(string); ok && !types.ValidReplyMode(v) {
 		return fmt.Errorf("%w: ai_reply_mode_default must be auto_send or draft_only", ErrInvalidSettings)
 	}
 	if v, ok := settings["ai_greeting_text"].(string); ok && utf8.RuneCountInString(v) > maxGreetingTextRunes {

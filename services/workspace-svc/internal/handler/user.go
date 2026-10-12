@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
 )
 
@@ -153,7 +154,7 @@ func (h *Handler) UpdateMyReplyMode(w http.ResponseWriter, r *http.Request) {
 
 	if body.ReplyMode != nil {
 		mode := *body.ReplyMode
-		if mode != "" && mode != "auto_send" && mode != "draft_only" {
+		if mode != "" && !types.ValidReplyMode(mode) {
 			writeError(w, http.StatusBadRequest, "invalid reply_mode")
 			return
 		}

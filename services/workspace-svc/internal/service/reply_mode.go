@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
 // UserReplyModePreferences represents user and workspace reply mode configuration.
@@ -28,12 +29,12 @@ func (svc *Service) GetUserReplyMode(ctx context.Context, accountID, userID uuid
 
 	settings := parseSettings(row.Settings)
 	workspaceDefault, _ := settings["ai_reply_mode_default"].(string)
-	if workspaceDefault != "auto_send" && workspaceDefault != "draft_only" {
-		workspaceDefault = "draft_only"
+	if !types.ValidReplyMode(workspaceDefault) {
+		workspaceDefault = types.ReplyModeDraftOnly
 	}
 	overrideAllowed := boolSetting(settings, "allow_member_reply_mode_override", true)
 	effective := workspaceDefault
-	if overrideAllowed && row.ReplyModeOverride != nil && (*row.ReplyModeOverride == "auto_send" || *row.ReplyModeOverride == "draft_only") {
+	if overrideAllowed && row.ReplyModeOverride != nil && types.ValidReplyMode(*row.ReplyModeOverride) {
 		effective = *row.ReplyModeOverride
 	}
 

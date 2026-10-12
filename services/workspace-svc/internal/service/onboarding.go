@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/onboarding"
 )
 
@@ -148,8 +149,8 @@ func (svc *Service) GetOnboardingTemplates() []onboarding.BusinessTemplate {
 
 // ApplyOnboardingTemplate applies a business-type template to the account.
 // It updates summary_schema in settings, sets onboarding.business_type,
-// and — when productMode is "full_workspace" — updates the first pipeline's
-// states and name to match the template.
+// and — for a full-workspace account — updates the first pipeline's states and
+// name to match the template.
 func (svc *Service) ApplyOnboardingTemplate(ctx context.Context, accountID, actorID uuid.UUID, businessType, productMode string) error {
 	tmpl, ok := onboarding.Templates[businessType]
 	if !ok {
@@ -193,7 +194,7 @@ func (svc *Service) ApplyOnboardingTemplate(ctx context.Context, accountID, acto
 	}
 
 	// For full_workspace mode, update the first pipeline with template states
-	if productMode == "full_workspace" {
+	if productMode == types.ProductModeFullWorkspace {
 		var pipelineID uuid.UUID
 		err = tx.QueryRow(ctx,
 			`SELECT id FROM lead_pipelines WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`,

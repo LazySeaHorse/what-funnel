@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/workspace-svc/internal/service"
 )
 
@@ -198,7 +199,7 @@ func (h *Handler) UpdateProductMode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if body.ProductMode != "full_workspace" && body.ProductMode != "chatbot_only" {
+	if !types.ValidProductMode(body.ProductMode) {
 		writeError(w, http.StatusBadRequest, "invalid product mode")
 		return
 	}
