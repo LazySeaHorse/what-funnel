@@ -9,6 +9,7 @@
 		title = '',
 		description = '',
 		maxWidth = 'max-w-md',
+		scrollable = false,
 		showClose = true,
 		ariaLabel,
 		ariaLabelledby,
@@ -22,6 +23,8 @@
 		title?: string;
 		description?: string;
 		maxWidth?: string;
+		/** Cap the panel at 90% of the viewport height and scroll its content. */
+		scrollable?: boolean;
 		showClose?: boolean;
 		ariaLabel?: string;
 		ariaLabelledby?: string;
@@ -52,7 +55,7 @@
 	>
 		<div
 			transition:scale={{ start: 0.96, duration: 180, easing: cubicOut }}
-			class="w-full {maxWidth} space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
+			class="w-full {maxWidth} {scrollable ? 'max-h-[90vh] overflow-y-auto' : ''} space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
 			role="dialog"
 			aria-modal="true"
 			aria-label={dialogLabel}

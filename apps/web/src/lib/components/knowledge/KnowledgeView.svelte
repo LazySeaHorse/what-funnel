@@ -562,6 +562,7 @@
 		: 'Paste business facts, policies, FAQs, or pricing to automatically extract structured concepts.'}
 	ariaLabel="Add knowledge"
 	maxWidth="max-w-2xl"
+	scrollable
 	onclose={() => (showAddKnowledgeModal = false)}
 >
 	{#if ingestion.phase === 'review'}
