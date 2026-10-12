@@ -57,13 +57,17 @@
     void refreshConnections();
   }
 
-  function handleConnectionSuccess(_connection: Connection) {
-    void refreshConnections();
-    void workspace?.refreshChannels();
+  // The modal hands over each fresh connection (on every poll tick while pairing),
+  // so merge it locally; closing the dialog does the one full re-fetch.
+  function handleConnectionChange(connection: Connection) {
+    const exists = connections.some((c) => c.channel_id === connection.channel_id);
+    connections = exists
+      ? connections.map((c) => (c.channel_id === connection.channel_id ? connection : c))
+      : [...connections, connection];
   }
 
-  function handleConnectionChange(_connection: Connection) {
-    void refreshConnections();
+  function handleConnectionSuccess(_connection: Connection) {
+    void workspace?.refreshChannels();
   }
 
   async function unlink(connection: Connection) {
