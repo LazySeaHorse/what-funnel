@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
@@ -271,7 +272,9 @@ func TestMediaVisibilityFollowsConversation(t *testing.T) {
 	}
 	svc, pool, _ := testService(t)
 	ctx := context.Background()
-	require.NoError(t, svc.ConfigureMediaCache(t.TempDir()))
+	mediaStore, err := mediastore.NewDiskStore(t.TempDir())
+	require.NoError(t, err)
+	svc.ConfigureMediaStore(mediaStore)
 	accountID, managerID := setupTestTenant(t, pool, "media-visibility")
 	var agent1, agent2 uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users (account_id, email, password_hash, role) VALUES ($1, 'media-a1@example.com', 'hash', 'agent') RETURNING id`, accountID).Scan(&agent1))
@@ -284,7 +287,7 @@ func TestMediaVisibilityFollowsConversation(t *testing.T) {
 	}
 
 	// A user who cannot see the conversation cannot upload into it.
-	_, err := svc.SaveOutboundMedia(ctx, viewer(agent2, types.RoleAgent), convo, "a.png", "image/png", strings.NewReader("png-bytes"))
+	_, err = svc.SaveOutboundMedia(ctx, viewer(agent2, types.RoleAgent), convo, "a.png", "image/png", strings.NewReader("png-bytes"))
 	require.True(t, errors.Is(err, service.ErrNotFound), "got %v", err)
 
 	media, err := svc.SaveOutboundMedia(ctx, viewer(agent1, types.RoleAgent), convo, "a.png", "image/png", strings.NewReader("png-bytes"))

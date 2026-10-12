@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/handler"
+	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
@@ -36,7 +37,9 @@ func TestHandler_GetMedia_SecurityHeaders(t *testing.T) {
 
 	svc := service.New(pool, nil)
 	cacheDir := filepath.Join(t.TempDir(), "media-cache")
-	require.NoError(t, svc.ConfigureMediaCache(cacheDir))
+	cacheStore, err := mediastore.NewDiskStore(cacheDir)
+	require.NoError(t, err)
+	svc.ConfigureMediaStore(cacheStore)
 
 	h := handler.New(svc, &mockSessionStore{})
 

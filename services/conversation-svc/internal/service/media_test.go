@@ -62,9 +62,11 @@ func TestMediaCacheWritesPrivateFile(t *testing.T) {
 
 	root := filepath.Join(t.TempDir(), "nested", "media")
 	svc := NewMediaService(nil)
-	if err := svc.ConfigureMediaCache(root); err != nil {
-		t.Fatalf("ConfigureMediaCache() error = %v", err)
+	store, err := mediastore.NewDiskStore(root)
+	if err != nil {
+		t.Fatalf("NewDiskStore() error = %v", err)
 	}
+	svc.ConfigureMediaStore(store)
 	id := uuid.New()
 	key, err := svc.writeMediaFile(context.Background(), id, []byte("content"), "text/plain")
 	if err != nil {

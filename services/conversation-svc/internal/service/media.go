@@ -110,20 +110,23 @@ func (s *MediaService) ConfigureMediaStore(store mediastore.Store) {
 	s.store = store
 }
 
-// ConfigureMediaCache configures a local disk-backed media store.
-func (s *MediaService) ConfigureMediaCache(root string) error {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return errors.New("media cache path is required")
+// mediaStore returns the configured store, or nil before one is set.
+func (s *MediaService) mediaStore() mediastore.Store {
+	s.mediaMu.RLock()
+	defer s.mediaMu.RUnlock()
+	return s.store
+}
+
+// normalizeMIME fills in a missing or generic MIME type by sniffing data and
+// strips parameters such as charset.
+func normalizeMIME(mimeType string, data []byte) string {
+	if strings.TrimSpace(mimeType) == "" || mimeType == "application/octet-stream" {
+		mimeType = http.DetectContentType(data)
 	}
-	store, err := mediastore.NewDiskStore(root)
-	if err != nil {
-		return err
+	if parsed, _, err := mime.ParseMediaType(mimeType); err == nil {
+		mimeType = parsed
 	}
-	s.mediaMu.Lock()
-	s.store = store
-	s.mediaMu.Unlock()
-	return nil
+	return mimeType
 }
 
 func (s *MediaService) RegisterProviderMediaFetcher(provider messaging.Provider, fetcher ProviderMediaFetcher) {
@@ -179,12 +182,7 @@ func (s *MediaService) SaveOutboundMedia(
 	if int64(len(data)) > messaging.MaxMediaBytes {
 		return MediaObject{}, messaging.ErrMediaTooLarge
 	}
-	if strings.TrimSpace(mimeType) == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
-	}
-	if parsed, _, err := mime.ParseMediaType(mimeType); err == nil {
-		mimeType = parsed
-	}
+	mimeType = normalizeMIME(mimeType, data)
 	filename = filepath.Base(strings.TrimSpace(filename))
 	if filename == "." {
 		filename = ""
@@ -207,10 +205,7 @@ func (s *MediaService) SaveOutboundMedia(
 	`, media.ID, accountID, channelID, conversationID, viewer.UserID, media.Filename, media.MIMEType,
 		media.SizeBytes, storageKey, media.ExpiresAt)
 	if err != nil {
-		s.mediaMu.RLock()
-		store := s.store
-		s.mediaMu.RUnlock()
-		if store != nil {
+		if store := s.mediaStore(); store != nil {
 			_ = store.Delete(ctx, storageKey)
 		}
 		return MediaObject{}, fmt.Errorf("save media upload: %w", err)
@@ -258,9 +253,7 @@ func (s *MediaService) OpenMedia(ctx context.Context, viewer *MediaViewer, media
 		}
 	}
 
-	s.mediaMu.RLock()
-	store := s.store
-	s.mediaMu.RUnlock()
+	store := s.mediaStore()
 	if store == nil {
 		return MediaContent{}, errors.New("media store is not configured")
 	}
@@ -297,12 +290,7 @@ func (s *MediaService) OpenMedia(ctx context.Context, viewer *MediaViewer, media
 	if downloaded.MIMEType != "" {
 		media.MIMEType = downloaded.MIMEType
 	}
-	if strings.TrimSpace(media.MIMEType) == "" || media.MIMEType == "application/octet-stream" {
-		media.MIMEType = http.DetectContentType(downloaded.Data)
-	}
-	if parsed, _, err := mime.ParseMediaType(media.MIMEType); err == nil {
-		media.MIMEType = parsed
-	}
+	media.MIMEType = normalizeMIME(media.MIMEType, downloaded.Data)
 	if downloaded.Filename != "" {
 		media.Filename = filepath.Base(downloaded.Filename)
 	}
@@ -369,9 +357,7 @@ func (s *MediaService) RunMediaCleanup(ctx context.Context) error {
 }
 
 func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
-	s.mediaMu.RLock()
-	store := s.store
-	s.mediaMu.RUnlock()
+	store := s.mediaStore()
 	if store == nil {
 		return errors.New("media store is not configured")
 	}
@@ -434,9 +420,7 @@ func (s *MediaService) CleanupExpiredMediaOnce(ctx context.Context) error {
 }
 
 func (s *MediaService) writeMediaFile(ctx context.Context, id uuid.UUID, data []byte, contentType string) (string, error) {
-	s.mediaMu.RLock()
-	store := s.store
-	s.mediaMu.RUnlock()
+	store := s.mediaStore()
 	if store == nil {
 		return "", errors.New("media cache is not configured")
 	}
