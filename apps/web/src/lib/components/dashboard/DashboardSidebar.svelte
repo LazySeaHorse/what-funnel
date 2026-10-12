@@ -11,7 +11,7 @@
     Cog6ToothIcon,
     ChevronDownIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
-  import type { DashboardSection } from "./types";
+  import { canOpenSection, type DashboardSection } from "./types";
 
   let {
     inbox,
@@ -34,37 +34,31 @@
       key: "inbox" as const,
       label: "Inbox",
       icon: InboxIcon,
-      visible: () => true,
     },
     {
       key: "leads" as const,
       label: "Leads",
       icon: UsersIcon,
-      visible: () => capabilities.leadTracking,
     },
     {
       key: "knowledge" as const,
       label: "Knowledge",
       icon: BookOpenIcon,
-      visible: () => capabilities.manageKnowledge,
     },
     {
       key: "contacts" as const,
       label: "Contacts",
       icon: UserIcon,
-      visible: () => capabilities.viewContacts,
     },
     {
       key: "simulate" as const,
       label: "Simulate",
       icon: DevicePhoneMobileIcon,
-      visible: () => capabilities.useSimulator,
     },
     {
       key: "settings" as const,
       label: "Settings",
       icon: Cog6ToothIcon,
-      visible: () => true,
     },
   ];
 </script>
@@ -91,7 +85,7 @@
     >
     <nav class="space-y-1">
       {#each items as item (item.key)}
-        {#if item.visible()}
+        {#if canOpenSection(item.key, capabilities)}
           <button
             onclick={() => onSelect(item.key)}
             aria-label={item.key === "simulate" ? "Simulate DEV" : undefined}

@@ -9,7 +9,11 @@
   import DashboardHeader from "$lib/components/dashboard/DashboardHeader.svelte";
   import DashboardSidebar from "$lib/components/dashboard/DashboardSidebar.svelte";
   import MobileDashboardNav from "$lib/components/dashboard/MobileDashboardNav.svelte";
-  import type { DashboardSection } from "$lib/components/dashboard/types";
+  import {
+    canOpenSection,
+    isDashboardSection,
+    type DashboardSection,
+  } from "$lib/components/dashboard/types";
   import InboxWorkspace from "$lib/components/inbox/InboxWorkspace.svelte";
   import ContactsView from "$lib/components/inbox/ContactsView.svelte";
   import SimulatorView from "$lib/components/inbox/SimulatorView.svelte";
@@ -107,11 +111,7 @@
   }
 
   function canOpen(section: DashboardSection) {
-    if (section === "leads") return capabilities.leadTracking;
-    if (section === "contacts") return capabilities.viewContacts;
-    if (section === "knowledge") return capabilities.manageKnowledge;
-    if (section === "simulate") return capabilities.useSimulator;
-    return true;
+    return canOpenSection(section, capabilities);
   }
 
   function selectSection(section: DashboardSection) {
@@ -181,17 +181,6 @@
     } finally {
       void goto("/login");
     }
-  }
-
-  function isDashboardSection(value: string): value is DashboardSection {
-    return [
-      "inbox",
-      "leads",
-      "knowledge",
-      "contacts",
-      "simulate",
-      "settings",
-    ].includes(value);
   }
 </script>
 

@@ -6,7 +6,7 @@
     Cog6ToothIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import type { UICapabilities } from "$lib/ui-capabilities";
-  import type { DashboardSection } from "./types";
+  import { canOpenSection, type DashboardSection } from "./types";
   let {
     selected,
     capabilities,
@@ -24,17 +24,12 @@
     { key: "knowledge" as const, label: "Knowledge", icon: BookOpenIcon },
     { key: "settings" as const, label: "Settings", icon: Cog6ToothIcon },
   ];
-  function visible(key: DashboardSection) {
-    if (key === "leads") return capabilities.leadTracking;
-    if (key === "knowledge") return capabilities.manageKnowledge;
-    return true;
-  }
 </script>
 
 <nav
   class="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 py-1.5 px-2 flex items-center justify-around"
 >
-  {#each items as item (item.key)}{#if visible(item.key)}<a
+  {#each items as item (item.key)}{#if canOpenSection(item.key, capabilities)}<a
         href={`#${item.key}`}
         role="button"
         onclick={(event) => {
