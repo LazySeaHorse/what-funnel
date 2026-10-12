@@ -8,15 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
-	"mime"
 	"net/http"
-	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -24,9 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type MediaSource interface {
-	Fetch(context.Context, string) (MediaFile, error)
-}
+type MediaSource = adapterkit.MediaSource
 
 type messageClient interface {
 	Upload(context.Context, []byte, whatsmeow.MediaType) (whatsmeow.UploadResponse, error)
@@ -295,61 +290,4 @@ func providerMediaType(contentType messaging.ContentType) (whatsmeow.MediaType, 
 	default:
 		return "", fmt.Errorf("whatsapp session: unsupported media type %q", contentType)
 	}
-}
-
-type HTTPMediaSource struct {
-	baseURL string
-	secret  string
-	client  *http.Client
-}
-
-func NewHTTPMediaSource(baseURL, secret string) (*HTTPMediaSource, error) {
-	parsed, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return nil, errors.New("whatsapp media: invalid base url")
-	}
-	if strings.TrimSpace(secret) == "" {
-		return nil, errors.New("whatsapp media: empty shared secret")
-	}
-	return &HTTPMediaSource{
-		baseURL: parsed.String(),
-		secret:  secret,
-		client: &http.Client{
-			Timeout: 65 * time.Second,
-		},
-	}, nil
-}
-
-func (s *HTTPMediaSource) Fetch(ctx context.Context, mediaID string) (MediaFile, error) {
-	requestURL := s.baseURL + "/internal/media/" + url.PathEscape(mediaID)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return MediaFile{}, fmt.Errorf("create media request: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+s.secret)
-	response, err := s.client.Do(request)
-	if err != nil {
-		return MediaFile{}, fmt.Errorf("request media: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return MediaFile{}, fmt.Errorf("request media: status %d", response.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, messaging.MaxMediaBytes+1))
-	if err != nil {
-		return MediaFile{}, fmt.Errorf("read media: %w", err)
-	}
-	if len(data) > int(messaging.MaxMediaBytes) {
-		return MediaFile{}, messaging.ErrMediaTooLarge
-	}
-	filename := ""
-	if _, params, err := mime.ParseMediaType(response.Header.Get("Content-Disposition")); err == nil {
-		filename = filepath.Base(params["filename"])
-	}
-	return MediaFile{
-		Data:     data,
-		MIMEType: response.Header.Get("Content-Type"),
-		Filename: filename,
-	}, nil
 }

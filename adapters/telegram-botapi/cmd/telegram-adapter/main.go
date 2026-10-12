@@ -17,6 +17,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/control"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/eventstream"
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/session"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	wfcrypto "github.com/whatfunnel/whatfunnel/packages/go-common/crypto"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"golang.org/x/sync/errgroup"
@@ -55,7 +56,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("initialize telegram sessions: %w", err)
 	}
 	defer manager.Close()
-	mediaSource, err := session.NewHTTPMediaSource(config.ConversationInternalURL, config.SharedSecret)
+	mediaSource, err := adapterkit.NewHTTPMediaSource(config.ConversationInternalURL, config.SharedSecret, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("configure outbound media: %w", err)
 	}

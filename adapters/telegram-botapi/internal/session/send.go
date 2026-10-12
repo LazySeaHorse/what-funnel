@@ -12,12 +12,11 @@ import (
 	"time"
 
 	"github.com/whatfunnel/whatfunnel/adapters/telegram-botapi/internal/botapi"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 )
 
-type MediaSource interface {
-	Fetch(context.Context, string) (MediaFile, error)
-}
+type MediaSource = adapterkit.MediaSource
 
 func (m *Manager) SetMediaSource(source MediaSource) {
 	// The source is set once during startup before commands are consumed.

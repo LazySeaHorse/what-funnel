@@ -183,26 +183,3 @@ func TestBuildMessage(t *testing.T) {
 		})
 	}
 }
-
-func TestNewHTTPMediaSource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		baseURL string
-		secret  string
-	}{
-		{name: "relative url", baseURL: "/media", secret: "secret"},
-		{name: "unsupported scheme", baseURL: "file:///tmp/media", secret: "secret"},
-		{name: "empty secret", baseURL: "http://conversation-svc:8080"},
-	}
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			if _, err := NewHTTPMediaSource(test.baseURL, test.secret); err == nil {
-				t.Fatal("NewHTTPMediaSource() error = nil, want error")
-			}
-		})
-	}
-}

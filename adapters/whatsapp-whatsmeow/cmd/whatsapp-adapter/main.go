@@ -16,6 +16,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/adapters/whatsapp-whatsmeow/internal/control"
 	"github.com/whatfunnel/whatfunnel/adapters/whatsapp-whatsmeow/internal/eventstream"
 	"github.com/whatfunnel/whatfunnel/adapters/whatsapp-whatsmeow/internal/session"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/pubsub"
 	"golang.org/x/sync/errgroup"
 )
@@ -42,7 +43,7 @@ func run(logger *slog.Logger) error {
 	}
 	defer streamClient.Close()
 
-	mediaSource, err := session.NewHTTPMediaSource(config.ConversationInternalURL, config.SharedSecret)
+	mediaSource, err := adapterkit.NewHTTPMediaSource(config.ConversationInternalURL, config.SharedSecret, 65*time.Second)
 	if err != nil {
 		return fmt.Errorf("configure outbound media: %w", err)
 	}
