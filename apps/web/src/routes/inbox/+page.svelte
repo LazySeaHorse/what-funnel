@@ -29,9 +29,20 @@
   const workspace = new WorkspaceState();
   let selectedSection = $state<DashboardSection>("inbox");
   let searchQuery = $state("");
-  let accountName = $state("What Funnel Workspace");
-  let aiEnabled = $state(false);
-  let aiReplyModeDefault = $state<"auto_send" | "draft_only">("draft_only");
+  const accountName = $derived(
+    workspace.account?.name || "What Funnel Workspace",
+  );
+  const accountSettings = $derived(
+    decodeWorkspaceSettings(workspace.account?.settings),
+  );
+  // Writable deriveds: reset whenever the account reloads, but the AI toggle
+  // can set them optimistically before the refresh lands.
+  let aiEnabled = $derived(accountSettings.ai_enabled === true);
+  let aiReplyModeDefault = $derived<"auto_send" | "draft_only">(
+    accountSettings.ai_reply_mode_default === "auto_send"
+      ? "auto_send"
+      : "draft_only",
+  );
   let aiProviderConfigured = $state(false);
   let aiProviderStatusLoaded = $state(false);
   let aiToggleError = $state("");
@@ -44,16 +55,6 @@
   );
 
   $effect(() => {
-    const account = workspace.account;
-    if (account) {
-      accountName = account.name || "What Funnel Workspace";
-      const settings = decodeWorkspaceSettings(account.settings);
-      aiEnabled = settings.ai_enabled === true;
-      aiReplyModeDefault =
-        settings.ai_reply_mode_default === "auto_send"
-          ? "auto_send"
-          : "draft_only";
-    }
     inbox.configureCapabilities(capabilities);
     if (!canOpen(selectedSection)) selectedSection = "inbox";
   });
