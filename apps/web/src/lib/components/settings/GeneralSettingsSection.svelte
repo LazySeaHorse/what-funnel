@@ -2,7 +2,7 @@
   import { ChevronDownIcon } from "@fvilers/heroicons-svelte/24/outline";
   import WorkspaceTypeSelector from "$lib/components/WorkspaceTypeSelector.svelte";
   import { Input, Button } from "$lib/components/ui";
-  import { formatTimeZoneLabel, supportedTimeZones } from "./timezones";
+  import { formatTimeZoneLabel, supportedTimeZones } from "$lib/timezones";
   import type { WorkspaceSettingsForm } from "./types";
 
   let {

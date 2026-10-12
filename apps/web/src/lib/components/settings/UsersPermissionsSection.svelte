@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { apiRequest } from '$lib/api';
+		import { apiRequest } from '$lib/api';
 	import type { InboxState } from '$lib/store.svelte';
 	import type { WorkspaceState } from '$lib/workspace.svelte';
 	import { PlusIcon } from '@fvilers/heroicons-svelte/24/outline';
@@ -15,7 +14,7 @@
 
 	let { inbox, workspace, onStatus }: {
 		inbox?: InboxState;
-		workspace?: WorkspaceState;
+		workspace: WorkspaceState;
 		onStatus: (kind: 'success' | 'error', message: string) => void;
 	} = $props();
 
@@ -27,26 +26,15 @@
 		| { kind: 'delete'; user: WorkspaceUser };
 
 	let accountSlug = $state('');
-	let users = $state<WorkspaceUser[]>([]);
+	let users = $derived<WorkspaceUser[]>(workspace.users);
 	let dialog = $state<UserDialog>({ kind: 'closed' });
-
-	onMount(() => { users = workspace?.users ?? []; });
 
 	function closeDialog() {
 		dialog = { kind: 'closed' };
 	}
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') closeDialog();
-	}
-
 	async function refreshUsers() {
-		if (workspace) {
-			await workspace.refreshUsers();
-			users = workspace.users;
-		} else {
-			users = await apiRequest('/workspace/users');
-		}
+		await workspace.refreshUsers();
 	}
 
 	async function updateUserRole(userID: string, role: string) {
@@ -96,8 +84,6 @@
 		return deleteUser(dialog.user);
 	}
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <div class="space-y-6">
 	<div class="flex items-center justify-between">

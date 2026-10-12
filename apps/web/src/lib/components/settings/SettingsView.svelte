@@ -18,7 +18,7 @@
   import SettingsSidebar from "./SettingsSidebar.svelte";
   import UsersPermissionsSection from "./UsersPermissionsSection.svelte";
   import WorkspacePlanDialog from "./WorkspacePlanDialog.svelte";
-  import { normalizeSavedTimeZone } from "./timezones";
+  import { normalizeSavedTimeZone } from "$lib/timezones";
   import type { SettingsSection, WorkspaceSettingsForm } from "./types";
 
   let {
@@ -27,9 +27,8 @@
     initialSection = "general",
   }: {
     inbox?: InboxState;
-    workspace?: WorkspaceState;
+    workspace: WorkspaceState;
     initialSection?: string;
-    onNavigate?: (tab: string) => void;
   } = $props();
 
   let activeSection = $state<SettingsSection>("general");
@@ -59,7 +58,7 @@
     aiRagAutoSend: false,
   });
 
-  let canManageTeam = $derived(workspace?.capabilities.manageTeam ?? false);
+  let canManageTeam = $derived(workspace.capabilities.manageTeam);
   const currentPlan = "Pro Plan";
   const storageUsedGB = 4.2;
   const storageTotalGB = 20;
@@ -83,13 +82,9 @@
 
   async function loadSettings() {
     try {
-      loading = !(workspace?.settingsReady ?? false);
-      if (workspace) {
-        await workspace.loadSettings(inbox?.currentUser);
-        applyWorkspaceData(workspace.account);
-      } else {
-        applyWorkspaceData(await apiRequest("/workspace/account"));
-      }
+      loading = !workspace.settingsReady;
+      await workspace.loadSettings(inbox?.currentUser);
+      applyWorkspaceData(workspace.account);
     } catch (error) {
       setStatus(
         "error",
@@ -160,7 +155,7 @@
             : {}),
         },
       });
-      await workspace?.refreshAccount();
+      await workspace.refreshAccount();
       setStatus("success", "Settings saved successfully");
     } catch (error) {
       setStatus(
@@ -180,7 +175,7 @@
         body: { product_mode: mode },
       });
       form.productMode = mode;
-      await workspace?.refreshAccount();
+      await workspace.refreshAccount();
       setStatus("success", "Workspace type updated.");
     } catch (error) {
       setStatus(
@@ -232,15 +227,7 @@
       "pipeline",
     ].includes(value);
   }
-
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key !== "Escape") return;
-    showPlanModal = false;
-    showDeleteModal = false;
-  }
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <div
   class="flex-1 flex flex-col h-full overflow-y-auto bg-white px-6 pt-5 pb-8"

@@ -7,7 +7,7 @@
   import { ChatBubbleLeftRightIcon } from "@fvilers/heroicons-svelte/24/outline";
   import { Button } from "$lib/components/ui";
 
-  let { workspace }: { workspace?: WorkspaceState } = $props();
+  let { workspace }: { workspace: WorkspaceState } = $props();
   let connections = $state<Connection[]>([]);
   let activeConnection = $state<Connection | null>(null);
   let selectedProvider = $state<Connection["provider"]>("whatsapp");
@@ -67,7 +67,7 @@
   }
 
   function handleConnectionSuccess(_connection: Connection) {
-    void workspace?.refreshChannels();
+    void workspace.refreshChannels();
   }
 
   async function unlink(connection: Connection) {
@@ -79,7 +79,7 @@
     try {
       await apiRequest(`/channel-connections/${connection.channel_id}`, { method: "DELETE" });
       await refreshConnections();
-      await workspace?.refreshChannels();
+      await workspace.refreshChannels();
       notice = `${connection.label} was unlinked.`;
     } catch (reason: any) {
       error = reason?.message || `Failed to unlink ${connection.provider === "telegram" ? "Telegram" : "WhatsApp"}.`;

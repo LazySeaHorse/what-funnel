@@ -11,7 +11,7 @@
   import { newPipelineStage, sanitizePipelineStages } from "$lib/pipeline";
   import type { WorkspaceState } from "$lib/workspace.svelte";
 
-  let { workspace }: { workspace?: WorkspaceState } = $props();
+  let { workspace }: { workspace: WorkspaceState } = $props();
 
   let loading = $state(true);
   let saving = $state(false);
@@ -23,16 +23,11 @@
   onMount(loadPipeline);
 
   async function loadPipeline() {
-    loading = !(workspace?.coreReady ?? false);
+    loading = !workspace.coreReady;
     error = "";
     try {
-      if (workspace) {
-        await workspace.loadCore();
-        pipeline = workspace.pipeline;
-      } else {
-        const pipelines = await apiRequest("/workspace/pipelines");
-        pipeline = pipelines?.[0] ?? null;
-      }
+      await workspace.loadCore();
+      pipeline = workspace.pipeline;
       states = pipeline?.states ? [...pipeline.states] : [];
     } catch (err: any) {
       error = err.message || "Failed to load the lead pipeline.";
@@ -68,13 +63,9 @@
         body: { name: pipeline.name, states: preparedStates },
       });
       success = "Pipeline saved.";
-      if (workspace) {
-        await workspace.refreshPipeline();
-        pipeline = workspace.pipeline;
-        states = pipeline?.states ? [...pipeline.states] : [];
-      } else {
-        await loadPipeline();
-      }
+      await workspace.refreshPipeline();
+      pipeline = workspace.pipeline;
+      states = pipeline?.states ? [...pipeline.states] : [];
     } catch (err: any) {
       error = err.message || "Failed to save the pipeline.";
     } finally {
