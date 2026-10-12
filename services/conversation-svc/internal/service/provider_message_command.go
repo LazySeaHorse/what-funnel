@@ -98,15 +98,8 @@ func (s *ConversationService) enqueueProviderMessageCommand(ctx context.Context,
 	case messaging.CommandChangeReaction:
 		command.Reaction = &messaging.Reaction{ProviderMessageID: target.providerMessage, SenderExternalID: target.externalThread, Emoji: emoji, Removed: removed, ProviderTimestamp: now}
 	}
-	if err := command.Validate(); err != nil {
-		return fmt.Errorf("build provider message command: %w", err)
-	}
-	payload, err := json.Marshal(command)
-	if err != nil {
-		return fmt.Errorf("marshal provider message command: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO message_outbox (account_id, channel_id, message_id, provider, command) VALUES ($1, $2, $3, $4, $5)`, accountID, target.channelID, messageID, target.provider, payload); err != nil {
-		return fmt.Errorf("insert provider message command: %w", err)
+	if err := enqueueOutboxCommand(ctx, tx, accountID, target.channelID, messageID, command); err != nil {
+		return err
 	}
 	if err := audit.NewWriterFromTx(tx).Write(ctx, audit.Entry{AccountID: accountID, ActorUserID: &userID, Action: "message." + strings.TrimPrefix(string(kind), "message."), TargetType: "message", TargetID: &messageID, Metadata: map[string]any{"conversation_id": conversationID, "provider": target.provider}}); err != nil {
 		return fmt.Errorf("audit provider message command: %w", err)

@@ -347,20 +347,7 @@ func insertOutboxCommand(
 		MessageID:     message.ID.String(),
 		Message:       normalized,
 	}
-	if err := command.Validate(); err != nil {
-		return fmt.Errorf("build outbound command: %w", err)
-	}
-	commandJSON, err := json.Marshal(command)
-	if err != nil {
-		return fmt.Errorf("marshal outbound command: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO message_outbox (account_id, channel_id, message_id, provider, command)
-		VALUES ($1, $2, $3, $4, $5)
-	`, cmd.AccountID, destination.channelID, message.ID, destination.provider, commandJSON); err != nil {
-		return fmt.Errorf("insert outbound command: %w", err)
-	}
-	return nil
+	return enqueueOutboxCommand(ctx, tx, cmd.AccountID, destination.channelID, message.ID, command)
 }
 
 func applyOutboundMessageEffects(ctx context.Context, tx pgx.Tx, cmd SendMessageParams, msg *types.Message) (*uuid.UUID, error) {

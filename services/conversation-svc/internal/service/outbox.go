@@ -33,6 +33,25 @@ func NewOutboxService(pool *pgxpool.Pool, pubsub *pubsub.Client) *OutboxService 
 	}
 }
 
+// enqueueOutboxCommand validates a provider command and queues it in the same
+// transaction as the change that produced it.
+func enqueueOutboxCommand(ctx context.Context, tx pgx.Tx, accountID, channelID, messageID uuid.UUID, cmd messaging.Command) error {
+	if err := cmd.Validate(); err != nil {
+		return fmt.Errorf("build outbox command: %w", err)
+	}
+	payload, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal outbox command: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO message_outbox (account_id, channel_id, message_id, provider, command)
+		VALUES ($1, $2, $3, $4, $5)
+	`, accountID, channelID, messageID, cmd.Provider, payload); err != nil {
+		return fmt.Errorf("insert outbox command: %w", err)
+	}
+	return nil
+}
+
 // maxOutboxAttempts bounds delivery retries for one command. With the capped
 // exponential backoff below this is roughly half an hour of trying, after
 // which the command is abandoned and its message is marked failed instead of
