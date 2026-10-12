@@ -48,11 +48,12 @@
 		const d = new Date(`${value}T00:00:00`);
 		return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 	}
-	/** Exclusive upper bound: the start of the day after the chosen one. */
+	/** Inclusive upper bound (the API's `to` is inclusive): the last millisecond of the chosen day. */
 	function dayEnd(value: string) {
 		const d = new Date(`${value}T00:00:00`);
 		if (Number.isNaN(d.getTime())) return undefined;
 		d.setDate(d.getDate() + 1);
+		d.setTime(d.getTime() - 1);
 		return d.toISOString();
 	}
 
