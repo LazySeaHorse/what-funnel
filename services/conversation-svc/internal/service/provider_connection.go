@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/audit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
@@ -23,13 +24,8 @@ var (
 	ErrProviderConnectionLabelExists = errors.New("provider connection label already exists")
 )
 
-type AdapterSnapshot struct {
-	ChannelID       string                     `json:"channel_id"`
-	State           messaging.ConnectionStatus `json:"state"`
-	Detail          string                     `json:"detail,omitempty"`
-	QRData          string                     `json:"qr_data,omitempty"`
-	RemoteAccountID string                     `json:"remote_account_id,omitempty"`
-}
+// AdapterSnapshot is the adapter's connection status wire type.
+type AdapterSnapshot = adapterkit.Snapshot
 
 type AdapterControl interface {
 	Create(context.Context, string, string) (AdapterSnapshot, error)

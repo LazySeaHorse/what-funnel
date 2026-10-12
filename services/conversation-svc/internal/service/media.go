@@ -17,16 +17,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/adapterkit"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/mediastore"
 )
 
-type ProviderMedia struct {
-	Data     []byte
-	MIMEType string
-	Filename string
-}
+// ProviderMedia is media content downloaded from a provider adapter.
+type ProviderMedia = adapterkit.MediaFile
 
 type ProviderMediaFetcher interface {
 	Download(context.Context, string, string) (ProviderMedia, error)
