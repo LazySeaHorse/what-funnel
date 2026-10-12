@@ -16,8 +16,9 @@
 	import ConceptEditModal from '$lib/components/knowledge/ConceptEditModal.svelte';
 	import PatternCard from '$lib/components/knowledge/PatternCard.svelte';
 	import PatternEditModal from '$lib/components/knowledge/PatternEditModal.svelte';
+	import NoticeBanner from '$lib/components/knowledge/NoticeBanner.svelte';
 	import SuggestionCard from '$lib/components/knowledge/SuggestionCard.svelte';
-	import { Button } from '$lib/components/ui';
+	import { Button, Modal } from '$lib/components/ui';
 	import { KnowledgeIngestionController } from '$lib/knowledge/ingestion-controller.svelte';
 
 	let {
@@ -62,14 +63,16 @@
 	let editingConceptId = $state<string | null>(null);
 	let editingPatternId = $state<string | null>(null);
 
+	const query = $derived(searchQuery.toLowerCase());
+
 	let filteredConcepts = $derived(
 		!searchQuery.trim()
 			? concepts
 			: concepts.filter((c) =>
-					(c.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(c.body_text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(c.type || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(c.tags || []).some((t: string) => t.toLowerCase().includes(searchQuery.toLowerCase()))
+					(c.title || '').toLowerCase().includes(query) ||
+					(c.body_text || '').toLowerCase().includes(query) ||
+					(c.type || '').toLowerCase().includes(query) ||
+					(c.tags || []).some((t: string) => t.toLowerCase().includes(query))
 				)
 	);
 
@@ -77,9 +80,9 @@
 		!searchQuery.trim()
 			? patterns
 			: patterns.filter((p) =>
-					(p.canonical_question || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(p.answer_text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(p.trigger_phrases || []).some((phrase: string) => phrase.toLowerCase().includes(searchQuery.toLowerCase()))
+					(p.canonical_question || '').toLowerCase().includes(query) ||
+					(p.answer_text || '').toLowerCase().includes(query) ||
+					(p.trigger_phrases || []).some((phrase: string) => phrase.toLowerCase().includes(query))
 				)
 	);
 
@@ -90,9 +93,9 @@
 					const title = s._payload?.title || s._payload?.canonical_question || '';
 					const body = s._payload?.body_text || s._payload?.answer_text || '';
 					return (
-						title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-						body.toLowerCase().includes(searchQuery.toLowerCase()) ||
-						(s.type || '').toLowerCase().includes(searchQuery.toLowerCase())
+						title.toLowerCase().includes(query) ||
+						body.toLowerCase().includes(query) ||
+						(s.type || '').toLowerCase().includes(query)
 					);
 				})
 	);
@@ -387,68 +390,33 @@
 
 		<!-- Feedback Notices -->
 		{#if miningResult}
-			<div class="px-3.5 py-2.5 bg-blue-50/90 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-2 shadow-2xs">
-				<div class="flex items-center gap-2">
-					<SparklesIcon class="w-4 h-4 text-blue-600 shrink-0" />
-					<span>Audit complete — {miningResult.messages_scanned} messages scanned, {miningResult.clusters_found} clusters found, {miningResult.suggestions_created} suggestions created.</span>
-				</div>
-				<button type="button" onclick={() => (miningResult = null)} class="text-blue-500 hover:text-blue-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
+			<NoticeBanner tone="info" onDismiss={() => (miningResult = null)}>
+				Audit complete — {miningResult.messages_scanned} messages scanned, {miningResult.clusters_found} clusters found, {miningResult.suggestions_created} suggestions created.
+			</NoticeBanner>
 		{/if}
 		{#if purgeResult}
-			<div class="px-3.5 py-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between gap-2 shadow-2xs">
-				<div class="flex items-center gap-2">
-					<CheckIcon class="w-4 h-4 text-emerald-600 shrink-0" />
-					<span>Knowledge base purged — {purgeResult.concepts} concept{purgeResult.concepts !== 1 ? 's' : ''} and {purgeResult.patterns} pattern{purgeResult.patterns !== 1 ? 's' : ''} removed.</span>
-				</div>
-				<button type="button" onclick={() => (purgeResult = null)} class="text-emerald-500 hover:text-emerald-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
+			<NoticeBanner tone="success" onDismiss={() => (purgeResult = null)}>
+				Knowledge base purged — {purgeResult.concepts} concept{purgeResult.concepts !== 1 ? 's' : ''} and {purgeResult.patterns} pattern{purgeResult.patterns !== 1 ? 's' : ''} removed.
+			</NoticeBanner>
 		{:else if purgeError}
-			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs">
-				<div class="flex items-center gap-2">
-					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
-					<span>{purgeError}</span>
-				</div>
-				<button type="button" onclick={() => (purgeError = '')} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
+			<NoticeBanner tone="error" onDismiss={() => (purgeError = '')}>{purgeError}</NoticeBanner>
 		{/if}
 		{#if loadError || actionError}
-			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs" role="alert" data-testid="knowledge-error">
-				<div class="flex items-center gap-2">
-					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
-					<span>{actionError || loadError}</span>
-				</div>
-				<button type="button" onclick={() => { if (actionError) actionError = ''; else loadError = ''; }} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
+			<NoticeBanner
+				tone="error"
+				role="alert"
+				data-testid="knowledge-error"
+				onDismiss={() => { if (actionError) actionError = ''; else loadError = ''; }}
+			>
+				{actionError || loadError}
+			</NoticeBanner>
 		{/if}
 		{#if pasteResult?.added !== undefined}
-			<div class="px-3.5 py-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between gap-2 shadow-2xs">
-				<div class="flex items-center gap-2">
-					<CheckIcon class="w-4 h-4 text-emerald-600 shrink-0" />
-					<span>{pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} and {pasteResult.patternsAdded ?? 0} pattern{pasteResult.patternsAdded !== 1 ? 's' : ''} added</span>
-				</div>
-				<button type="button" onclick={() => (pasteResult = null)} class="text-emerald-500 hover:text-emerald-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
+			<NoticeBanner tone="success" onDismiss={() => (pasteResult = null)}>
+				{pasteResult.added} concept{pasteResult.added !== 1 ? 's' : ''} and {pasteResult.patternsAdded ?? 0} pattern{pasteResult.patternsAdded !== 1 ? 's' : ''} added
+			</NoticeBanner>
 		{:else if pasteResult?.error && !showAddKnowledgeModal}
-			<div class="px-3.5 py-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-center justify-between gap-2 shadow-2xs">
-				<div class="flex items-center gap-2">
-					<XMarkIcon class="w-4 h-4 text-rose-600 shrink-0" />
-					<span>{pasteResult.error}</span>
-				</div>
-				<button type="button" onclick={() => (pasteResult = null)} class="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer" aria-label="Dismiss banner">
-					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
+			<NoticeBanner tone="error" onDismiss={() => (pasteResult = null)}>{pasteResult.error}</NoticeBanner>
 		{/if}
 	</header>
 
@@ -586,73 +554,43 @@
 	{/if}
 </div>
 
-<svelte:window onkeydown={(e) => { if (showAddKnowledgeModal && e.key === 'Escape') showAddKnowledgeModal = false; }} />
-
-{#if showAddKnowledgeModal}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-		role="dialog"
-		aria-modal="true"
-		aria-label="Add knowledge"
-		onclick={(e) => {
-			if (e.target === e.currentTarget) {
-				showAddKnowledgeModal = false;
-			}
-		}}
-	>
-		<div
-			class="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 p-6 shadow-xl space-y-4"
-		>
-			<div class="flex items-center justify-between pb-2 border-b border-slate-100">
-				<div>
-					<h3 class="text-sm font-medium text-slate-900">
-						{ingestion.phase === 'review' ? 'Review structured knowledge' : 'Add knowledge'}
-					</h3>
-					<p class="text-xs text-slate-500 mt-0.5">
-						{ingestion.phase === 'review'
-							? 'Review concepts and deterministic patterns before adding them to your knowledge base.'
-							: 'Paste business facts, policies, FAQs, or pricing to automatically extract structured concepts.'}
-					</p>
-				</div>
-				<button
-					type="button"
-					onclick={() => (showAddKnowledgeModal = false)}
-					aria-label="Close dialog"
-					class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition cursor-pointer shrink-0"
-				>
+<Modal
+	open={showAddKnowledgeModal}
+	title={ingestion.phase === 'review' ? 'Review structured knowledge' : 'Add knowledge'}
+	description={ingestion.phase === 'review'
+		? 'Review concepts and deterministic patterns before adding them to your knowledge base.'
+		: 'Paste business facts, policies, FAQs, or pricing to automatically extract structured concepts.'}
+	ariaLabel="Add knowledge"
+	maxWidth="max-w-2xl"
+	onclose={() => (showAddKnowledgeModal = false)}
+>
+	{#if ingestion.phase === 'review'}
+		<div class="space-y-3">
+			{#if pasteResult?.error}
+				<div class="flex items-center gap-1.5 text-xs text-rose-600 font-medium">
 					<XMarkIcon class="w-4 h-4" />
-				</button>
-			</div>
-
-			{#if ingestion.phase === 'review'}
-				<div class="space-y-3">
-					{#if pasteResult?.error}
-						<div class="flex items-center gap-1.5 text-xs text-rose-600 font-medium">
-							<XMarkIcon class="w-4 h-4" />
-							<span>{pasteResult.error}</span>
-						</div>
-					{/if}
-					<div class="max-h-[60vh] overflow-y-auto pr-1">
-						<IngestionReview bind:concepts={ingestion.concepts} bind:patterns={ingestion.patterns} />
-					</div>
-					<div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-						<Button variant="secondary" size="sm" onclick={discardIngestion} disabled={ingestion.busy}>
-							Discard
-						</Button>
-						<Button variant="primary" size="sm" onclick={publishIngestion} disabled={ingestion.busy} busy={ingestion.busy}>
-							Add selected to Knowledge Base
-						</Button>
-					</div>
+					<span>{pasteResult.error}</span>
 				</div>
-			{:else}
-				<KnowledgeComposer
-					bind:value={pasteText}
-					busy={ingestion.busy}
-					phase={ingestion.phase}
-					result={pasteResult}
-					onSubmit={compilePaste}
-				/>
 			{/if}
+			<div class="max-h-[60vh] overflow-y-auto pr-1">
+				<IngestionReview bind:concepts={ingestion.concepts} bind:patterns={ingestion.patterns} />
+			</div>
+			<div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+				<Button variant="secondary" size="sm" onclick={discardIngestion} disabled={ingestion.busy}>
+					Discard
+				</Button>
+				<Button variant="primary" size="sm" onclick={publishIngestion} disabled={ingestion.busy} busy={ingestion.busy}>
+					Add selected to Knowledge Base
+				</Button>
+			</div>
 		</div>
-	</div>
-{/if}
+	{:else}
+		<KnowledgeComposer
+			bind:value={pasteText}
+			busy={ingestion.busy}
+			phase={ingestion.phase}
+			result={pasteResult}
+			onSubmit={compilePaste}
+		/>
+	{/if}
+</Modal>

@@ -130,7 +130,7 @@ test('clicking away from popup while knowledge is being ingested does not stop p
 	await page.getByRole('button', { name: 'Extract with AI', exact: true }).click();
 
 	// Click away on the backdrop overlay to close popup
-	await page.locator('div[role="dialog"][aria-label="Add knowledge"]').click({ position: { x: 5, y: 5 } });
+	await page.mouse.click(5, 5);
 	await expect(page.getByRole('dialog', { name: 'Add knowledge' })).not.toBeVisible();
 
 	// The process keeps running in the background: the spinner is shown, not the review cue.
