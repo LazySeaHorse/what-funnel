@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { apiRequest } from "$lib/api";
-  import type { InboxState } from "$lib/store.svelte";
+  import { emptyComposer, type InboxState } from "$lib/store.svelte";
   import type { UICapabilities } from "$lib/ui-capabilities";
   import type { LeadEditor } from "$lib/leads/lead-editor.svelte";
   import {
@@ -55,17 +55,10 @@
   // Which message ID is currently "active" (expanded to show metadata)
   let activeMessageID = $state<string | null>(null);
 
-  let emptyComposer = {
-    text: "",
-    aiReplyDraftID: null,
-    replyToMessageID: null,
-    sending: false,
-    error: "",
-  };
   let composer = $derived(
     inbox.activeConvoID
-      ? (inbox.composers[inbox.activeConvoID] ?? emptyComposer)
-      : emptyComposer,
+      ? (inbox.composers[inbox.activeConvoID] ?? emptyComposer())
+      : emptyComposer(),
   );
   let draft = $derived(
     inbox.activeConvoID

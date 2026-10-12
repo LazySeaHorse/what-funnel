@@ -31,8 +31,20 @@ function newOptimisticID(): string {
 	return `__optimistic__${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
+export interface Composer {
+	text: string;
+	aiReplyDraftID: string | null;
+	replyToMessageID: string | null;
+	sending: boolean;
+	error: string;
+}
+
+export function emptyComposer(): Composer {
+	return { text: '', aiReplyDraftID: null, replyToMessageID: null, sending: false, error: '' };
+}
+
 export class InboxState {
-	composers = $state<Record<string, { text: string; aiReplyDraftID: string | null; replyToMessageID: string | null; sending: boolean; error: string }>>({});
+	composers = $state<Record<string, Composer>>({});
 	aiControlPending = $state<Record<string, boolean>>({});
 	assignmentPending = $state<Record<string, boolean>>({});
 	mutationErrors = $state<Record<string, string>>({});
@@ -90,30 +102,16 @@ export class InboxState {
 				if (!this.running) return;
 				console.log('Network online');
 				this.reconnectAttempts = 0;
-				if (this.reconnectTimer) {
-					clearTimeout(this.reconnectTimer);
-					this.reconnectTimer = null;
-				}
+				this.clearReconnectTimer();
 				this.connectWS();
 				void this.loadConversations();
 			};
 			this.offlineHandler = () => {
 				if (!this.running) return;
 				console.log('Network offline');
-				const socket = this.ws;
-				this.ws = null;
-				if (socket) {
-					socket.onopen = null;
-					socket.onmessage = null;
-					socket.onerror = null;
-					socket.onclose = null;
-					socket.close();
-				}
+				this.closeSocket();
 				this.wsStatus = 'disconnected';
-				if (this.reconnectTimer) {
-					clearTimeout(this.reconnectTimer);
-					this.reconnectTimer = null;
-				}
+				this.clearReconnectTimer();
 			};
 			this.visibilityHandler = () => {
 				if (!this.running) return;
@@ -163,10 +161,7 @@ export class InboxState {
 			this.fallbackPollTimer = null;
 		}
 
-		if (this.reconnectTimer) {
-			clearTimeout(this.reconnectTimer);
-			this.reconnectTimer = null;
-		}
+		this.clearReconnectTimer();
 
 		if (typeof window !== 'undefined') {
 			if (this.onlineHandler) {
@@ -185,18 +180,28 @@ export class InboxState {
 
 		this.clearSummaryTimers();
 
-		const socket = this.ws;
-		this.ws = null;
-		if (socket) {
-			socket.onopen = null;
-			socket.onmessage = null;
-			socket.onerror = null;
-			socket.onclose = null;
-			socket.close(1000, 'Inbox disposed');
-		}
+		this.closeSocket(1000, 'Inbox disposed');
 
 		this.reconnectAttempts = 0;
 		this.wsStatus = 'disconnected';
+	}
+
+	private clearReconnectTimer() {
+		if (!this.reconnectTimer) return;
+		clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = null;
+	}
+
+	/** Detaches handlers first so the close does not trigger a reconnect. */
+	private closeSocket(...closeArgs: [code?: number, reason?: string]) {
+		const socket = this.ws;
+		this.ws = null;
+		if (!socket) return;
+		socket.onopen = null;
+		socket.onmessage = null;
+		socket.onerror = null;
+		socket.onclose = null;
+		socket.close(...closeArgs);
 	}
 
 	clearConversationSelection() {
@@ -276,7 +281,7 @@ export class InboxState {
 			if (requestVersion !== this.conversationRequestVersion) return;
 
 			this.activeConvoID = convoID;
-			this.composers[convoID] ??= { text: '', aiReplyDraftID: null, replyToMessageID: null, sending: false, error: '' };
+			this.composers[convoID] ??= emptyComposer();
 			this.activeConvo = conversation;
 			this.messages = (messageResponse?.messages ?? []).reverse();
 			this.nextCursor = messageResponse?.next_cursor ?? null;
@@ -297,6 +302,17 @@ export class InboxState {
 				this.pendingConvoID = null;
 				this.conversationRequest = null;
 			}
+		}
+	}
+
+	/** Applies a patch to the open conversation and its row in the list. */
+	private patchConversation(id: string, patch: Record<string, any> | ((conversation: any) => Record<string, any>)) {
+		const targets = [
+			this.activeConvo?.id === id ? this.activeConvo : null,
+			this.conversations.find((conversation) => conversation.id === id)
+		];
+		for (const conversation of targets) {
+			if (conversation) Object.assign(conversation, typeof patch === 'function' ? patch(conversation) : patch);
 		}
 	}
 
@@ -443,6 +459,24 @@ export class InboxState {
 		}
 	}
 	
+	/**
+	 * Puts a server message into the thread in place of its optimistic copy
+	 * (matched by the idempotency key the optimistic id doubles as). When the
+	 * thread already has the real message, the optimistic copy is just dropped.
+	 */
+	private mergeServerMessage(message: any, optimisticID: string | null | undefined, appendIfMissing: boolean) {
+		const optimisticIndex = optimisticID
+			? this.messages.findIndex((m: any) => m._optimistic && m.id === optimisticID)
+			: -1;
+		if (this.messages.some((m: any) => m.id === message.id)) {
+			if (optimisticIndex !== -1) this.messages = this.messages.filter((_: any, i: number) => i !== optimisticIndex);
+		} else if (optimisticIndex !== -1) {
+			this.messages = this.messages.map((m: any, i: number) => (i === optimisticIndex ? message : m));
+		} else if (appendIfMissing) {
+			this.messages = [...this.messages, message];
+		}
+	}
+
 	async sendMessage(
 		convoID: string,
 		text: string,
@@ -450,7 +484,7 @@ export class InboxState {
 		media?: { id: string; contentType: 'image' | 'video' | 'audio' | 'document' }
 	): Promise<boolean> {
 		if (!convoID || (!text.trim() && !media)) return false;
-		const composer = this.composers[convoID] ??= { text: '', aiReplyDraftID: null, replyToMessageID: null, sending: false, error: '' };
+		const composer = this.composers[convoID] ??= emptyComposer();
 		if (composer.sending) return false;
 		composer.sending = true;
 		composer.error = '';
@@ -504,13 +538,7 @@ export class InboxState {
 			});
 			if (this.activeConvoID === convoID) {
 				if (res && res.id) {
-					if (this.messages.some((m: any) => m.id === res.id)) {
-						this.messages = this.messages.filter((m: any) => m.id !== optimisticID);
-					} else {
-						this.messages = this.messages.map((m: any) =>
-							m.id === optimisticID ? res : m
-						);
-					}
+					this.mergeServerMessage(res, optimisticID, false);
 				} else {
 					this.messages = this.messages.filter((m: any) => m.id !== optimisticID);
 					await this.loadMessages(true);
@@ -547,11 +575,7 @@ export class InboxState {
 				method: 'PATCH',
 				body: { user_ids: userIDs }
 			});
-			if (this.activeConvo?.id === convoID) {
-				this.activeConvo.assigned_user_ids = userIDs;
-			}
-			const item = this.conversations.find((conversation) => conversation.id === convoID);
-			if (item) item.assigned_user_ids = userIDs;
+			this.patchConversation(convoID, { assigned_user_ids: userIDs });
 			await this.loadConversations();
 		} catch (err) {
 			console.error(err);
@@ -574,9 +598,7 @@ export class InboxState {
 				}
 			});
 			const control = response?.ai_control;
-			if (this.activeConvo?.id === convoID && control) this.activeConvo.ai_control = control;
-			const item = this.conversations.find((conversation) => conversation.id === convoID);
-			if (item && control) item.ai_control = control;
+			if (control) this.patchConversation(convoID, { ai_control: control });
 			return true;
 		} catch (err) {
 			console.error('Failed to update conversation AI auto-reply:', err);
@@ -592,15 +614,10 @@ export class InboxState {
 		if (!id) return;
 		try {
 			await apiRequest(`/conversations/${id}/close`, { method: 'POST' });
-			if (this.activeConvo && this.activeConvo.id === id) {
-				this.activeConvo.status = 'closed';
-				this.activeConvo.ai_control = { ...this.activeConvo.ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' };
-			}
-			const index = this.conversations.findIndex(c => c.id === id);
-			if (index !== -1) {
-				this.conversations[index].status = 'closed';
-				this.conversations[index].ai_control = { ...this.conversations[index].ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' };
-			}
+			this.patchConversation(id, (conversation) => ({
+				status: 'closed',
+				ai_control: { ...conversation.ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' }
+			}));
 			await this.loadConversations();
 		} catch (err) {
 			console.error('Failed to close conversation:', err);
@@ -642,20 +659,7 @@ export class InboxState {
 					case 'message.sent':
 						this.markSummaryStale(event.conversation_id);
 						if (event.conversation_id === this.activeConvoID) {
-							const echoKey = event.message.idempotency_key;
-							const optimisticIndex = echoKey
-								? this.messages.findIndex((m: any) => m._optimistic && m.id === echoKey)
-								: -1;
-							if (this.messages.some((m: any) => m.id === event.message.id)) {
-								// Already have it (e.g. the send response won the race).
-							} else if (optimisticIndex !== -1) {
-								// Echo of our own send: swap the pending bubble in place.
-								this.messages = this.messages.map((m: any, i: number) =>
-									i === optimisticIndex ? event.message : m
-								);
-							} else {
-								this.messages = [...this.messages, event.message];
-							}
+							this.mergeServerMessage(event.message, event.message.idempotency_key, true);
 							if (event.type === 'message.received') {
 								const readConvoID = this.activeConvoID;
 								apiRequest(`/conversations/${readConvoID}/read`, { method: 'POST' }).catch((err) => {
@@ -728,17 +732,14 @@ export class InboxState {
 						break;
 
 					case 'ai.control.updated': {
-						const applyControl = (conversation: any) => {
-							if (!conversation) return;
-							conversation.ai_control = {
+						this.patchConversation(event.conversation_id, (conversation) => ({
+							ai_control: {
 								...(conversation.ai_control || { reply_override: 'inherit' }),
 								state: event.state,
 								state_reason: event.state_reason,
 								run_state: event.run_state
-							};
-						};
-						if (event.conversation_id === this.activeConvoID) applyControl(this.activeConvo);
-						applyControl(this.conversations.find((conversation) => conversation.id === event.conversation_id));
+							}
+						}));
 						break;
 					}
 				}
