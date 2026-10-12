@@ -53,6 +53,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: production
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      # Opt-in via .env; defaults to off.
+      ENABLE_SIMULATION_ROUTES: ${ENABLE_SIMULATION_ROUTES:-false}
     networks:
       - backend_net
     depends_on:
@@ -213,6 +215,8 @@ services:
       PORT: "8083"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: production
+      # Opt-in via .env; defaults to off.
+      ENABLE_SIMULATION_ROUTES: ${ENABLE_SIMULATION_ROUTES:-false}
       WHATSAPP_ADAPTER_URL: http://whatsapp-adapter:8086
       TELEGRAM_ADAPTER_URL: http://telegram-adapter:8087
       ADAPTER_SHARED_SECRET: ${ADAPTER_SHARED_SECRET:?ADAPTER_SHARED_SECRET is required}

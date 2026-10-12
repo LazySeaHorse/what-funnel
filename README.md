@@ -365,7 +365,7 @@ Ensure the following variables in `.env` are set to high-entropy random secrets:
 3. `ADAPTER_SHARED_SECRET`: Shared token for internal adapter control endpoints.
 4. `INTERNAL_SERVICE_TOKEN`: Minimum 32-character token for inter-service communication.
 5. `COOKIE_SECURE=true`: Enforces HTTPS cookies.
-6. `ENABLE_SIMULATION_ROUTES=false`: Disables mock/simulation routes in production.
+6. `ENABLE_SIMULATION_ROUTES=false`: Disables mock/simulation routes in production (the default). Set to `true` in `.env` to expose the customer simulator.
 
 Never commit `.env` or adapter SQLite databases to source control.
 
