@@ -28,13 +28,13 @@ func (f *fakeController) List(_ context.Context) ([]session.Snapshot, error) {
 	return []session.Snapshot{f.snapshot}, nil
 }
 
-func (f *fakeController) Retry(_ context.Context, channelID string) (session.Snapshot, error) {
+func (f *fakeController) Retry(_ context.Context, channelID, _ string) (session.Snapshot, error) {
 	f.retryCalled = true
 	f.snapshot.ChannelID = channelID
 	return f.snapshot, f.err
 }
 
-func (f *fakeController) Create(_ context.Context, channelID string) (session.Snapshot, error) {
+func (f *fakeController) Create(_ context.Context, channelID, _ string) (session.Snapshot, error) {
 	f.snapshot.ChannelID = channelID
 	return f.snapshot, f.err
 }

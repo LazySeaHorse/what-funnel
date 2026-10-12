@@ -116,7 +116,11 @@ func NewManager(
 	return manager, nil
 }
 
-func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error) {
+var _ adapterkit.Controller = (*Manager)(nil)
+
+// Create starts pairing for a channel. WhatsApp links a device by scanning a QR
+// code, so there is no caller-supplied credential and the argument is ignored.
+func (m *Manager) Create(ctx context.Context, channelID, _ string) (Snapshot, error) {
 	channelID = strings.TrimSpace(channelID)
 	if channelID == "" {
 		return Snapshot{}, errors.New("whatsapp session: empty channel id")
@@ -156,7 +160,7 @@ func (m *Manager) Create(ctx context.Context, channelID string) (Snapshot, error
 	return snapshot, nil
 }
 
-func (m *Manager) Retry(ctx context.Context, channelID string) (Snapshot, error) {
+func (m *Manager) Retry(ctx context.Context, channelID, _ string) (Snapshot, error) {
 	channelID = strings.TrimSpace(channelID)
 	if channelID == "" {
 		return Snapshot{}, errors.New("whatsapp session: empty channel id")
@@ -168,7 +172,7 @@ func (m *Manager) Retry(ctx context.Context, channelID string) (Snapshot, error)
 		// Unpaired devices have no durable WhatsMeow identity, so they are not
 		// restored after an adapter restart. Recreate the session from the
 		// durable channel ID held by conversation-svc.
-		return m.Create(ctx, channelID)
+		return m.Create(ctx, channelID, "")
 	}
 	if err != nil {
 		return Snapshot{}, err
@@ -179,7 +183,7 @@ func (m *Manager) Retry(ctx context.Context, channelID string) (Snapshot, error)
 	if err := m.Logout(ctx, channelID); err != nil {
 		return Snapshot{}, fmt.Errorf("reset whatsapp pairing: %w", err)
 	}
-	return m.Create(ctx, channelID)
+	return m.Create(ctx, channelID, "")
 }
 
 func (m *Manager) Snapshot(channelID string) (Snapshot, error) {
