@@ -4,6 +4,7 @@
     UsersIcon,
     BookOpenIcon,
     Cog6ToothIcon,
+    ClipboardDocumentListIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import type { UICapabilities } from "$lib/ui-capabilities";
   import { canOpenSection, type DashboardSection } from "./types";
@@ -22,6 +23,7 @@
     { key: "inbox" as const, label: "Inbox", icon: InboxIcon },
     { key: "leads" as const, label: "Leads", icon: UsersIcon },
     { key: "knowledge" as const, label: "Knowledge", icon: BookOpenIcon },
+    { key: "logs" as const, label: "Logs", icon: ClipboardDocumentListIcon },
     { key: "settings" as const, label: "Settings", icon: Cog6ToothIcon },
   ];
 </script>

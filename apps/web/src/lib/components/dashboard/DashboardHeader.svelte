@@ -15,7 +15,9 @@
     searchQuery: string;
   } = $props();
   let placeholder = $derived(
-    selected === "settings"
+    selected === "logs"
+      ? "Search logs..."
+      : selected === "settings"
       ? "Search settings..."
       : selected === "knowledge"
         ? "Search knowledge..."

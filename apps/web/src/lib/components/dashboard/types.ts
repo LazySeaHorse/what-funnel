@@ -6,6 +6,7 @@ export const DASHBOARD_SECTIONS = [
   "knowledge",
   "contacts",
   "simulate",
+  "logs",
   "settings",
 ] as const;
 
@@ -29,6 +30,8 @@ export function canOpenSection(
       return capabilities.manageKnowledge;
     case "simulate":
       return capabilities.useSimulator;
+    case "logs":
+      return capabilities.viewAuditLogs;
     default:
       return true;
   }

@@ -18,6 +18,7 @@
   import ContactsView from "$lib/components/inbox/ContactsView.svelte";
   import SimulatorView from "$lib/components/inbox/SimulatorView.svelte";
   import KnowledgeView from "$lib/components/knowledge/KnowledgeView.svelte";
+  import LogsView from "$lib/components/logs/LogsView.svelte";
   import LeadsDashboard from "$lib/components/leads/LeadsDashboard.svelte";
   import { LeadEditor } from "$lib/leads/lead-editor.svelte";
   import PersonalPreferences from "$lib/components/settings/PersonalPreferences.svelte";
@@ -270,6 +271,8 @@
       />
     {:else if selectedSection === "simulate"}
       <SimulatorView onBack={() => selectSection("inbox")} />
+    {:else if selectedSection === "logs"}
+      <LogsView users={workspace.users} {searchQuery} />
     {:else if selectedSection === "settings"}
       <div class="flex-1 flex flex-col min-h-0 overflow-y-auto pb-16 lg:pb-0">
         {#if capabilities.manageWorkspace}<SettingsView

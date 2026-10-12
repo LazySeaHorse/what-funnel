@@ -9,6 +9,7 @@
     UserIcon,
     DevicePhoneMobileIcon,
     Cog6ToothIcon,
+    ClipboardDocumentListIcon,
     ChevronDownIcon,
   } from "@fvilers/heroicons-svelte/24/outline";
   import { canOpenSection, type DashboardSection } from "./types";
@@ -54,6 +55,11 @@
       key: "simulate" as const,
       label: "Simulate",
       icon: DevicePhoneMobileIcon,
+    },
+    {
+      key: "logs" as const,
+      label: "Logs",
+      icon: ClipboardDocumentListIcon,
     },
     {
       key: "settings" as const,
