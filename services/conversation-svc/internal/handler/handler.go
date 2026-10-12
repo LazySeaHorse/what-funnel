@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
@@ -30,7 +31,7 @@ func New(svc *service.Service, sess SessionStore) *Handler {
 func (h *Handler) RegisterRoutes(r *mux.Router) {
 	auth := h.mw.RequireAuthenticated
 	admin := middleware.RequireAdmin
-	fullWorkspace := h.mw.RequireProductMode("full_workspace")
+	fullWorkspace := h.mw.RequireProductMode(types.ProductModeFullWorkspace)
 
 	// Outbound Send
 	r.Handle("/internal/conversations/{id}/send", auth(http.HandlerFunc(h.SendMessage))).Methods(http.MethodPost)
