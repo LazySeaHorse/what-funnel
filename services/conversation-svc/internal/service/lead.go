@@ -41,32 +41,39 @@ type leadStateChangedEvent struct {
 	ToState        string  `json:"to_state"`
 }
 
+// leadColumns is the column list scanLead reads from the leads table.
+const leadColumns = `id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at`
+
+// scanLead reads one row selected with leadColumns.
+func scanLead(row pgx.Row) (*types.Lead, error) {
+	var lead types.Lead
+	if err := row.Scan(
+		&lead.ID, &lead.AccountID, &lead.ConversationID, &lead.PipelineID,
+		&lead.CurrentStateKey, &lead.Tags, &lead.CreatedBy, &lead.CreatedAt, &lead.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return &lead, nil
+}
+
 // getLeadAndCheckVisibility fetches a lead by ID (scoped to the account) and
 // verifies the requesting user can see the associated conversation. Returns
 // "lead not found" for both missing leads and invisible ones to avoid leaking
 // existence.
 func (s *LeadService) getLeadAndCheckVisibility(ctx context.Context, accountID, userID uuid.UUID, leadID uuid.UUID, userRole string) (*types.Lead, error) {
-	var lead types.Lead
-	var leadCreatedBy *uuid.UUID
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at
-		FROM leads WHERE id = $1 AND account_id = $2
-	`, leadID, accountID).Scan(
-		&lead.ID, &lead.AccountID, &lead.ConversationID, &lead.PipelineID,
-		&lead.CurrentStateKey, &lead.Tags, &leadCreatedBy, &lead.CreatedAt, &lead.UpdatedAt,
-	)
+	lead, err := scanLead(s.pool.QueryRow(ctx,
+		`SELECT `+leadColumns+` FROM leads WHERE id = $1 AND account_id = $2`, leadID, accountID))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, notFoundf("lead not found")
 		}
 		return nil, err
 	}
-	lead.CreatedBy = leadCreatedBy
 
 	if err := canSeeConversation(ctx, s.pool, accountID, userID, lead.ConversationID, userRole); err != nil {
 		return nil, notFoundf("lead not found")
 	}
-	return &lead, nil
+	return lead, nil
 }
 
 // CreateLead creates a lead for the given conversation, placing it in the first
@@ -84,26 +91,12 @@ func (s *LeadService) CreateLead(ctx context.Context, accountID, userID, convoID
 	defer tx.Rollback(ctx)
 
 	// Return existing lead if present (idempotent).
-	var existing types.Lead
-	var existingCreatedBy *uuid.UUID
-	scanExisting := func(q interface {
-		QueryRow(context.Context, string, ...any) pgx.Row
-	}) (*types.Lead, error) {
-		err := q.QueryRow(ctx, `
-			SELECT id, account_id, conversation_id, pipeline_id, current_state_key, tags, created_by, created_at, updated_at
-			FROM leads WHERE conversation_id = $1 AND account_id = $2
-		`, convoID, accountID).Scan(
-			&existing.ID, &existing.AccountID, &existing.ConversationID, &existing.PipelineID,
-			&existing.CurrentStateKey, &existing.Tags, &existingCreatedBy, &existing.CreatedAt, &existing.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		existing.CreatedBy = existingCreatedBy
-		return &existing, nil
+	loadExisting := func() (*types.Lead, error) {
+		return scanLead(tx.QueryRow(ctx,
+			`SELECT `+leadColumns+` FROM leads WHERE conversation_id = $1 AND account_id = $2`, convoID, accountID))
 	}
 
-	if lead, err := scanExisting(tx); err == nil {
+	if lead, err := loadExisting(); err == nil {
 		return lead, nil
 	} else if err != pgx.ErrNoRows {
 		return nil, fmt.Errorf("check existing lead: %w", err)
@@ -132,7 +125,7 @@ func (s *LeadService) CreateLead(ctx context.Context, accountID, userID, convoID
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Race: another request inserted the lead between our check and insert.
 		// Because ON CONFLICT DO NOTHING does not error, the transaction is not aborted.
-		lead, err2 := scanExisting(tx)
+		lead, err2 := loadExisting()
 		if err2 != nil {
 			return nil, fmt.Errorf("scan existing lead after conflict: %w", err2)
 		}
@@ -199,28 +192,23 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 	}
 	defer tx.Rollback(ctx)
 
-	// Lock the lead row to prevent concurrent transitions and get authoritative state.
-	var currentStateKey string
+	// Lock the lead row to prevent concurrent transitions, and read its
+	// authoritative state together with the pipeline's states.
+	var fromState string
 	var pipelineID uuid.UUID
+	var statesJSON []byte
 	err = tx.QueryRow(ctx, `
-		SELECT current_state_key, pipeline_id
-		FROM leads
-		WHERE id = $1 AND account_id = $2
-		FOR UPDATE
-	`, leadID, accountID).Scan(&currentStateKey, &pipelineID)
+		SELECT l.current_state_key, l.pipeline_id, p.states
+		FROM leads l
+		JOIN lead_pipelines p ON p.id = l.pipeline_id AND p.account_id = l.account_id
+		WHERE l.id = $1 AND l.account_id = $2
+		FOR UPDATE OF l
+	`, leadID, accountID).Scan(&fromState, &pipelineID, &statesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("lock lead state: %w", err)
 	}
 
 	// Validate targetStateKey exists in the pipeline.
-	var statesJSON []byte
-	if err = tx.QueryRow(ctx,
-		`SELECT states FROM lead_pipelines WHERE id = $1 AND account_id = $2`,
-		pipelineID, accountID,
-	).Scan(&statesJSON); err != nil {
-		return nil, fmt.Errorf("get pipeline: %w", err)
-	}
-
 	var states []types.PipelineState
 	if err := json.Unmarshal(statesJSON, &states); err != nil {
 		return nil, fmt.Errorf("unmarshal pipeline states: %w", err)
@@ -236,7 +224,6 @@ func (s *LeadService) UpdateLeadState(ctx context.Context, accountID, userID uui
 		return nil, invalidf("invalid state key: %q", targetStateKey)
 	}
 
-	fromState := currentStateKey
 	var updatedAt time.Time
 	if err = tx.QueryRow(ctx, `
 		UPDATE leads
@@ -409,11 +396,9 @@ func (s *LeadService) ListLeadNotes(ctx context.Context, accountID, userID uuid.
 	notes := []*types.LeadNote{}
 	for rows.Next() {
 		var n types.LeadNote
-		var authorUserID *uuid.UUID
-		if err := rows.Scan(&n.ID, &n.AccountID, &n.LeadID, &authorUserID, &n.Body, &n.CreatedAt, &n.AuthorEmail); err != nil {
+		if err := rows.Scan(&n.ID, &n.AccountID, &n.LeadID, &n.AuthorUserID, &n.Body, &n.CreatedAt, &n.AuthorEmail); err != nil {
 			return nil, err
 		}
-		n.AuthorUserID = authorUserID
 		notes = append(notes, &n)
 	}
 	return notes, rows.Err()
@@ -440,13 +425,9 @@ func (s *LeadService) ListLeadHistory(ctx context.Context, accountID, userID uui
 	history := []*types.LeadStateHistory{}
 	for rows.Next() {
 		var h types.LeadStateHistory
-		var fromState *string
-		var changedBy *uuid.UUID
-		if err := rows.Scan(&h.ID, &h.AccountID, &h.LeadID, &fromState, &h.ToState, &changedBy, &h.ChangedAt, &h.ActorEmail); err != nil {
+		if err := rows.Scan(&h.ID, &h.AccountID, &h.LeadID, &h.FromState, &h.ToState, &h.ChangedBy, &h.ChangedAt, &h.ActorEmail); err != nil {
 			return nil, err
 		}
-		h.FromState = fromState
-		h.ChangedBy = changedBy
 		history = append(history, &h)
 	}
 	return history, rows.Err()
