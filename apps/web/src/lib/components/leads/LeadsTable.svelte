@@ -136,9 +136,9 @@
 						{#each lead.assignees.slice(0, 2) as usr}
 							<UserAvatar name={usr.name} avatar={usr.avatar} size="sm" class="ring-2 ring-white" />
 						{/each}
-						{#if lead.assignees.length > 2 || lead.assigneesExtra > 0}
+						{#if lead.assignees.length > 2}
 							<div class="w-6 h-6 rounded-full ring-2 ring-white bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-medium shrink-0">
-								+{lead.assigneesExtra || (lead.assignees.length - 2)}
+								+{lead.assignees.length - 2}
 							</div>
 						{/if}
 					{:else}

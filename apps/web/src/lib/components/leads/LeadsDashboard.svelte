@@ -61,10 +61,8 @@
         return {
           id: conversation.id,
           convoId: conversation.id,
-          leadId: conversation.lead.id,
           name: getContactName(conversation),
           avatar: conversation.contact?.avatar_url || "",
-          avatarBg: "bg-blue-100 text-blue-700",
           handle:
             getContactHandle(conversation) ||
             conversation.contact?.external_identity ||
@@ -72,7 +70,6 @@
           channel,
           stateKey,
           stateLabel: state.label,
-          stateColor: state.color,
           assignees: (conversation.assigned_user_ids || []).map(
             (userID: string) => {
               const user = users.find((item) => item.id === userID);
@@ -80,15 +77,9 @@
               return {
                 id: userID,
                 name: displayName,
-                initials: displayName.charAt(0).toUpperCase(),
                 avatar: user?.avatar_url || "",
-                bg: "bg-blue-600",
               };
             },
-          ),
-          assigneesExtra: Math.max(
-            0,
-            (conversation.assigned_user_ids?.length || 0) - 2,
           ),
           lastMessage: getSnippet(conversation) || "No messages yet",
           updatedAt:

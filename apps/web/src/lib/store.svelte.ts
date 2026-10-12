@@ -690,14 +690,8 @@ export class InboxState {
 							}
 						}
 						await this.loadConversations();
-						window.dispatchEvent(new CustomEvent('lead-state-changed', { detail: event }));
 						break;
 						
-					case 'channel.status_changed':
-						const channelEvent = new CustomEvent('channel-status-changed', { detail: event });
-						window.dispatchEvent(channelEvent);
-						break;
-
 					case 'ai.reply_ready':
 						if (!this.replyDraftsEnabled) break;
 						if (event.action === 'drafted' && event.draft_id && event.draft_text) {
