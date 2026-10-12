@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
-	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
 // SimulateInbound accepts a mock inbound event payload and publishes it to the
@@ -59,10 +57,6 @@ func (h *Handler) EnsureChannelForSimulator(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	channel, err := h.svc.EnsureSimulatorChannel(r.Context(), accountID, body.Provider)
-	if errors.Is(err, service.ErrUnsupportedSimulatorProvider) {
-		writeError(w, http.StatusBadRequest, "simulator supports whatsapp and telegram only")
-		return
-	}
 	if err != nil {
 		writeServiceError(w, r, err)
 		return

@@ -20,9 +20,6 @@ type IngestionService struct {
 }
 
 func NewIngestionService(pool *pgxpool.Pool, pubsub *pubsub.Client, resolver PipelineResolver) *IngestionService {
-	if resolver == nil {
-		resolver = &DBLeadPipelineResolver{}
-	}
 	return &IngestionService{
 		pool:             pool,
 		pubsub:           pubsub,

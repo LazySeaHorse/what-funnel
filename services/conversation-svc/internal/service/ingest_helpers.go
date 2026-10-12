@@ -20,10 +20,6 @@ func createInitialLeadIfEnabled(ctx context.Context, tx pgx.Tx, resolver Pipelin
 	if !types.IsLeadTrackingEnabledForProduct(productMode, settingsRaw) {
 		return nil, nil
 	}
-
-	if resolver == nil {
-		resolver = &DBLeadPipelineResolver{}
-	}
 	pipeline, err := resolver.ResolveInitialPipeline(ctx, tx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get lead pipeline for auto-lead: %w", err)

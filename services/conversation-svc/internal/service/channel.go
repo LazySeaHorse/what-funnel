@@ -12,7 +12,7 @@ import (
 
 // ErrChannelNotFound is also an ErrNotFound.
 var ErrChannelNotFound error = &categorizedError{kind: ErrNotFound, msg: "channel not found"}
-var ErrUnsupportedSimulatorProvider = errors.New("unsupported simulator provider")
+var ErrUnsupportedSimulatorProvider error = &categorizedError{kind: ErrValidation, msg: "simulator supports whatsapp and telegram only"}
 
 // simulatorRemoteAccountPrefix marks the synthetic channels created by
 // EnsureSimulatorChannel through their remote_account_id.

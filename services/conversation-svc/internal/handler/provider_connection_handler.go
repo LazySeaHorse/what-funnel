@@ -63,10 +63,6 @@ func (h *Handler) StartProviderConnection(w http.ResponseWriter, request *http.R
 	}
 	connection, err := h.svc.StartProviderConnection(request.Context(), accountID, body.Provider, body.Label, body.Credential)
 	if err != nil {
-		if errors.Is(err, service.ErrProviderConnectionLabelExists) {
-			writeError(w, http.StatusConflict, "A channel connection with that label already exists.")
-			return
-		}
 		if connection != nil {
 			writeConnectionFailure(w, request, connection, err)
 			return

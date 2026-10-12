@@ -65,11 +65,7 @@ type outboundDestination struct {
 
 // SendMessage sends an outbound message via the registered adapter and records
 // it in the database within a single transaction.
-func (s *ConversationService) SendMessage(ctx context.Context, params SendMessageParams) (*types.Message, error) {
-	return s.sendMessage(ctx, params)
-}
-
-func (s *ConversationService) sendMessage(ctx context.Context, cmd SendMessageParams) (*types.Message, error) {
+func (s *ConversationService) SendMessage(ctx context.Context, cmd SendMessageParams) (*types.Message, error) {
 	if err := cmd.validate(); err != nil {
 		return nil, err
 	}
@@ -99,7 +95,7 @@ func (s *ConversationService) sendMessage(ctx context.Context, cmd SendMessagePa
 		return nil, err
 	}
 
-	msg, err := insertOutboundMessage(ctx, tx, cmd, "")
+	msg, err := insertOutboundMessage(ctx, tx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +258,7 @@ func resolveReplyTarget(ctx context.Context, tx pgx.Tx, cmd *SendMessageParams) 
 	return nil
 }
 
-func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd SendMessageParams, externalMessageID string) (*types.Message, error) {
+func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd SendMessageParams) (*types.Message, error) {
 	content, err := json.Marshal(map[string]any{"text": cmd.Text, "media_id": cmd.MediaID})
 	if err != nil {
 		return nil, fmt.Errorf("marshal outbound message: %w", err)
@@ -272,9 +268,6 @@ func insertOutboundMessage(ctx context.Context, tx pgx.Tx, cmd SendMessageParams
 		SenderType: cmd.Sender, SenderUserID: cmd.SenderUserID, ContentType: cmd.ContentType, Content: content,
 		DeliveryStatus:   "queued",
 		ReplyToMessageID: cmd.ReplyToMessageID,
-	}
-	if externalMessageID != "" {
-		msg.ExternalMessageID = &externalMessageID
 	}
 	if cmd.IdempotencyKey != "" {
 		msg.IdempotencyKey = &cmd.IdempotencyKey

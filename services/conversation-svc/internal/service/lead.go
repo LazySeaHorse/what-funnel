@@ -22,9 +22,6 @@ type LeadService struct {
 }
 
 func NewLeadService(pool *pgxpool.Pool, pubsub *pubsub.Client, resolver PipelineResolver) *LeadService {
-	if resolver == nil {
-		resolver = &DBLeadPipelineResolver{}
-	}
 	return &LeadService{
 		pool:             pool,
 		pubsub:           pubsub,

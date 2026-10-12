@@ -20,8 +20,8 @@ import (
 )
 
 var (
-	ErrAdapterConnectionNotFound     = errors.New("adapter connection not found")
-	ErrProviderConnectionLabelExists = errors.New("provider connection label already exists")
+	ErrAdapterConnectionNotFound           = errors.New("adapter connection not found")
+	ErrProviderConnectionLabelExists error = &categorizedError{kind: ErrConflict, msg: "A channel connection with that label already exists."}
 )
 
 // AdapterSnapshot is the adapter's connection status wire type.
