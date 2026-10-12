@@ -74,6 +74,33 @@ func (w *Writer) Write(ctx context.Context, e Entry) error {
 	return nil
 }
 
+// TxBeginner starts transactions; *pgxpool.Pool satisfies it.
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// RunInTx runs fn inside a transaction, writes the audit entry fn returns
+// through the same transaction, and commits. Any error — from fn, the audit
+// write or the commit — rolls the whole transaction back, so the mutation and
+// its audit row are atomic. fn returns the entry because some metadata is only
+// known once the mutation has run.
+func RunInTx(ctx context.Context, db TxBeginner, fn func(tx pgx.Tx) (Entry, error)) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	entry, err := fn(tx)
+	if err != nil {
+		return err
+	}
+	if err := NewWriterFromTx(tx).Write(ctx, entry); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // ---------------------------------------------------------------------------
 // Action constants — keep these centralised so they're consistent across
 // services and easy to grep.

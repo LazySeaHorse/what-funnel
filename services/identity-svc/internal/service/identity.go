@@ -399,43 +399,36 @@ func (svc *Service) CreateUser(ctx context.Context, accountID, actorID uuid.UUID
 		return nil, err
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	var userID uuid.UUID
+	err = audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		qtx := dbgen.New(tx)
 
-	qtx := dbgen.New(tx)
+		if err := checkEmailAvailable(ctx, qtx, req.Email); err != nil {
+			return audit.Entry{}, err
+		}
 
-	if err := checkEmailAvailable(ctx, qtx, req.Email); err != nil {
-		return nil, err
-	}
+		createdUser, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
+			AccountID:    accountID,
+			Email:        req.Email,
+			Username:     req.Username,
+			PasswordHash: hash,
+			Role:         req.Role,
+		})
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("create user: %w", err)
+		}
+		userID = createdUser.ID
 
-	createdUser, err := qtx.CreateUser(ctx, dbgen.CreateUserParams{
-		AccountID:    accountID,
-		Email:        req.Email,
-		Username:     req.Username,
-		PasswordHash: hash,
-		Role:         req.Role,
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      audit.ActionUserCreatedByAdmin,
+			TargetType:  audit.TargetUser,
+			TargetID:    &userID,
+			Metadata:    map[string]any{"username": req.Username, "role": req.Role},
+		}, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
-	}
-	userID := createdUser.ID
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      audit.ActionUserCreatedByAdmin,
-		TargetType:  audit.TargetUser,
-		TargetID:    &userID,
-		Metadata:    map[string]any{"username": req.Username, "role": req.Role},
-	}); err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
@@ -459,50 +452,17 @@ func (svc *Service) ResetUserPassword(ctx context.Context, accountID, actorID, t
 		return err
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	qtx := dbgen.New(tx)
-
-	exists, err := qtx.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
-		ID:        targetUserID,
-		AccountID: accountID,
-	})
-	if err != nil || !exists {
-		return fmt.Errorf("user not found in account")
-	}
-
-	err = qtx.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{
-		PasswordHash: hash,
-		ID:           targetUserID,
-		AccountID:    accountID,
-	})
-	if err != nil {
-		return fmt.Errorf("update password: %w", err)
-	}
-
-	// Revoke all existing sessions for targetUserID
-	err = qtx.DeleteSessionsByUserID(ctx, targetUserID.String())
-	if err != nil {
-		return fmt.Errorf("revoke user sessions: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      audit.ActionUserPasswordReset,
-		TargetType:  audit.TargetUser,
-		TargetID:    &targetUserID,
-		Metadata:    map[string]any{},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
+	return svc.mutateUserAndRevokeSessions(ctx, accountID, actorID, targetUserID, audit.ActionUserPasswordReset, map[string]any{},
+		func(q *dbgen.Queries) error {
+			if err := q.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{
+				PasswordHash: hash,
+				ID:           targetUserID,
+				AccountID:    accountID,
+			}); err != nil {
+				return fmt.Errorf("update password: %w", err)
+			}
+			return nil
+		})
 }
 
 // DeleteUser removes a user from an account and revokes existing sessions.
@@ -511,49 +471,16 @@ func (svc *Service) DeleteUser(ctx context.Context, accountID, actorID, targetUs
 		return fmt.Errorf("cannot delete own account")
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	qtx := dbgen.New(tx)
-
-	exists, err := qtx.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
-		ID:        targetUserID,
-		AccountID: accountID,
-	})
-	if err != nil || !exists {
-		return fmt.Errorf("user not found in account")
-	}
-
-	err = qtx.DeleteUserFromAccount(ctx, dbgen.DeleteUserFromAccountParams{
-		ID:        targetUserID,
-		AccountID: accountID,
-	})
-	if err != nil {
-		return fmt.Errorf("delete user: %w", err)
-	}
-
-	// Revoke all existing sessions for targetUserID
-	err = qtx.DeleteSessionsByUserID(ctx, targetUserID.String())
-	if err != nil {
-		return fmt.Errorf("revoke user sessions: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      audit.ActionUserDeleted,
-		TargetType:  audit.TargetUser,
-		TargetID:    &targetUserID,
-		Metadata:    map[string]any{},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
+	return svc.mutateUserAndRevokeSessions(ctx, accountID, actorID, targetUserID, audit.ActionUserDeleted, map[string]any{},
+		func(q *dbgen.Queries) error {
+			if err := q.DeleteUserFromAccount(ctx, dbgen.DeleteUserFromAccountParams{
+				ID:        targetUserID,
+				AccountID: accountID,
+			}); err != nil {
+				return fmt.Errorf("delete user: %w", err)
+			}
+			return nil
+		})
 }
 
 // ChangeUserRole updates the role of a user and revokes old sessions.
@@ -562,47 +489,51 @@ func (svc *Service) ChangeUserRole(ctx context.Context, accountID, actorID, targ
 		return fmt.Errorf("invalid role: %q", newRole)
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	return svc.mutateUserAndRevokeSessions(ctx, accountID, actorID, targetUserID, audit.ActionUserRoleChanged, map[string]any{"role": newRole},
+		func(q *dbgen.Queries) error {
+			if err := q.UpdateUserRole(ctx, dbgen.UpdateUserRoleParams{
+				Role:      newRole,
+				ID:        targetUserID,
+				AccountID: accountID,
+			}); err != nil {
+				return fmt.Errorf("update role: %w", err)
+			}
+			return nil
+		})
+}
 
-	qtx := dbgen.New(tx)
+// mutateUserAndRevokeSessions is the shared shape of every admin action on an
+// existing user: in one transaction it checks the target belongs to the
+// account, runs mutate, deletes the target's sessions so the change takes
+// effect immediately, and writes the audit row.
+func (svc *Service) mutateUserAndRevokeSessions(ctx context.Context, accountID, actorID, targetUserID uuid.UUID,
+	action string, meta map[string]any, mutate func(*dbgen.Queries) error) error {
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		q := dbgen.New(tx)
 
-	exists, err := qtx.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
-		ID:        targetUserID,
-		AccountID: accountID,
+		exists, err := q.CheckUserExistsInAccount(ctx, dbgen.CheckUserExistsInAccountParams{
+			ID:        targetUserID,
+			AccountID: accountID,
+		})
+		if err != nil || !exists {
+			return audit.Entry{}, fmt.Errorf("user not found in account")
+		}
+
+		if err := mutate(q); err != nil {
+			return audit.Entry{}, err
+		}
+
+		if err := q.DeleteSessionsByUserID(ctx, targetUserID.String()); err != nil {
+			return audit.Entry{}, fmt.Errorf("revoke user sessions: %w", err)
+		}
+
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      action,
+			TargetType:  audit.TargetUser,
+			TargetID:    &targetUserID,
+			Metadata:    meta,
+		}, nil
 	})
-	if err != nil || !exists {
-		return fmt.Errorf("user not found in account")
-	}
-
-	err = qtx.UpdateUserRole(ctx, dbgen.UpdateUserRoleParams{
-		Role:      newRole,
-		ID:        targetUserID,
-		AccountID: accountID,
-	})
-	if err != nil {
-		return fmt.Errorf("update role: %w", err)
-	}
-
-	err = qtx.DeleteSessionsByUserID(ctx, targetUserID.String())
-	if err != nil {
-		return fmt.Errorf("revoke user sessions: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      audit.ActionUserRoleChanged,
-		TargetType:  audit.TargetUser,
-		TargetID:    &targetUserID,
-		Metadata:    map[string]any{"role": newRole},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }
