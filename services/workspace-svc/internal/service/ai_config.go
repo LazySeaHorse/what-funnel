@@ -156,88 +156,79 @@ func (svc *Service) UpdateAIProviderConfig(ctx context.Context, accountID, actor
 		return err
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin ai provider update: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	var storedBaseURL, storedEncryptedKey string
-	err = tx.QueryRow(ctx,
-		`SELECT base_url, encrypted_api_key FROM account_ai_providers WHERE account_id = $1 FOR UPDATE`,
-		accountID,
-	).Scan(&storedBaseURL, &storedEncryptedKey)
-	hasStored := true
-	if errors.Is(err, pgx.ErrNoRows) {
-		hasStored = false
-	} else if err != nil {
-		return fmt.Errorf("get existing ai provider config: %w", err)
-	}
-
-	var encryptedAPIKey string
-	if cfg.APIKey == "" {
-		if !hasStored {
-			return ErrAIProviderNotConfigured
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		var storedBaseURL, storedEncryptedKey string
+		err := tx.QueryRow(ctx,
+			`SELECT base_url, encrypted_api_key FROM account_ai_providers WHERE account_id = $1 FOR UPDATE`,
+			accountID,
+		).Scan(&storedBaseURL, &storedEncryptedKey)
+		hasStored := true
+		if errors.Is(err, pgx.ErrNoRows) {
+			hasStored = false
+		} else if err != nil {
+			return audit.Entry{}, fmt.Errorf("get existing ai provider config: %w", err)
 		}
-		if strings.TrimRight(storedBaseURL, "/") != cfg.BaseURL {
-			return ErrAIProviderKeyRequired
+
+		var encryptedAPIKey string
+		if cfg.APIKey == "" {
+			if !hasStored {
+				return audit.Entry{}, ErrAIProviderNotConfigured
+			}
+			if strings.TrimRight(storedBaseURL, "/") != cfg.BaseURL {
+				return audit.Entry{}, ErrAIProviderKeyRequired
+			}
+			encryptedAPIKey = storedEncryptedKey
+		} else {
+			encryptedAPIKey, err = svc.cipher.Encrypt([]byte(cfg.APIKey))
+			if err != nil {
+				return audit.Entry{}, fmt.Errorf("encrypt ai provider api key: %w", err)
+			}
 		}
-		encryptedAPIKey = storedEncryptedKey
-	} else {
-		encryptedAPIKey, err = svc.cipher.Encrypt([]byte(cfg.APIKey))
+
+		var inserted bool
+		err = tx.QueryRow(ctx, `
+			INSERT INTO account_ai_providers
+				(account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (account_id) DO UPDATE SET
+				base_url = EXCLUDED.base_url,
+				encrypted_api_key = EXCLUDED.encrypted_api_key,
+				analysis_model = EXCLUDED.analysis_model,
+				reply_model = EXCLUDED.reply_model,
+				embedding_model = EXCLUDED.embedding_model,
+				updated_at = NOW()
+			RETURNING (xmax = 0)
+		`, accountID, cfg.BaseURL, encryptedAPIKey, cfg.AnalysisModel, cfg.ReplyModel, cfg.EmbeddingModel).Scan(&inserted)
 		if err != nil {
-			return fmt.Errorf("encrypt ai provider api key: %w", err)
+			return audit.Entry{}, fmt.Errorf("store ai provider config: %w", err)
 		}
-	}
 
-	var inserted bool
-	err = tx.QueryRow(ctx, `
-		INSERT INTO account_ai_providers
-			(account_id, base_url, encrypted_api_key, analysis_model, reply_model, embedding_model)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_id) DO UPDATE SET
-			base_url = EXCLUDED.base_url,
-			encrypted_api_key = EXCLUDED.encrypted_api_key,
-			analysis_model = EXCLUDED.analysis_model,
-			reply_model = EXCLUDED.reply_model,
-			embedding_model = EXCLUDED.embedding_model,
-			updated_at = NOW()
-		RETURNING (xmax = 0)
-	`, accountID, cfg.BaseURL, encryptedAPIKey, cfg.AnalysisModel, cfg.ReplyModel, cfg.EmbeddingModel).Scan(&inserted)
-	if err != nil {
-		return fmt.Errorf("store ai provider config: %w", err)
-	}
-
-	// Only the first-ever provider configuration activates AI. Later saves must
-	// not re-enable AI that a manager deliberately switched off.
-	if inserted {
-		_, err = tx.Exec(ctx, `
-			UPDATE accounts
-			SET settings = settings || '{"ai_enabled": true}'::jsonb
-			WHERE id = $1 AND (settings->>'ai_enabled' IS NULL OR (settings->>'ai_enabled')::boolean = false)
-		`, accountID)
-		if err != nil {
-			return fmt.Errorf("activate ai in account settings: %w", err)
+		// Only the first-ever provider configuration activates AI. Later saves must
+		// not re-enable AI that a manager deliberately switched off.
+		if inserted {
+			_, err = tx.Exec(ctx, `
+				UPDATE accounts
+				SET settings = settings || '{"ai_enabled": true}'::jsonb
+				WHERE id = $1 AND (settings->>'ai_enabled' IS NULL OR (settings->>'ai_enabled')::boolean = false)
+			`, accountID)
+			if err != nil {
+				return audit.Entry{}, fmt.Errorf("activate ai in account settings: %w", err)
+			}
 		}
-	}
 
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      "account.ai_provider_config_updated",
-		TargetType:  audit.TargetAccount,
-		TargetID:    &accountID,
-		Metadata: map[string]any{
-			"analysis_model":  cfg.AnalysisModel,
-			"reply_model":     cfg.ReplyModel,
-			"embedding_model": cfg.EmbeddingModel,
-		},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      "account.ai_provider_config_updated",
+			TargetType:  audit.TargetAccount,
+			TargetID:    &accountID,
+			Metadata: map[string]any{
+				"analysis_model":  cfg.AnalysisModel,
+				"reply_model":     cfg.ReplyModel,
+				"embedding_model": cfg.EmbeddingModel,
+			},
+		}, nil
+	})
 }
 
 // GetAIProviderConfig returns the private configuration for trusted service use.

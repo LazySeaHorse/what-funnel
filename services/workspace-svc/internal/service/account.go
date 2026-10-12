@@ -61,33 +61,23 @@ func (svc *Service) DeleteAccount(ctx context.Context, accountID uuid.UUID) erro
 
 // UpdateAccountName changes the workspace name and records the administrative action.
 func (svc *Service) UpdateAccountName(ctx context.Context, accountID, actorID uuid.UUID, name string) error {
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	err = dbgen.New(tx).UpdateAccountName(ctx, dbgen.UpdateAccountNameParams{
-		Name: name,
-		ID:   accountID,
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		err := dbgen.New(tx).UpdateAccountName(ctx, dbgen.UpdateAccountNameParams{
+			Name: name,
+			ID:   accountID,
+		})
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("update account name: %w", err)
+		}
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      "account.name_updated",
+			TargetType:  audit.TargetAccount,
+			TargetID:    &accountID,
+			Metadata:    map[string]any{"name": name},
+		}, nil
 	})
-	if err != nil {
-		return fmt.Errorf("update account name: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      "account.name_updated",
-		TargetType:  audit.TargetAccount,
-		TargetID:    &accountID,
-		Metadata:    map[string]any{"name": name},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }
 
 // UpdateAccountSettings updates the non-sensitive settings JSONB column.
@@ -100,33 +90,23 @@ func (svc *Service) UpdateAccountSettings(ctx context.Context, accountID, actorI
 		return fmt.Errorf("marshal settings: %w", err)
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	err = dbgen.New(tx).UpdateAccountSettings(ctx, dbgen.UpdateAccountSettingsParams{
-		Settings: raw,
-		ID:       accountID,
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		err := dbgen.New(tx).UpdateAccountSettings(ctx, dbgen.UpdateAccountSettingsParams{
+			Settings: raw,
+			ID:       accountID,
+		})
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("update settings: %w", err)
+		}
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      "account.settings_updated",
+			TargetType:  audit.TargetAccount,
+			TargetID:    &accountID,
+			Metadata:    map[string]any{},
+		}, nil
 	})
-	if err != nil {
-		return fmt.Errorf("update settings: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      "account.settings_updated",
-		TargetType:  audit.TargetAccount,
-		TargetID:    &accountID,
-		Metadata:    map[string]any{},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }
 
 // MergeAccountSettings atomically updates only the supplied top-level keys.
@@ -141,36 +121,26 @@ func (svc *Service) MergeAccountSettings(ctx context.Context, accountID, actorID
 		return fmt.Errorf("marshal settings patch: %w", err)
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	result, err := dbgen.New(tx).MergeAccountSettings(ctx, dbgen.MergeAccountSettingsParams{
-		Settings: patchRaw,
-		ID:       accountID,
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		result, err := dbgen.New(tx).MergeAccountSettings(ctx, dbgen.MergeAccountSettingsParams{
+			Settings: patchRaw,
+			ID:       accountID,
+		})
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("merge settings: %w", err)
+		}
+		if result.RowsAffected() != 1 {
+			return audit.Entry{}, fmt.Errorf("account not found")
+		}
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      "account.settings_updated",
+			TargetType:  audit.TargetAccount,
+			TargetID:    &accountID,
+			Metadata:    map[string]any{"updated_keys": mapKeys(patch)},
+		}, nil
 	})
-	if err != nil {
-		return fmt.Errorf("merge settings: %w", err)
-	}
-	if result.RowsAffected() != 1 {
-		return fmt.Errorf("account not found")
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      "account.settings_updated",
-		TargetType:  audit.TargetAccount,
-		TargetID:    &accountID,
-		Metadata:    map[string]any{"updated_keys": mapKeys(patch)},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }
 
 // UpdateProductMode switches the product mode of the account, toggles lead_tracking_enabled, and audit logs it.
@@ -179,48 +149,39 @@ func (svc *Service) UpdateProductMode(ctx context.Context, accountID, actorID uu
 		return fmt.Errorf("invalid product mode: %s", newMode)
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	q := dbgen.New(tx)
-	oldMode, err := q.GetAccountProductModeForUpdate(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("query account details: %w", err)
-	}
-
 	leadTrackingJSON := "false"
 	if newMode == types.ProductModeFullWorkspace {
 		leadTrackingJSON = "true"
 	}
 
-	err = q.UpdateAccountProductMode(ctx, dbgen.UpdateAccountProductModeParams{
-		ProductMode:         newMode,
-		LeadTrackingEnabled: json.RawMessage(leadTrackingJSON),
-		ID:                  accountID,
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		q := dbgen.New(tx)
+		oldMode, err := q.GetAccountProductModeForUpdate(ctx, accountID)
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("query account details: %w", err)
+		}
+
+		err = q.UpdateAccountProductMode(ctx, dbgen.UpdateAccountProductModeParams{
+			ProductMode:         newMode,
+			LeadTrackingEnabled: json.RawMessage(leadTrackingJSON),
+			ID:                  accountID,
+		})
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("update product mode: %w", err)
+		}
+
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      "account.product_mode_updated",
+			TargetType:  audit.TargetAccount,
+			TargetID:    &accountID,
+			Metadata: map[string]any{
+				"old_mode": oldMode,
+				"new_mode": newMode,
+			},
+		}, nil
 	})
-	if err != nil {
-		return fmt.Errorf("update product mode: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      "account.product_mode_updated",
-		TargetType:  audit.TargetAccount,
-		TargetID:    &accountID,
-		Metadata: map[string]any{
-			"old_mode": oldMode,
-			"new_mode": newMode,
-		},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }
 
 // SetAccountSlug updates the unique slug identifier for the workspace.

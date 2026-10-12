@@ -61,83 +61,74 @@ func (svc *Service) UpdatePipeline(ctx context.Context, accountID, actorID, pipe
 		return fmt.Errorf("marshal states: %w", err)
 	}
 
-	tx, err := svc.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	return audit.RunInTx(ctx, svc.pool, func(tx pgx.Tx) (audit.Entry, error) {
+		q := dbgen.New(tx)
 
-	q := dbgen.New(tx)
-
-	// Verify pipeline belongs to this account and get its current states
-	currentStatesRaw, err := q.GetPipelineStates(ctx, dbgen.GetPipelineStatesParams{
-		ID:        pipelineID,
-		AccountID: accountID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("pipeline not found in account")
-		}
-		return fmt.Errorf("query pipeline: %w", err)
-	}
-
-	var currentStates []types.PipelineState
-	if len(currentStatesRaw) > 0 {
-		if err := json.Unmarshal(currentStatesRaw, &currentStates); err != nil {
-			return fmt.Errorf("unmarshal current states: %w", err)
-		}
-	}
-
-	// Diff states to find removed keys
-	newKeys := make(map[string]bool)
-	for _, s := range req.States {
-		newKeys[s.Key] = true
-	}
-
-	var removedKeys []string
-	for _, oldState := range currentStates {
-		if !newKeys[oldState.Key] {
-			removedKeys = append(removedKeys, oldState.Key)
-		}
-	}
-
-	if len(removedKeys) > 0 {
-		leadIDs, err := q.FindLeadsInStateKeys(ctx, dbgen.FindLeadsInStateKeysParams{
+		// Verify pipeline belongs to this account and get its current states
+		currentStatesRaw, err := q.GetPipelineStates(ctx, dbgen.GetPipelineStatesParams{
+			ID:        pipelineID,
 			AccountID: accountID,
-			StateKeys: removedKeys,
 		})
 		if err != nil {
-			return fmt.Errorf("check active leads: %w", err)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return audit.Entry{}, fmt.Errorf("pipeline not found in account")
+			}
+			return audit.Entry{}, fmt.Errorf("query pipeline: %w", err)
 		}
-		if len(leadIDs) > 0 {
-			return &ErrPipelineInUse{
-				StateKeys: removedKeys,
-				LeadIDs:   leadIDs,
+
+		var currentStates []types.PipelineState
+		if len(currentStatesRaw) > 0 {
+			if err := json.Unmarshal(currentStatesRaw, &currentStates); err != nil {
+				return audit.Entry{}, fmt.Errorf("unmarshal current states: %w", err)
 			}
 		}
-	}
 
-	err = q.UpdatePipeline(ctx, dbgen.UpdatePipelineParams{
-		Name:      req.Name,
-		States:    statesJSON,
-		ID:        pipelineID,
-		AccountID: accountID,
+		// Diff states to find removed keys
+		newKeys := make(map[string]bool)
+		for _, s := range req.States {
+			newKeys[s.Key] = true
+		}
+
+		var removedKeys []string
+		for _, oldState := range currentStates {
+			if !newKeys[oldState.Key] {
+				removedKeys = append(removedKeys, oldState.Key)
+			}
+		}
+
+		if len(removedKeys) > 0 {
+			leadIDs, err := q.FindLeadsInStateKeys(ctx, dbgen.FindLeadsInStateKeysParams{
+				AccountID: accountID,
+				StateKeys: removedKeys,
+			})
+			if err != nil {
+				return audit.Entry{}, fmt.Errorf("check active leads: %w", err)
+			}
+			if len(leadIDs) > 0 {
+				return audit.Entry{}, &ErrPipelineInUse{
+					StateKeys: removedKeys,
+					LeadIDs:   leadIDs,
+				}
+			}
+		}
+
+		err = q.UpdatePipeline(ctx, dbgen.UpdatePipelineParams{
+			Name:      req.Name,
+			States:    statesJSON,
+			ID:        pipelineID,
+			AccountID: accountID,
+		})
+		if err != nil {
+			return audit.Entry{}, fmt.Errorf("update pipeline: %w", err)
+		}
+
+		return audit.Entry{
+			AccountID:   accountID,
+			ActorUserID: &actorID,
+			Action:      audit.ActionPipelineUpdated,
+			TargetType:  audit.TargetPipeline,
+			TargetID:    &pipelineID,
+			Metadata:    map[string]any{"name": req.Name},
+		}, nil
 	})
-	if err != nil {
-		return fmt.Errorf("update pipeline: %w", err)
-	}
-
-	aw := audit.NewWriterFromTx(tx)
-	if err := aw.Write(ctx, audit.Entry{
-		AccountID:   accountID,
-		ActorUserID: &actorID,
-		Action:      audit.ActionPipelineUpdated,
-		TargetType:  audit.TargetPipeline,
-		TargetID:    &pipelineID,
-		Metadata:    map[string]any{"name": req.Name},
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
 }
