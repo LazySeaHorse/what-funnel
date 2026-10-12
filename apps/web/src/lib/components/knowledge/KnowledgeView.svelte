@@ -438,7 +438,7 @@
 						</div>
 					</div>
 				{:else}
-					<div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 						{#each filteredConcepts as concept (concept.id)}
 							{#if editingConceptId === concept.id}
 								<ConceptEditModal
