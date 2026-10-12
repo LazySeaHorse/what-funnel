@@ -13,6 +13,10 @@ export class ApiError extends Error {
 	}
 }
 
+export function isAbortError(error: unknown): boolean {
+	return error instanceof DOMException && error.name === 'AbortError';
+}
+
 function getCookie(name: string): string | null {
 	if (typeof document === 'undefined') return null;
 	const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + '=([^;]*)'));

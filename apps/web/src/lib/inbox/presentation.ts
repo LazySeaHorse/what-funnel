@@ -33,9 +33,13 @@ export function getContactName(convo?: any): string {
 		.replace(/\s*\((Instagram|WhatsApp|Messenger|Telegram|Webchat|Direct)\)$/i, '').trim();
 }
 
+export function getChannelType(convo?: any): string | undefined {
+	return convo?.channel?.type || convo?.channel_type;
+}
+
 export function getContactHandle(convo?: any): string {
 	if (!convo) return '';
-	const type = convo.channel?.type || convo.channel_type;
+	const type = getChannelType(convo);
 	let id = convo.contact?.external_identity || convo.external_identity || '';
 	if (id && !id.startsWith('@') && type?.includes('instagram')) id = `@${id}`;
 	const channel = getChannelLabel(type);

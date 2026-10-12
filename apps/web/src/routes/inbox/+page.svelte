@@ -38,11 +38,6 @@
   let aiAutoReplyEnabled = $derived(
     isGlobalAutoReplyActive({ aiEnabled, aiReplyModeDefault }),
   );
-  let unassignedCount = $derived(
-    inbox.conversations.filter(
-      (conversation) => !conversation.assigned_user_ids?.length,
-    ).length,
-  );
 
   $effect(() => {
     const account = workspace.account;
@@ -268,7 +263,7 @@
     {:else if selectedSection === "knowledge"}
       <KnowledgeView
         {searchQuery}
-        reviewerID={inbox.currentUser?.user_id || inbox.currentUser?.id || ""}
+        reviewerID={inbox.currentUserID ?? ""}
         autoReplyEnabled={aiAutoReplyEnabled}
         providerConfigured={aiProviderConfigured}
         canManageAI={capabilities.manageWorkspace}
@@ -298,7 +293,7 @@
   {#if !inbox.activeConvo || selectedSection !== "inbox"}<MobileDashboardNav
       selected={selectedSection}
       {capabilities}
-      {unassignedCount}
+      unassignedCount={inbox.unassignedCount}
       onSelect={selectSection}
     />{/if}
 </div>

@@ -3,6 +3,7 @@
   import type { UICapabilities } from "$lib/ui-capabilities";
   import {
     formatTime,
+    getChannelType,
     getContactName,
     getSnippet,
   } from "$lib/inbox/presentation";
@@ -180,7 +181,7 @@
             name={getContactName(conversation)}
             avatar={conversation.contact?.avatar_url}
             size="lg"
-            channel={conversation.channel?.type || conversation.channel_type}
+            channel={getChannelType(conversation)}
           />
           <div class="flex-1 min-w-0">
             <div class="flex justify-between mb-0.5">

@@ -7,6 +7,7 @@
   import {
     formatTime,
     getContactHandle,
+    getChannelType,
     getContactName,
     parseMessageContent,
   } from "$lib/inbox/presentation";
@@ -82,8 +83,7 @@
   let providerSupportsReplies = $derived(
     ["whatsapp", "telegram"].includes(
       inbox.activeConvo?.channel?.provider ||
-        inbox.activeConvo?.channel?.type ||
-        inbox.activeConvo?.channel_type ||
+        getChannelType(inbox.activeConvo) ||
         "",
     ),
   );
@@ -109,13 +109,9 @@
   );
   let counts = $derived({
     all: inbox.conversations.length,
-    unassigned: inbox.conversations.filter(
-      (conversation) => !conversation.assigned_user_ids?.length,
-    ).length,
+    unassigned: inbox.unassignedCount,
     mine: inbox.conversations.filter((conversation) =>
-      conversation.assigned_user_ids?.includes(
-        inbox.currentUser?.user_id || inbox.currentUser?.id,
-      ),
+      conversation.assigned_user_ids?.includes(inbox.currentUserID),
     ).length,
   });
 
@@ -348,8 +344,7 @@
             name={getContactName(inbox.activeConvo)}
             avatar={inbox.activeConvo.contact?.avatar_url}
             size="md"
-            channel={inbox.activeConvo.channel?.type ||
-              inbox.activeConvo.channel_type}
+            channel={getChannelType(inbox.activeConvo)}
           />
           <div>
             <div class="flex items-center gap-2">
@@ -357,8 +352,7 @@
                 {getContactName(inbox.activeConvo)}
               </h2>
               {#if inbox.activeConvo.channel}<ChannelBadge
-                  channel={inbox.activeConvo.channel?.type ||
-                    inbox.activeConvo.channel_type}
+                  channel={getChannelType(inbox.activeConvo)}
                   size="xs"
                 />{/if}
             </div>

@@ -4,6 +4,7 @@
   import {
     formatTime,
     getChannelLabel,
+    getChannelType,
     getContactHandle,
     getContactName,
     getSnippet,
@@ -50,8 +51,7 @@
     inbox.conversations
       .filter((conversation) => Boolean(conversation.lead))
       .map((conversation) => {
-        const channelType =
-          conversation.channel?.type || conversation.channel_type || "";
+        const channelType = getChannelType(conversation) || "";
         const channel =
           ["instagram", "whatsapp", "messenger", "telegram", "webchat"].find(
             (value) => channelType.includes(value),

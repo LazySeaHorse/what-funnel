@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatTime, getChannelLabel, getContactName, getTagColor } from '$lib/inbox/presentation';
+	import { formatTime, getChannelLabel, getChannelType, getContactName, getTagColor } from '$lib/inbox/presentation';
 	let { conversations, onOpenConversation }: { conversations: any[]; onOpenConversation: (id: string) => void } = $props();
 </script>
 
@@ -23,7 +23,7 @@
 					{#each conversations as conversation}
 						<tr class="hover:bg-slate-50/60 cursor-pointer" onclick={() => onOpenConversation(conversation.id)}>
 							<td class="p-3 font-medium text-slate-800">{getContactName(conversation)}</td>
-							<td class="p-3 capitalize font-medium text-slate-600">{getChannelLabel(conversation.channel_type || conversation.channel?.type)}</td>
+							<td class="p-3 capitalize font-medium text-slate-600">{getChannelLabel(getChannelType(conversation))}</td>
 							<td class="p-3 text-slate-500">{conversation.contact?.external_identity || 'N/A'}</td>
 							<td class="p-3">
 								<span class="px-2 py-0.5 rounded-md font-medium text-[10px] {getTagColor(conversation.lead?.current_state_key)}">{conversation.lead?.current_state_key || 'New'}</span>

@@ -9,6 +9,7 @@
   import {
     formatTime,
     getChannelLabel,
+    getChannelType,
     getContactName,
   } from "$lib/inbox/presentation";
   import {
@@ -140,7 +141,7 @@
         <div class="flex justify-between">
           <span>Channel</span><b
             >{getChannelLabel(
-              inbox.activeConvo.channel_type || inbox.activeConvo.channel?.type,
+              getChannelType(inbox.activeConvo),
             )}</b
           >
         </div>

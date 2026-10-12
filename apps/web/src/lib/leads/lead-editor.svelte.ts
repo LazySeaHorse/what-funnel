@@ -1,4 +1,4 @@
-import { apiRequest, type ApiRequestOptions } from '$lib/api';
+import { apiRequest, isAbortError, type ApiRequestOptions } from '$lib/api';
 import type { InboxState } from '$lib/store.svelte';
 
 type Request = (path: string, options?: ApiRequestOptions) => Promise<any>;
@@ -157,7 +157,7 @@ export class LeadEditor {
 				this.history = Array.isArray(history) ? history : [];
 			}
 		} catch (error) {
-			if (!(error instanceof DOMException && error.name === 'AbortError')) {
+			if (!isAbortError(error)) {
 				this.fail('Failed to load lead details. Please try again.', error, leadID);
 			}
 		} finally {

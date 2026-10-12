@@ -1,4 +1,4 @@
-import { apiRequest } from '$lib/api';
+import { apiRequest, isAbortError } from '$lib/api';
 import type { UICapabilities } from '$lib/ui-capabilities';
 import {
 	EMPTY_SUMMARY_STATE,
@@ -61,6 +61,15 @@ export class InboxState {
 	stateFilter = $state<string>('');
 	currentUser = $state<any | null>(null);
 	
+	/** The signed-in user's id; /auth/me may report it as user_id or id. */
+	get currentUserID() {
+		return this.currentUser?.user_id || this.currentUser?.id;
+	}
+
+	get unassignedCount(): number {
+		return this.conversations.filter((conversation) => !conversation.assigned_user_ids?.length).length;
+	}
+
 	wsStatus = $state<'connecting' | 'connected' | 'disconnected'>('disconnected');
 	ws: WebSocket | null = null;
 	reconnectAttempts = 0;
@@ -272,7 +281,7 @@ export class InboxState {
 				apiRequest(`/conversations/${convoID}/messages?limit=20`, { signal: controller.signal }),
 				this.replyDraftsEnabled ? apiRequest(`/conversations/${convoID}/reply-draft`, { signal: controller.signal })
 					.catch((err) => {
-						if (!(err instanceof DOMException && err.name === 'AbortError')) {
+						if (!isAbortError(err)) {
 							console.error('Failed to load AI reply draft', err);
 						}
 						return { draft: null };
@@ -294,7 +303,7 @@ export class InboxState {
 				this.conversations[index].unread = false;
 			}
 		} catch (err) {
-			if (!(err instanceof DOMException && err.name === 'AbortError')) {
+			if (!isAbortError(err)) {
 				console.error(err);
 			}
 		} finally {
@@ -515,7 +524,7 @@ export class InboxState {
 		}
 
 		try {
-			const senderUserId = this.currentUser?.user_id || this.currentUser?.id;
+			const senderUserId = this.currentUserID;
 			const body: any = {
 				content_type: media?.contentType || 'text',
 				text: text,

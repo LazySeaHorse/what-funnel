@@ -1,4 +1,4 @@
-import { apiRequest, type ApiRequestOptions } from '$lib/api';
+import { apiRequest, isAbortError, type ApiRequestOptions } from '$lib/api';
 import {
 	normalizeConcepts,
 	normalizePatterns,
@@ -192,8 +192,4 @@ function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void
 		}
 		signal.addEventListener('abort', aborted, { once: true });
 	});
-}
-
-function isAbortError(error: unknown): boolean {
-	return error instanceof DOMException && error.name === 'AbortError';
 }
