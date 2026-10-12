@@ -6,8 +6,9 @@
 		TrashIcon
 	} from '@fvilers/heroicons-svelte/24/outline';
 	import { Button, Input } from '$lib/components/ui';
+	import { generatePassword } from '$lib/components/settings/users/types';
+	import type { OnboardingUser } from '$lib/onboarding/types';
 
-	type User = { id: string; username: string; role: string; plaintextPassword?: string };
 
 	let {
 		step,
@@ -20,7 +21,7 @@
 		step: number;
 		totalSteps: number;
 		slug: string;
-		users: User[];
+		users: OnboardingUser[];
 		onAddUser: (username: string, password: string, role: 'agent' | 'manager') => Promise<void>;
 		onRemoveUser: (id: string) => Promise<void>;
 	} = $props();
@@ -31,15 +32,6 @@
 	let adding = $state(false);
 	let userError = $state('');
 	let copiedPassId = $state<string | null>(null);
-
-	function generatePassword() {
-		const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-		let pass = '';
-		for (let i = 0; i < 12; i++) {
-			pass += chars.charAt(Math.floor(Math.random() * chars.length));
-		}
-		newPassword = pass;
-	}
 
 	async function copyPassword(id: string, pass: string) {
 		try {
@@ -118,7 +110,7 @@
 				bind:value={newPassword}
 			>
 				{#snippet trailing()}
-					<button type="button" class="text-[10px] text-blue-600 hover:underline cursor-pointer" onclick={generatePassword}>Generate</button>
+					<button type="button" class="text-[10px] text-blue-600 hover:underline cursor-pointer" onclick={() => (newPassword = generatePassword())}>Generate</button>
 				{/snippet}
 			</Input>
 
