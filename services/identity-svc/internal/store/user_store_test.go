@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/db"
+	"github.com/whatfunnel/whatfunnel/packages/go-common/db/dbgen"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/store"
 )
 
@@ -34,7 +35,20 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-func TestStore_Create_Load_Save(t *testing.T) {
+// createUser inserts a user row for the lookup tests.
+func createUser(t *testing.T, pool *pgxpool.Pool, u *store.User) {
+	t.Helper()
+	_, err := dbgen.New(pool).CreateUser(context.Background(), dbgen.CreateUserParams{
+		AccountID:    u.AccountID,
+		Email:        u.Email,
+		Username:     u.Username,
+		PasswordHash: u.PasswordHash,
+		Role:         u.Role,
+	})
+	require.NoError(t, err)
+}
+
+func TestLoadByIdentifier(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -53,56 +67,37 @@ func TestStore_Create_Load_Save(t *testing.T) {
 	})
 
 	email := "storeuser+" + uuid.New().String()[:8] + "@example.com"
-	u := &store.User{
+	createUser(t, pool, &store.User{
 		AccountID:    accountID,
 		Email:        email,
 		Username:     "storer",
 		PasswordHash: "initial-hash",
 		Role:         "agent",
-	}
+	})
 
-	err = s.Create(ctx, u)
+	// Email
+	loaded, err := s.LoadByIdentifier(ctx, email)
 	require.NoError(t, err)
+	assert.Equal(t, email, loaded.Email)
+	assert.Equal(t, "initial-hash", loaded.PasswordHash)
+	assert.Equal(t, accountID, loaded.AccountID)
+	assert.Equal(t, "storer", loaded.Username)
+	assert.Equal(t, "agent", loaded.Role)
+	assert.False(t, loaded.CreatedAt.IsZero())
 
-	// Test Load by PID (email)
-	loaded, err := s.Load(ctx, email)
+	// slug-username (legacy hyphenated)
+	loadedBySlug, err := s.LoadByIdentifier(ctx, slug+"-storer")
 	require.NoError(t, err)
-	assert.Equal(t, email, loaded.GetPID())
+	assert.Equal(t, loaded, loadedBySlug)
 
-	loadedUser, ok := loaded.(*store.User)
-	require.True(t, ok)
-	assert.Equal(t, "initial-hash", loadedUser.GetPassword())
-	assert.Equal(t, accountID, loadedUser.AccountID)
-	assert.Equal(t, "storer", loadedUser.Username)
-	assert.Equal(t, "agent", loadedUser.Role)
-
-	// Test LoadByIdentifier with email
-	loadedByEmail, err := s.LoadByIdentifier(ctx, email)
+	// slug/username (unambiguous slash)
+	loadedBySlash, err := s.LoadByIdentifier(ctx, slug+"/storer")
 	require.NoError(t, err)
-	assert.Equal(t, loadedUser.ID, loadedByEmail.ID)
+	assert.Equal(t, loaded, loadedBySlash)
 
-	// Test LoadByIdentifier with slug-username (legacy hyphenated)
-	identifier := slug + "-storer"
-	loadedBySlug, err := s.LoadByIdentifier(ctx, identifier)
-	require.NoError(t, err)
-	assert.Equal(t, loadedUser.ID, loadedBySlug.ID)
-
-	// Test LoadByIdentifier with slug/username (unambiguous slash)
-	slashIdentifier := slug + "/storer"
-	loadedBySlash, err := s.LoadByIdentifier(ctx, slashIdentifier)
-	require.NoError(t, err)
-	assert.Equal(t, loadedUser.ID, loadedBySlash.ID)
-
-	// Test Save (updates password and deletes sessions)
-	loadedUser.PasswordHash = "updated-hash"
-	err = s.Save(ctx, loadedUser)
-	require.NoError(t, err)
-
-	reloaded, err := s.Load(ctx, email)
-	require.NoError(t, err)
-	reloadedUser, ok := reloaded.(*store.User)
-	require.True(t, ok)
-	assert.Equal(t, "updated-hash", reloadedUser.GetPassword())
+	// Unknown identifiers
+	_, err = s.LoadByIdentifier(ctx, "nobody-"+email)
+	assert.ErrorIs(t, err, ab.ErrUserNotFound)
 }
 
 func TestLoadByIdentifier_CrossTenantCollisionPrevention(t *testing.T) {
@@ -133,8 +128,7 @@ func TestLoadByIdentifier_CrossTenantCollisionPrevention(t *testing.T) {
 		PasswordHash: "hash-1",
 		Role:         "manager",
 	}
-	err = s.Create(ctx, user1)
-	require.NoError(t, err)
+	createUser(t, pool, user1)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM users WHERE account_id = $1`, accountID1)
@@ -188,8 +182,7 @@ func TestLoadByIdentifier_CrossTenantCollisionPrevention(t *testing.T) {
 		PasswordHash: "hash-a",
 		Role:         "manager",
 	}
-	err = s.Create(ctx, userA)
-	require.NoError(t, err)
+	createUser(t, pool, userA)
 
 	userB := &store.User{
 		AccountID:    accountIDB,
@@ -198,8 +191,7 @@ func TestLoadByIdentifier_CrossTenantCollisionPrevention(t *testing.T) {
 		PasswordHash: "hash-b",
 		Role:         "agent",
 	}
-	err = s.Create(ctx, userB)
-	require.NoError(t, err)
+	createUser(t, pool, userB)
 
 	collidingLegacy := slugA + "-" + userAname
 	assert.Equal(t, collidingLegacy, slugB+"-"+userBname)
