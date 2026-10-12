@@ -12,6 +12,8 @@
 //	POST   /workspace/users/invite         — invite a user (admin)
 //	PUT    /workspace/users/{id}/role      — change user role (admin)
 //
+//	GET    /workspace/audit-logs           — list audit log (admin)
+//
 //	GET    /workspace/pipelines            — list pipelines (admin + member)
 //	PUT    /workspace/pipelines/{id}       — update pipeline (admin)
 //
@@ -66,6 +68,7 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 
 	// Users
 	r.Handle("/workspace/users", auth(admin(http.HandlerFunc(h.ListUsers)))).Methods(http.MethodGet)
+	r.Handle("/workspace/audit-logs", auth(admin(http.HandlerFunc(h.ListAuditLogs)))).Methods(http.MethodGet)
 	r.Handle("/workspace/users", auth(admin(http.HandlerFunc(h.CreateUser)))).Methods(http.MethodPost)
 	r.Handle("/workspace/users/{id}", auth(admin(http.HandlerFunc(h.DeleteUser)))).Methods(http.MethodDelete)
 	r.Handle("/workspace/users/{id}/password", auth(admin(http.HandlerFunc(h.ResetUserPassword)))).Methods(http.MethodPut)
