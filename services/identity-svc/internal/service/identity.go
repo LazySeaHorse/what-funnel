@@ -20,6 +20,7 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/session"
 	"github.com/whatfunnel/whatfunnel/services/identity-svc/internal/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Option configures an identity Service.
@@ -36,7 +37,7 @@ func WithWorkspaceProvisioner(wp WorkspaceProvisioner) Option {
 type Service struct {
 	pool                 *pgxpool.Pool
 	sessions             *session.Store
-	ab                   *ab.Authboss
+	hasher               ab.Hasher
 	workspaceProvisioner WorkspaceProvisioner
 }
 
@@ -57,27 +58,20 @@ type LoginRequest struct {
 }
 
 // New creates a Service wired to the given pool and session store.
-func New(pool *pgxpool.Pool, sessions *session.Store, opts ...Option) (*Service, error) {
-	cfg := ab.New()
-	cfg.Config.Paths.RootURL = "http://localhost:8081"
-	// We use authboss only for its password-hashing primitives in this
-	// integration. The auth modules (auth, register, etc.) are bypassed
-	// in favour of our own HTTP handlers, which call authboss's bcrypt helpers.
-	if err := cfg.Init(); err != nil {
-		return nil, fmt.Errorf("service: authboss init: %w", err)
-	}
-
+func New(pool *pgxpool.Pool, sessions *session.Store, opts ...Option) *Service {
 	svc := &Service{
-		pool:                 pool,
-		sessions:             sessions,
-		ab:                   cfg,
+		pool:     pool,
+		sessions: sessions,
+		// authboss is used only for its bcrypt password hasher; its modules and
+		// storer are bypassed in favour of our own HTTP handlers.
+		hasher:               ab.NewBCryptHasher(bcrypt.DefaultCost),
 		workspaceProvisioner: NewDefaultWorkspaceProvisioner(),
 	}
 	for _, opt := range opts {
 		opt(svc)
 	}
 
-	return svc, nil
+	return svc
 }
 
 // Signup creates an account, manager user, and default pipeline in one atomic
@@ -188,10 +182,7 @@ func buildDefaultAccountSettings(productMode string) ([]byte, error) {
 
 // hashPassword securely hashes a password using the configured authboss hasher.
 func (svc *Service) hashPassword(password string) (string, error) {
-	if svc.ab == nil || svc.ab.Config.Core.Hasher == nil {
-		return "", fmt.Errorf("service: hasher not configured")
-	}
-	hash, err := svc.ab.Config.Core.Hasher.GenerateHash(password)
+	hash, err := svc.hasher.GenerateHash(password)
 	if err != nil {
 		return "", fmt.Errorf("service: hash password: %w", err)
 	}
@@ -308,7 +299,7 @@ func (svc *Service) Login(ctx context.Context, req LoginRequest) (*store.User, e
 	}
 
 	// Verify password via authboss (bcrypt)
-	if err := svc.ab.Config.Core.Hasher.CompareHashAndPassword(u.PasswordHash, req.Password); err != nil {
+	if err := svc.hasher.CompareHashAndPassword(u.PasswordHash, req.Password); err != nil {
 		return nil, fmt.Errorf("service: invalid credentials")
 	}
 

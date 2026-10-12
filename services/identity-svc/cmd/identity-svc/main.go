@@ -49,10 +49,7 @@ func run(logger *slog.Logger) error {
 	logger.Info("connected to database")
 
 	sess := session.New(pool, cfg.SessionSecret, cfg.CookieSecure)
-	svc, err := service.New(pool, sess)
-	if err != nil {
-		return fmt.Errorf("init service: %w", err)
-	}
+	svc := service.New(pool, sess)
 
 	r := mux.NewRouter()
 	r.Use(loggingMiddleware(logger))

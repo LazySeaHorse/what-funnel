@@ -32,8 +32,7 @@ func TestWithWorkspaceProvisioner(t *testing.T) {
 	sess := session.New(pool, sessionSecret, false)
 
 	mockProv := &mockWorkspaceProvisioner{}
-	svc, err := service.New(pool, sess, service.WithWorkspaceProvisioner(mockProv))
-	require.NoError(t, err)
+	svc := service.New(pool, sess, service.WithWorkspaceProvisioner(mockProv))
 
 	ctx := context.Background()
 	email := uniqueEmail(t)

@@ -46,9 +46,7 @@ func testService(t *testing.T) (*service.Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testPool(t)
 	sess := session.New(pool, sessionSecret, false)
-	svc, err := service.New(pool, sess)
-	require.NoError(t, err)
-	return svc, pool
+	return service.New(pool, sess), pool
 }
 
 // ---------------------------------------------------------------------------
