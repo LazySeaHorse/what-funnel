@@ -39,6 +39,8 @@ export interface MockWorkspaceOptions {
 	summaryRequest?: { status?: number; body?: unknown; delayMs?: number };
 	knowledge?: { concepts?: any[]; patterns?: any[] };
 	activeIngestion?: any;
+	/** Audit trail served by GET /workspace/audit-logs, newest first; filters and cursor paging are applied. */
+	auditLogs?: any[];
 	aiConfigured?: boolean;
 	autoReplyEnabled?: boolean;
 	users?: Array<{ id?: string; email?: string; username?: string; name?: string; role?: string; password?: string }>;
@@ -184,6 +186,22 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 		if (path === '/workspace/account/ai-config' && request.method() === 'PUT') {
 			aiConfigured = true;
 			return json({ status: 'updated' });
+		}
+		if (path === '/workspace/audit-logs') {
+			const params = new URL(request.url()).searchParams;
+			const limit = Number(params.get('limit') || 50);
+			const offset = Number(params.get('cursor') || 0);
+			const from = params.get('from');
+			const to = params.get('to');
+			const matching = (options.auditLogs ?? []).filter(
+				(e) =>
+					(!params.get('actor_user_id') || e.actor_user_id === params.get('actor_user_id')) &&
+					(!params.get('action') || e.action === params.get('action')) &&
+					(!from || Date.parse(e.created_at) >= Date.parse(from)) &&
+					(!to || Date.parse(e.created_at) < Date.parse(to))
+			);
+			const items = matching.slice(offset, offset + limit);
+			return json({ items, next_cursor: offset + limit < matching.length ? String(offset + limit) : null });
 		}
 		if (path === '/workspace/users') {
 			if (request.method() === 'GET') return json(users);
