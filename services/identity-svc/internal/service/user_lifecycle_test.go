@@ -29,7 +29,7 @@ func TestWithWorkspaceProvisioner(t *testing.T) {
 	}
 
 	pool := testPool(t)
-	sess := session.New(pool, sessionSecret)
+	sess := session.New(pool, sessionSecret, false)
 
 	mockProv := &mockWorkspaceProvisioner{}
 	svc, err := service.New(pool, sess, service.WithWorkspaceProvisioner(mockProv))

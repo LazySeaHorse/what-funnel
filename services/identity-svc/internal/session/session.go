@@ -10,14 +10,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/config"
 	commonsession "github.com/whatfunnel/whatfunnel/packages/go-common/session"
 )
 
@@ -30,16 +28,9 @@ type Store struct {
 	options *sessions.Options
 }
 
-// New creates a Store. secret must be >= 32 bytes.
-// If secure is not provided, it defaults to true in production or when COOKIE_SECURE=true.
-func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
-	isSecure := false
-	if len(secure) > 0 {
-		isSecure = secure[0]
-	} else {
-		isSecure = config.IsProduction() || os.Getenv("COOKIE_SECURE") == "true" || os.Getenv("COOKIE_SECURE") == "1"
-	}
-
+// New creates a Store. secret must be >= 32 bytes; secure sets the Secure
+// attribute on the session cookie.
+func New(pool *pgxpool.Pool, secret string, secure bool) *Store {
 	return &Store{
 		Reader: commonsession.NewReader(pool, secret),
 		pool:   pool,
@@ -48,7 +39,7 @@ func New(pool *pgxpool.Pool, secret string, secure ...bool) *Store {
 			MaxAge:   int(commonsession.TTL.Seconds()),
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
-			Secure:   isSecure,
+			Secure:   secure,
 		},
 	}
 }

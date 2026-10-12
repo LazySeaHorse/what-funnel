@@ -58,9 +58,10 @@ func SimulationRoutesEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("ENABLE_SIMULATION_ROUTES")), "true")
 }
 
-// IsProduction returns true if running in a production environment.
+// IsProduction returns true if running in a production environment. It defers
+// to the package-level IsProduction so both checks always agree.
 func (c *Config) IsProduction() bool {
-	return strings.EqualFold(c.Env, "production") || strings.EqualFold(c.Env, "prod")
+	return IsProduction()
 }
 
 // IsTesting returns true if running in a test environment.
