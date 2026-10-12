@@ -11,37 +11,8 @@ import (
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 )
 
-func TestHandler_ListConversations_AuthFailures(t *testing.T) {
+func TestHandler_ListConversations_InvalidFilter(t *testing.T) {
 	h := &Handler{}
-
-	t.Run("missing account", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/conversations", nil)
-		rr := httptest.NewRecorder()
-		h.ListConversations(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-		assert.Contains(t, rr.Body.String(), "missing account")
-	})
-
-	t.Run("missing user", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/conversations", nil)
-		ctx := context.WithValue(req.Context(), types.ContextKeyAccountID, uuid.New())
-		req = req.WithContext(ctx)
-		rr := httptest.NewRecorder()
-		h.ListConversations(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-		assert.Contains(t, rr.Body.String(), "missing user")
-	})
-
-	t.Run("missing role", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/conversations", nil)
-		ctx := context.WithValue(req.Context(), types.ContextKeyAccountID, uuid.New())
-		ctx = context.WithValue(ctx, types.ContextKeyUserID, uuid.New())
-		req = req.WithContext(ctx)
-		rr := httptest.NewRecorder()
-		h.ListConversations(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-		assert.Contains(t, rr.Body.String(), "missing role")
-	})
 
 	t.Run("invalid filter", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/conversations?filter=bogus", nil)

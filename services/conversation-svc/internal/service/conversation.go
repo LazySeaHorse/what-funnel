@@ -208,31 +208,35 @@ const sharedConversationSQL = `
 // Conversation queries
 // ---------------------------------------------------------------------------
 
-// ListConversations returns conversations visible to the given user, with
-// optional filter (all/mine/unassigned), lead state filtering, and pagination.
-// limit defaults to 50 (max 100), offset defaults to 0.
-func (s *ConversationService) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string, pagination ...int) ([]*types.ConversationListItem, error) {
+// unassignedVisible reports whether the account lets members see unassigned
+// conversations.
+func (s *ConversationService) unassignedVisible(ctx context.Context, accountID uuid.UUID) (bool, error) {
 	var settingsBytes []byte
 	if err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes); err != nil {
-		return nil, fmt.Errorf("get account settings: %w", err)
+		return false, fmt.Errorf("get account settings: %w", err)
 	}
-	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
+	return types.IsUnassignedVisible(settingsBytes), nil
+}
 
-	limit := 50
-	offset := 0
-	if len(pagination) > 0 && pagination[0] > 0 {
-		limit = pagination[0]
+// ListConversations returns conversations visible to the given user, with
+// optional filter (all/mine/unassigned), lead state filtering, and pagination.
+// A non-positive limit defaults to 50 and any limit is capped at 100; a
+// negative offset is treated as 0.
+func (s *ConversationService) ListConversations(ctx context.Context, accountID, userID uuid.UUID, userRole string, filter string, leadState string, limit, offset int) ([]*types.ConversationListItem, error) {
+	unassignedVisible, err := s.unassignedVisible(ctx, accountID)
+	if err != nil {
+		return nil, err
 	}
-	if limit > 100 {
-		limit = 100
+
+	if limit <= 0 {
+		limit = 50
 	}
-	if len(pagination) > 1 && pagination[1] >= 0 {
-		offset = pagination[1]
-	}
+	limit = min(limit, 100)
+	offset = max(offset, 0)
 
 	sqlQuery := sharedConversationSQL + `
 		WHERE c.account_id = $2 AND (
-		    $3 = 'admin' OR $3 = 'manager' OR
+		    $3 = 'manager' OR
 		    $1 = ANY(c.assigned_user_ids) OR
 		    (cardinality(c.assigned_user_ids) = 0 AND $4 = true)
 		)
@@ -274,14 +278,13 @@ func (s *ConversationService) ListConversations(ctx context.Context, accountID, 
 
 // GetConversation fetches a single conversation, enforcing RBAC visibility.
 func (s *ConversationService) GetConversation(ctx context.Context, accountID, userID, conversationID uuid.UUID, userRole string) (*types.ConversationListItem, error) {
-	var settingsBytes []byte
-	if err := s.pool.QueryRow(ctx, `SELECT settings FROM accounts WHERE id = $1`, accountID).Scan(&settingsBytes); err != nil {
-		return nil, fmt.Errorf("get account settings: %w", err)
+	unassignedVisible, err := s.unassignedVisible(ctx, accountID)
+	if err != nil {
+		return nil, err
 	}
-	unassignedVisible := types.IsUnassignedVisible(settingsBytes)
 
 	d := &conversationScanDest{item: &types.ConversationListItem{}}
-	err := scanConversationRow(
+	err = scanConversationRow(
 		s.pool.QueryRow(ctx, sharedConversationSQL+`WHERE c.id = $2 AND c.account_id = $3`,
 			userID, conversationID, accountID),
 		d,

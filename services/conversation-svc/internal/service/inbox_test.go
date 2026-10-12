@@ -60,7 +60,7 @@ func TestService_InboxVisibility(t *testing.T) {
 
 	// Test case 1: Member when settings.unassigned_conversations_visible_to_members is true (default)
 	// Member should see: convo1 (unassigned) and convo2 (assigned to member). Not convo3.
-	list, err := svc.ListConversations(ctx, accountID, memberID, types.RoleAgent, "all", "")
+	list, err := svc.ListConversations(ctx, accountID, memberID, types.RoleAgent, "all", "", 0, 0)
 	require.NoError(t, err)
 	assert.Len(t, list, 2)
 	ids := map[uuid.UUID]bool{list[0].Conversation.ID: true, list[1].Conversation.ID: true}
@@ -69,7 +69,7 @@ func TestService_InboxVisibility(t *testing.T) {
 	assert.False(t, ids[convo3])
 
 	// Test case 2: Admin should see all 3 conversations
-	listAdmin, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "all", "")
+	listAdmin, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "all", "", 0, 0)
 	require.NoError(t, err)
 	assert.Len(t, listAdmin, 3)
 
@@ -94,7 +94,7 @@ func TestService_InboxVisibility(t *testing.T) {
 	require.NoError(t, err)
 
 	// Member should now only see convo2 (assigned to member)
-	list2, err := svc.ListConversations(ctx, accountID, memberID, types.RoleAgent, "all", "")
+	list2, err := svc.ListConversations(ctx, accountID, memberID, types.RoleAgent, "all", "", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, list2, 1)
 	assert.Equal(t, convo2, list2[0].Conversation.ID)
@@ -229,16 +229,16 @@ func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
 	require.NoError(t, err)
 
 	// 1. Initial State: conversation is unassigned
-	unassignedList, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "unassigned", "")
+	unassignedList, err := svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "unassigned", "", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, unassignedList, 1)
 	assert.Equal(t, convoID, unassignedList[0].Conversation.ID)
 
-	mine1, err := svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "")
+	mine1, err := svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, mine1)
 
-	mine2, err := svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "")
+	mine2, err := svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, mine2)
 
@@ -250,12 +250,12 @@ func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []uuid.UUID{member1ID}, convo.Conversation.AssignedUserIDs)
 
-	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "")
+	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, mine1, 1)
 	assert.Equal(t, convoID, mine1[0].Conversation.ID)
 
-	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "")
+	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, mine2)
 
@@ -267,17 +267,17 @@ func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []uuid.UUID{member1ID, member2ID}, convo.Conversation.AssignedUserIDs)
 
-	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "")
+	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, mine1, 1)
 	assert.Equal(t, convoID, mine1[0].Conversation.ID)
 
-	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "")
+	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, mine2, 1)
 	assert.Equal(t, convoID, mine2[0].Conversation.ID)
 
-	unassignedList, err = svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "unassigned", "")
+	unassignedList, err = svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "unassigned", "", 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, unassignedList)
 
@@ -289,16 +289,16 @@ func TestService_AssignMultiAssignAndUnassign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, convo.Conversation.AssignedUserIDs)
 
-	unassignedList, err = svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "unassigned", "")
+	unassignedList, err = svc.ListConversations(ctx, accountID, adminID, types.RoleManager, "unassigned", "", 0, 0)
 	require.NoError(t, err)
 	require.Len(t, unassignedList, 1)
 	assert.Equal(t, convoID, unassignedList[0].Conversation.ID)
 
-	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "")
+	mine1, err = svc.ListConversations(ctx, accountID, member1ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, mine1)
 
-	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "")
+	mine2, err = svc.ListConversations(ctx, accountID, member2ID, types.RoleAgent, "mine", "", 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, mine2)
 }

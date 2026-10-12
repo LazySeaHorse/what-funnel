@@ -6,10 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/adapterclient"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
@@ -17,11 +14,7 @@ import (
 )
 
 func (h *Handler) ListProviderConnections(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
-	}
+	accountID, _, _ := callerFrom(request)
 	connections, err := h.svc.ListProviderConnections(request.Context(), accountID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Could not list channel connections.")
@@ -31,14 +24,9 @@ func (h *Handler) ListProviderConnections(w http.ResponseWriter, request *http.R
 }
 
 func (h *Handler) GetProviderConnectionQR(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
+	accountID, _, _ := callerFrom(request)
+	channelID, ok := pathUUID(w, request, "id", "Invalid channel ID.")
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
-	}
-	channelID, err := uuid.Parse(mux.Vars(request)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid channel ID.")
 		return
 	}
 	connection, err := h.svc.GetProviderConnection(request.Context(), accountID, channelID, true)
@@ -60,11 +48,7 @@ func (h *Handler) GetProviderConnectionQR(w http.ResponseWriter, request *http.R
 }
 
 func (h *Handler) StartProviderConnection(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
-	}
+	accountID, _, _ := callerFrom(request)
 	defer request.Body.Close()
 	decoder := json.NewDecoder(http.MaxBytesReader(w, request.Body, 1024*1024))
 	decoder.DisallowUnknownFields()
@@ -117,14 +101,9 @@ func writeConnectionFailure(w http.ResponseWriter, request *http.Request, connec
 }
 
 func (h *Handler) RetryProviderConnection(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
+	accountID, _, _ := callerFrom(request)
+	channelID, ok := pathUUID(w, request, "id", "Invalid channel ID.")
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
-	}
-	channelID, err := uuid.Parse(mux.Vars(request)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid channel ID.")
 		return
 	}
 	defer request.Body.Close()
@@ -154,14 +133,9 @@ func (h *Handler) RetryProviderConnection(w http.ResponseWriter, request *http.R
 }
 
 func (h *Handler) GetProviderConnection(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
+	accountID, _, _ := callerFrom(request)
+	channelID, ok := pathUUID(w, request, "id", "Invalid channel ID.")
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
-	}
-	channelID, err := uuid.Parse(mux.Vars(request)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid channel ID.")
 		return
 	}
 	connection, err := h.svc.GetProviderConnection(request.Context(), accountID, channelID, true)
@@ -177,19 +151,9 @@ func (h *Handler) GetProviderConnection(w http.ResponseWriter, request *http.Req
 }
 
 func (h *Handler) DeleteProviderConnection(w http.ResponseWriter, request *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(request)
+	accountID, actorID, _ := callerFrom(request)
+	channelID, ok := pathUUID(w, request, "id", "Invalid channel ID.")
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return
-	}
-	actorID, ok := middleware.UserIDFromContext(request)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing user.")
-		return
-	}
-	channelID, err := uuid.Parse(mux.Vars(request)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid channel ID.")
 		return
 	}
 	if err := h.svc.DeleteProviderConnection(request.Context(), accountID, actorID, channelID); err != nil {

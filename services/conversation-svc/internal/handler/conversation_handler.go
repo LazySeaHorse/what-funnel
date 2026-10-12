@@ -1,13 +1,10 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
@@ -18,21 +15,12 @@ const (
 )
 
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
+	accountID, callerUserID, callerRole := callerFrom(r)
+
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
 		return
 	}
-
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
-		return
-	}
-
-	callerUserID, _ := middleware.UserIDFromContext(r)
-	callerRole, _ := middleware.RoleFromContext(r)
 
 	// Verify conversation visibility and access permissions (SEC-04)
 	if err := h.svc.CanSeeConversation(r.Context(), accountID, callerUserID, convoID, callerRole); err != nil {
@@ -53,8 +41,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey   string `json:"idempotency_key"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -135,9 +122,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 	conversationID, messageID, ok := providerMessageIDs(w, r)
 	if !ok {
 		return
@@ -145,8 +130,7 @@ func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Text string `json:"text"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if err := h.svc.EditProviderMessage(r.Context(), accountID, userID, role, conversationID, messageID, body.Text); err != nil {
@@ -157,9 +141,7 @@ func (h *Handler) EditProviderMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteProviderMessage(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 	conversationID, messageID, ok := providerMessageIDs(w, r)
 	if !ok {
 		return
@@ -172,9 +154,7 @@ func (h *Handler) DeleteProviderMessage(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 	conversationID, messageID, ok := providerMessageIDs(w, r)
 	if !ok {
 		return
@@ -183,8 +163,7 @@ func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request)
 		Emoji   string `json:"emoji"`
 		Removed bool   `json:"removed"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if err := h.svc.ChangeProviderReaction(r.Context(), accountID, userID, role, conversationID, messageID, body.Emoji, body.Removed); err != nil {
@@ -195,27 +174,22 @@ func (h *Handler) ChangeProviderReaction(w http.ResponseWriter, r *http.Request)
 }
 
 func providerMessageIDs(w http.ResponseWriter, r *http.Request) (uuid.UUID, uuid.UUID, bool) {
-	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	conversationID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return uuid.Nil, uuid.Nil, false
 	}
-	messageID, err := uuid.Parse(mux.Vars(r)["message_id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid message ID")
+	messageID, ok := pathUUID(w, r, "message_id", "invalid message ID")
+	if !ok {
 		return uuid.Nil, uuid.Nil, false
 	}
 	return conversationID, messageID, true
 }
 
 func (h *Handler) GetReplyDraft(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 
-	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	conversationID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 	draft, err := h.svc.GetPendingReplyDraft(r.Context(), accountID, userID, conversationID, role)
@@ -227,19 +201,14 @@ func (h *Handler) GetReplyDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DismissReplyDraft(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
-	vars := mux.Vars(r)
+	accountID, userID, role := callerFrom(r)
 
-	conversationID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	conversationID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
-	draftID, err := uuid.Parse(vars["draft_id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid reply draft ID")
+	draftID, ok := pathUUID(w, r, "draft_id", "invalid reply draft ID")
+	if !ok {
 		return
 	}
 	if err := h.svc.DismissReplyDraft(r.Context(), accountID, userID, conversationID, draftID, role); err != nil {
@@ -251,13 +220,10 @@ func (h *Handler) DismissReplyDraft(w http.ResponseWriter, r *http.Request) {
 
 // GetConversationSummary serves the stored summary (or {"summary": null}).
 func (h *Handler) GetConversationSummary(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 
-	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	conversationID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 	summary, err := h.svc.GetConversationSummary(r.Context(), accountID, userID, conversationID, role)
@@ -274,13 +240,10 @@ func (h *Handler) GetConversationSummary(w http.ResponseWriter, r *http.Request)
 // message. The current summary (if any) is always included; the new one
 // arrives as a conversation.summary_updated websocket event.
 func (h *Handler) RequestConversationSummary(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 
-	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	conversationID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 	status, summary, err := h.svc.RequestConversationSummary(r.Context(), accountID, userID, conversationID, role)
@@ -296,18 +259,10 @@ func (h *Handler) RequestConversationSummary(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
+	accountID, userID, role := callerFrom(r)
 
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 
@@ -320,21 +275,7 @@ func (h *Handler) CloseConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
 	filter := r.URL.Query().Get("filter")
 	if filter == "" {
@@ -347,22 +288,9 @@ func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
 
 	leadState := r.URL.Query().Get("state")
 
-	limit := 50
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
-	offset := 0
-	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
-		}
-	}
+	// Unparseable values become 0; the service applies the defaults and bounds.
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
 	conversations, err := h.svc.ListConversations(r.Context(), accountID, userID, userRole, filter, leadState, limit, offset)
 	if err != nil {
@@ -378,26 +306,10 @@ func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 
@@ -411,26 +323,10 @@ func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetConversationMessages(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 
@@ -463,29 +359,17 @@ func (h *Handler) GetConversationMessages(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) AssignConversation(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
+	accountID, userID, _ := callerFrom(r)
 
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 
 	var body struct {
 		UserIDs []string `json:"user_ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -508,20 +392,16 @@ func (h *Handler) AssignConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateConversationAIControl(w http.ResponseWriter, r *http.Request) {
-	accountID, _ := middleware.AccountIDFromContext(r)
-	userID, _ := middleware.UserIDFromContext(r)
-	role, _ := middleware.RoleFromContext(r)
-	conversationID, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	accountID, userID, role := callerFrom(r)
+	conversationID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 	var body struct {
 		Action        string `json:"action"`
 		ReplyOverride string `json:"reply_override"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	state, err := h.svc.UpdateConversationAIControl(r.Context(), accountID, userID, conversationID, role, body.Action, body.ReplyOverride)
@@ -533,26 +413,10 @@ func (h *Handler) UpdateConversationAIControl(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) ReadConversation(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 

@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
-	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/types"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
@@ -13,11 +11,7 @@ import (
 // SimulateInbound accepts a mock inbound event payload and publishes it to the
 // Redis inbound stream, simulating a message from a 3rd-party platform.
 func (h *Handler) SimulateInbound(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
+	accountID, _, _ := callerFrom(r)
 
 	var body struct {
 		ChannelID         string `json:"channel_id"`
@@ -29,8 +23,7 @@ func (h *Handler) SimulateInbound(w http.ResponseWriter, r *http.Request) {
 		MediaURL          string `json:"media_url"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -57,17 +50,12 @@ func (h *Handler) SimulateInbound(w http.ResponseWriter, r *http.Request) {
 // EnsureChannelForSimulator creates an isolated development channel. It does
 // not create provider credentials or a live adapter connection.
 func (h *Handler) EnsureChannelForSimulator(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
+	accountID, _, _ := callerFrom(r)
 
 	var body struct {
 		Provider string `json:"provider"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	channel, err := h.svc.EnsureSimulatorChannel(r.Context(), accountID, body.Provider)
@@ -85,11 +73,7 @@ func (h *Handler) EnsureChannelForSimulator(w http.ResponseWriter, r *http.Reque
 // ListChannelsForSimulator returns the list of channels for the current account
 // so the dev widget can target a specific channel when simulating inbound messages.
 func (h *Handler) ListChannelsForSimulator(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
+	accountID, _, _ := callerFrom(r)
 
 	channels, err := h.svc.ListChannels(r.Context(), accountID)
 	if err != nil {

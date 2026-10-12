@@ -10,10 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/messaging"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
 )
 
@@ -37,14 +34,10 @@ func extendMediaDeadlines(w http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) UploadConversationMedia(w http.ResponseWriter, request *http.Request) {
-	viewer, ok := mediaViewerFromRequest(w, request)
-	if !ok {
-		return
-	}
+	viewer := mediaViewerFromRequest(request)
 	extendMediaDeadlines(w, request)
-	conversationID, err := uuid.Parse(mux.Vars(request)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid conversation ID.")
+	conversationID, ok := pathUUID(w, request, "id", "Invalid conversation ID.")
+	if !ok {
 		return
 	}
 	request.Body = http.MaxBytesReader(w, request.Body, messaging.MaxMediaBytes+1024*1024)
@@ -82,33 +75,19 @@ func (h *Handler) UploadConversationMedia(w http.ResponseWriter, request *http.R
 }
 
 // mediaViewerFromRequest builds the authorisation subject for media access.
-func mediaViewerFromRequest(w http.ResponseWriter, request *http.Request) (service.MediaViewer, bool) {
-	accountID, ok := middleware.AccountIDFromContext(request)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing account.")
-		return service.MediaViewer{}, false
-	}
-	userID, ok := middleware.UserIDFromContext(request)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Missing user.")
-		return service.MediaViewer{}, false
-	}
-	role, _ := middleware.RoleFromContext(request)
-	return service.MediaViewer{AccountID: accountID, UserID: userID, Role: role}, true
+func mediaViewerFromRequest(request *http.Request) service.MediaViewer {
+	accountID, userID, role := callerFrom(request)
+	return service.MediaViewer{AccountID: accountID, UserID: userID, Role: role}
 }
 
 func (h *Handler) GetMedia(w http.ResponseWriter, request *http.Request) {
-	viewer, ok := mediaViewerFromRequest(w, request)
-	if !ok {
-		return
-	}
+	viewer := mediaViewerFromRequest(request)
 	h.serveMedia(w, request, &viewer)
 }
 
 func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, viewer *service.MediaViewer) {
-	mediaID, err := uuid.Parse(mux.Vars(request)["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid media ID.")
+	mediaID, ok := pathUUID(w, request, "id", "Invalid media ID.")
+	if !ok {
 		return
 	}
 	extendMediaDeadlines(w, request)
@@ -118,6 +97,14 @@ func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, viewe
 		return
 	}
 	defer content.Reader.Close()
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	writeMediaBody(w, content, service.MediaContentDisposition)
+}
+
+// writeMediaBody streams opened media with the hardening headers every media
+// response carries. disposition builds the Content-Disposition value from the
+// (defaulted) MIME type and the filename.
+func writeMediaBody(w http.ResponseWriter, content service.MediaContent, disposition func(mimeType, filename string) string) {
 	mimeType := strings.TrimSpace(content.MIMEType)
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
@@ -125,10 +112,17 @@ func (h *Handler) serveMedia(w http.ResponseWriter, request *http.Request, viewe
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	w.Header().Set("Cache-Control", "private, max-age=300")
-	w.Header().Set("Content-Disposition", service.MediaContentDisposition(mimeType, content.Filename))
+	w.Header().Set("Content-Disposition", disposition(mimeType, content.Filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, content.Reader)
+}
+
+// attachmentDisposition always forces a download, whatever the MIME type.
+func attachmentDisposition(_, filename string) string {
+	if filename == "" {
+		return "attachment"
+	}
+	return mime.FormatMediaType("attachment", map[string]string{"filename": filename})
 }
 
 // writeMediaOpenError reports media that cannot be served as 404 with a
@@ -155,9 +149,8 @@ func NewInternalMediaHandler(svc *service.Service, secret string) http.Handler {
 			writeError(w, http.StatusUnauthorized, "Unauthorized.")
 			return
 		}
-		mediaID, err := uuid.Parse(mux.Vars(request)["id"])
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "Invalid media ID.")
+		mediaID, ok := pathUUID(w, request, "id", "Invalid media ID.")
+		if !ok {
 			return
 		}
 		extendMediaDeadlines(w, request)
@@ -167,19 +160,6 @@ func NewInternalMediaHandler(svc *service.Service, secret string) http.Handler {
 			return
 		}
 		defer content.Reader.Close()
-		mimeType := strings.TrimSpace(content.MIMEType)
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
-		}
-		w.Header().Set("Content-Type", mimeType)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-		if content.Filename != "" {
-			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": content.Filename}))
-		} else {
-			w.Header().Set("Content-Disposition", "attachment")
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.Copy(w, content.Reader)
+		writeMediaBody(w, content, attachmentDisposition)
 	})
 }

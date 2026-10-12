@@ -1,35 +1,14 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 )
 
 func (h *Handler) CreateLead(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	convoID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid conversation ID")
+	convoID, ok := pathUUID(w, r, "id", "invalid conversation ID")
+	if !ok {
 		return
 	}
 
@@ -43,34 +22,17 @@ func (h *Handler) CreateLead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateLeadState(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	leadID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid lead ID")
+	leadID, ok := pathUUID(w, r, "id", "invalid lead ID")
+	if !ok {
 		return
 	}
 
 	var body struct {
 		StateKey string `json:"state_key"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -84,34 +46,17 @@ func (h *Handler) UpdateLeadState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateLeadTags(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	leadID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid lead ID")
+	leadID, ok := pathUUID(w, r, "id", "invalid lead ID")
+	if !ok {
 		return
 	}
 
 	var body struct {
 		Tags []string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -125,34 +70,17 @@ func (h *Handler) UpdateLeadTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateLeadNote(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	leadID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid lead ID")
+	leadID, ok := pathUUID(w, r, "id", "invalid lead ID")
+	if !ok {
 		return
 	}
 
 	var body struct {
 		Body string `json:"body"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -166,26 +94,10 @@ func (h *Handler) CreateLeadNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListLeadNotes(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	leadID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid lead ID")
+	leadID, ok := pathUUID(w, r, "id", "invalid lead ID")
+	if !ok {
 		return
 	}
 
@@ -199,26 +111,10 @@ func (h *Handler) ListLeadNotes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListLeadHistory(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := middleware.AccountIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing account")
-		return
-	}
-	userID, ok := middleware.UserIDFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing user")
-		return
-	}
-	userRole, ok := middleware.RoleFromContext(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing role")
-		return
-	}
+	accountID, userID, userRole := callerFrom(r)
 
-	vars := mux.Vars(r)
-	leadID, err := uuid.Parse(vars["id"])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid lead ID")
+	leadID, ok := pathUUID(w, r, "id", "invalid lead ID")
+	if !ok {
 		return
 	}
 

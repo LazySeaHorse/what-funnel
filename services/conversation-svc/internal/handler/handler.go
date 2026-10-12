@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/whatfunnel/whatfunnel/packages/go-common/middleware"
 	"github.com/whatfunnel/whatfunnel/services/conversation-svc/internal/service"
@@ -74,6 +75,37 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 	r.Handle("/leads/{id}/notes", auth(fullWorkspace(http.HandlerFunc(h.CreateLeadNote)))).Methods(http.MethodPost)
 	r.Handle("/leads/{id}/notes", auth(fullWorkspace(http.HandlerFunc(h.ListLeadNotes)))).Methods(http.MethodGet)
 	r.Handle("/leads/{id}/history", auth(fullWorkspace(http.HandlerFunc(h.ListLeadHistory)))).Methods(http.MethodGet)
+}
+
+// callerFrom returns the authenticated caller. Every route is wrapped in
+// RequireAuthenticated, which always sets account, user and role on the
+// context; the user ID is uuid.Nil for internal calls that carry no X-User-ID.
+func callerFrom(r *http.Request) (accountID, userID uuid.UUID, role string) {
+	accountID, _ = middleware.AccountIDFromContext(r)
+	userID, _ = middleware.UserIDFromContext(r)
+	role, _ = middleware.RoleFromContext(r)
+	return accountID, userID, role
+}
+
+// pathUUID parses the named route variable, answering 400 with msg when it is
+// not a UUID.
+func pathUUID(w http.ResponseWriter, r *http.Request, key, msg string) (uuid.UUID, bool) {
+	id, err := uuid.Parse(mux.Vars(r)[key])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, msg)
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
+// decodeJSON decodes the request body into dst, answering 400 "invalid body"
+// when it is malformed.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return false
+	}
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
