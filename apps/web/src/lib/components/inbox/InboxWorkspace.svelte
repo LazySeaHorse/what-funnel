@@ -14,7 +14,6 @@
   import ChannelBadge from "$lib/components/ChannelBadge.svelte";
   import UserAvatar from "$lib/components/UserAvatar.svelte";
   import {
-    CheckCircleIcon,
     CheckIcon,
     ChevronLeftIcon,
     PaperAirplaneIcon,
@@ -50,7 +49,7 @@
   } = $props();
 
   let messageContainer: HTMLDivElement | null = $state(null);
-  let showStatus = $state(false);
+  let closingConversation = $state(false);
   let attachmentInput: HTMLInputElement | null = $state(null);
   let attachment = $state<File | null>(null);
   // Which message ID is currently "active" (expanded to show metadata)
@@ -87,6 +86,20 @@
         "",
     ),
   );
+  async function closeActiveConversation() {
+    if (closingConversation) return;
+    // An already-closed chat has nothing to close; the X just leaves it.
+    if (inbox.activeConvo?.status !== "open") {
+      inbox.clearConversationSelection();
+      return;
+    }
+    closingConversation = true;
+    try {
+      await inbox.closeConversation();
+    } finally {
+      closingConversation = false;
+    }
+  }
   let displayMessages = $derived.by(() =>
     inbox.messages
       .filter((message) => message.content_type !== "reaction")
@@ -384,28 +397,20 @@
             </button>
           </label>
 
-          <!-- Conversation status -->
-          <div class="relative">
-            <button
-              onclick={() => (showStatus = !showStatus)}
-              title="Conversation Status"
-              class="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-              ><CheckCircleIcon class="w-4 h-4 text-slate-500" /></button
-            >{#if showStatus}<div
-                class="absolute right-0 top-full w-44 bg-white rounded-xl border border-slate-200 shadow-lg z-50 py-1"
-              >
-                {#if inbox.activeConvo.status === "open"}<button
-                    onclick={() => {
-                      inbox.closeConversation();
-                      showStatus = false;
-                    }}
-                    class="w-full px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800"
-                    >Close conversation</button
-                  >{:else}<div class="px-3 py-2 text-xs text-slate-400">
-                    Conversation is closed
-                  </div>{/if}
-              </div>{/if}
-          </div>
+          <!-- Close conversation -->
+          <button
+            type="button"
+            onclick={closeActiveConversation}
+            disabled={closingConversation}
+            title={inbox.activeConvo.status === "open"
+              ? "Close conversation"
+              : "Close chat"}
+            aria-label={inbox.activeConvo.status === "open"
+              ? "Close conversation"
+              : "Close chat"}
+            class="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+            ><XMarkIcon class="w-4 h-4" /></button
+          >
         </div>
       </div>
 

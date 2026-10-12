@@ -618,21 +618,27 @@ export class InboxState {
 		}
 	}
 
-	async closeConversation(convoID?: string) {
+	/** Closes the conversation on the server, then returns to the empty "select a conversation" state. */
+	async closeConversation(convoID?: string): Promise<boolean> {
 		const id = convoID || this.activeConvoID;
-		if (!id) return;
+		if (!id) return false;
+		this.mutationErrors[id] = '';
 		try {
 			await apiRequest(`/conversations/${id}/close`, { method: 'POST' });
-			this.patchConversation(id, (conversation) => ({
-				status: 'closed',
-				ai_control: { ...conversation.ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' }
-			}));
-			await this.loadConversations();
 		} catch (err) {
 			console.error('Failed to close conversation:', err);
+			this.mutationErrors[id] = 'Failed to close the conversation. Please try again.';
+			return false;
 		}
+		this.patchConversation(id, (conversation) => ({
+			status: 'closed',
+			ai_control: { ...conversation.ai_control, state: 'active', state_reason: 'conversation_closed', run_state: 'idle' }
+		}));
+		if (this.activeConvoID === id) this.clearConversationSelection();
+		await this.loadConversations();
+		return true;
 	}
-	
+
 	connectWS() {
 		if (!this.running || this.ws) return;
 		

@@ -317,6 +317,11 @@ export async function mockWorkspaceApi(page: Page, options: MockWorkspaceOptions
 			}
 			return json({ ai_control: conversation?.ai_control });
 		}
+		if (/^\/conversations\/[^/]+\/close$/.test(path) && request.method() === 'POST') {
+			const conversation = (options.conversations ?? []).find((item) => item.id === path.split('/')[2]);
+			if (conversation) conversation.status = 'closed';
+			return json({ status: 'closed' });
+		}
 		if (/^\/conversations\/[^/]+\/read$/.test(path)) return json({ status: 'read' });
 		if (/^\/leads\/[^/]+\/state$/.test(path) && request.method() === 'PATCH') {
 			const lead = (options.conversations ?? []).find((item) => item.lead?.id === path.split('/')[2])?.lead;
