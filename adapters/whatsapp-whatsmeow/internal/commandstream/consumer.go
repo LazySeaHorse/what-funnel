@@ -11,24 +11,16 @@ const (
 	consumerGroup  = "whatsapp-adapter"
 )
 
-type Sender = adapterkit.CommandSender
-
-type Consumer struct {
-	*adapterkit.CommandConsumer
-	consumerName string
-	sender       Sender
-}
+type (
+	Sender   = adapterkit.CommandSender
+	Consumer = adapterkit.CommandConsumer
+)
 
 func NewConsumer(client *pubsub.Client, sender Sender, consumerName string) *Consumer {
-	base := adapterkit.NewCommandConsumer(client, sender, adapterkit.ConsumerConfig{
+	return adapterkit.NewCommandConsumer(client, sender, adapterkit.ConsumerConfig{
 		Provider:     messaging.ProviderWhatsApp,
 		ConsumerName: consumerName,
 		Stream:       CommandsStream,
 		Group:        consumerGroup,
 	})
-	return &Consumer{
-		CommandConsumer: base,
-		consumerName:    consumerName,
-		sender:          sender,
-	}
 }
