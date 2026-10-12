@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -93,129 +95,76 @@ func (h *HTTPIdentityProvisioner) setAuthHeaders(httpReq *http.Request, accountI
 	httpReq.Header.Set("X-User-Role", types.RoleManager)
 }
 
-func (h *HTTPIdentityProvisioner) CreateUser(ctx context.Context, accountID, actorID uuid.UUID, req CreateUserRequest) (*CreateUserResult, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal create user request: %w", err)
+// do sends one authenticated request to identity-svc. A non-nil body is sent as
+// JSON and a non-nil out receives the decoded JSON response. Statuses in
+// okStatus count as success (default: 200); any other status is turned into an
+// error carrying identity-svc's {"error": ...} message when it has one. op
+// names the operation in error messages.
+func (h *HTTPIdentityProvisioner) do(ctx context.Context, op, method, path string, accountID, actorID uuid.UUID, body, out any, okStatus ...int) error {
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal %s request: %w", op, err)
+		}
+		reader = bytes.NewReader(raw)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+"/auth/users", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, method, h.baseURL+path, reader)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return fmt.Errorf("build request: %w", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
 	h.setAuthHeaders(httpReq, accountID, actorID)
 
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("identity-svc create user: %w", err)
+		return fmt.Errorf("identity-svc %s: %w", op, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+	if len(okStatus) == 0 {
+		okStatus = []int{http.StatusOK}
+	}
+	if !slices.Contains(okStatus, resp.StatusCode) {
 		var errResp struct {
 			Error string `json:"error"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&errResp)
 		if errResp.Error != "" {
-			return nil, fmt.Errorf("identity-svc: %s", errResp.Error)
+			return fmt.Errorf("identity-svc: %s", errResp.Error)
 		}
-		return nil, fmt.Errorf("identity-svc returned status %d", resp.StatusCode)
+		return fmt.Errorf("identity-svc returned status %d", resp.StatusCode)
 	}
 
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return fmt.Errorf("decode %s response: %w", op, err)
+		}
+	}
+	return nil
+}
+
+func (h *HTTPIdentityProvisioner) CreateUser(ctx context.Context, accountID, actorID uuid.UUID, req CreateUserRequest) (*CreateUserResult, error) {
 	var res CreateUserResult
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return nil, fmt.Errorf("decode create user response: %w", err)
+	if err := h.do(ctx, "create user", http.MethodPost, "/auth/users", accountID, actorID, req, &res, http.StatusCreated, http.StatusOK); err != nil {
+		return nil, err
 	}
 	return &res, nil
 }
 
 func (h *HTTPIdentityProvisioner) ResetUserPassword(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newPassword string) error {
-	body, err := json.Marshal(map[string]string{"password": newPassword})
-	if err != nil {
-		return fmt.Errorf("marshal reset password request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("%s/auth/users/%s/password", h.baseURL, targetUserID), bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	h.setAuthHeaders(httpReq, accountID, actorID)
-
-	resp, err := h.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("identity-svc reset password: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&errResp)
-		if errResp.Error != "" {
-			return fmt.Errorf("identity-svc: %s", errResp.Error)
-		}
-		return fmt.Errorf("identity-svc returned status %d", resp.StatusCode)
-	}
-	return nil
+	return h.do(ctx, "reset password", http.MethodPut, fmt.Sprintf("/auth/users/%s/password", targetUserID), accountID, actorID,
+		map[string]string{"password": newPassword}, nil)
 }
 
 func (h *HTTPIdentityProvisioner) DeleteUser(ctx context.Context, accountID, actorID, targetUserID uuid.UUID) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, fmt.Sprintf("%s/auth/users/%s", h.baseURL, targetUserID), nil)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	h.setAuthHeaders(httpReq, accountID, actorID)
-
-	resp, err := h.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("identity-svc delete user: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&errResp)
-		if errResp.Error != "" {
-			return fmt.Errorf("identity-svc: %s", errResp.Error)
-		}
-		return fmt.Errorf("identity-svc returned status %d", resp.StatusCode)
-	}
-	return nil
+	return h.do(ctx, "delete user", http.MethodDelete, fmt.Sprintf("/auth/users/%s", targetUserID), accountID, actorID, nil, nil)
 }
 
 func (h *HTTPIdentityProvisioner) ChangeUserRole(ctx context.Context, accountID, actorID, targetUserID uuid.UUID, newRole string) error {
-	body, err := json.Marshal(map[string]string{"role": newRole})
-	if err != nil {
-		return fmt.Errorf("marshal change role request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("%s/auth/users/%s/role", h.baseURL, targetUserID), bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	h.setAuthHeaders(httpReq, accountID, actorID)
-
-	resp, err := h.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("identity-svc change role: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&errResp)
-		if errResp.Error != "" {
-			return fmt.Errorf("identity-svc: %s", errResp.Error)
-		}
-		return fmt.Errorf("identity-svc returned status %d", resp.StatusCode)
-	}
-	return nil
+	return h.do(ctx, "change role", http.MethodPut, fmt.Sprintf("/auth/users/%s/role", targetUserID), accountID, actorID,
+		map[string]string{"role": newRole}, nil)
 }
